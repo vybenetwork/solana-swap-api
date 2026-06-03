@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-G4XMYKMFKW"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-G4XMYKMFKW');
+    </script>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1150" />
+    <title>Solana Quote &amp; Swap</title>
+    <meta name="description" content="Quote and build Solana token swaps with the Vybe Trading API: routing, slippage, and unsigned transactions." />
+    <meta name="keywords" content="Solana swap API, swap quote, Vybe API, unsigned transaction, DEX routing, SPL token, Token-2022, Jupiter, Titan" />
+    <meta name="author" content="Vybe Network" />
+    <meta name="robots" content="index, follow" />
+    <meta name="theme-color" content="#0f0f12" />
+    <link rel="canonical" href="https://solana-swap-api.vybenetwork.com/" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Vybe Network" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://solana-swap-api.vybenetwork.com/" />
+    <meta property="og:title" content="Solana Quote &amp; Swap" />
+    <meta property="og:description" content="Quote and build Solana token swaps with the Vybe Trading API." />
+    <meta property="og:image" content="https://solana-ohlc-candlestick-data-api.vybenetwork.com/solana-ohlc-candlestick-data-api.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:type" content="image/jpeg" />
+    <meta property="og:image:alt" content="Solana quote and swap API demo powered by Vybe API" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@Vybe_Network" />
+    <meta name="twitter:creator" content="@Vybe_Network" />
+    <meta name="twitter:title" content="Solana Quote &amp; Swap" />
+    <meta name="twitter:description" content="Quote and build Solana token swaps with the Vybe Trading API." />
+    <meta name="twitter:image" content="https://solana-ohlc-candlestick-data-api.vybenetwork.com/solana-ohlc-candlestick-data-api.jpg" />
+    <meta name="twitter:image:alt" content="Solana quote and swap API demo powered by Vybe API" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="shortcut icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="vybe-demo-shell.css?v=1" />
+    <link rel="stylesheet" href="app.css?v=1" />
+  </head>
+  <body>
+    <div class="container">
+      <header class="page-masthead" aria-label="About and resources">
+        <div class="page-masthead__head">
+          <div class="page-masthead__title-block">
+            <div class="page-masthead__eyebrow">
+              <span class="page-masthead__logo">Vybe</span>
+              <span class="page-masthead__pill">Trading API</span>
+            </div>
+            <h1 class="page-masthead__title">
+              Solana <span class="page-masthead__title-accent">Quote &amp; Swap</span>
+            </h1>
+            <p class="page-masthead__description">
+              Quote and build Solana token swaps with the Vybe Trading API: routing, slippage, and unsigned transactions.
+            </p>
+          </div>
+          <div class="page-masthead__visual" aria-hidden="true">
+            <img src="https://solana-ohlc-candlestick-data-api.vybenetwork.com/solana-candlestick-api.png" alt="" width="400" height="251" loading="lazy" decoding="async" />
+          </div>
+        </div>
+        <nav class="page-masthead__nav" aria-label="Documentation and community links">
+          <div class="page-masthead__nav-row page-masthead__nav-row--primary">
+            <div class="page-masthead__nav-cluster">
+              <div class="page-masthead__group page-masthead__group--repo">
+                <span class="page-masthead__label">Repository</span>
+                <div class="page-masthead__btns">
+                  <a class="page-masthead__btn page-masthead__btn--github" href="https://github.com/vybenetwork/solana-swap-api" target="_blank" rel="noopener noreferrer">
+                    <span class="page-masthead__btn-icon page-masthead__btn-icon--github" aria-hidden="true"></span>
+                    Clone this repo
+                  </a>
+                </div>
+              </div>
+              <div class="page-masthead__group">
+                <span class="page-masthead__label">Guides</span>
+                <div class="page-masthead__btns">
+                  <a class="page-masthead__btn page-masthead__btn--docs" href="https://docs.vybenetwork.com/docs/swap-overview" target="_blank" rel="noopener noreferrer">
+                    <span class="page-masthead__btn-icon page-masthead__btn-icon--docs" aria-hidden="true"></span>
+                    <span class="page-masthead__btn-text"><span class="page-masthead__btn-prefix">Docs:</span> Swap overview</span>
+                  </a>
+                </div>
+              </div>
+            </div>
+            <div class="page-masthead__group page-masthead__group--endpoints">
+              <span class="page-masthead__label">Main Endpoints Used</span>
+              <div class="page-masthead__btns">
+                <a class="page-masthead__btn page-masthead__btn--api" href="https://docs.vybenetwork.com/reference/get_swap_quote_proxy" target="_blank" rel="noopener noreferrer">
+                  <span class="page-masthead__btn-icon page-masthead__btn-icon--endpoint" aria-hidden="true"></span>
+                  <span class="page-masthead__btn-text"><span class="page-masthead__btn-prefix">Docs:</span> Swap Quote API</span>
+                </a>
+                <a class="page-masthead__btn page-masthead__btn--api" href="https://docs.vybenetwork.com/docs/swap-overview" target="_blank" rel="noopener noreferrer">
+                  <span class="page-masthead__btn-icon page-masthead__btn-icon--endpoint" aria-hidden="true"></span>
+                  <span class="page-masthead__btn-text"><span class="page-masthead__btn-prefix">Docs:</span> Build Swap TX</span>
+                </a>
+              </div>
+            </div>
+            <div class="page-masthead__group page-masthead__group--community">
+              <span class="page-masthead__label">Community</span>
+              <div class="page-masthead__btns">
+                <a class="page-masthead__btn page-masthead__btn--social" href="https://t.me/VybeNetwork_Official" target="_blank" rel="noopener noreferrer">
+                  <span class="page-masthead__btn-icon page-masthead__btn-icon--telegram" aria-hidden="true"></span>
+                  Telegram Support
+                </a>
+                <a class="page-masthead__btn page-masthead__btn--social" href="https://x.com/Vybe_Network" target="_blank" rel="noopener noreferrer">
+                  <span class="page-masthead__btn-icon page-masthead__btn-icon--x" aria-hidden="true"></span>
+                  Follow Us on X
+                </a>
+              </div>
+            </div>
+          </div>
+          <div class="page-masthead__nav-row page-masthead__nav-row--related">
+            <div class="page-masthead__group page-masthead__group--related">
+              <span class="page-masthead__label">Other Related API Demos</span>
+              <div class="page-masthead__btns page-masthead__btns--related">
+                <a class="page-masthead__btn page-masthead__btn--demo page-masthead__btn--demo-token" href="https://solana-token-stats-metadata-api.vybenetwork.com/">
+                  <span class="page-masthead__demo-icon-wrap" aria-hidden="true"><span class="page-masthead__btn-icon page-masthead__btn-icon--demo-token"></span></span>
+                  <span class="page-masthead__btn-text">Token Stats &amp; Info</span>
+                </a>
+                <a class="page-masthead__btn page-masthead__btn--demo page-masthead__btn--demo-ohlc" href="https://solana-ohlc-candlestick-data-api.vybenetwork.com/">
+                  <span class="page-masthead__demo-icon-wrap" aria-hidden="true"><span class="page-masthead__btn-icon page-masthead__btn-icon--demo-ohlc"></span></span>
+                  <span class="page-masthead__btn-text">OHLC Candlesticks</span>
+                </a>
+                <a class="page-masthead__btn page-masthead__btn--demo page-masthead__btn--demo-trades" href="https://solana-historical-trade-data-api.vybenetwork.com/">
+                  <span class="page-masthead__demo-icon-wrap" aria-hidden="true"><span class="page-masthead__btn-icon page-masthead__btn-icon--demo-trades"></span></span>
+                  <span class="page-masthead__btn-text">Historical Trades</span>
+                </a>
+                <a class="page-masthead__btn page-masthead__btn--demo page-masthead__btn--demo-wallet" href="https://solana-wallet-pnl-profit-and-loss-api.vybenetwork.com/">
+                  <span class="page-masthead__demo-icon-wrap" aria-hidden="true"><span class="page-masthead__btn-icon page-masthead__btn-icon--demo-wallet"></span></span>
+                  <span class="page-masthead__btn-text">Wallet Profit &amp; Loss</span>
+                </a>
+                <a class="page-masthead__btn page-masthead__btn--demo page-masthead__btn--demo-holders" href="https://solana-top-token-holders-and-whales-api.vybenetwork.com/">
+                  <span class="page-masthead__demo-icon-wrap" aria-hidden="true"><span class="page-masthead__btn-icon page-masthead__btn-icon--demo-holders"></span></span>
+                  <span class="page-masthead__btn-text">Top Token Holders</span>
+                </a>
+                <a class="page-masthead__btn page-masthead__btn--demo page-masthead__btn--demo-traders" href="https://solana-top-traders-wallets-and-tokens-api.vybenetwork.com/">
+                  <span class="page-masthead__demo-icon-wrap" aria-hidden="true"><span class="page-masthead__btn-icon page-masthead__btn-icon--demo-traders"></span></span>
+                  <span class="page-masthead__btn-text">Top Token Traders</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </nav>
+      </header>
+
+      <section class="section-card section-card--swap panel swap-hero" id="swapSection">
+        <div class="swap-widget-loading-row">
+          <div class="section-loading swap-quote-loading" id="swapQuoteLoading" hidden aria-hidden="true">
+            <span class="loading-spinner"></span>
+            <span class="loading-text">Quoting…</span>
+          </div>
+          <span class="section-error swap-widget-error" id="swapQuoteError" hidden aria-hidden="true"></span>
+        </div>
+
+        <div class="swap-hero-layout">
+          <div class="swap-hero-col swap-hero-col--widget">
+        <div class="swap-widget">
+          <div class="swap-tabs">
+            <button type="button" class="swap-tab swap-tab--active" aria-current="true">Build Swap</button>
+          </div>
+
+          <div class="swap-sides">
+            <div class="swap-side swap-side--sell">
+              <div class="swap-side-label">Sell</div>
+              <div class="swap-side-stack">
+                <div class="swap-token-row">
+                  <input type="text" id="swapInputMint" class="swap-mint-input" value="So11111111111111111111111111111111111111112" autocomplete="off" spellcheck="false" title="Input mint" />
+                  <span class="swap-token-pill" id="swapInputSymbol">SOL</span>
+                </div>
+                <div class="swap-amount-box">
+                  <input type="number" id="swapAmount" class="swap-amount-input" min="0" step="any" value="0.05" title="Amount to sell" />
+                  <div class="swap-amount-stepper" role="group" aria-label="Adjust sell amount">
+                    <button type="button" class="swap-amount-step swap-amount-step--up" id="swapAmountUp" aria-label="Increase amount">▲</button>
+                    <button type="button" class="swap-amount-step swap-amount-step--down" id="swapAmountDown" aria-label="Decrease amount">▼</button>
+                  </div>
+                </div>
+              </div>
+              <div class="swap-fiat" id="swapSellFiat">—</div>
+            </div>
+
+            <button type="button" class="swap-flip-fab" id="swapFlipBtn" aria-label="Flip sell and buy mints" title="Flip tokens">⇅</button>
+
+            <div class="swap-side swap-side--buy">
+              <div class="swap-side-label-row">
+                <span class="swap-side-label">Buy</span>
+                <button type="button" class="swap-paste-ca" id="swapPasteOutputBtn" title="Paste mint from clipboard">Paste CA</button>
+              </div>
+              <div class="swap-side-stack">
+                <div class="swap-token-row">
+                  <input type="text" id="swapOutputMint" class="swap-mint-input" value="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263" placeholder="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263" autocomplete="off" spellcheck="false" title="Output mint" />
+                  <span class="swap-token-pill" id="swapOutputSymbol">BONK</span>
+                </div>
+                <div class="swap-out-readout" id="swapBuyAmountDisplay">—</div>
+              </div>
+              <div class="swap-fiat" id="swapBuyFiat">—</div>
+            </div>
+          </div>
+
+          <div class="swap-advanced" id="swapWalletExecution">
+            <div class="swap-advanced-heading">Wallet &amp; execution</div>
+            <div class="swap-advanced-grid">
+              <label class="swap-adv-field">
+                <span class="swap-adv-label-row">
+                  <span class="label-icon field-icon icon-user swap-adv-label-icon" aria-hidden="true"></span>
+                  <span>Wallet</span>
+                </span>
+                <input type="text" id="swapWalletAddress" placeholder="Signer / account address" autocomplete="off" />
+              </label>
+              <label class="swap-adv-field">
+                <span class="swap-adv-label-row">
+                  <span class="label-icon field-icon icon-scale swap-adv-label-icon" aria-hidden="true"></span>
+                  <span>Slippage %</span>
+                </span>
+                <input type="number" id="swapSlippage" min="0" step="0.05" value="0.5" />
+              </label>
+              <label class="swap-adv-field swap-adv-field--router">
+                <span class="swap-adv-label-row">
+                  <span class="label-icon field-icon icon-grid swap-adv-label-icon" aria-hidden="true"></span>
+                  <span>Router used</span>
+                </span>
+                <div class="swap-router-pill">
+                  <span class="swap-router-pill-spark" aria-hidden="true">✦</span>
+                  <select id="swapRouter" class="swap-router-select" aria-label="Router">
+                    <option value="vybe" selected>Vybe</option>
+                    <option value="jupiter">Jupiter</option>
+                    <option value="titan">Titan</option>
+                  </select>
+                </div>
+              </label>
+            </div>
+
+            <div class="swap-advanced-subheading">Swap build parameters</div>
+            <p class="swap-advanced-hint">
+              Sent on <strong>Build unsigned transaction</strong> (Vybe <code>POST /v4/trading/swap</code>). Quote uses wallet, slippage, and mints only.
+            </p>
+            <div class="swap-build-params">
+              <div class="swap-build-toggles">
+                <div class="swap-adv-field">
+                  <span class="swap-adv-label-row">
+                    <span class="label-icon field-icon icon-zap swap-adv-label-icon" aria-hidden="true"></span>
+                    <span>Gasless</span>
+                  </span>
+                  <label class="swap-adv-check">
+                    <input type="checkbox" id="swapGasless" />
+                    <span>Vybe fee payer</span>
+                  </label>
+                </div>
+                <div class="swap-adv-field">
+                  <span class="swap-adv-label-row">
+                    <span class="label-icon field-icon icon-refresh swap-adv-label-icon" aria-hidden="true"></span>
+                    <span>Auto slippage</span>
+                  </span>
+                  <label class="swap-adv-check">
+                    <input type="checkbox" id="swapAutoSlippage" />
+                    <span>Let API pick slippage</span>
+                  </label>
+                </div>
+                <div class="swap-adv-field">
+                  <span class="swap-adv-label-row">
+                    <span class="label-icon field-icon icon-flask swap-adv-label-icon" aria-hidden="true"></span>
+                    <span>Simulate</span>
+                  </span>
+                  <label class="swap-adv-check">
+                    <input type="checkbox" id="swapSimulate" />
+                    <span>Simulate only (no tx build)</span>
+                  </label>
+                </div>
+              </div>
+              <div class="swap-build-fields-grid">
+                <label class="swap-adv-field">
+                  <span class="swap-adv-label-row">
+                    <span class="label-icon field-icon icon-link swap-adv-label-icon" aria-hidden="true"></span>
+                    <span>Partner</span>
+                  </span>
+                  <input type="text" id="swapPartner" placeholder="Partner id (optional)" autocomplete="off" spellcheck="false" />
+                </label>
+                <label class="swap-adv-field">
+                  <span class="swap-adv-label-row">
+                    <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
+                    <span>Pool address</span>
+                  </span>
+                  <input type="text" id="swapPoolAddress" placeholder="Restrict to pool (optional)" autocomplete="off" spellcheck="false" />
+                </label>
+                <label class="swap-adv-field swap-adv-field--span-cols">
+                  <span class="swap-adv-label-row">
+                    <span class="label-icon field-icon icon-tag swap-adv-label-icon" aria-hidden="true"></span>
+                    <span>Protocol</span>
+                  </span>
+                  <select id="swapProtocol" class="swap-protocol-select" aria-label="DEX protocol">
+                    <option value="">Default (API route)</option>
+                    <option value="PUMPFUN">Pump.fun</option>
+                    <option value="PUMPSWAP">PumpSwap</option>
+                    <option value="RAYDIUMAMMV4">Raydium AMM v4</option>
+                    <option value="RAYDIUMCPMM">Raydium CPMM</option>
+                    <option value="RAYDIUMCLMM">Raydium CLMM</option>
+                    <option value="RAYDIUMLAUNCHLAB">Raydium LaunchLab</option>
+                    <option value="METEORADBC">Meteora DBC</option>
+                    <option value="METEORADAMM2">Meteora DAMM v2</option>
+                    <option value="METEORADLMM">Meteora DLMM</option>
+                    <option value="SANCTUM">Sanctum</option>
+                  </select>
+                </label>
+                <label class="swap-adv-field swap-adv-field--fee">
+                  <span class="swap-adv-label-row">
+                    <span class="label-icon field-icon icon-dollar swap-adv-label-icon" aria-hidden="true"></span>
+                    <span>Service fee %</span>
+                  </span>
+                  <input type="number" id="swapServiceFee" min="0" step="0.05" placeholder="Optional" title="e.g. 1 for 1%" />
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <button type="button" id="swapQuoteBtn" class="swap-primary-btn">Get quote</button>
+          <button type="button" id="swapBuildBtn" class="swap-secondary-btn" disabled>Build unsigned transaction</button>
+
+          <div class="swap-widget-footer">
+            <div class="swap-footer-main">
+              <span id="swapFooterRate" class="swap-footer-rate">Rate updates after quote</span>
+              <button type="button" class="swap-route-chip" id="swapRouteBtn" disabled>Routing</button>
+            </div>
+            <div class="swap-footer-sub">
+              <span id="swapFooterImpact">—</span>
+              <span id="swapFooterMinOut">—</span>
+            </div>
+          </div>
+
+          <div id="swapBuildResult" class="swap-build-result" hidden>
+            <h3 class="swap-build-title">Unsigned transaction (base64)</h3>
+            <p class="meta">Sign in your wallet. This app does not broadcast.</p>
+            <textarea id="swapTxBase64" readonly rows="3" class="swap-tx-textarea"></textarea>
+            <button type="button" id="swapCopyTxBtn" class="swap-ghost-btn">Copy base64</button>
+          </div>
+        </div>
+
+        <div class="swap-pair-cards" id="swapPairCards">
+          <div class="swap-pair-card" id="swapCardSell">
+            <div class="swap-pair-card-head">
+              <span class="swap-pair-icon swap-pair-icon--sell" aria-hidden="true"></span>
+              <div>
+                <div class="swap-pair-name" id="swapCardSellName">Sell</div>
+                <div class="swap-pair-mint" id="swapCardSellMint">—</div>
+              </div>
+            </div>
+            <div class="swap-pair-price" id="swapCardSellPrice">—</div>
+          </div>
+          <div class="swap-pair-card" id="swapCardBuy">
+            <div class="swap-pair-card-head">
+              <span class="swap-pair-icon swap-pair-icon--buy" aria-hidden="true"></span>
+              <div>
+                <div class="swap-pair-name" id="swapCardBuyName">Buy</div>
+                <div class="swap-pair-mint" id="swapCardBuyMint">—</div>
+              </div>
+            </div>
+            <div class="swap-pair-price" id="swapCardBuyPrice">—</div>
+          </div>
+        </div>
+        </div>
+
+          <div class="swap-hero-col swap-hero-col--details">
+            <div class="swap-quote-details-panel" id="swapQuoteDetailsPanel">
+              <h3 class="swap-quote-details-title">Quote response &amp; route</h3>
+              <p class="swap-quote-details-empty" id="swapQuoteDetailsEmpty">
+                Get a quote to see Vybe <code>swap-quote</code> fields, the route diagram, and per-hop <code>swapInfo</code> details.
+              </p>
+              <div id="swapQuoteDetailsBody" class="swap-quote-details-body" hidden>
+                <section class="swap-quote-details-section">
+                  <h4 class="swap-quote-details-subtitle">Route diagram</h4>
+                  <div id="swapQuoteDetailsRouting" class="swap-quote-details-routing"></div>
+                </section>
+                <section class="swap-quote-details-section">
+                  <h4 class="swap-quote-details-subtitle">Route plan steps</h4>
+                  <div id="swapQuoteDetailsRouteSteps" class="swap-quote-details-route-steps"></div>
+                </section>
+                <section class="swap-quote-details-section">
+                  <h4 class="swap-quote-details-subtitle">Top-level fields</h4>
+                  <div id="swapQuoteDetailsFields" class="swap-quote-details-fields"></div>
+                </section>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <dialog id="routingDialog" class="routing-dialog">
+      <div class="routing-dialog-shell">
+        <div class="routing-dialog-header">
+          <h2 class="routing-dialog-title">Routing</h2>
+          <button type="button" class="routing-dialog-close" id="routingDialogClose" aria-label="Close routing">×</button>
+        </div>
+        <div id="routingDialogBody" class="routing-dialog-body"></div>
+      </div>
+    </dialog>
+
+    <script src="app.js"></script>
+  </body>
+</html>
+
