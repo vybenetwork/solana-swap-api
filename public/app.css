@@ -2224,12 +2224,11 @@ tr:hover td {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.45rem;
+  align-items: start;
 }
 
-@media (max-width: 520px) {
-  .swap-build-toggles {
-    grid-template-columns: 1fr;
-  }
+.swap-build-toggles .swap-adv-field {
+  min-width: 0;
 }
 
 .swap-adv-check {
@@ -2241,6 +2240,17 @@ tr:hover td {
   font-size: 0.68rem;
   color: #a1a1aa;
   line-height: 1.35;
+  width: 100%;
+}
+
+.swap-adv-check span {
+  min-width: 0;
+}
+
+@media (max-width: 520px) {
+  .swap-build-toggles {
+    grid-template-columns: 1fr;
+  }
 }
 
 .swap-adv-check input {
@@ -2248,6 +2258,10 @@ tr:hover td {
   flex-shrink: 0;
   margin-top: 0.12rem;
   accent-color: #c4f20b;
+  padding: 0;
+  border: none;
+  background: transparent;
+  min-width: 0;
 }
 
 .swap-build-fields-grid {
@@ -2321,7 +2335,7 @@ tr:hover td {
   mask-repeat: no-repeat;
 }
 
-.swap-adv-field input,
+.swap-adv-field input:not([type='checkbox']):not([type='radio']),
 .swap-adv-field select:not(.swap-router-select) {
   padding: 0.4rem 0.5rem;
   font-size: 0.85rem;
