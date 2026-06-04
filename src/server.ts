@@ -39,6 +39,20 @@ function qNum(req: Request, key: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+app.get('/api/token/:mint', async (req: Request, res: Response) => {
+  try {
+    const rawMint = req.params.mint;
+    const mint = (Array.isArray(rawMint) ? rawMint[0] : rawMint ?? '').trim();
+    if (!mint) return res.status(400).json({ error: 'Mint address required' });
+    const token = await client.getToken(mint);
+    const { priceUsd: _priceUsd, ...meta } = token;
+    res.json(meta);
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
+    res.status(status).json({ error: toHumanReadableError(err) });
+  }
+});
+
 app.get('/api/token-symbol/:mint', async (req: Request, res: Response) => {
   try {
     const rawMint = req.params.mint;

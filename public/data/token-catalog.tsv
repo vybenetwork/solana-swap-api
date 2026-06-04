@@ -1,0 +1,105 @@
+# Vybe swap demo — token catalog from Jupiter datapi (Top list)
+# Source: https://datapi.jup.ag/v1/assets/search?query=&limit=100
+# Columns: mint	symbol	name	logoUrl	decimals	tags
+# Regenerate: node scripts/fetch-jupiter-token-catalog.mjs
+mint	symbol	name	logoUrl	decimals	tags
+So11111111111111111111111111111111111111112	SOL	Wrapped SOL	https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/So11111111111111111111111111111111111111112/logo.png	9	
+EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v	USDC	USD Coin	https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v/logo.png	6	
+Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB	USDT	USDT	https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB/logo.svg	6	
+98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g	HYPE	HYPE	https://arweave.net/QBRdRop8wI4PpScSRTKyibv-fQuYBua-WOvC7tuJyJo	9	
+cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij	cbBTC	Coinbase Wrapped BTC	https://ipfs.io/ipfs/QmZ7L8yd5j36oXXydUiYFiFsRHbi3EdgC4RuFwvM7dcqge	8	
+9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D	jlUSDC	jupiter lend USDC	https://cdn.instadapp.io/solana/tokens/icons/usdc.png	6	
+2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH	USDG	Global Dollar	https://424565.fs1.hubspotusercontent-na1.net/hubfs/424565/GDN-USDG-Token-512x512.png	6	Token2022
+A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS	ZEC	Zcash	https://arweave.net/QSYqnmB7NYlB7n1R6rz935Y07dlRK0tIuKe2mof5Sho	8	
+7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs	ETH	Ether (Portal)	https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs/logo.png	8	
+2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo	PYUSD	PayPal USD	https://424565.fs1.hubspotusercontent-na1.net/hubfs/424565/PYUSDLOGO.png	6	Token2022
+USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB	USD1	World Liberty Financial USD	https://raw.githubusercontent.com/worldliberty/usd1-metadata/refs/heads/main/logo.png	6	
+pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn	PUMP	Pump	https://ipfs.io/ipfs/bafkreibyb3hcn7gglvdqpmklfev3fut3eqv3kje54l3to3xzxxbgpt5wjm	6	Token2022
+JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD	JupUSD	Jupiter USD	https://static.jup.ag/jupUSD/icon.png	6	
+CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH	CASH	CASH	https://token-metadata.bridge.xyz/images/cash.png	6	Token2022
+DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT	USDe	USDe	https://arweave.net/qeSnRm_FIyp_khPfmg8o1zQeGO4AczDaEKe8jEUOzL4	9	
+3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh	WBTC	Wrapped BTC (Portal)	https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh/logo.png	8	
+jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v	JupSOL	Jupiter Staked SOL	https://static.jup.ag/jupSOL/icon.png	9	
+6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN	TRUMP	OFFICIAL TRUMP	https://arweave.net/VQrPjACwnQRmxdKBTqNwPiyo65x7LAT773t8Kd7YBzw	6	
+J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn	JitoSOL	Jito Staked SOL	https://storage.googleapis.com/token-metadata/JitoSOL-256.png	9	
+27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4	JLP	Jupiter Perps	https://static.jup.ag/jlp/icon.png	6	
+AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj	syrupUSDC	Syrup USDC	https://raw.githubusercontent.com/maple-labs/maple-metadata/refs/heads/main/assets/syrupUSDC.svg	6	
+FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump	three	three.ws	https://ipfs.io/ipfs/bafybeihe22b5sxr3ihnxt7pregfieyteqvubqhik3j3y4bbx243xlqjw3q	6	Token2022
+3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7	PRIME		https://storage.googleapis.com/hastra-cdn-prod/spl/primetoken.png	6	
+9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump	Fartcoin	Fartcoin	https://ipfs.io/ipfs/QmQr3Fz4h1etNsF7oLGMRHiCzhB5y9a7GjyodnF7zLHK1g	6	
+6FrrzDk5mQARGc1TDYoyVnSyRdds1t4PbtohCD6p3tgG	USX	USX	https://raw.githubusercontent.com/Thomas-Solstice/usx-metadata/refs/heads/main/usx.png	6	
+USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA	USDS	USDS	https://ipfs.io/ipfs/QmTW9HWfb2wsQqEVJiixkQ73Nsfp2Rx4ESaDSiQ7ThwnFM	6	
+XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1	CRCLx	Circle xStock	https://xstocks-metadata.backed.fi/logos/tokens/CRCLx.png	8	Token2022
+CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp	CARDS	Collector Crypt	https://gateway.irys.xyz/2wrjAk4pYAACF3siDHAxt7yJY7kHgt57TZAkbgecKHMR	6	
+SV151D5pjygAKA8aJJcKzm4wFnRX5G92Fye94jQJk7g	SV151	Scarlet & Violet 151	https://gateway.irys.xyz/5pdegGE27gHM8Kf3WNuxTL11pJUZZz8ewh9yQYBWSgbq	6	
+Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk	USELESS	USELESS COIN	https://ipfs.io/ipfs/bafkreihsdoqkmpr5ryebaduoutyhj3nxco6wdp4s4743l2qrae4sz4hqrm	6	
+4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R	RAY	Raydium	https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R/logo.png	6	
+mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So	mSOL	Marinade staked SOL (mSOL)	https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So/logo.png	9	
+JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN	JUP	Jupiter	https://static.jup.ag/jup/icon.png	6	
+METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL	MET	Meteora	https://assets.meteora.ag/met-token.svg	6	
+HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr	EURC	EURC	https://www.circle.com/eurc-icon	6	
+8G5ayEsJF4Q7FEWEGeF4jtnUWZBEKCqhySTFQf9Ppump	HeavyPulp	HeavyPulp	https://pbs.twimg.com/profile_images/1974350184357187584/g8bdeWyI_400x400.jpg	6	Token2022
+CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn	xBTC	OKX Wrapped BTC	https://static.coinall.ltd/cdn/oksupport/common/20250512-095503.72e1f41d9b9a06.png	8	
+2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv	PENGU	Pudgy Penguins	https://arweave.net/BW67hICaKGd2_wamSB0IQq-x7Xwtmr2oJj1WnWGJRHU	6	
+5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5	ONyc	Onchain Yield Coin	https://arweave.net/PyZzfGP-CqzaVlxTU3sb-I5uv4ZZKwnY8aCjcWn9S1A	9	
+7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk	JUICED	JUICED	https://cdn.instadapp.io/solana/tokens/icons/jupusd.png?v=1	6	
+XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W	SPYx	SP500 xStock	https://xstocks-metadata.backed.fi/logos/tokens/SPYx.png	8	Token2022
+Bybit2vBJGhPF52GBdNaQfUJ6ZpThSgHBobjWZpLPb4B	bbSOL	BybitSOL	https://static.bymj.io/web3/staking/bbsol/bbsol2.png	9	
+3ZLekZYq2qkZiSpnSvabjit34tUkjSwD1JFuW9as9wBG	wNEAR	Wrapped NEAR fungible token	https://bafkreiekxdv4uxm7ctijvj7wql6bto3cokws6xvfdbg7ylrvt2vtimnqri.ipfs.w3s.link	9	
+GbbesPbaYh5uiAZSYNXTc7w9jty1rpg3P9L4JeN4LkKc	TRX	TRON	https://arweave.net/aO9owy2SUH92KGJ2CH3BFowep6XFAoYjjpRyDKObkww	6	
+Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ	QQQx	Nasdaq xStock	https://xstocks-metadata.backed.fi/logos/tokens/QQQx.png	8	Token2022
+PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S	NEURALINK	Neuralink PreStocks	https://www.prestocks.com/logos/neuralink.png?cachebust=1	9	Token2022
+5UUH9RTDiSpq6HKS6bp4NdU9PNJpXRXuiw6ShBTBhgH2	TROLL	TROLL	https://ipfs.io/ipfs/QmWV8QgmH1gSw41yapzsFwkC8yPbzoSreAcJbzqfvo2sVq	6	
+DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263	Bonk	Bonk	https://arweave.net/hQiPZOsRZXGXBJd_82PhVdlM_hACsT_q6wqwf5cSY7I	5	
+XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB	TSLAx	Tesla xStock	https://xstocks-metadata.backed.fi/logos/tokens/TSLAx.png	8	Token2022
+Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh	NVDAx	NVIDIA xStock	https://xstocks-metadata.backed.fi/logos/tokens/NVDAx.png	8	Token2022
+rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof	RENDER	Render Token	https://shdw-drive.genesysgo.net/5zseP54TGrcz9C8HdjZwJJsZ6f3VbP11p1abwKWGykZH/rndr.png	8	
+stke7uu3fXHsGqKVVjKnkmj65LRPVrqr4bLG2SJg7rh	STKESOL	STKE SOL	https://img.solstrategies.io/stkesol.png	9	
+Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump	neet	NotInEmploymentEducationTraining	https://ipfs.io/ipfs/QmXVKWN3i56vyh4Xot9sTb3XsCu92ihypcArFJLujuwzoS	6	
+jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL	JTO	JITO	https://metadata.jito.network/token/jto/image	9	
+XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ	MSTRx	MicroStrategy xStock	https://xstocks-metadata.backed.fi/logos/tokens/MSTRx.png	8	Token2022
+Cmn4v2wipYV41dkakDvCgFJpxhtaaKt11NyWV8pjSE8A	jlUSDT	jupiter lend USDT	https://cdn.instadapp.io/solana/tokens/icons/usdt.png	6	
+pSo1f9nQXWgXibFtKf7NWYxb5enAM4qfP6UJSiXRQfL	PSOL	Phantom Staked SOL	https://assets.phantom.app/assets/metadata/PSOL.png	9	
+hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux	HNT	Helium Network Token	https://entities.nft.helium.io/v2/assets/hnt.png	8	
+HmBdm8vbisABUjkxms6ZUnoaXbfwFM6ymxShWfAENaoi	EITHER	Eitherway	https://i.ibb.co/rGJfJSWK/photo-2026-03-20-15-25-06.jpg	9	
+PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua	KALSHI	Kalshi PreStocks	https://www.prestocks.com/logos/kalshi.png?cachebust=1	9	Token2022
+5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm	INF	Infinity	https://arweave.net/CtPUchyfybiHymdCNAA_cDkPZ7p0xZDLmBYvHWOsAkE	9	
+6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump	TOESCOIN	TOES	https://ipfs.io/ipfs/bafybeiew5nghndc7bt7ayx42j7qrxpovd5fnfnebmtxdjbevit57d3bhkm	6	Token2022
+BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy	BP	Backpack	https://trek-labs.github.io/heart-metadata/bp/bp.png	9	
+J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr	SPX	SPX6900 (Wormhole)	https://i.imgur.com/fLpAyY4.png	8	
+61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump	arc	AI Rig Complex	https://ipfs.io/ipfs/QmPDJuEobBcLZihjFCvkWA8c1FiW7UzM2ctFdiffSLxf1d	6	
+oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp	ORE	ORE	https://ore.supply/assets/icon.png	11	
+33eum82LaAhtv5YkUq1BdwEviSErH5CnFxqVNLT5pump	WORLDCUP	World Cup Coin	https://ipfs.io/ipfs/bafkreicxyukqs6b2l7sa6pa5pksxgbhddhs273cg2fdhtpc24iuzzepjta	6	Token2022
+EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm	$WIF	dogwifhat	https://bafkreibk3covs5ltyqxa272uodhculbr6kea6betidfwy3ajsav2vjzyum.ipfs.nftstorage.link	6	
+G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG	BIRB	Moonbirds	https://static.datapi.jup.ag/images/asset-icon/G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG.svg	6	
+orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE	ORCA	Orca	https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE/logo.png	6	
+3ThdFZQKM6kRyVGLG48kaPg5TRMhYMKY1iCRa9xop1WC	eUSX	eUSX	https://raw.githubusercontent.com/Solstice-Labs-Official/eusx-metadata/refs/heads/main/eusx.png	6	
+9PR7nCP9DpcUotnDPVLUBUZKu5WAYkwrCUx9wDnSpump	Ban	Comedian	https://ipfs.io/ipfs/QmfKEGFPjMhtMdc6Nud7yvbPS8tiXfbFu2jGMvSUTejF9V	6	
+bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1	bSOL	BlazeStake Staked SOL (bSOL)	https://raw.githubusercontent.com/solana-labs/token-list/main/assets/mainnet/bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1/logo.png	9	
+2uQsyo1fXXQkDtcpXnLofWy88PxcvnfH2L8FPSE62FVU	jlWSOL	jupiter lend WSOL	https://cdn.instadapp.io/solana/tokens/icons/sol.png	9	
+AymATz4TCL9sWNEEV9Kvyz45CHVhDZ6kUgjTJPzLpU9P	XAUt0	Tether Gold	https://ipfs.io/ipfs/bafkreibth2yh4jlehmf5nmfgy763z4yvwxlz7zmuohmhp53un6wrho5t2q	6	
+HNg5PYJmtqcmzXrv6S9zP1CDKk5BgDuyFBxbvNApump	ALCH	Alchemist AI	https://ipfs.io/ipfs/QmYqwkPV1p4DraqN5TfLZVhyrAusSkHfvFDZMJAWALZJxj	6	
+FeR8VBqNRSUD5NtXAj2n3j1dAHkZHfyDktKuLXD4pump	jellyjelly	jelly-my-jelly	https://ipfs.io/ipfs/QmWT4jA2ipuevUfBi1a2LW2gfnPJyvHn1JayAe2qz5kRQJ	6	
+5YMkXAYccHSGnHn9nob9xEvv6Pvka9DZWH7nTbotTu9E	hyUSD	hyUSD	https://hylo-token-metadata.s3.us-east-2.amazonaws.com/hyUSD/icon.png	6	
+Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs	GRASS	Grass	https://static.grassfoundation.io/grass-logo.png	9	
+EN2nnxrg8uUi6x2sJkzNPd2eT6rB9rdSoQNNaENA4RZA	SQUIRE	Pod the Squire	https://dweb.link/ipfs/QmTPou8YT6Xs1UEk1MmtbxWHE5YKRwwxCzHg6LRYmS5mM6	6	Token2022
+Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump	KINS	Kintara	https://ipfs.io/ipfs/bafybeicincod6gebb2wkef7mtlibmz6scduj25lxjlk75qv3o4mpxwdfau	6	Token2022
+SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3	SKR	Seeker	https://gateway.irys.xyz/uP1dFvCofZQT26m3SKOCttXrir3ORBR1B8wPhP6tv7M?ext=png	6	
+zinc155BS4mSPk8GXQj4R5hkVDQXcW253pTYq5SGyfi	ZINC	ZINC	https://assets.zinc.cash/ZincLogo-black-bg.png	9	
+CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2	MON	Monad	https://imagedelivery.net/cBNDGgkrsEA-b_ixIp9SkQ/I_t8rg_V_400x400.jpg/public	8	
+8fr7WGTVFszfyNWRMXj6fRjZZAnDwmXwEpCrtzmUkdih	wYLDS		https://storage.googleapis.com/hastra-cdn-prod/spl/wyldstoken.png	6	
+Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump	Buttcoin	Buttcoin	https://ipfs.io/ipfs/bafkreiftg7kl6h2aflu3i6je2vdsdnrtbxiyuxr6n6pk6txpkigbz7cmvq	6	Token2022
+Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw	ANTHROPIC	Anthropic PreStocks	https://www.prestocks.com/logos/anthropic.png?cachebust=1	9	Token2022
+E6ifp2mJy8cYQehUGUtFvrXriRKxRuonLmrvTFypump	SPCX	SPCX	https://ipfs.io/ipfs/QmXp8Q1HjbBcqFC5dcBAXJKoRsnX41Xa4KFR7D6dmQkf73	6	
+Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump	pippin	Pippin	https://ipfs.io/ipfs/QmdcvSSBg7gWD4tvfXv3PuLtAiPyDZ5Z9w4LQVeRJKL3Lz	6	
+ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82	BOME	BOOK OF MEME	https://bafkreihztk5poge7f2lz6logfjmhc7h7u6shvgacoktnuezks5oblmieue.ipfs.nftstorage.link	6	
+j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh	jlUSDS	jupiter lend USDS	https://cdn.instadapp.io/solana/tokens/icons/usds.png	6	
+9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif	jlUSDG	jupiter lend USDG	https://cdn.instadapp.io/solana/tokens/icons/usdg.png	6	Token2022
+TKLSidmLVt3cqGaaodG8tyRzoANfQwoh67AccjmubeZ	tKalshi	T-Kalshi	https://cdn.tesseralab.co/tessera/tokenicon_T-Kalshi.svg	9	Token2022
+ZBCNpuD7YMXzTHB2fhGkGi78MNsHGLRXUhRewNRm9RU	ZBCN	Zebec Network	https://blznujiyxatc2qyysynmwqqqoreckcg2aolugfgoflsqqaiztuiq.arweave.net/CvLaJRi4Ji1DGJYay0IQdEglCNoDl0MUzirlCAEZnRE	6	
+J8PSdNP3QewKq2Z1JJJFDMaqF7KcaiJhR7gbr5KZpump	TripleT	Tung Tung Tung Sahur	https://ipfs.io/ipfs/bafkreicawa6mpcpotae2va2b5ru43kssdaxoaiildlovfrhaxh7dd67t4e	6	Token2022
+HgBRWfYxEfvPhtqkaeymCQtHCrKE46qQ43pKe8HCpump	Bert	Bertram The Pomeranian	https://i.imgur.com/lcUxetM.png	6	
+GcV9tEj62VncGithz4o4N9x6HWXARxuRgEAYk9zahNA8	jlEURC	jupiter lend EURC	https://cdn.instadapp.io/solana/tokens/icons/eurc.png	6	
+3KHMZhpthXuiCcgfTv7vVu9PpEz64KAEURFwi6Lopump	Goblin	GoblinCoin	https://desperate-moccasin-minnow.myfilebase.com/ipfs/QmSwYfFA3SXgkJxJ3cKKWb3oyEYPPQHobaPmkwWd3oMGCS	6	Token2022
+8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn	ZEREBRO	zerebro	https://ipfs.io/ipfs/QmZ1HDSibY2LdEmC1tPHK36ApGCQACJENqsbPsT2nc29AD	6	
+EicWvteVi2fWepEzS3FYWsnuPoP6caZfjnKqNvydLjCH	LIT	Lighter	https://arweave.net/tShwtnzLqUjqtZc-Ysok67ppQcOUIHhX3PgEYlO02mE	8	

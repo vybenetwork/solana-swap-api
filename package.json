@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "build:frontend": "tsc -p tsconfig.frontend.json",
+    "fetch:catalog": "node tools/fetch-jupiter-token-catalog.mjs",
     "prestart": "npm run build:frontend"
   },
   "keywords": ["solana", "swap", "vybe", "api"],

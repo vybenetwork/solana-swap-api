@@ -465,6 +465,31 @@
 
     </div>
 
+    <dialog id="tokenPickerDialog" class="token-picker-dialog">
+      <div class="token-picker-shell">
+        <div class="token-picker-search-wrap">
+          <span class="token-picker-search-icon" aria-hidden="true"></span>
+          <input
+            type="search"
+            id="tokenPickerSearch"
+            class="token-picker-search"
+            placeholder='Search any token. Include " " for exact match.'
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <button type="button" class="token-picker-esc" id="tokenPickerEsc" title="Close (Esc)">Esc</button>
+        </div>
+        <div class="token-picker-shortcuts" id="tokenPickerShortcuts"></div>
+        <div class="token-picker-tabs" role="tablist" aria-label="Token lists">
+          <button type="button" class="token-picker-tab token-picker-tab--active" data-tab="top" role="tab">Top</button>
+          <button type="button" class="token-picker-tab" data-tab="recent" role="tab">Recent</button>
+        </div>
+        <div class="token-picker-list" id="tokenPickerList" role="listbox"></div>
+        <p class="token-picker-status" id="tokenPickerStatus" aria-live="polite"></p>
+        <button type="button" class="token-picker-close-fab" id="tokenPickerClose" aria-label="Close token picker">×</button>
+      </div>
+    </dialog>
+
     <dialog id="routingDialog" class="routing-dialog">
       <div class="routing-dialog-shell">
         <div class="routing-dialog-header">
@@ -486,7 +511,7 @@
       import * as solanaWeb3 from '@solana/web3.js';
       window.solanaWeb3 = solanaWeb3;
     </script>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
   </body>
 </html>
 

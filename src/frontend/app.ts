@@ -1,7 +1,17 @@
 /**
  * Swap quote & build UI — built from TypeScript; compiles to public/app.js.
- * No imports to keep a single-file build (tsc emits one script).
  */
+
+import {
+  ensureTokenCatalogLoaded,
+  ensureTokenMetaForMint,
+  getCachedTokenMeta,
+  getTokenDecimalsFromCache,
+  initTokenPicker,
+  openTokenPicker,
+  renderChipTokenIcon,
+  type TokenPickerSide,
+} from './token-picker.js';
 
 interface TokenSymbolResponse {
   symbol?: string;
@@ -312,12 +322,8 @@ async function refreshSwapSymbols(): Promise<void> {
 }
 
 function updateSwapTokenIcons(): void {
-  if (swapInputTokenIconEl) {
-    swapInputTokenIconEl.className = `swap-token-chip-icon routing-token-dot ${endpointTokenDotClass(getSwapInSym())}`;
-  }
-  if (swapOutputTokenIconEl) {
-    swapOutputTokenIconEl.className = `swap-token-chip-icon routing-token-dot ${endpointTokenDotClass(getSwapOutSym())}`;
-  }
+  renderChipTokenIcon(swapInputTokenIconEl, swapInputMintInput?.value, endpointTokenDotClass(getSwapInSym()));
+  renderChipTokenIcon(swapOutputTokenIconEl, swapOutputMintInput?.value, endpointTokenDotClass(getSwapOutSym()));
 }
 
 function formatSwapFiatDisplay(v: unknown): string {
@@ -325,19 +331,28 @@ function formatSwapFiatDisplay(v: unknown): string {
   return label ?? '$0';
 }
 
-function wireTokenChipMintToggle(
+function wireTokenPickerOpen(
   btn: HTMLButtonElement | null,
   mintInput: HTMLInputElement | null,
+  side: TokenPickerSide,
 ): void {
   if (!btn || !mintInput) return;
-  btn.addEventListener('click', () => {
-    const show = mintInput.hidden;
-    mintInput.hidden = !show;
-    if (show) {
-      mintInput.focus();
-      mintInput.select();
-    }
-  });
+  btn.addEventListener('click', () => openTokenPicker(side));
+  mintInput.addEventListener('click', () => openTokenPicker(side));
+}
+
+function applySelectedToken(mint: string, side: TokenPickerSide): void {
+  const input = side === 'input' ? swapInputMintInput : swapOutputMintInput;
+  const symbolEl = side === 'input' ? swapInputSymbolEl : swapOutputSymbolEl;
+  if (!input) return;
+  input.value = mint;
+  const meta = getCachedTokenMeta(mint);
+  if (meta && symbolEl) symbolEl.textContent = meta.symbol;
+  if (meta?.decimals != null) routeMintDecimalsCache[mint] = meta.decimals;
+  updateSwapTokenIcons();
+  updateSwapPairCards();
+  void refreshSwapSymbols();
+  void fetchSwapQuote();
 }
 
 function getSwapInSym(): string {
@@ -362,6 +377,8 @@ function getMintDecimals(mint: string): number {
   if (!m) return 9;
   const hard = HARDCODED_MINT_DECIMALS[m];
   if (hard != null) return hard;
+  const fromPicker = getTokenDecimalsFromCache(m);
+  if (fromPicker != null) return fromPicker;
   const cached = routeMintDecimalsCache[m];
   if (cached != null) return cached;
   return 9;
@@ -1637,8 +1654,9 @@ if (swapCopyTxBtn && swapTxBase64El) {
   });
 }
 
-wireTokenChipMintToggle(swapInputTokenBtn, swapInputMintInput);
-wireTokenChipMintToggle(swapOutputTokenBtn, swapOutputMintInput);
+initTokenPicker({ onSelect: applySelectedToken });
+wireTokenPickerOpen(swapInputTokenBtn, swapInputMintInput, 'input');
+wireTokenPickerOpen(swapOutputTokenBtn, swapOutputMintInput, 'output');
 
 if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
   swapFlipBtnEl.addEventListener('click', () => {
@@ -1662,8 +1680,11 @@ if (swapPasteOutputBtnEl && swapOutputMintInput) {
       const t = (await navigator.clipboard.readText()).trim();
       if (!t) return;
       swapOutputMintInput.value = t;
-      void refreshSwapSymbols();
-      void fetchSwapQuote();
+      void ensureTokenMetaForMint(t).then(() => {
+        updateSwapTokenIcons();
+        void refreshSwapSymbols();
+        void fetchSwapQuote();
+      });
     } catch {
       if (swapQuoteError) showInlineError(swapQuoteError, 'Could not read clipboard (permission denied).');
     }
@@ -1699,6 +1720,6 @@ if (swapOutputMintInput) {
   });
 }
 
+void ensureTokenCatalogLoaded().then(() => updateSwapTokenIcons());
 void refreshSwapSymbols();
-updateSwapTokenIcons();
 updateSwapPairCards();
