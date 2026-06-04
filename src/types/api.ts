@@ -99,3 +99,27 @@ export interface VybeCandlesResponse {
   data?: any[];
   [key: string]: unknown;
 }
+
+/** Single token row from GET /v4/wallets/{ownerAddress}/token-balance */
+export interface VybeTokenBalance {
+  mintAddress: string;
+  amount: string;
+  decimals: number;
+  symbol?: string | null;
+  name?: string | null;
+  logoUrl?: string | null;
+  priceUsd?: string;
+  valueUsd?: string;
+  verified?: boolean;
+  [key: string]: unknown;
+}
+
+/** Response from GET /v4/wallets/{ownerAddress}/token-balance */
+export interface VybeWalletTokenBalanceResponse {
+  ownerAddress: string;
+  date: number;
+  data: VybeTokenBalance[];
+  totalTokenCount: number;
+  totalTokenValueUsd: string;
+  [key: string]: unknown;
+}

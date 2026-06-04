@@ -42,6 +42,17 @@ export interface TokenPriceStats {
 
 export type TokenPickerSide = 'input' | 'output';
 
+interface WalletBalanceListItem {
+  mintAddress: string;
+  symbol: string;
+  name: string;
+  logoUrl: string | null;
+  decimals: number;
+  amountUi: number;
+  valueUsd: number;
+  verified: boolean;
+}
+
 const CACHE_KEY = 'vybe-swap-token-cache-v1';
 const RECENT_KEY = 'vybe-swap-token-recent-v1';
 const MAX_RECENT = 24;
@@ -61,8 +72,15 @@ let dialogEl: HTMLDialogElement | null = null;
 let searchInputEl: HTMLInputElement | null = null;
 let listEl: HTMLElement | null = null;
 let shortcutsEl: HTMLElement | null = null;
+let walletBalancesEl: HTMLElement | null = null;
+let walletBalancesListEl: HTMLElement | null = null;
 let statusEl: HTMLElement | null = null;
 let onSelectCb: ((mint: string, side: TokenPickerSide) => void) | null = null;
+let getWalletAddressCb: (() => string) | null = null;
+let canOpenSellPickerCb: (() => boolean) | null = null;
+
+let walletBalanceCache: { wallet: string; at: number; items: WalletBalanceListItem[] } | null = null;
+const WALLET_BALANCE_TTL_MS = 15000;
 
 function readCache(): Record<string, TokenMeta> {
   try {
@@ -361,6 +379,109 @@ function renderTokenIcon(token: TokenMeta): string {
   return `<span class="token-picker-row-logo-fallback" aria-hidden="true">${escapeHtml(token.symbol.slice(0, 1))}</span>`;
 }
 
+function formatBalanceAmount(amount: number): string {
+  if (!Number.isFinite(amount)) return '0';
+  if (amount >= 1000) return amount.toLocaleString(undefined, { maximumFractionDigits: 2 });
+  if (amount >= 1) return amount.toFixed(4).replace(/\.?0+$/, '');
+  return amount.toFixed(6).replace(/\.?0+$/, '') || '0';
+}
+
+function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
+  const catalogHit = catalogTokens.find((t) => t.mint === item.mintAddress);
+  const cached = readCache()[item.mintAddress];
+  const base = catalogHit ?? cached;
+  return {
+    mint: item.mintAddress,
+    symbol: item.symbol || base?.symbol || truncateMint(item.mintAddress),
+    name: item.name || base?.name || item.symbol,
+    logoUrl: resolveLogoUrl(item.logoUrl ?? base?.logoUrl ?? ''),
+    decimals: item.decimals ?? base?.decimals,
+    isVerified: item.verified || base?.isVerified,
+    tags: base?.tags,
+    organicScore: base?.organicScore,
+    source: base?.source ?? 'search',
+    savedAt: Date.now(),
+  };
+}
+
+function renderWalletBalanceRow(item: WalletBalanceListItem): string {
+  const token = walletItemToTokenMeta(item);
+  const amountLabel = `${formatBalanceAmount(item.amountUi)} ${token.symbol}`;
+  return `<button type="button" class="token-picker-row token-picker-row--wallet" data-mint="${escapeHtml(item.mintAddress)}">
+    <span class="token-picker-row-logo">${renderTokenIcon(token)}</span>
+    <span class="token-picker-row-main">
+      <span class="token-picker-row-title">
+        <span class="token-picker-row-symbol">${escapeHtml(token.symbol)}</span>
+      </span>
+      <span class="token-picker-row-sub">${escapeHtml(token.name)}</span>
+    </span>
+    <span class="token-picker-row-amount">${escapeHtml(amountLabel)}</span>
+  </button>`;
+}
+
+function syncWalletBalancesVisibility(): void {
+  if (!walletBalancesEl) return;
+  walletBalancesEl.hidden = activeSide !== 'input' || Boolean(searchQuery.trim());
+}
+
+async function fetchWalletBalances(wallet: string): Promise<WalletBalanceListItem[]> {
+  const now = Date.now();
+  if (
+    walletBalanceCache &&
+    walletBalanceCache.wallet === wallet &&
+    now - walletBalanceCache.at < WALLET_BALANCE_TTL_MS
+  ) {
+    return walletBalanceCache.items;
+  }
+
+  const res = await fetch(`/api/wallets/${encodeURIComponent(wallet)}/token-balances?limit=50`);
+  const body = (await res.json().catch(() => ({}))) as {
+    tokens?: WalletBalanceListItem[];
+    error?: string;
+  };
+  if (!res.ok) {
+    throw new Error(body.error || `Wallet balances failed (${res.status})`);
+  }
+  const items = Array.isArray(body.tokens) ? body.tokens : [];
+  walletBalanceCache = { wallet, at: now, items };
+  return items;
+}
+
+function renderWalletBalancesLoading(): string {
+  return `<div class="token-picker-wallet-loading" aria-live="polite">
+    <span class="token-picker-wallet-loading-spinner" aria-hidden="true"></span>
+    <span>Loading wallet tokens…</span>
+  </div>`;
+}
+
+async function renderWalletBalances(): Promise<void> {
+  if (!walletBalancesEl || !walletBalancesListEl) return;
+  syncWalletBalancesVisibility();
+  if (walletBalancesEl.hidden) return;
+
+  const wallet = getWalletAddressCb?.().trim() ?? '';
+  if (!wallet) {
+    walletBalancesEl.hidden = true;
+    return;
+  }
+
+  walletBalancesListEl.innerHTML = renderWalletBalancesLoading();
+
+  try {
+    const items = await fetchWalletBalances(wallet);
+    if (activeSide !== 'input' || searchQuery.trim()) return;
+    if (items.length === 0) {
+      walletBalancesListEl.innerHTML =
+        '<div class="token-picker-wallet-empty">Wallet does not contain any tokens</div>';
+      return;
+    }
+    walletBalancesListEl.innerHTML = items.map(renderWalletBalanceRow).join('');
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    walletBalancesListEl.innerHTML = `<div class="token-picker-wallet-empty">${escapeHtml(message)}</div>`;
+  }
+}
+
 function renderTokenRow(token: TokenMeta): string {
   const tagHtml =
     token.tags?.includes('Token2022')
@@ -445,16 +566,22 @@ function syncTabs(): void {
 }
 
 function selectToken(mint: string): void {
-  const fromCatalog = catalogTokens.find((t) => t.mint === mint);
-  const cached = readCache()[mint];
-  const meta = fromCatalog ?? cached;
-  if (meta) saveTokenMeta({ ...meta, savedAt: Date.now() });
+  const walletItem = walletBalanceCache?.items.find((i) => i.mintAddress === mint);
+  if (walletItem) {
+    saveTokenMeta(walletItemToTokenMeta(walletItem));
+  } else {
+    const fromCatalog = catalogTokens.find((t) => t.mint === mint);
+    const cached = readCache()[mint];
+    const meta = fromCatalog ?? cached;
+    if (meta) saveTokenMeta({ ...meta, savedAt: Date.now() });
+  }
   onSelectCb?.(mint, activeSide);
   closeTokenPicker();
 }
 
 export function openTokenPicker(side: TokenPickerSide): void {
   if (!dialogEl) return;
+  if (side === 'input' && canOpenSellPickerCb && !canOpenSellPickerCb()) return;
   activeSide = side;
   activeTab = 'top';
   searchQuery = '';
@@ -462,6 +589,8 @@ export function openTokenPicker(side: TokenPickerSide): void {
   if (searchInputEl) searchInputEl.value = '';
   syncTabs();
   renderShortcuts();
+  syncWalletBalancesVisibility();
+  void renderWalletBalances();
   renderList();
   setStatus('');
   if (typeof dialogEl.showModal === 'function') dialogEl.showModal();
@@ -497,6 +626,7 @@ async function onSearchInput(): Promise<void> {
   }
 
   renderList();
+  syncWalletBalancesVisibility();
 }
 
 function debouncedSearch(): void {
@@ -506,12 +636,18 @@ function debouncedSearch(): void {
 
 export function initTokenPicker(options: {
   onSelect: (mint: string, side: TokenPickerSide) => void;
+  getWalletAddress?: () => string;
+  canOpenSellPicker?: () => boolean;
 }): void {
   onSelectCb = options.onSelect;
+  getWalletAddressCb = options.getWalletAddress ?? null;
+  canOpenSellPickerCb = options.canOpenSellPicker ?? null;
   dialogEl = document.getElementById('tokenPickerDialog') as HTMLDialogElement | null;
   searchInputEl = document.getElementById('tokenPickerSearch') as HTMLInputElement | null;
   listEl = document.getElementById('tokenPickerList');
   shortcutsEl = document.getElementById('tokenPickerShortcuts');
+  walletBalancesEl = document.getElementById('tokenPickerWalletBalances');
+  walletBalancesListEl = document.getElementById('tokenPickerWalletBalancesList');
   statusEl = document.getElementById('tokenPickerStatus');
 
   void loadCatalog().then(() => {
@@ -543,6 +679,12 @@ export function initTokenPicker(options: {
 
   listEl?.addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.token-picker-row');
+    if (!btn?.dataset.mint) return;
+    selectToken(btn.dataset.mint);
+  });
+
+  walletBalancesListEl?.addEventListener('click', (e) => {
+    const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.token-picker-row--wallet');
     if (!btn?.dataset.mint) return;
     selectToken(btn.dataset.mint);
   });

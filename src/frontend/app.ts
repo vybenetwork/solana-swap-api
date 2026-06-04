@@ -111,6 +111,7 @@ interface SolanaWalletProvider {
 interface SolanaWeb3Global {
   VersionedTransaction: { deserialize(bytes: Uint8Array): unknown };
   Transaction: { from(bytes: Uint8Array): unknown };
+  PublicKey?: new (value: string) => { toBase58(): string };
 }
 
 type WindowWithSolana = Window & {
@@ -163,7 +164,7 @@ const quotedMintSession = new Set<string>();
 let pairTokenStats: Record<string, TokenPriceStats> = {};
 
 type SwapBuildMode = 'build' | 'build-sign';
-let swapBuildMode: SwapBuildMode = 'build';
+let swapBuildMode: SwapBuildMode = 'build-sign';
 
 /** Mint → symbol cache for route hop labels (filled after quote). */
 const routeMintSymbolCache: Record<string, string> = {};
@@ -341,12 +342,61 @@ function formatSwapFiatDisplay(v: unknown): string {
   return label ?? '$0';
 }
 
+const SOLANA_WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+function isValidSolanaWalletAddress(value: string): boolean {
+  const addr = value.trim();
+  if (!addr || !SOLANA_WALLET_RE.test(addr)) return false;
+  try {
+    const PublicKey = getSolanaWindow().solanaWeb3?.PublicKey;
+    if (PublicKey) {
+      const pk = new PublicKey(addr);
+      return pk.toBase58() === addr;
+    }
+  } catch {
+    return false;
+  }
+  return true;
+}
+
+function hasValidSwapWallet(): boolean {
+  return isValidSolanaWalletAddress(swapWalletAddressInput?.value.trim() ?? '');
+}
+
+function syncSellTokenPickerState(): void {
+  const valid = hasValidSwapWallet();
+  if (swapInputTokenBtn) {
+    swapInputTokenBtn.classList.toggle('swap-token-chip--locked', !valid);
+    swapInputTokenBtn.setAttribute('aria-disabled', valid ? 'false' : 'true');
+    swapInputTokenBtn.tabIndex = valid ? 0 : -1;
+    swapInputTokenBtn.title = valid ? '' : 'Enter or connect a valid Solana wallet to choose a sell token';
+  }
+}
+
+function tryOpenSellTokenPicker(): void {
+  if (!hasValidSwapWallet()) {
+    if (swapQuoteError) {
+      showInlineError(
+        swapQuoteError,
+        'Enter a valid Solana wallet address or connect your wallet to choose a sell token.',
+      );
+    }
+    return;
+  }
+  openTokenPicker('input');
+}
+
 function wireTokenPickerOpen(
   btn: HTMLButtonElement | null,
   mintInput: HTMLInputElement | null,
   side: TokenPickerSide,
 ): void {
   if (!btn || !mintInput) return;
+  if (side === 'input') {
+    btn.addEventListener('click', tryOpenSellTokenPicker);
+    mintInput.addEventListener('click', tryOpenSellTokenPicker);
+    return;
+  }
   btn.addEventListener('click', () => openTokenPicker(side));
   mintInput.addEventListener('click', () => openTokenPicker(side));
 }
@@ -1623,6 +1673,26 @@ async function resolvePairTokenPrices(
   return stats;
 }
 
+async function assertVybeSellBalance(
+  wallet: string,
+  inputMint: string,
+  amount: number,
+  symbol?: string,
+): Promise<void> {
+  const params = new URLSearchParams({
+    mint: inputMint,
+    amount: String(amount),
+  });
+  if (symbol?.trim()) params.set('symbol', symbol.trim());
+  const res = await fetchWithRetry(
+    `/api/wallets/${encodeURIComponent(wallet)}/sell-balance-check?${params.toString()}`,
+  );
+  const body = (await res.json().catch(() => ({}))) as { error?: string };
+  if (!res.ok) {
+    throw new Error(body.error || `Balance check failed (${res.status})`);
+  }
+}
+
 function stripVybeQuoteMetadata(body: Record<string, unknown>): Record<string, unknown> {
   const { _build, _builtAt, _tokenStats, _buildUnavailable, ...quote } = body;
   return quote;
@@ -1667,6 +1737,29 @@ async function fetchSwapQuote(): Promise<void> {
   const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
 
   try {
+    if (router === 'vybe') {
+      if (!wallet) {
+        if (swapQuoteError) {
+          showInlineError(
+            swapQuoteError,
+            'Wallet required for Vybe quotes (used to build the swap transaction).',
+          );
+        }
+        return;
+      }
+      try {
+        await assertVybeSellBalance(wallet, inputMint, amount, getSwapInSym());
+      } catch (balanceErr) {
+        if (swapQuoteError) {
+          showInlineError(
+            swapQuoteError,
+            balanceErr instanceof Error ? balanceErr.message : String(balanceErr),
+          );
+        }
+        return;
+      }
+    }
+
     let stats: Record<string, TokenPriceStats> = {};
     try {
       stats = await resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMints);
@@ -1682,16 +1775,6 @@ async function fetchSwapQuote(): Promise<void> {
     }
 
     if (router === 'vybe') {
-      if (!wallet) {
-        if (swapQuoteError) {
-          showInlineError(
-            swapQuoteError,
-            'Wallet required for Vybe quotes (used to build the swap transaction).',
-          );
-        }
-        return;
-      }
-
       const res = await fetchWithRetry('/api/trading/vybe-quote', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1909,6 +1992,7 @@ async function ensureBrowserWalletConnected(existingWallet: string): Promise<str
     throw new Error('Connected wallet does not match the wallet address field.');
   }
   syncWalletFieldForMode();
+  syncSellTokenPickerState();
   return connected;
 }
 
@@ -1952,8 +2036,13 @@ function syncSwapBuildModeUi(): void {
   swapModeBuildBtn?.setAttribute('aria-selected', isSignMode ? 'false' : 'true');
   swapModeBuildSignBtn?.setAttribute('aria-selected', isSignMode ? 'true' : 'false');
   syncWalletFieldForMode();
-  if (swapBuildBtn) {
-    swapBuildBtn.textContent = isSignMode ? 'Build & sign swap' : 'Build unsigned transaction';
+  const buildLabelEl = swapBuildBtn?.querySelector('.swap-action-btn__label');
+  const buildHintEl = swapBuildBtn?.querySelector('.swap-action-btn__hint');
+  if (buildLabelEl) {
+    buildLabelEl.textContent = isSignMode ? 'Build & sign swap' : 'Build swap (no signing)';
+  }
+  if (buildHintEl) {
+    buildHintEl.textContent = isSignMode ? 'Connect wallet & sign' : 'Requires quote & wallet';
   }
   if (swapBuildResultTitleEl) {
     swapBuildResultTitleEl.textContent = isSignMode
@@ -1968,7 +2057,7 @@ function syncSwapBuildModeUi(): void {
   if (swapAdvancedBuildHintEl) {
     swapAdvancedBuildHintEl.innerHTML = isSignMode
       ? 'Used only when you click <strong>Build &amp; sign swap</strong>. Quote uses wallet, slippage, and mints.'
-      : 'Used only when you click <strong>Build unsigned transaction</strong>. Quote uses wallet, slippage, and mints.';
+      : 'Used only when you click <strong>Build swap (no signing)</strong>. Quote uses wallet, slippage, and mints.';
   }
 }
 
@@ -2031,11 +2120,23 @@ wireBuildOptionToggle(swapEnableServiceFeeCheckbox, swapServiceFeeFieldEl, swapS
 swapModeBuildBtn?.addEventListener('click', () => setSwapBuildMode('build'));
 swapModeBuildSignBtn?.addEventListener('click', () => setSwapBuildMode('build-sign'));
 swapConnectWalletBtn?.addEventListener('click', () => {
-  void ensureBrowserWalletConnected(swapWalletAddressInput?.value.trim() ?? '').catch((err) => {
-    if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
-  });
+  void ensureBrowserWalletConnected(swapWalletAddressInput?.value.trim() ?? '')
+    .then(() => {
+      syncSellTokenPickerState();
+      if (swapQuoteError) clearInlineError(swapQuoteError);
+    })
+    .catch((err) => {
+      if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+    });
+});
+swapWalletAddressInput?.addEventListener('input', () => {
+  syncSellTokenPickerState();
+  if (hasValidSwapWallet() && swapQuoteError && !swapQuoteError.hidden) {
+    clearInlineError(swapQuoteError);
+  }
 });
 syncSwapBuildModeUi();
+syncSellTokenPickerState();
 
 if (swapQuoteBtn) swapQuoteBtn.addEventListener('click', () => void fetchSwapQuote());
 if (swapBuildBtn) swapBuildBtn.addEventListener('click', () => void postBuildSwap());
@@ -2052,7 +2153,11 @@ if (swapCopyTxBtn && swapTxBase64El) {
   });
 }
 
-initTokenPicker({ onSelect: applySelectedToken });
+initTokenPicker({
+  onSelect: applySelectedToken,
+  getWalletAddress: () => swapWalletAddressInput?.value.trim() ?? '',
+  canOpenSellPicker: hasValidSwapWallet,
+});
 wireTokenPickerOpen(swapInputTokenBtn, swapInputMintInput, 'input');
 wireTokenPickerOpen(swapOutputTokenBtn, swapOutputMintInput, 'output');
 

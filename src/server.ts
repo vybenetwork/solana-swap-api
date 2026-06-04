@@ -6,6 +6,7 @@ import express, { type Request, type Response } from 'express';
 import { loadEnv, getApiKey, PUBLIC_DIR } from './config.js';
 import { createClient } from './api/index.js';
 import { toHumanReadableError } from './api/client.js';
+import { InsufficientBalanceError } from './api/wallet-balance.js';
 import { VYBE_SWAP_PROTOCOLS, type SwapProxyProtocol } from './api/swap-build.js';
 import { type TokenPriceHint } from './api/resolve-token-prices.js';
 import { getTokenSymbol } from './api/token-symbol.js';
@@ -191,6 +192,49 @@ app.post('/api/token-symbols', async (req: Request, res: Response) => {
   }
 });
 
+function balanceCheckStatus(err: unknown): number {
+  return err instanceof InsufficientBalanceError ? 400 : 500;
+}
+
+/** GET /api/wallets/:ownerAddress/sell-balance-check — verify wallet holds enough sell token (Vybe) */
+app.get('/api/wallets/:ownerAddress/sell-balance-check', async (req: Request, res: Response) => {
+  try {
+    const rawOwner = req.params.ownerAddress;
+    const ownerAddress = (Array.isArray(rawOwner) ? rawOwner[0] : rawOwner ?? '').trim();
+    const mint = q(req, 'mint').trim();
+    const amount = qNum(req, 'amount');
+    const symbol = q(req, 'symbol').trim() || undefined;
+
+    if (!ownerAddress) return res.status(400).json({ error: 'Wallet address required' });
+    if (!mint) return res.status(400).json({ error: 'mint query parameter required' });
+    if (amount == null || amount <= 0) {
+      return res.status(400).json({ error: 'amount must be a positive number (UI units)' });
+    }
+
+    await client.assertWalletHasSellAmount(ownerAddress, mint, amount, symbol);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(balanceCheckStatus(err)).json({ error: toHumanReadableError(err) });
+  }
+});
+
+/** GET /api/wallets/:ownerAddress/token-balances — wallet holdings for sell token picker */
+app.get('/api/wallets/:ownerAddress/token-balances', async (req: Request, res: Response) => {
+  try {
+    const rawOwner = req.params.ownerAddress;
+    const ownerAddress = (Array.isArray(rawOwner) ? rawOwner[0] : rawOwner ?? '').trim();
+    if (!ownerAddress) return res.status(400).json({ error: 'Wallet address required' });
+
+    const limitRaw = qNum(req, 'limit');
+    const limit = limitRaw != null && limitRaw > 0 ? Math.min(limitRaw, 100) : 50;
+    const tokens = await client.listWalletTokenBalances(ownerAddress, limit);
+    res.json({ tokens });
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
+    res.status(status).json({ error: toHumanReadableError(err) });
+  }
+});
+
 function parseSwapBuildBody(body: Record<string, unknown>): {
   accountAddress: string;
   amount: number;
@@ -299,7 +343,10 @@ app.post('/api/trading/vybe-quote', async (req: Request, res: Response) => {
       _quoteSource: result.quote._quoteSource ?? 'vybe-price-build',
     });
   } catch (err) {
-    const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
+    const status =
+      err instanceof InsufficientBalanceError
+        ? 400
+        : ((err as { response?: { status?: number } })?.response?.status ?? 500);
     res.status(status).json({ error: toHumanReadableError(err) });
   }
 });

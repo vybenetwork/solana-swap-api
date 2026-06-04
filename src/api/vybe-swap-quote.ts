@@ -11,6 +11,7 @@ import {
   type TokenPriceStats,
 } from './resolve-token-prices.js';
 import type { VybeSwapQuote, VybeSwapBuildResponse, VybeRoutePlanStep } from '../types/swap.js';
+import { assertWalletHasSellAmount } from './wallet-balance.js';
 
 /** Wrapped SOL mint — Vybe TokenInformationCH symbol is `wSOL` for this address. */
 export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -215,6 +216,15 @@ export async function buildVybeQuoteFromPriceAndSwap(
 ): Promise<VybeQuoteResult> {
   const inputMint = params.inputMintAddress.trim();
   const outputMint = params.outputMintAddress.trim();
+
+  const inputSymbolHint = params.tokenHints?.[inputMint]?.symbol;
+  await assertWalletHasSellAmount(
+    http,
+    params.accountAddress,
+    inputMint,
+    params.amount,
+    inputSymbolHint,
+  );
 
   const { stats: tokenStats } = await resolveTokenPrices(http, [inputMint, outputMint], {
     tokenHints: params.tokenHints,

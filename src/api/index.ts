@@ -8,11 +8,26 @@ import { getSwapQuote, type GetSwapQuoteParams } from './swap-quote.js';
 import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type SwapProxyRouter } from './swap-build.js';
 import { resolveTokenPrices, type ResolveTokenPricesOptions } from './resolve-token-prices.js';
 import { buildVybeQuoteFromPriceAndSwap, type VybeQuoteParams, type VybeQuoteResult } from './vybe-swap-quote.js';
+import {
+  assertWalletHasSellAmount,
+  getWalletTokenBalance,
+  listWalletTokenBalances,
+  type GetWalletTokenBalanceParams,
+  type WalletBalanceListItem,
+} from './wallet-balance.js';
 import type { VybeToken } from '../types/api.js';
 import type { VybeSwapQuote, VybeSwapBuildResponse } from '../types/swap.js';
 import type { ResolveTokenPricesResult } from './resolve-token-prices.js';
 
-export type { GetSwapQuoteParams, BuildSwapParams, SwapProxyRouter, VybeQuoteParams, VybeQuoteResult };
+export type {
+  GetSwapQuoteParams,
+  BuildSwapParams,
+  SwapProxyRouter,
+  VybeQuoteParams,
+  VybeQuoteResult,
+  GetWalletTokenBalanceParams,
+  WalletBalanceListItem,
+};
 
 export interface VybeClient {
   getToken(mintAddress: string): Promise<VybeToken>;
@@ -21,6 +36,16 @@ export interface VybeClient {
   buildSwapWithFallback(body: BuildSwapParams): Promise<VybeSwapBuildResponse>;
   resolveTokenPrices(mints: string[], options?: ResolveTokenPricesOptions): Promise<ResolveTokenPricesResult>;
   buildVybeQuote(params: VybeQuoteParams): Promise<VybeQuoteResult>;
+  getWalletTokenBalance(params: GetWalletTokenBalanceParams): Promise<
+    import('../types/api.js').VybeWalletTokenBalanceResponse
+  >;
+  assertWalletHasSellAmount(
+    ownerAddress: string,
+    inputMint: string,
+    amountUi: number,
+    symbolHint?: string,
+  ): Promise<void>;
+  listWalletTokenBalances(ownerAddress: string, limit?: number): Promise<WalletBalanceListItem[]>;
 }
 
 export function createClient(apiKey: string): VybeClient {
@@ -32,5 +57,10 @@ export function createClient(apiKey: string): VybeClient {
     buildSwapWithFallback: (body: BuildSwapParams) => buildSwapWithFallback(http, body),
     resolveTokenPrices: (mints, options) => resolveTokenPrices(http, mints, options),
     buildVybeQuote: (params) => buildVybeQuoteFromPriceAndSwap(http, params),
+    getWalletTokenBalance: (params) => getWalletTokenBalance(http, params),
+    assertWalletHasSellAmount: (ownerAddress, inputMint, amountUi, symbolHint) =>
+      assertWalletHasSellAmount(http, ownerAddress, inputMint, amountUi, symbolHint),
+    listWalletTokenBalances: (ownerAddress, limit) =>
+      listWalletTokenBalances(http, ownerAddress, limit),
   };
 }

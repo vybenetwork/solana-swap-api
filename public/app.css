@@ -3148,6 +3148,16 @@ tr:hover td {
   outline-offset: 2px;
 }
 
+.swap-token-chip--locked {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.swap-token-chip--locked:hover {
+  background: #1a1a22;
+  border-color: #2e2e36;
+}
+
 .swap-token-chip-icon {
   width: 1.35rem;
   height: 1.35rem;
@@ -4355,14 +4365,14 @@ tr:hover td {
   background: #0d0f12;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 20px;
-  padding: 0.9rem 0.65rem 0.55rem;
+  padding: 0.9rem 0.65rem 0.65rem;
   box-shadow:
     0 0 0 1px rgba(0, 0, 0, 0.35),
     0 28px 80px rgba(0, 0, 0, 0.65);
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  max-height: min(580px, calc(100vh - 1.5rem));
+  max-height: min(620px, calc(100vh - 1.5rem));
   overflow: hidden;
 }
 
@@ -4431,7 +4441,9 @@ tr:hover td {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-height: 40px;
   overflow-x: auto;
+  margin-left: 10px;
   padding: 0.15rem 0.05rem 0.25rem;
   scrollbar-width: none;
 }
@@ -4476,6 +4488,109 @@ tr:hover td {
   border-radius: 50%;
 }
 
+.token-picker-wallet-balances {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  padding: 0.15rem 0 0.55rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.token-picker-wallet-balances[hidden] {
+  display: none !important;
+}
+
+.token-picker-wallet-balances-head {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #6b7280;
+  padding: 0 0.35rem;
+}
+
+.token-picker-wallet-balances-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  max-height: 9.5rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: #3f3f46 transparent;
+  padding: 0.05rem 0.35rem 0.2rem 0.15rem;
+}
+
+.token-picker-wallet-balances-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.token-picker-wallet-balances-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.token-picker-wallet-balances-list::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+  border-radius: 999px;
+}
+
+.token-picker-wallet-balances-list .token-picker-row {
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.token-picker-wallet-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  min-height: 3.25rem;
+  padding: 0.65rem 0.45rem;
+  font-size: 0.8125rem;
+  color: #71717a;
+  line-height: 1.35;
+}
+
+.token-picker-wallet-loading-spinner {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  border: 2px solid #3f3f46;
+  border-top-color: #c4f20b;
+  border-radius: 50%;
+  animation: token-picker-wallet-spin 0.75s linear infinite;
+}
+
+@keyframes token-picker-wallet-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.token-picker-wallet-empty {
+  padding: 0.75rem 0.45rem;
+  font-size: 0.8125rem;
+  color: #71717a;
+  line-height: 1.35;
+  text-align: center;
+}
+
+.token-picker-row--wallet {
+  padding-right: 0.55rem;
+}
+
+.token-picker-row-amount {
+  margin-left: auto;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #f4f4f5;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .token-picker-tabs {
   display: flex;
   align-items: center;
@@ -4507,20 +4622,23 @@ tr:hover td {
 }
 
 .token-picker-list-wrap {
-  flex: 1;
+  flex: 1 1 auto;
   min-height: 0;
-  margin: 0 -0.15rem;
-  padding-right: 0.1rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .token-picker-list {
-  height: 100%;
-  max-height: min(380px, calc(100vh - 14rem));
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 0;
-  padding: 0.1rem 0.05rem 0.25rem 0.15rem;
+  padding: 0.1rem 0.35rem 0.35rem 0.15rem;
+  scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: #3a3f47 transparent;
 }
@@ -4543,6 +4661,7 @@ tr:hover td {
   align-items: center;
   gap: 0.72rem;
   width: 100%;
+  box-sizing: border-box;
   border: none;
   background: transparent;
   color: inherit;

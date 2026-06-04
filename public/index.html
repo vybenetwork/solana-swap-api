@@ -158,8 +158,8 @@
           <div class="swap-hero-col swap-hero-col--widget">
         <div class="swap-widget">
           <div class="swap-mode-switch" role="tablist" aria-label="Swap mode">
-            <button type="button" class="swap-mode-switch__btn swap-mode-switch__btn--active" id="swapModeBuild" role="tab" aria-selected="true" data-mode="build">Build Swap</button>
-            <button type="button" class="swap-mode-switch__btn" id="swapModeBuildSign" role="tab" aria-selected="false" data-mode="build-sign">Build &amp; Sign Swap</button>
+            <button type="button" class="swap-mode-switch__btn swap-mode-switch__btn--active" id="swapModeBuildSign" role="tab" aria-selected="true" data-mode="build-sign">Build &amp; Sign Swap</button>
+            <button type="button" class="swap-mode-switch__btn" id="swapModeBuild" role="tab" aria-selected="false" data-mode="build">Build Swap (No Signing)</button>
           </div>
 
           <section class="swap-wallet-execution" id="swapWalletExecution">
@@ -257,8 +257,8 @@
             <button type="button" id="swapBuildBtn" class="swap-action-btn swap-action-btn--secondary" disabled>
               <span class="swap-action-btn__icon swap-action-btn__icon--build" aria-hidden="true"></span>
               <span class="swap-action-btn__text">
-                <span class="swap-action-btn__label">Build unsigned transaction</span>
-                <span class="swap-action-btn__hint">Requires quote &amp; wallet</span>
+                <span class="swap-action-btn__label">Build &amp; sign swap</span>
+                <span class="swap-action-btn__hint">Connect wallet &amp; sign</span>
               </span>
             </button>
           </div>
@@ -293,7 +293,7 @@
           <div class="swap-advanced" id="swapAdvancedBuild">
             <div class="swap-advanced-section" title="Options sent on Vybe POST /v4/trading/swap when building the transaction">
               <div class="swap-advanced-subheading">Advanced build options</div>
-              <p class="swap-advanced-hint" id="swapAdvancedBuildHint">Used only when you click <strong>Build unsigned transaction</strong>. Quote uses wallet, slippage, and mints.</p>
+              <p class="swap-advanced-hint" id="swapAdvancedBuildHint">Used only when you click <strong>Build &amp; sign swap</strong>. Quote uses wallet, slippage, and mints.</p>
               <div class="swap-build-params">
                 <div class="swap-build-toggles">
                   <div class="swap-toggle-row">
@@ -487,6 +487,10 @@
           <button type="button" class="token-picker-esc" id="tokenPickerEsc" title="Close (Esc)">Esc</button>
         </div>
         <div class="token-picker-shortcuts" id="tokenPickerShortcuts"></div>
+        <section class="token-picker-wallet-balances" id="tokenPickerWalletBalances" hidden aria-label="Wallet token balances">
+          <div class="token-picker-wallet-balances-head">Your tokens</div>
+          <div class="token-picker-wallet-balances-list" id="tokenPickerWalletBalancesList"></div>
+        </section>
         <div class="token-picker-tabs" role="tablist" aria-label="Token lists">
           <button type="button" class="token-picker-tab token-picker-tab--active" data-tab="top" role="tab">Top</button>
           <button type="button" class="token-picker-tab" data-tab="recent" role="tab">Recent</button>
