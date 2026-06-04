@@ -157,63 +157,33 @@
         <div class="swap-hero-layout">
           <div class="swap-hero-col swap-hero-col--widget">
         <div class="swap-widget">
-          <div class="swap-tabs">
-            <button type="button" class="swap-tab swap-tab--active" aria-current="true">Build Swap</button>
+          <div class="swap-mode-switch" role="tablist" aria-label="Swap mode">
+            <button type="button" class="swap-mode-switch__btn swap-mode-switch__btn--active" id="swapModeBuild" role="tab" aria-selected="true" data-mode="build">Build Swap</button>
+            <button type="button" class="swap-mode-switch__btn" id="swapModeBuildSign" role="tab" aria-selected="false" data-mode="build-sign">Build &amp; Sign Swap</button>
           </div>
 
-          <div class="swap-sides">
-            <div class="swap-side swap-side--sell">
-              <div class="swap-side-label">Sell</div>
-              <div class="swap-side-stack">
-                <div class="swap-token-row">
-                  <input type="text" id="swapInputMint" class="swap-mint-input" value="So11111111111111111111111111111111111111112" autocomplete="off" spellcheck="false" title="Input mint" />
-                  <span class="swap-token-pill" id="swapInputSymbol">SOL</span>
-                </div>
-                <div class="swap-amount-box">
-                  <input type="number" id="swapAmount" class="swap-amount-input" min="0" step="any" value="0.05" title="Amount to sell" />
-                  <div class="swap-amount-stepper" role="group" aria-label="Adjust sell amount">
-                    <button type="button" class="swap-amount-step swap-amount-step--up" id="swapAmountUp" aria-label="Increase amount">▲</button>
-                    <button type="button" class="swap-amount-step swap-amount-step--down" id="swapAmountDown" aria-label="Decrease amount">▼</button>
-                  </div>
-                </div>
-              </div>
-              <div class="swap-fiat" id="swapSellFiat">—</div>
-            </div>
-
-            <button type="button" class="swap-flip-fab" id="swapFlipBtn" aria-label="Flip sell and buy mints" title="Flip tokens">⇅</button>
-
-            <div class="swap-side swap-side--buy">
-              <div class="swap-side-label-row">
-                <span class="swap-side-label">Buy</span>
-                <button type="button" class="swap-paste-ca" id="swapPasteOutputBtn" title="Paste mint from clipboard">Paste CA</button>
-              </div>
-              <div class="swap-side-stack">
-                <div class="swap-token-row">
-                  <input type="text" id="swapOutputMint" class="swap-mint-input" value="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263" placeholder="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263" autocomplete="off" spellcheck="false" title="Output mint" />
-                  <span class="swap-token-pill" id="swapOutputSymbol">BONK</span>
-                </div>
-                <div class="swap-out-readout" id="swapBuyAmountDisplay">—</div>
-              </div>
-              <div class="swap-fiat" id="swapBuyFiat">—</div>
-            </div>
-          </div>
-
-          <div class="swap-advanced" id="swapWalletExecution">
-            <div class="swap-advanced-heading">Wallet &amp; execution</div>
+          <section class="swap-wallet-execution" id="swapWalletExecution">
+            <div class="swap-wallet-execution-heading">Wallet &amp; execution</div>
             <div class="swap-advanced-grid">
-              <label class="swap-adv-field">
+              <label class="swap-adv-field swap-adv-field--wallet">
                 <span class="swap-adv-label-row">
                   <span class="label-icon field-icon icon-user swap-adv-label-icon" aria-hidden="true"></span>
                   <span>Wallet</span>
                 </span>
-                <input type="text" id="swapWalletAddress" placeholder="Signer / account address" autocomplete="off" />
+                <div class="swap-wallet-field-control">
+                  <input type="text" id="swapWalletAddress" placeholder="Signer / account address" autocomplete="off" />
+                  <button type="button" id="swapConnectWalletBtn" class="swap-wallet-field-connect" hidden>Connect wallet</button>
+                </div>
               </label>
               <label class="swap-adv-field">
                 <span class="swap-adv-label-row">
                   <span class="label-icon field-icon icon-scale swap-adv-label-icon" aria-hidden="true"></span>
-                  <span>Slippage %</span>
+                  <span>Slippage</span>
                 </span>
-                <input type="number" id="swapSlippage" min="0" step="0.05" value="0.5" />
+                <span class="swap-toggle-field__suffix-wrap">
+                  <input type="number" id="swapSlippage" min="0" step="0.05" value="0.5" title="Slippage percent" aria-label="Slippage percent" />
+                  <span class="swap-toggle-field__suffix" aria-hidden="true">%</span>
+                </span>
               </label>
               <label class="swap-adv-field swap-adv-field--router">
                 <span class="swap-adv-label-row">
@@ -230,91 +200,51 @@
                 </div>
               </label>
             </div>
+          </section>
 
-            <div class="swap-advanced-subheading">Swap build parameters</div>
-            <p class="swap-advanced-hint">
-              Sent on <strong>Build unsigned transaction</strong> (Vybe <code>POST /v4/trading/swap</code>). Quote uses wallet, slippage, and mints only.
-            </p>
-            <div class="swap-build-params">
-              <div class="swap-build-toggles">
-                <div class="swap-adv-field">
-                  <span class="swap-adv-label-row">
-                    <span class="label-icon field-icon icon-zap swap-adv-label-icon" aria-hidden="true"></span>
-                    <span>Gasless</span>
-                  </span>
-                  <label class="swap-adv-check">
-                    <input type="checkbox" id="swapGasless" />
-                    <span>Vybe fee payer</span>
-                  </label>
-                </div>
-                <div class="swap-adv-field">
-                  <span class="swap-adv-label-row">
-                    <span class="label-icon field-icon icon-refresh swap-adv-label-icon" aria-hidden="true"></span>
-                    <span>Auto slippage</span>
-                  </span>
-                  <label class="swap-adv-check">
-                    <input type="checkbox" id="swapAutoSlippage" />
-                    <span>Let API pick slippage</span>
-                  </label>
-                </div>
-                <div class="swap-adv-field">
-                  <span class="swap-adv-label-row">
-                    <span class="label-icon field-icon icon-flask swap-adv-label-icon" aria-hidden="true"></span>
-                    <span>Simulate</span>
-                  </span>
-                  <label class="swap-adv-check">
-                    <input type="checkbox" id="swapSimulate" />
-                    <span>Simulate only (no tx build)</span>
-                  </label>
+          <div class="swap-sides">
+            <div class="swap-side swap-side--sell">
+              <div class="swap-side-label">Sell</div>
+              <div class="swap-side-body">
+                <button type="button" class="swap-token-chip" id="swapInputTokenBtn" aria-label="Input token">
+                  <span class="swap-token-chip-icon routing-token-dot routing-token-dot--sol" id="swapInputTokenIcon" aria-hidden="true"></span>
+                  <span class="swap-token-chip-symbol" id="swapInputSymbol">SOL</span>
+                  <span class="swap-token-chip-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="swap-amount-col">
+                  <input type="number" id="swapAmount" class="swap-amount-input" min="0" step="any" value="0.05" placeholder="0.00" title="Amount to sell" />
+                  <span class="swap-fiat" id="swapSellFiat">$0</span>
                 </div>
               </div>
-              <div class="swap-build-fields-grid">
-                <label class="swap-adv-field">
-                  <span class="swap-adv-label-row">
-                    <span class="label-icon field-icon icon-link swap-adv-label-icon" aria-hidden="true"></span>
-                    <span>Partner</span>
-                  </span>
-                  <input type="text" id="swapPartner" placeholder="Partner id (optional)" autocomplete="off" spellcheck="false" />
-                </label>
-                <label class="swap-adv-field">
-                  <span class="swap-adv-label-row">
-                    <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
-                    <span>Pool address</span>
-                  </span>
-                  <input type="text" id="swapPoolAddress" placeholder="Restrict to pool (optional)" autocomplete="off" spellcheck="false" />
-                </label>
-                <label class="swap-adv-field swap-adv-field--span-cols">
-                  <span class="swap-adv-label-row">
-                    <span class="label-icon field-icon icon-tag swap-adv-label-icon" aria-hidden="true"></span>
-                    <span>Protocol</span>
-                  </span>
-                  <select id="swapProtocol" class="swap-protocol-select" aria-label="DEX protocol">
-                    <option value="">Default (API route)</option>
-                    <option value="PUMPFUN">Pump.fun</option>
-                    <option value="PUMPSWAP">PumpSwap</option>
-                    <option value="RAYDIUMAMMV4">Raydium AMM v4</option>
-                    <option value="RAYDIUMCPMM">Raydium CPMM</option>
-                    <option value="RAYDIUMCLMM">Raydium CLMM</option>
-                    <option value="RAYDIUMLAUNCHLAB">Raydium LaunchLab</option>
-                    <option value="METEORADBC">Meteora DBC</option>
-                    <option value="METEORADAMM2">Meteora DAMM v2</option>
-                    <option value="METEORADLMM">Meteora DLMM</option>
-                    <option value="SANCTUM">Sanctum</option>
-                  </select>
-                </label>
-                <label class="swap-adv-field swap-adv-field--fee">
-                  <span class="swap-adv-label-row">
-                    <span class="label-icon field-icon icon-dollar swap-adv-label-icon" aria-hidden="true"></span>
-                    <span>Service fee %</span>
-                  </span>
-                  <input type="number" id="swapServiceFee" min="0" step="0.05" placeholder="Optional" title="e.g. 1 for 1%" />
-                </label>
+              <input type="text" id="swapInputMint" class="swap-mint-field" value="So11111111111111111111111111111111111111112" autocomplete="off" spellcheck="false" title="Input mint" hidden />
+            </div>
+
+            <button type="button" class="swap-flip-fab" id="swapFlipBtn" aria-label="Flip sell and buy mints" title="Flip tokens">
+              <span class="swap-flip-fab-icon" aria-hidden="true"></span>
+            </button>
+
+            <div class="swap-side swap-side--buy">
+              <div class="swap-side-label-row">
+                <span class="swap-side-label">Buy</span>
+                <button type="button" class="swap-paste-ca" id="swapPasteOutputBtn" title="Paste mint from clipboard">
+                  <span class="swap-paste-ca-icon" aria-hidden="true"></span>
+                  Paste CA
+                </button>
               </div>
+              <div class="swap-side-body">
+                <button type="button" class="swap-token-chip" id="swapOutputTokenBtn" aria-label="Output token">
+                  <span class="swap-token-chip-icon routing-token-dot routing-token-dot--bonk" id="swapOutputTokenIcon" aria-hidden="true"></span>
+                  <span class="swap-token-chip-symbol" id="swapOutputSymbol">BONK</span>
+                  <span class="swap-token-chip-chevron" aria-hidden="true"></span>
+                </button>
+                <div class="swap-amount-col">
+                  <div class="swap-out-readout" id="swapBuyAmountDisplay" data-empty="true">0.00</div>
+                  <span class="swap-fiat" id="swapBuyFiat">$0</span>
+                </div>
+              </div>
+              <input type="text" id="swapOutputMint" class="swap-mint-field" value="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263" placeholder="Output mint address" autocomplete="off" spellcheck="false" title="Output mint" hidden />
             </div>
           </div>
-
-          <button type="button" id="swapQuoteBtn" class="swap-primary-btn">Get quote</button>
-          <button type="button" id="swapBuildBtn" class="swap-secondary-btn" disabled>Build unsigned transaction</button>
 
           <div class="swap-widget-footer">
             <div class="swap-footer-main">
@@ -327,34 +257,174 @@
             </div>
           </div>
 
+          <div class="swap-pair-cards" id="swapPairCards">
+            <div class="swap-pair-card" id="swapCardSell">
+              <div class="swap-pair-card-head">
+                <span class="swap-pair-icon swap-pair-icon--sell" aria-hidden="true"></span>
+                <div>
+                  <div class="swap-pair-name" id="swapCardSellName">Sell</div>
+                  <div class="swap-pair-mint" id="swapCardSellMint">—</div>
+                </div>
+              </div>
+              <div class="swap-pair-price" id="swapCardSellPrice">—</div>
+            </div>
+            <div class="swap-pair-card" id="swapCardBuy">
+              <div class="swap-pair-card-head">
+                <span class="swap-pair-icon swap-pair-icon--buy" aria-hidden="true"></span>
+                <div>
+                  <div class="swap-pair-name" id="swapCardBuyName">Buy</div>
+                  <div class="swap-pair-mint" id="swapCardBuyMint">—</div>
+                </div>
+              </div>
+              <div class="swap-pair-price" id="swapCardBuyPrice">—</div>
+            </div>
+          </div>
+
+          <div class="swap-advanced" id="swapAdvancedBuild">
+            <div class="swap-advanced-section" title="Options sent on Vybe POST /v4/trading/swap when building the transaction">
+              <div class="swap-advanced-subheading">Advanced build options</div>
+              <p class="swap-advanced-hint" id="swapAdvancedBuildHint">Used only when you click <strong>Build unsigned transaction</strong>. Quote uses wallet, slippage, and mints.</p>
+              <div class="swap-build-params">
+                <div class="swap-build-toggles">
+                  <div class="swap-toggle-row">
+                    <div class="swap-toggle-row__text">
+                      <span class="swap-adv-label-row">
+                        <span class="label-icon field-icon icon-zap swap-adv-label-icon" aria-hidden="true"></span>
+                        <span>Gasless</span>
+                      </span>
+                      <span class="swap-toggle-row__hint">Vybe fee payer</span>
+                    </div>
+                    <label class="swap-pill-switch" title="Vybe fee payer">
+                      <input type="checkbox" id="swapGasless" class="swap-pill-switch__input" />
+                      <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                    </label>
+                  </div>
+                  <div class="swap-toggle-row">
+                    <div class="swap-toggle-row__text">
+                      <span class="swap-adv-label-row">
+                        <span class="label-icon field-icon icon-refresh swap-adv-label-icon" aria-hidden="true"></span>
+                        <span>Auto slippage</span>
+                      </span>
+                      <span class="swap-toggle-row__hint">Let API pick</span>
+                    </div>
+                    <label class="swap-pill-switch" title="Let API pick slippage">
+                      <input type="checkbox" id="swapAutoSlippage" class="swap-pill-switch__input" />
+                      <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                    </label>
+                  </div>
+                  <div class="swap-toggle-row">
+                    <div class="swap-toggle-row__text">
+                      <span class="swap-adv-label-row">
+                        <span class="label-icon field-icon icon-flask swap-adv-label-icon" aria-hidden="true"></span>
+                        <span>Simulate</span>
+                      </span>
+                      <span class="swap-toggle-row__hint">Simulate only</span>
+                    </div>
+                    <label class="swap-pill-switch" title="Simulate only — no transaction build">
+                      <input type="checkbox" id="swapSimulate" class="swap-pill-switch__input" />
+                      <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                    </label>
+                  </div>
+                  <div class="swap-toggle-row swap-toggle-row--expandable">
+                    <div class="swap-toggle-row__text">
+                      <span class="swap-adv-label-row">
+                        <span class="label-icon field-icon icon-link swap-adv-label-icon" aria-hidden="true"></span>
+                        <span>Partner</span>
+                      </span>
+                      <span class="swap-toggle-row__hint">Partner id</span>
+                    </div>
+                    <div class="swap-toggle-row__controls">
+                      <div class="swap-toggle-row__field swap-toggle-row__field--partner" id="swapPartnerField" hidden>
+                        <input type="text" id="swapPartner" class="swap-toggle-field__input" placeholder="Partner id" autocomplete="off" spellcheck="false" aria-label="Partner id" />
+                      </div>
+                      <label class="swap-pill-switch" title="Send partner id on build">
+                        <input type="checkbox" id="swapEnablePartner" class="swap-pill-switch__input" />
+                        <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="swap-toggle-row swap-toggle-row--expandable">
+                    <div class="swap-toggle-row__text">
+                      <span class="swap-adv-label-row">
+                        <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
+                        <span>Market address</span>
+                      </span>
+                      <span class="swap-toggle-row__hint">Restrict to market</span>
+                    </div>
+                    <div class="swap-toggle-row__controls">
+                      <div class="swap-toggle-row__field swap-toggle-row__field--pool" id="swapPoolAddressField" hidden>
+                        <input type="text" id="swapPoolAddress" class="swap-toggle-field__input" placeholder="Market address" autocomplete="off" spellcheck="false" aria-label="Market address" />
+                      </div>
+                      <label class="swap-pill-switch" title="Restrict build to a market">
+                        <input type="checkbox" id="swapEnablePoolAddress" class="swap-pill-switch__input" />
+                        <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="swap-toggle-row swap-toggle-row--expandable">
+                    <div class="swap-toggle-row__text">
+                      <span class="swap-adv-label-row">
+                        <span class="label-icon field-icon icon-tag swap-adv-label-icon" aria-hidden="true"></span>
+                        <span>Protocol</span>
+                      </span>
+                      <span class="swap-toggle-row__hint">Force DEX route</span>
+                    </div>
+                    <div class="swap-toggle-row__controls">
+                      <div class="swap-toggle-row__field swap-toggle-row__field--protocol" id="swapProtocolField" hidden>
+                        <select id="swapProtocol" class="swap-protocol-select swap-toggle-field__input" aria-label="DEX protocol">
+                        <option value="">Default (API route)</option>
+                        <option value="PUMPFUN">Pump.fun</option>
+                        <option value="PUMPSWAP">PumpSwap</option>
+                        <option value="RAYDIUMAMMV4">Raydium AMM v4</option>
+                        <option value="RAYDIUMCPMM">Raydium CPMM</option>
+                        <option value="RAYDIUMCLMM">Raydium CLMM</option>
+                        <option value="RAYDIUMLAUNCHLAB">Raydium LaunchLab</option>
+                        <option value="METEORADBC">Meteora DBC</option>
+                        <option value="METEORADAMM2">Meteora DAMM v2</option>
+                        <option value="METEORADLMM">Meteora DLMM</option>
+                        <option value="SANCTUM">Sanctum</option>
+                      </select>
+                      </div>
+                      <label class="swap-pill-switch" title="Force a DEX protocol on build">
+                        <input type="checkbox" id="swapEnableProtocol" class="swap-pill-switch__input" />
+                        <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                      </label>
+                    </div>
+                  </div>
+                  <div class="swap-toggle-row swap-toggle-row--expandable">
+                    <div class="swap-toggle-row__text">
+                      <span class="swap-adv-label-row">
+                        <span class="label-icon field-icon icon-dollar swap-adv-label-icon" aria-hidden="true"></span>
+                        <span>Service fee</span>
+                      </span>
+                      <span class="swap-toggle-row__hint">Fee % on build</span>
+                    </div>
+                    <div class="swap-toggle-row__controls">
+                      <div class="swap-toggle-row__field swap-toggle-row__field--fee" id="swapServiceFeeField" hidden>
+                        <span class="swap-toggle-field__suffix-wrap">
+                          <input type="number" id="swapServiceFee" class="swap-toggle-field__input" min="0" step="0.05" placeholder="1" title="e.g. 1 for 1%" aria-label="Service fee percent" />
+                          <span class="swap-toggle-field__suffix" aria-hidden="true">%</span>
+                        </span>
+                      </div>
+                      <label class="swap-pill-switch" title="Add service fee percent on build">
+                        <input type="checkbox" id="swapEnableServiceFee" class="swap-pill-switch__input" />
+                        <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+            </div>
+            </div>
+          </div>
+
+          <button type="button" id="swapQuoteBtn" class="swap-primary-btn">Get quote</button>
+          <button type="button" id="swapBuildBtn" class="swap-secondary-btn" disabled>Build unsigned transaction</button>
+
           <div id="swapBuildResult" class="swap-build-result" hidden>
-            <h3 class="swap-build-title">Unsigned transaction (base64)</h3>
-            <p class="meta">Sign in your wallet. This app does not broadcast.</p>
+            <h3 class="swap-build-title" id="swapBuildResultTitle">Unsigned transaction (base64)</h3>
+            <p class="meta" id="swapBuildResultMeta">Sign in your wallet. This app does not broadcast.</p>
             <textarea id="swapTxBase64" readonly rows="3" class="swap-tx-textarea"></textarea>
             <button type="button" id="swapCopyTxBtn" class="swap-ghost-btn">Copy base64</button>
-          </div>
-        </div>
-
-        <div class="swap-pair-cards" id="swapPairCards">
-          <div class="swap-pair-card" id="swapCardSell">
-            <div class="swap-pair-card-head">
-              <span class="swap-pair-icon swap-pair-icon--sell" aria-hidden="true"></span>
-              <div>
-                <div class="swap-pair-name" id="swapCardSellName">Sell</div>
-                <div class="swap-pair-mint" id="swapCardSellMint">—</div>
-              </div>
-            </div>
-            <div class="swap-pair-price" id="swapCardSellPrice">—</div>
-          </div>
-          <div class="swap-pair-card" id="swapCardBuy">
-            <div class="swap-pair-card-head">
-              <span class="swap-pair-icon swap-pair-icon--buy" aria-hidden="true"></span>
-              <div>
-                <div class="swap-pair-name" id="swapCardBuyName">Buy</div>
-                <div class="swap-pair-mint" id="swapCardBuyMint">—</div>
-              </div>
-            </div>
-            <div class="swap-pair-price" id="swapCardBuyPrice">—</div>
           </div>
         </div>
         </div>
@@ -366,18 +436,27 @@
                 Get a quote to see Vybe <code>swap-quote</code> fields, the route diagram, and per-hop <code>swapInfo</code> details.
               </p>
               <div id="swapQuoteDetailsBody" class="swap-quote-details-body" hidden>
-                <section class="swap-quote-details-section">
-                  <h4 class="swap-quote-details-subtitle">Route diagram</h4>
+                <div id="swapQuoteSummary" class="swap-quote-summary" hidden aria-live="polite"></div>
+                <section class="swap-quote-details-section swap-quote-details-section--route">
+                  <h4 class="swap-quote-details-subtitle">Route</h4>
                   <div id="swapQuoteDetailsRouting" class="swap-quote-details-routing"></div>
                 </section>
-                <section class="swap-quote-details-section">
-                  <h4 class="swap-quote-details-subtitle">Route plan steps</h4>
+                <details class="swap-quote-details-collapsible">
+                  <summary class="swap-quote-details-collapsible__summary">Route plan steps</summary>
                   <div id="swapQuoteDetailsRouteSteps" class="swap-quote-details-route-steps"></div>
-                </section>
-                <section class="swap-quote-details-section">
-                  <h4 class="swap-quote-details-subtitle">Top-level fields</h4>
+                </details>
+                <details class="swap-quote-details-collapsible">
+                  <summary class="swap-quote-details-collapsible__summary">Top-level API fields</summary>
                   <div id="swapQuoteDetailsFields" class="swap-quote-details-fields"></div>
-                </section>
+                </details>
+                <details class="swap-quote-details-collapsible">
+                  <summary class="swap-quote-details-collapsible__summary">Raw Quote Response</summary>
+                  <pre id="swapRawQuoteResponse" class="swap-quote-pre swap-quote-raw-json">No quote response yet.</pre>
+                </details>
+                <details class="swap-quote-details-collapsible">
+                  <summary class="swap-quote-details-collapsible__summary">Raw Swap Response</summary>
+                  <pre id="swapRawSwapResponse" class="swap-quote-pre swap-quote-raw-json">Build a swap to see the raw swap response.</pre>
+                </details>
               </div>
             </div>
           </div>
@@ -396,6 +475,17 @@
       </div>
     </dialog>
 
+    <script type="importmap">
+      {
+        "imports": {
+          "@solana/web3.js": "https://esm.sh/@solana/web3.js@1.98.4"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as solanaWeb3 from '@solana/web3.js';
+      window.solanaWeb3 = solanaWeb3;
+    </script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -60,7 +60,18 @@ app.get('/api/token-symbol/:mint', async (req: Request, res: Response) => {
       cache[mint] = out;
       writeSymbolCacheToDisk(cache);
     }
-    res.json({ symbol: out });
+    let decimals: number | undefined;
+    if (q(req, 'decimals') === '1') {
+      try {
+        const token = await client.getToken(mint);
+        if (typeof token.decimals === 'number' && Number.isFinite(token.decimals)) {
+          decimals = token.decimals;
+        }
+      } catch {
+        /* omit decimals on failure */
+      }
+    }
+    res.json({ symbol: out, ...(decimals !== undefined ? { decimals } : {}) });
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
     res.status(status).json({ error: toHumanReadableError(err), symbol: Array.isArray(req.params.mint) ? req.params.mint[0] : req.params.mint });

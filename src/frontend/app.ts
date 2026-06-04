@@ -5,6 +5,7 @@
 
 interface TokenSymbolResponse {
   symbol?: string;
+  decimals?: number;
   error?: string;
 }
 
@@ -13,6 +14,8 @@ interface VybeSwapInfoLite {
   label?: string;
   inputMintAddress?: string;
   outputMintAddress?: string;
+  inputMint?: string;
+  outputMint?: string;
   inAmount?: string;
   outAmount?: string;
   feeAmount?: string;
@@ -36,28 +39,73 @@ const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
   DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263: 'BONK',
 };
 
+const HARDCODED_MINT_DECIMALS: Record<string, number> = {
+  So11111111111111111111111111111111111111112: 9,
+  EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 6,
+  Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 6,
+  DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263: 5,
+};
+
 const swapQuoteLoading = document.getElementById('swapQuoteLoading') as HTMLElement | null;
 const swapQuoteError = document.getElementById('swapQuoteError') as HTMLElement | null;
 const swapWalletAddressInput = document.getElementById('swapWalletAddress') as HTMLInputElement | null;
 const swapInputMintInput = document.getElementById('swapInputMint') as HTMLInputElement | null;
 const swapOutputMintInput = document.getElementById('swapOutputMint') as HTMLInputElement | null;
 const swapAmountInput = document.getElementById('swapAmount') as HTMLInputElement | null;
-const swapAmountUpBtn = document.getElementById('swapAmountUp') as HTMLButtonElement | null;
-const swapAmountDownBtn = document.getElementById('swapAmountDown') as HTMLButtonElement | null;
+const swapInputTokenBtn = document.getElementById('swapInputTokenBtn') as HTMLButtonElement | null;
+const swapOutputTokenBtn = document.getElementById('swapOutputTokenBtn') as HTMLButtonElement | null;
+const swapInputTokenIconEl = document.getElementById('swapInputTokenIcon') as HTMLElement | null;
+const swapOutputTokenIconEl = document.getElementById('swapOutputTokenIcon') as HTMLElement | null;
 const swapSlippageInput = document.getElementById('swapSlippage') as HTMLInputElement | null;
 const swapRouterSelect = document.getElementById('swapRouter') as HTMLSelectElement | null;
 const swapGaslessCheckbox = document.getElementById('swapGasless') as HTMLInputElement | null;
 const swapAutoSlippageCheckbox = document.getElementById('swapAutoSlippage') as HTMLInputElement | null;
 const swapSimulateCheckbox = document.getElementById('swapSimulate') as HTMLInputElement | null;
+const swapEnablePartnerCheckbox = document.getElementById('swapEnablePartner') as HTMLInputElement | null;
+const swapPartnerFieldEl = document.getElementById('swapPartnerField') as HTMLElement | null;
 const swapPartnerInput = document.getElementById('swapPartner') as HTMLInputElement | null;
+const swapEnablePoolAddressCheckbox = document.getElementById('swapEnablePoolAddress') as HTMLInputElement | null;
+const swapPoolAddressFieldEl = document.getElementById('swapPoolAddressField') as HTMLElement | null;
 const swapPoolAddressInput = document.getElementById('swapPoolAddress') as HTMLInputElement | null;
+const swapEnableProtocolCheckbox = document.getElementById('swapEnableProtocol') as HTMLInputElement | null;
+const swapProtocolFieldEl = document.getElementById('swapProtocolField') as HTMLElement | null;
 const swapProtocolSelect = document.getElementById('swapProtocol') as HTMLSelectElement | null;
+const swapEnableServiceFeeCheckbox = document.getElementById('swapEnableServiceFee') as HTMLInputElement | null;
+const swapServiceFeeFieldEl = document.getElementById('swapServiceFeeField') as HTMLElement | null;
 const swapServiceFeeInput = document.getElementById('swapServiceFee') as HTMLInputElement | null;
 const swapQuoteBtn = document.getElementById('swapQuoteBtn') as HTMLButtonElement | null;
 const swapBuildBtn = document.getElementById('swapBuildBtn') as HTMLButtonElement | null;
 const swapBuildResultEl = document.getElementById('swapBuildResult') as HTMLElement | null;
 const swapTxBase64El = document.getElementById('swapTxBase64') as HTMLTextAreaElement | null;
 const swapCopyTxBtn = document.getElementById('swapCopyTxBtn') as HTMLButtonElement | null;
+const swapModeBuildBtn = document.getElementById('swapModeBuild') as HTMLButtonElement | null;
+const swapModeBuildSignBtn = document.getElementById('swapModeBuildSign') as HTMLButtonElement | null;
+const swapConnectWalletBtn = document.getElementById('swapConnectWalletBtn') as HTMLButtonElement | null;
+const swapBuildResultTitleEl = document.getElementById('swapBuildResultTitle') as HTMLElement | null;
+const swapBuildResultMetaEl = document.getElementById('swapBuildResultMeta') as HTMLElement | null;
+const swapAdvancedBuildHintEl = document.getElementById('swapAdvancedBuildHint') as HTMLElement | null;
+
+interface SolanaWalletProvider {
+  isPhantom?: boolean;
+  publicKey?: { toString(): string };
+  connect?: () => Promise<{ publicKey: { toString(): string } }>;
+  signTransaction?: (tx: unknown) => Promise<{ serialize(): Uint8Array }>;
+}
+
+interface SolanaWeb3Global {
+  VersionedTransaction: { deserialize(bytes: Uint8Array): unknown };
+  Transaction: { from(bytes: Uint8Array): unknown };
+}
+
+type WindowWithSolana = Window & {
+  solana?: SolanaWalletProvider;
+  phantom?: { solana?: SolanaWalletProvider };
+  solanaWeb3?: SolanaWeb3Global;
+};
+
+function getSolanaWindow(): WindowWithSolana {
+  return window as WindowWithSolana;
+}
 
 const swapInputSymbolEl = document.getElementById('swapInputSymbol') as HTMLElement | null;
 const swapOutputSymbolEl = document.getElementById('swapOutputSymbol') as HTMLElement | null;
@@ -86,9 +134,42 @@ const swapQuoteDetailsBodyEl = document.getElementById('swapQuoteDetailsBody') a
 const swapQuoteDetailsRoutingEl = document.getElementById('swapQuoteDetailsRouting') as HTMLElement | null;
 const swapQuoteDetailsFieldsEl = document.getElementById('swapQuoteDetailsFields') as HTMLElement | null;
 const swapQuoteDetailsRouteStepsEl = document.getElementById('swapQuoteDetailsRouteSteps') as HTMLElement | null;
+const swapQuoteSummaryEl = document.getElementById('swapQuoteSummary') as HTMLElement | null;
+const swapRawQuoteResponseEl = document.getElementById('swapRawQuoteResponse') as HTMLElement | null;
+const swapRawSwapResponseEl = document.getElementById('swapRawSwapResponse') as HTMLElement | null;
 
 /** Last successful swap quote response (for build tx validation). */
 let lastSwapQuoteOk: Record<string, unknown> | null = null;
+let lastRawQuoteResponse: unknown = null;
+let lastRawSwapResponse: unknown = null;
+
+type SwapBuildMode = 'build' | 'build-sign';
+let swapBuildMode: SwapBuildMode = 'build';
+
+/** Mint → symbol cache for route hop labels (filled after quote). */
+const routeMintSymbolCache: Record<string, string> = {};
+const routeMintDecimalsCache: Record<string, number> = {};
+
+interface RouteHopLeg {
+  inMint: string;
+  outMint: string;
+  inSym: string;
+  outSym: string;
+  inAmt: string;
+  outAmt: string;
+}
+
+interface RouteHopMeta {
+  step: VybeRoutePlanStepLite;
+  planIndex: number;
+  label: string;
+}
+
+type RouteNode =
+  | { kind: 'empty' }
+  | { kind: 'seq'; nodes: RouteNode[] }
+  | { kind: 'hop'; meta: RouteHopMeta }
+  | { kind: 'fork'; branches: RouteNode[]; depth: number };
 
 function showInlineError(el: HTMLElement, msg: string): void {
   el.textContent = msg;
@@ -226,7 +307,37 @@ async function refreshSwapSymbols(): Promise<void> {
     );
   }
   await Promise.all(tasks);
+  updateSwapTokenIcons();
   updateSwapPairCards();
+}
+
+function updateSwapTokenIcons(): void {
+  if (swapInputTokenIconEl) {
+    swapInputTokenIconEl.className = `swap-token-chip-icon routing-token-dot ${endpointTokenDotClass(getSwapInSym())}`;
+  }
+  if (swapOutputTokenIconEl) {
+    swapOutputTokenIconEl.className = `swap-token-chip-icon routing-token-dot ${endpointTokenDotClass(getSwapOutSym())}`;
+  }
+}
+
+function formatSwapFiatDisplay(v: unknown): string {
+  const label = formatSwapUsdLabel(v);
+  return label ?? '$0';
+}
+
+function wireTokenChipMintToggle(
+  btn: HTMLButtonElement | null,
+  mintInput: HTMLInputElement | null,
+): void {
+  if (!btn || !mintInput) return;
+  btn.addEventListener('click', () => {
+    const show = mintInput.hidden;
+    mintInput.hidden = !show;
+    if (show) {
+      mintInput.focus();
+      mintInput.select();
+    }
+  });
 }
 
 function getSwapInSym(): string {
@@ -246,6 +357,204 @@ function formatSwapUsdLabel(v: unknown): string | null {
   return fmtUsd(n);
 }
 
+function getMintDecimals(mint: string): number {
+  const m = mint.trim();
+  if (!m) return 9;
+  const hard = HARDCODED_MINT_DECIMALS[m];
+  if (hard != null) return hard;
+  const cached = routeMintDecimalsCache[m];
+  if (cached != null) return cached;
+  return 9;
+}
+
+/** Convert on-chain integer amount (lamports / smallest units) to a UI number. */
+function rawAmountToUiNumber(raw: string, decimals: number): number {
+  const s = String(raw).trim().replace(/,/g, '');
+  if (!s || !/^\d+$/.test(s)) return NaN;
+  const bi = BigInt(s);
+  const div = 10n ** BigInt(decimals);
+  const whole = bi / div;
+  const frac = bi % div;
+  return Number(whole) + Number(frac) / Number(div);
+}
+
+function formatRawTokenAmount(
+  raw: string | undefined,
+  mint: string,
+): { display: string; full: string } {
+  if (raw == null || raw === '' || raw === '0') return { display: '—', full: '' };
+  const decimals = getMintDecimals(mint);
+  const digits = String(raw).replace(/,/g, '');
+  if (!/^\d+$/.test(digits)) return formatSwapAmount(raw);
+  const bi = BigInt(digits);
+  const div = 10n ** BigInt(decimals);
+  const whole = bi / div;
+  const frac = bi % div;
+  const n = rawAmountToUiNumber(digits, decimals);
+  const full = Number.isFinite(n)
+    ? n.toLocaleString(undefined, { maximumFractionDigits: decimals, useGrouping: true })
+    : digits;
+  if (whole > 0n) {
+    if (!Number.isFinite(n)) return formatSwapAmount(raw);
+    return { display: formatSwapAmountValue(n), full };
+  }
+  if (frac === 0n) return { display: '0', full };
+  if (needsSmallDecimalFormat(n)) {
+    const fracStr = frac.toString().padStart(decimals, '0');
+    return { display: formatFractionTail(fracStr), full };
+  }
+  if (!Number.isFinite(n)) return formatSwapAmount(raw);
+  return formatSwapAmount(n);
+}
+
+function applySmallAmountTrailingZeroRule(digits: string): string {
+  if (!digits) return '0';
+  const trailingMatch = digits.match(/0+$/);
+  const trailingCount = trailingMatch ? trailingMatch[0].length : 0;
+  if (trailingCount >= 3) {
+    const stripped = digits.replace(/0+$/, '');
+    return stripped || '0';
+  }
+  return digits;
+}
+
+/** Sub-unit amounts: all leading zeros, then up to 4 digits; trim only if 3+ trailing zeros in that group. */
+function formatFractionTail(fracPadded: string): string {
+  let i = 0;
+  while (i < fracPadded.length && fracPadded[i] === '0') i++;
+  if (i >= fracPadded.length) return '0';
+  const leadingZeros = fracPadded.slice(0, i);
+  const sigDigits = fracPadded.slice(i, i + 4);
+  const trimmed = applySmallAmountTrailingZeroRule(sigDigits);
+  return `0.${leadingZeros}${trimmed}`;
+}
+
+function needsSmallDecimalFormat(n: number): boolean {
+  const abs = Math.abs(n);
+  if (abs === 0) return false;
+  return Math.round(n * 10_000) / 10_000 === 0;
+}
+
+function formatSmallDecimalAmount(n: number): string {
+  const sign = n < 0 ? '-' : '';
+  const abs = Math.abs(n);
+  if (abs === 0) return '0';
+  const zeroCount = Math.max(0, Math.floor(-Math.log10(abs)));
+  const decPlaces = Math.min(100, zeroCount + 5);
+  const s = abs.toFixed(decPlaces);
+  const dot = s.indexOf('.');
+  if (dot === -1) return sign + s;
+  const fullFrac = s.slice(dot + 1);
+  return sign + formatFractionTail(fullFrac);
+}
+
+function stripFormattedTrailingZeros(formatted: string): string {
+  const match = formatted.match(/^(.+?)([.,])(\d+)$/);
+  if (!match) return formatted;
+  const frac = match[3]!.replace(/0+$/, '');
+  return frac ? `${match[1]}${match[2]}${frac}` : match[1]!;
+}
+
+/** Full amount display: no k/m/b; ≥100k integer; <100k up to 4 decimals; tiny amounts show leading zeros. */
+function formatSwapAmountValue(n: number): string {
+  const abs = Math.abs(n);
+  if (abs === 0) return '0';
+  if (abs >= 100_000) {
+    return Math.round(n).toLocaleString(undefined, { maximumFractionDigits: 0, useGrouping: true });
+  }
+  if (needsSmallDecimalFormat(n)) {
+    return formatSmallDecimalAmount(n);
+  }
+  const rounded = Math.round(n * 10_000) / 10_000;
+  const formatted = rounded.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 4,
+    useGrouping: true,
+  });
+  return stripFormattedTrailingZeros(formatted);
+}
+
+function formatSwapAmount(value: unknown): { display: string; full: string } {
+  if (value == null || value === '') return { display: '—', full: '' };
+  const n = typeof value === 'number' ? value : Number(String(value).replace(/,/g, ''));
+  if (!Number.isFinite(n)) {
+    const s = String(value);
+    return { display: s, full: s };
+  }
+  const full = n.toLocaleString(undefined, { maximumFractionDigits: 12, useGrouping: true });
+  return { display: formatSwapAmountValue(n), full };
+}
+
+function getQuoteOutputMint(quote: Record<string, unknown>): string {
+  return quoteOutputMint(quote);
+}
+
+function swapInfoInputMint(si: VybeSwapInfoLite | undefined): string {
+  return String(si?.inputMintAddress ?? si?.inputMint ?? '').trim();
+}
+
+function swapInfoOutputMint(si: VybeSwapInfoLite | undefined): string {
+  return String(si?.outputMintAddress ?? si?.outputMint ?? '').trim();
+}
+
+function quoteInputMint(quote: Record<string, unknown>): string {
+  return String(quote.inputMintAddress ?? quote.inputMint ?? swapInputMintInput?.value ?? '').trim();
+}
+
+function quoteOutputMint(quote: Record<string, unknown>): string {
+  return String(quote.outputMintAddress ?? quote.outputMint ?? swapOutputMintInput?.value ?? '').trim();
+}
+
+function quoteUiAmount(quote: Record<string, unknown>, field: 'out' | 'min'): unknown {
+  if (field === 'out') return quote.outAmountUi ?? quote.outAmountUI;
+  return quote.otherAmountThresholdUi ?? quote.otherAmountThresholdUI;
+}
+
+/** Format quote out/min amounts — prefer raw on-chain integer + mint decimals (matches route hops). */
+function formatQuoteTokenAmount(
+  quote: Record<string, unknown>,
+  field: 'out' | 'min',
+): { display: string; full: string } {
+  const mint = getQuoteOutputMint(quote);
+  const rawKey = field === 'out' ? 'outAmount' : 'otherAmountThreshold';
+  const raw = quote[rawKey];
+  if (raw != null && raw !== '') {
+    const digits = String(raw).replace(/,/g, '');
+    if (/^\d+$/.test(digits)) return formatRawTokenAmount(digits, mint);
+  }
+  const ui = quoteUiAmount(quote, field);
+  if (typeof ui === 'number' && Number.isFinite(ui)) return formatSwapAmount(ui);
+  if (ui != null && ui !== '') return formatSwapAmount(ui);
+  return { display: '—', full: '' };
+}
+
+function formatSwapRate(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
+  return formatSwapAmount(value).display;
+}
+
+/** Human-readable price impact — "< 0.01%" for tiny values, else max 2 decimals. */
+function formatPriceImpactPct(value: unknown): string {
+  if (value == null || value === '') return '—';
+  const raw = String(value).trim().replace(/%$/, '');
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return `${String(value).replace(/%$/, '')}%`;
+
+  const abs = Math.abs(n);
+  if (abs === 0) return '0% (No Impact)';
+  if (abs < 0.01) return '< 0.01%';
+
+  return `${n.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 0 })}%`;
+}
+
+function getSwapSellAmountLabel(): string {
+  const raw = swapAmountInput?.value.trim() ?? '';
+  if (!raw) return '—';
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return raw;
+  return formatSwapAmount(n).display;
+}
+
 function updateSwapPairCards(): void {
   const inMint = swapInputMintInput?.value.trim() ?? '';
   const outMint = swapOutputMintInput?.value.trim() ?? '';
@@ -262,11 +571,266 @@ function updateSwapPairCards(): void {
 }
 
 function routeOutputMintSymbol(mint: string | undefined): string {
+  return mintSymbolSync(mint);
+}
+
+function mintSymbolSync(mint: string | undefined): string {
   const m = (mint ?? '').trim();
   if (!m) return '—';
   const hard = HARDCODED_MINT_SYMBOLS[m];
   if (hard) return hard;
+  const cached = routeMintSymbolCache[m];
+  if (cached) return cached;
   return truncate(m, 4, 4);
+}
+
+async function fetchMintMeta(mint: string): Promise<void> {
+  const m = mint.trim();
+  if (!m) return;
+  if (HARDCODED_MINT_SYMBOLS[m] && !routeMintSymbolCache[m]) {
+    routeMintSymbolCache[m] = HARDCODED_MINT_SYMBOLS[m];
+  }
+  if (HARDCODED_MINT_DECIMALS[m] != null && routeMintDecimalsCache[m] == null) {
+    routeMintDecimalsCache[m] = HARDCODED_MINT_DECIMALS[m];
+  }
+  const needSymbol = !routeMintSymbolCache[m];
+  const needDecimals = routeMintDecimalsCache[m] == null;
+  if (!needSymbol && !needDecimals) return;
+  const res = await fetchWithRetry(
+    `/api/token-symbol/${encodeURIComponent(m)}${needDecimals ? '?decimals=1' : ''}`,
+  );
+  const body = (await res.json().catch(() => ({}))) as TokenSymbolResponse;
+  if (needSymbol) {
+    const sym = (body.symbol ?? m).replace(/\0/g, '').trim();
+    routeMintSymbolCache[m] = displaySymbol(sym || truncate(m, 4, 4));
+  }
+  if (needDecimals && typeof body.decimals === 'number' && Number.isFinite(body.decimals)) {
+    routeMintDecimalsCache[m] = body.decimals;
+  }
+}
+
+async function prefetchRouteMintSymbols(quote: Record<string, unknown>): Promise<void> {
+  const mints = new Set<string>();
+  const inputMint = quoteInputMint(quote);
+  const outputMint = quoteOutputMint(quote);
+  if (inputMint) mints.add(inputMint);
+  if (outputMint) mints.add(outputMint);
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  for (const step of plan) {
+    const si = step.swapInfo;
+    const inM = swapInfoInputMint(si);
+    const outM = swapInfoOutputMint(si);
+    if (inM) mints.add(inM);
+    if (outM) mints.add(outM);
+    const feeM = (si?.feeMintAddress ?? '').trim();
+    if (feeM) mints.add(feeM);
+  }
+  await Promise.all([...mints].map((m) => fetchMintMeta(m)));
+}
+
+function resolveRouteHopLegs(plan: VybeRoutePlanStepLite[], quote: Record<string, unknown>): RouteHopLeg[] {
+  const quoteInMint = quoteInputMint(quote);
+  const quoteOutMint = quoteOutputMint(quote);
+
+  return plan.map((step, idx) => {
+    const si = step.swapInfo;
+    let inMint = swapInfoInputMint(si);
+    if (!inMint) {
+      inMint =
+        idx === 0 ? quoteInMint : swapInfoOutputMint(plan[idx - 1]?.swapInfo) || quoteInMint;
+    }
+
+    let outMint = swapInfoOutputMint(si);
+    if (!outMint) {
+      if (idx === plan.length - 1) outMint = quoteOutMint;
+      else outMint = swapInfoInputMint(plan[idx + 1]?.swapInfo) || quoteOutMint;
+    }
+
+    const inAmt = si?.inAmount ? formatRawTokenAmount(si.inAmount, inMint).display : '—';
+    let outAmt = si?.outAmount ? formatRawTokenAmount(si.outAmount, outMint).display : '—';
+    if (idx === plan.length - 1) {
+      outAmt = formatQuoteTokenAmount(quote, 'out').display;
+    }
+
+    return {
+      inMint,
+      outMint,
+      inSym: mintSymbolSync(inMint),
+      outSym: mintSymbolSync(outMint),
+      inAmt,
+      outAmt,
+    };
+  });
+}
+
+function hopPercentLabel(step: VybeRoutePlanStepLite): string {
+  if (step.percent == null || !Number.isFinite(step.percent)) return '—';
+  const rounded = Math.round(step.percent * 100) / 100;
+  return `${rounded}%`;
+}
+
+function detectParallelForkLengthFrom(plan: VybeRoutePlanStepLite[], idx: number): number | null {
+  if (idx >= plan.length) return null;
+  const p0 = plan[idx]?.percent;
+  if (p0 == null || !Number.isFinite(p0) || p0 >= 99.9) return null;
+
+  let sum = 0;
+  for (let i = idx; i < plan.length; i++) {
+    const p = plan[i]?.percent ?? 0;
+    if (i > idx && p >= 99.9) break;
+    sum += p;
+    const count = i - idx + 1;
+    if (count >= 2 && sum >= 98.5 && sum <= 101.5) return count;
+    if (sum > 101.5) return null;
+  }
+  return null;
+}
+
+function branchMatchesHead(step: VybeRoutePlanStepLite, headOut: string): boolean {
+  if (!headOut) return true;
+  const inMint = swapInfoInputMint(step.swapInfo);
+  return !inMint || inMint === headOut;
+}
+
+function findBranchContinuationStart(
+  plan: VybeRoutePlanStepLite[],
+  fromIdx: number,
+  headOut: string,
+  consumed: Set<number>,
+): number {
+  for (let i = fromIdx; i < plan.length; i++) {
+    if (consumed.has(i)) continue;
+    if (branchMatchesHead(plan[i]!, headOut)) return i;
+  }
+  return plan.length;
+}
+
+function parseRouteAt(
+  plan: VybeRoutePlanStepLite[],
+  idx: number,
+  depth: number,
+  consumed: Set<number>,
+): { node: RouteNode; nextIdx: number } {
+  while (idx < plan.length && consumed.has(idx)) idx++;
+  if (idx >= plan.length) return { node: { kind: 'empty' }, nextIdx: idx };
+
+  const forkLen = detectParallelForkLengthFrom(plan, idx);
+  if (forkLen !== null) {
+    const branches: RouteNode[] = [];
+    const branchEndIdxs: number[] = [];
+
+    for (let b = 0; b < forkLen; b++) {
+      const hopIdx = idx + b;
+      consumed.add(hopIdx);
+      const hopNode: RouteNode = {
+        kind: 'hop',
+        meta: {
+          step: plan[hopIdx]!,
+          planIndex: hopIdx,
+          label: `${depth}.${b + 1}`,
+        },
+      };
+
+      const headOut = swapInfoOutputMint(plan[hopIdx]?.swapInfo);
+      const contStart = findBranchContinuationStart(plan, idx + forkLen, headOut, consumed);
+
+      let contNode: RouteNode = { kind: 'empty' };
+      let contEnd = contStart;
+
+      if (contStart < plan.length) {
+        const cont = parseRouteAt(plan, contStart, depth + 1, consumed);
+        contNode = cont.node;
+        contEnd = cont.nextIdx;
+      }
+
+      branchEndIdxs.push(Math.max(hopIdx + 1, contEnd));
+      branches.push(
+        contNode.kind === 'empty' ? hopNode : { kind: 'seq', nodes: [hopNode, contNode] },
+      );
+    }
+
+    const forkEnd = Math.max(idx + forkLen, ...branchEndIdxs);
+    const forkNode: RouteNode = { kind: 'fork', branches, depth };
+    const after = parseRouteAt(plan, forkEnd, depth + 1, consumed);
+
+    if (after.node.kind === 'empty') {
+      return { node: forkNode, nextIdx: forkEnd };
+    }
+    return {
+      node: { kind: 'seq', nodes: [forkNode, after.node] },
+      nextIdx: after.nextIdx,
+    };
+  }
+
+  consumed.add(idx);
+  const hopNode: RouteNode = {
+    kind: 'hop',
+    meta: { step: plan[idx]!, planIndex: idx, label: String(depth) },
+  };
+  const after = parseRouteAt(plan, idx + 1, depth + 1, consumed);
+  if (after.node.kind === 'empty') {
+    return { node: hopNode, nextIdx: idx + 1 };
+  }
+  return { node: { kind: 'seq', nodes: [hopNode, after.node] }, nextIdx: after.nextIdx };
+}
+
+function buildRouteTree(plan: VybeRoutePlanStepLite[]): RouteNode {
+  if (plan.length === 0) return { kind: 'empty' };
+  return parseRouteAt(plan, 0, 1, new Set()).node;
+}
+
+function collectRouteHopMetas(node: RouteNode, out: RouteHopMeta[]): void {
+  if (node.kind === 'empty') return;
+  if (node.kind === 'hop') {
+    out.push(node.meta);
+    return;
+  }
+  if (node.kind === 'seq') {
+    node.nodes.forEach((n) => collectRouteHopMetas(n, out));
+    return;
+  }
+  node.branches.forEach((b) => collectRouteHopMetas(b, out));
+}
+
+function routeTreeHasFork(node: RouteNode): boolean {
+  if (node.kind === 'fork') return true;
+  if (node.kind === 'seq') return node.nodes.some(routeTreeHasFork);
+  return false;
+}
+
+function countRouteTreeHops(node: RouteNode): number {
+  if (node.kind === 'hop') return 1;
+  if (node.kind === 'seq') return node.nodes.reduce((sum, n) => sum + countRouteTreeHops(n), 0);
+  if (node.kind === 'fork') return node.branches.reduce((sum, b) => sum + countRouteTreeHops(b), 0);
+  return 0;
+}
+
+function countRouteTreeForkBranches(node: RouteNode): number {
+  if (node.kind === 'fork') return node.branches.length;
+  if (node.kind === 'seq') {
+    return node.nodes.reduce((sum, n) => sum + countRouteTreeForkBranches(n), 0);
+  }
+  return 0;
+}
+
+function renderHopConversionLeg(leg: RouteHopLeg, className = 'route-hop-conversion'): string {
+  return `<div class="${className}">
+    <span class="route-hop-leg">
+      <span class="route-hop-amt">${escapeHtml(leg.inAmt)}</span>
+      <span class="route-hop-sym">${escapeHtml(leg.inSym)}</span>
+    </span>
+    <span class="route-hop-arrow" aria-hidden="true">→</span>
+    <span class="route-hop-leg">
+      <span class="route-hop-amt">${escapeHtml(leg.outAmt)}</span>
+      <span class="route-hop-sym">${escapeHtml(leg.outSym)}</span>
+    </span>
+  </div>`;
+}
+
+function renderRoutePanels(quote: Record<string, unknown>): void {
+  if (swapQuoteDetailsRoutingEl) swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagram(quote);
+  if (swapQuoteDetailsRouteStepsEl) swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanSteps(quote);
+  if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = renderRoutingDiagram(quote);
 }
 
 function endpointTokenDotClass(sym: string): string {
@@ -274,131 +838,121 @@ function endpointTokenDotClass(sym: string): string {
   if (u.includes('SOL')) return 'routing-token-dot--sol';
   if (u === 'USDC') return 'routing-token-dot--usdc';
   if (u === 'USDT' || u === 'USDT1') return 'routing-token-dot--usdt';
+  if (u === 'BONK') return 'routing-token-dot--bonk';
   return 'routing-token-dot';
 }
 
-function partitionRouteBranches(plan: VybeRoutePlanStepLite[]): VybeRoutePlanStepLite[][] {
-  if (plan.length === 0) return [];
-  if (plan.length === 1) return [[plan[0]!]];
-  const p0 = plan[0]?.percent ?? 0;
-  if (p0 >= 99.9) return [plan];
-
-  let headEnd = -1;
-  let sum = 0;
-  for (let i = 0; i < plan.length; i++) {
-    sum += plan[i]?.percent ?? 0;
-    headEnd = i;
-    if (sum >= 99.5) break;
-  }
-  const head = plan.slice(0, headEnd + 1);
-  const headSum = head.reduce((a, s) => a + (s.percent ?? 0), 0);
-  const isParallel =
-    head.length >= 2 &&
-    headSum >= 98.5 &&
-    headSum <= 101.5 &&
-    head.every((s) => (s.percent ?? 0) > 0 && (s.percent ?? 0) < 99);
-
-  if (!isParallel) return [plan];
-
-  const rest = plan.slice(head.length);
-  const branches = head.map((h) => [h]);
-  for (const step of rest) {
-    const inMint = (step.swapInfo?.inputMintAddress ?? '').trim();
-    let assigned = -1;
-    for (let b = 0; b < branches.length; b++) {
-      const last = branches[b]![branches[b]!.length - 1]!;
-      const out = (last.swapInfo?.outputMintAddress ?? '').trim();
-      if (inMint && out && inMint === out) {
-        assigned = b;
-        break;
-      }
-    }
-    if (assigned >= 0) branches[assigned]!.push(step);
-    else branches[branches.length - 1]!.push(step);
-  }
-  return branches;
+function renderRouteFlowConnector(): string {
+  return `<div class="route-flow-connector" aria-hidden="true">
+    <span class="route-flow-connector-line"></span>
+    <span class="route-flow-connector-chevron">›</span>
+  </div>`;
 }
 
-function renderRoutingMarketNode(step: VybeRoutePlanStepLite, opts: { showPercent: boolean }): string {
-  const si = step.swapInfo;
-  const sym = routeOutputMintSymbol(si?.outputMintAddress);
-  const dotClass = endpointTokenDotClass(sym);
-  const pct = step.percent != null ? `${step.percent}%` : '';
-  const dex = escapeHtml(si?.label ?? '—');
-  const pctBlock =
-    opts.showPercent && pct ? `<span class="routing-pct-badge">${escapeHtml(pct)}</span>` : '';
-  return `
-    <div class="routing-market-node">
-      ${pctBlock}
-      <div class="routing-pill routing-pill--hop">
-        <span class="routing-token-dot ${dotClass}" aria-hidden="true"></span>
-        <span class="routing-token-sym">${escapeHtml(sym)}</span>
+function renderRouteFlowTokenNode(
+  amt: string,
+  sym: string,
+  variant: 'pay' | 'receive',
+  title?: string,
+): string {
+  const dot = endpointTokenDotClass(sym);
+  const label = variant === 'pay' ? 'You pay' : 'You get';
+  const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
+  return `<div class="route-flow-step route-flow-step--token"${titleAttr}>
+    <div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-tile--${variant} route-flow-token-card">
+      <span class="swap-quote-summary-label">${escapeHtml(label)}</span>
+      <div class="route-flow-token-row">
+        <span class="routing-token-dot ${dot}" aria-hidden="true"></span>
+        <span class="swap-quote-summary-value">
+          <span class="swap-quote-summary-amt">${escapeHtml(amt)}</span>
+          <span class="swap-quote-summary-sym">${escapeHtml(sym)}</span>
+        </span>
       </div>
-      <div class="routing-dex-caption">${dex}</div>
-    </div>`;
+    </div>
+  </div>`;
 }
 
-function renderRoutingBranch(steps: VybeRoutePlanStepLite[]): string {
-  if (steps.length === 0) return '';
-  const parts: string[] = [];
-  steps.forEach((step, idx) => {
-    if (idx > 0) {
-      const p = step.percent != null ? `${step.percent}%` : '';
-      parts.push(
-        `<div class="routing-between-hops">${p ? `<span class="routing-pct-badge">${escapeHtml(p)}</span>` : ''}</div>`,
-      );
-    }
-    parts.push(renderRoutingMarketNode(step, { showPercent: idx === 0 }));
-  });
-  return `<div class="routing-branch">${parts.join('')}</div>`;
+function renderRouteFlowDexNode(step: VybeRoutePlanStepLite, leg: RouteHopLeg, hopLabel: string): string {
+  const si = step.swapInfo;
+  const dex = escapeHtml(si?.label ?? 'DEX');
+  const pct = hopPercentLabel(step);
+  return `<div class="route-flow-step route-flow-step--dex">
+    <div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-tile--route-dex route-flow-dex-card">
+      <div class="route-flow-dex-badges">
+        <span class="route-flow-dex-hop">Hop ${escapeHtml(hopLabel)}</span>
+        <span class="route-flow-dex-pct">${escapeHtml(pct)}</span>
+      </div>
+      <span class="swap-quote-summary-label">Via ${dex}</span>
+      ${renderHopConversionLeg(leg, 'route-hop-conversion route-hop-conversion--diagram')}
+    </div>
+  </div>`;
+}
+
+function renderRouteNodeTree(node: RouteNode, legs: RouteHopLeg[]): string {
+  if (node.kind === 'empty') return '';
+  if (node.kind === 'hop') {
+    const leg = legs[node.meta.planIndex];
+    if (!leg) return '';
+    return renderRouteFlowDexNode(node.meta.step, leg, node.meta.label);
+  }
+  if (node.kind === 'seq') {
+    const parts: string[] = [];
+    node.nodes.forEach((child, i) => {
+      if (i > 0) parts.push(renderRouteFlowConnector());
+      parts.push(renderRouteNodeTree(child, legs));
+    });
+    return parts.join('');
+  }
+  const branchTracks = node.branches
+    .map(
+      (branch) =>
+        `<div class="route-flow-track route-flow-track--branch">${renderRouteNodeTree(branch, legs)}</div>`,
+    )
+    .join('');
+  return `<div class="route-flow-split">${branchTracks}</div>`;
 }
 
 function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const inSym = getSwapInSym();
   const outSym = getSwapOutSym();
-  const inAmtRaw = quote.inAmount != null ? escapeHtml(String(quote.inAmount)) : '—';
-  const outUi =
-    typeof quote.outAmountUi === 'number' && Number.isFinite(quote.outAmountUi)
-      ? escapeHtml(String(quote.outAmountUi))
-      : quote.outAmount != null
-        ? escapeHtml(String(quote.outAmount))
-        : '—';
-  const inDot = endpointTokenDotClass(inSym);
-  const outDot = endpointTokenDotClass(outSym);
-
-  const endpointRow = `<div class="routing-endpoints">
-      <div class="routing-pill routing-pill--endpoint routing-pill--in"><span class="routing-token-dot ${inDot}" aria-hidden="true"></span><span class="routing-amt">${inAmtRaw}</span><span class="routing-sym">${escapeHtml(inSym)}</span></div>
-      <div class="routing-pill routing-pill--endpoint routing-pill--out"><span class="routing-token-dot ${outDot}" aria-hidden="true"></span><span class="routing-amt">${outUi}</span><span class="routing-sym">${escapeHtml(outSym)}</span></div>
-    </div>`;
+  const inDisplay = getSwapSellAmountLabel();
+  const outAmt = formatQuoteTokenAmount(quote, 'out');
+  const inNode = renderRouteFlowTokenNode(inDisplay, inSym, 'pay');
+  const outNode = renderRouteFlowTokenNode(outAmt.display, outSym, 'receive', outAmt.full || undefined);
 
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const legs = resolveRouteHopLegs(plan, quote);
   if (plan.length === 0) {
-    return `<div class="routing-canvas routing-canvas--flow">
-    ${endpointRow}
-    <p class="routing-empty">No route steps in this quote.</p>
-  </div>`;
+    return `<div class="route-flow-diagram route-flow-diagram--vertical">
+      <div class="route-flow-track">${inNode}${renderRouteFlowConnector()}${outNode}</div>
+      <p class="routing-empty">No route steps in this quote.</p>
+    </div>`;
   }
 
-  const branches = partitionRouteBranches(plan);
-  const splitClass = branches.length >= 2 ? 'routing-split-board--2' : 'routing-split-board--1';
-  const branchesHtml = branches.map((b) => renderRoutingBranch(b)).join('');
-
-  return `<div class="routing-canvas routing-canvas--flow">
-    ${endpointRow}
-    <div class="routing-split-board ${splitClass}">${branchesHtml}</div>
+  const tree = buildRouteTree(plan);
+  const mid = renderRouteNodeTree(tree, legs);
+  const splitClass = routeTreeHasFork(tree) ? ' route-flow-diagram--split' : '';
+  return `<div class="route-flow-diagram route-flow-diagram--vertical${splitClass}">
+    <div class="route-flow-track route-flow-track--main">
+      ${inNode}${renderRouteFlowConnector()}${mid}${renderRouteFlowConnector()}${outNode}
+    </div>
   </div>`;
 }
 
 const SWAP_QUOTE_FIELD_ORDER: readonly string[] = [
   'inputMintAddress',
+  'inputMint',
   'inAmount',
   'outputMintAddress',
+  'outputMint',
   'outAmount',
   'otherAmountThreshold',
   'swapMode',
   'priceImpactPct',
   'outAmountUi',
+  'outAmountUI',
   'otherAmountThresholdUi',
+  'otherAmountThresholdUI',
   'swapRate',
   'contextSlot',
   'slippageBps',
@@ -408,16 +962,107 @@ const SWAP_QUOTE_FIELD_ORDER: readonly string[] = [
   'otherRoutePlans',
 ];
 
-function renderQuoteFieldCellHtml(v: unknown): string {
+const SWAP_QUOTE_SUMMARY_KEYS = new Set([
+  'inAmount',
+  'outAmount',
+  'outAmountUi',
+  'swapRate',
+  'priceImpactPct',
+  'otherAmountThresholdUi',
+  'otherAmountThreshold',
+  'swapUsdValue',
+]);
+
+const SWAP_QUOTE_NESTED_KEYS = new Set(['mostReliableAmmsQuoteReport', 'otherRoutePlans']);
+const SWAP_QUOTE_LONG_STRING_MIN = 48;
+
+function renderQuoteSummary(quote: Record<string, unknown>): string {
+  const inSym = getSwapInSym();
+  const outSym = getSwapOutSym();
+  const payAmt = getSwapSellAmountLabel();
+  const outAmt = formatQuoteTokenAmount(quote, 'out');
+  const usd = formatSwapUsdLabel(quote.swapUsdValue);
+  const rateAmt =
+    typeof quote.swapRate === 'number' && Number.isFinite(quote.swapRate) ? formatSwapRate(quote.swapRate) : '—';
+  const impact = formatPriceImpactPct(quote.priceImpactPct);
+  const impactTitle =
+    quote.priceImpactPct != null && String(quote.priceImpactPct).length > 0
+      ? `${String(quote.priceImpactPct).replace(/%$/, '')}%`
+      : undefined;
+  const impactVariant =
+    impact === '0% (No Impact)'
+      ? 'none'
+      : impact === '< 0.01%'
+        ? 'low'
+        : 'default';
+  const minOutAmt = formatQuoteTokenAmount(quote, 'min').display;
+
+  const rateLine =
+    rateAmt === '—' ? '—' : `1 ${inSym} ≈ ${rateAmt} ${outSym}`;
+
+  const heroTile = (label: string, amt: string, sym: string, variant: 'pay' | 'receive', sub?: string | null) =>
+    `<div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-tile--${variant}">
+      <span class="swap-quote-summary-label">${escapeHtml(label)}</span>
+      <span class="swap-quote-summary-value">
+        <span class="swap-quote-summary-amt">${escapeHtml(amt)}</span>
+        <span class="swap-quote-summary-sym">${escapeHtml(sym)}</span>
+      </span>
+      ${sub ? `<span class="swap-quote-summary-sub">${escapeHtml(sub)}</span>` : ''}
+    </div>`;
+
+  const metricTile = (
+    label: string,
+    amt: string,
+    variant: 'rate' | 'impact' | 'minout',
+    opts?: { sub?: string; sym?: string; title?: string; impactTone?: string },
+  ) => {
+    const toneClass = opts?.impactTone ? ` swap-quote-summary-metric--impact-${opts.impactTone}` : '';
+    return `<div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-metric swap-quote-summary-metric--${variant}${toneClass}"${opts?.title ? ` title="${escapeHtml(opts.title)}"` : ''}>
+      <span class="swap-quote-summary-label">${escapeHtml(label)}</span>
+      ${opts?.sub ? `<span class="swap-quote-summary-metric-sub">${escapeHtml(opts.sub)}</span>` : ''}
+      <span class="swap-quote-summary-value">
+        <span class="swap-quote-summary-amt">${escapeHtml(amt)}</span>
+        ${opts?.sym ? `<span class="swap-quote-summary-sym">${escapeHtml(opts.sym)}</span>` : ''}
+      </span>
+    </div>`;
+  };
+
+  return `<div class="swap-quote-summary-primary">
+      ${heroTile('You pay', payAmt, inSym, 'pay', usd ? `≈ ${usd}` : null)}
+      <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
+      ${heroTile('You receive', outAmt.display, outSym, 'receive', usd ? `≈ ${usd}` : null)}
+    </div>
+    <div class="swap-quote-summary-metrics">
+      ${metricTile('Rate', rateLine, 'rate')}
+      ${metricTile('Impact', impact, 'impact', { title: impactTitle, impactTone: impactVariant })}
+      ${metricTile('Min out', minOutAmt, 'minout', { sym: minOutAmt !== '—' ? outSym : undefined })}
+    </div>`;
+}
+
+function renderQuoteFieldCellHtml(key: string, v: unknown): string {
   if (v === null || v === undefined) return '<span class="swap-quote-null">null</span>';
+
+  if (SWAP_QUOTE_NESTED_KEYS.has(key) || (typeof v === 'object' && v !== null)) {
+    try {
+      const json = JSON.stringify(v, null, 2);
+      const flat = json.replace(/\s+/g, ' ');
+      const preview =
+        flat.length > SWAP_QUOTE_LONG_STRING_MIN ? truncate(flat, 24, 12) : flat;
+      return `<details class="swap-quote-nested"><summary><code>${escapeHtml(preview)}</code></summary><pre class="swap-quote-pre">${escapeHtml(json)}</pre></details>`;
+    } catch {
+      return `<code>${escapeHtml(String(v))}</code>`;
+    }
+  }
+
   if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
-    return `<code>${escapeHtml(String(v))}</code>`;
+    const s = String(v);
+    if (typeof v === 'string' && s.length > SWAP_QUOTE_LONG_STRING_MIN) {
+      return `<code title="${escapeHtml(s)}">${escapeHtml(truncate(s, 8, 8))}</code>`;
+    }
+    return `<code>${escapeHtml(s)}</code>`;
   }
-  try {
-    return `<pre class="swap-quote-pre">${escapeHtml(JSON.stringify(v, null, 2))}</pre>`;
-  } catch {
-    return `<code>${escapeHtml(String(v))}</code>`;
-  }
+
+  return `<code>${escapeHtml(String(v))}</code>`;
 }
 
 function renderQuoteFieldsTable(quote: Record<string, unknown>): string {
@@ -430,7 +1075,8 @@ function renderQuoteFieldsTable(quote: Record<string, unknown>): string {
 
   const rowHtml = keys.map((key) => {
     const v = quote[key];
-    return `<div class="swap-quote-field-item"><div class="swap-quote-k">${escapeHtml(key)}</div><div class="swap-quote-v">${renderQuoteFieldCellHtml(v)}</div></div>`;
+    const dupClass = SWAP_QUOTE_SUMMARY_KEYS.has(key) ? ' swap-quote-field-item--summary-dup' : '';
+    return `<div class="swap-quote-field-item${dupClass}"><div class="swap-quote-k">${escapeHtml(key)}</div><div class="swap-quote-v">${renderQuoteFieldCellHtml(key, v)}</div></div>`;
   });
 
   let routeRow: string;
@@ -441,65 +1087,142 @@ function renderQuoteFieldsTable(quote: Record<string, unknown>): string {
         ? `<div class="swap-quote-field-item swap-quote-field-item--full"><div class="swap-quote-k">routePlan</div><div class="swap-quote-v"><em>${escapeHtml(`${n} hop(s) — see Route plan steps above`)}</em></div></div>`
         : `<div class="swap-quote-field-item swap-quote-field-item--full"><div class="swap-quote-k">routePlan</div><div class="swap-quote-v"><code>[]</code></div></div>`;
   } else {
-    routeRow = `<div class="swap-quote-field-item swap-quote-field-item--full"><div class="swap-quote-k">routePlan</div><div class="swap-quote-v">${renderQuoteFieldCellHtml(quote.routePlan)}</div></div>`;
+    routeRow = `<div class="swap-quote-field-item swap-quote-field-item--full"><div class="swap-quote-k">routePlan</div><div class="swap-quote-v">${renderQuoteFieldCellHtml('routePlan', quote.routePlan)}</div></div>`;
   }
 
   return `<div class="swap-quote-fields-grid">${rowHtml.join('')}${routeRow}</div>`;
 }
 
-function renderRoutePlanStepDetail(step: VybeRoutePlanStepLite, index: number): string {
+function renderRoutePlanStepDetail(step: VybeRoutePlanStepLite, hopLabel: string, leg: RouteHopLeg): string {
   const si = step.swapInfo;
-  const pct = step.percent != null && Number.isFinite(step.percent) ? `${step.percent}%` : '—';
-  const bps = step.bps != null && Number.isFinite(Number(step.bps)) ? String(step.bps) : '—';
-  const rows: [string, string][] = [
-    ['percent', pct],
-    ['bps', bps],
-    ['ammKey', si?.ammKey ?? '—'],
-    ['label', si?.label ?? '—'],
-    ['inputMintAddress', si?.inputMintAddress ?? '—'],
-    ['outputMintAddress', si?.outputMintAddress ?? '—'],
-    ['inAmount', si?.inAmount ?? '—'],
-    ['outAmount', si?.outAmount ?? '—'],
-    ['feeAmount', si?.feeAmount ?? '—'],
-    ['feeMintAddress', si?.feeMintAddress ?? '—'],
+  const dex = si?.label ?? 'Unknown DEX';
+  const pct = hopPercentLabel(step);
+  const preview = `${leg.inAmt} ${leg.inSym} → ${leg.outAmt} ${leg.outSym} · ${pct}`;
+  const feeSym = si?.feeMintAddress ? mintSymbolSync(si.feeMintAddress) : '—';
+  const feeMint = (si?.feeMintAddress ?? '').trim();
+  const feeAmt =
+    si?.feeAmount && si.feeAmount !== '0'
+      ? formatRawTokenAmount(si.feeAmount, feeMint || leg.inMint).display
+      : null;
+
+  const detailRow = (label: string, value: string, full?: string) =>
+    `<div class="swap-hop-detail-row">
+      <span class="swap-hop-detail-k">${escapeHtml(label)}</span>
+      <span class="swap-hop-detail-v"${full ? ` title="${escapeHtml(full)}"` : ''}><code>${escapeHtml(value)}</code></span>
+    </div>`;
+
+  const rows: string[] = [
+    detailRow('Route share', pct),
+    detailRow('Venue', dex),
+    detailRow('Input', `${leg.inAmt} ${leg.inSym}`),
+    detailRow('Output', `${leg.outAmt} ${leg.outSym}`),
   ];
-  const dl = rows
-    .map(([k, v]) => `<dt>${escapeHtml(k)}</dt><dd><code>${escapeHtml(v)}</code></dd>`)
-    .join('');
-  return `<div class="swap-quote-step-card">
-    <div class="swap-quote-step-head">Step ${index + 1}</div>
-    <dl class="swap-quote-step-dl">${dl}</dl>
-  </div>`;
+  if (step.bps != null && Number.isFinite(Number(step.bps))) {
+    rows.push(detailRow('BPS', String(step.bps)));
+  }
+  if (si?.ammKey) rows.push(detailRow('Market (AMM)', truncate(si.ammKey, 8, 8), si.ammKey));
+  if (leg.inMint) rows.push(detailRow('Input mint', truncate(leg.inMint, 8, 8), leg.inMint));
+  if (leg.outMint) rows.push(detailRow('Output mint', truncate(leg.outMint, 8, 8), leg.outMint));
+  if (si?.inAmount) {
+    const inFmt = formatRawTokenAmount(si.inAmount, leg.inMint);
+    rows.push(detailRow('In amount', `${inFmt.display} (${String(si.inAmount)} raw)`, inFmt.full || String(si.inAmount)));
+  }
+  if (si?.outAmount) {
+    const outFmt = formatRawTokenAmount(si.outAmount, leg.outMint);
+    rows.push(detailRow('Out amount', `${outFmt.display} (${String(si.outAmount)} raw)`, outFmt.full || String(si.outAmount)));
+  }
+  if (feeAmt) rows.push(detailRow('Fee', `${feeAmt} ${feeSym}`));
+
+  return `<details class="swap-hop-step-details">
+    <summary class="swap-hop-step-details__summary">
+      <span class="swap-hop-card__index">Hop ${escapeHtml(hopLabel)}</span>
+      <span class="swap-hop-step-details__main">
+        <span class="swap-hop-card__dex">${escapeHtml(dex)}</span>
+        <span class="swap-hop-step-details__preview">${escapeHtml(preview)}</span>
+      </span>
+      <span class="swap-hop-card__pct">${escapeHtml(pct)}</span>
+    </summary>
+    <div class="swap-hop-step-details__body">
+      ${renderHopConversionLeg(leg, 'route-hop-conversion route-hop-conversion--card')}
+      <div class="swap-hop-detail-grid">${rows.join('')}</div>
+    </div>
+  </details>`;
 }
 
 function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): string {
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   if (plan.length === 0) return '<p class="routing-empty">No route steps in this quote.</p>';
-  return plan.map((s, i) => renderRoutePlanStepDetail(s, i)).join('');
+  const legs = resolveRouteHopLegs(plan, quote);
+  const tree = buildRouteTree(plan);
+  const metas: RouteHopMeta[] = [];
+  collectRouteHopMetas(tree, metas);
+  if (metas.length === 0) {
+    return plan.map((s, i) => renderRoutePlanStepDetail(s, String(i + 1), legs[i]!)).join('');
+  }
+  return metas
+    .map((meta) => renderRoutePlanStepDetail(meta.step, meta.label, legs[meta.planIndex]!))
+    .join('');
+}
+
+function renderRawJsonEl(el: HTMLElement | null, data: unknown, emptyMsg: string): void {
+  if (!el) return;
+  if (data == null) {
+    el.textContent = emptyMsg;
+    return;
+  }
+  try {
+    el.textContent = JSON.stringify(data, null, 2);
+  } catch {
+    el.textContent = String(data);
+  }
+}
+
+function renderRawResponsePanels(): void {
+  renderRawJsonEl(swapRawQuoteResponseEl, lastRawQuoteResponse, 'No quote response yet.');
+  renderRawJsonEl(
+    swapRawSwapResponseEl,
+    lastRawSwapResponse,
+    'Build a swap to see the raw swap response.',
+  );
 }
 
 function renderSwapQuoteDetailsPanel(quote: Record<string, unknown>): void {
   if (swapQuoteDetailsEmptyEl) swapQuoteDetailsEmptyEl.hidden = true;
   if (swapQuoteDetailsBodyEl) swapQuoteDetailsBodyEl.hidden = false;
-  if (swapQuoteDetailsRoutingEl) swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagram(quote);
-  if (swapQuoteDetailsRouteStepsEl) swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanSteps(quote);
+  if (swapQuoteSummaryEl) {
+    swapQuoteSummaryEl.innerHTML = renderQuoteSummary(quote);
+    swapQuoteSummaryEl.hidden = false;
+  }
+  renderRoutePanels(quote);
   if (swapQuoteDetailsFieldsEl) swapQuoteDetailsFieldsEl.innerHTML = renderQuoteFieldsTable(quote);
+  renderRawResponsePanels();
 }
 
 function resetSwapQuoteDetailsPanel(): void {
   if (swapQuoteDetailsEmptyEl) swapQuoteDetailsEmptyEl.hidden = false;
   if (swapQuoteDetailsBodyEl) swapQuoteDetailsBodyEl.hidden = true;
+  if (swapQuoteSummaryEl) {
+    swapQuoteSummaryEl.innerHTML = '';
+    swapQuoteSummaryEl.hidden = true;
+  }
   if (swapQuoteDetailsRoutingEl) swapQuoteDetailsRoutingEl.innerHTML = '';
   if (swapQuoteDetailsFieldsEl) swapQuoteDetailsFieldsEl.innerHTML = '';
   if (swapQuoteDetailsRouteStepsEl) swapQuoteDetailsRouteStepsEl.innerHTML = '';
+  renderRawResponsePanels();
 }
 
 function clearSwapQuotePanel(): void {
   lastSwapQuoteOk = null;
+  lastRawQuoteResponse = null;
+  for (const k of Object.keys(routeMintSymbolCache)) delete routeMintSymbolCache[k];
+  for (const k of Object.keys(routeMintDecimalsCache)) delete routeMintDecimalsCache[k];
   if (swapBuildBtn) swapBuildBtn.disabled = true;
-  if (swapBuyAmountDisplayEl) swapBuyAmountDisplayEl.textContent = '—';
-  if (swapSellFiatEl) swapSellFiatEl.textContent = '—';
-  if (swapBuyFiatEl) swapBuyFiatEl.textContent = '—';
+  if (swapBuyAmountDisplayEl) {
+    swapBuyAmountDisplayEl.textContent = '0.00';
+    swapBuyAmountDisplayEl.dataset.empty = 'true';
+  }
+  if (swapSellFiatEl) swapSellFiatEl.textContent = '$0';
+  if (swapBuyFiatEl) swapBuyFiatEl.textContent = '$0';
   if (swapFooterRateEl) swapFooterRateEl.textContent = 'Rate updates after quote';
   if (swapFooterImpactEl) swapFooterImpactEl.textContent = '—';
   if (swapFooterMinOutEl) swapFooterMinOutEl.textContent = '—';
@@ -519,25 +1242,23 @@ function clearSwapQuotePanel(): void {
 }
 
 function renderSwapQuoteUI(quote: Record<string, unknown>): void {
+  const outAmt = formatQuoteTokenAmount(quote, 'out');
   if (swapBuyAmountDisplayEl) {
-    if (typeof quote.outAmountUi === 'number' && Number.isFinite(quote.outAmountUi)) {
-      swapBuyAmountDisplayEl.textContent = String(quote.outAmountUi);
-    } else if (quote.outAmount != null) {
-      swapBuyAmountDisplayEl.textContent = String(quote.outAmount);
-    } else {
-      swapBuyAmountDisplayEl.textContent = '—';
-    }
+    swapBuyAmountDisplayEl.textContent = outAmt.display;
+    swapBuyAmountDisplayEl.dataset.empty = outAmt.display === '—' ? 'true' : 'false';
+    if (outAmt.full) swapBuyAmountDisplayEl.title = outAmt.full;
+    else swapBuyAmountDisplayEl.removeAttribute('title');
   }
 
-  const usdLabel = formatSwapUsdLabel(quote.swapUsdValue);
-  if (swapSellFiatEl) swapSellFiatEl.textContent = usdLabel ? `~ ${usdLabel}` : '—';
-  if (swapBuyFiatEl) swapBuyFiatEl.textContent = usdLabel ? `~ ${usdLabel}` : '—';
+  const usdLabel = formatSwapFiatDisplay(quote.swapUsdValue);
+  if (swapSellFiatEl) swapSellFiatEl.textContent = usdLabel;
+  if (swapBuyFiatEl) swapBuyFiatEl.textContent = usdLabel;
 
   const inS = getSwapInSym();
   const outS = getSwapOutSym();
   if (swapFooterRateEl) {
     if (typeof quote.swapRate === 'number' && Number.isFinite(quote.swapRate)) {
-      swapFooterRateEl.textContent = `1 ${inS} ≈ ${quote.swapRate.toFixed(8)} ${outS}`;
+      swapFooterRateEl.textContent = `1 ${inS} ≈ ${formatSwapRate(quote.swapRate)} ${outS}`;
     } else {
       swapFooterRateEl.textContent = 'Rate from quote';
     }
@@ -545,15 +1266,16 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
 
   if (swapFooterImpactEl) {
     if (quote.priceImpactPct != null && String(quote.priceImpactPct).length > 0) {
-      swapFooterImpactEl.textContent = `Price impact ${String(quote.priceImpactPct)}%`;
+      swapFooterImpactEl.textContent = `Price impact ${formatPriceImpactPct(quote.priceImpactPct)}`;
     } else {
       swapFooterImpactEl.textContent = '—';
     }
   }
 
   if (swapFooterMinOutEl) {
-    if (quote.otherAmountThresholdUi != null) {
-      swapFooterMinOutEl.textContent = `Min. out (UI) ${String(quote.otherAmountThresholdUi)} ${outS}`;
+    const minOut = formatQuoteTokenAmount(quote, 'min');
+    if (minOut.display !== '—') {
+      swapFooterMinOutEl.textContent = `Min. out ${minOut.display} ${outS}`;
     } else {
       swapFooterMinOutEl.textContent = '—';
     }
@@ -561,11 +1283,12 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
 
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   const planLen = plan.length;
-  const branches = partitionRouteBranches(plan);
+  const routeTree = buildRouteTree(plan);
+  const forkBranches = countRouteTreeForkBranches(routeTree);
   if (swapRouteBtnEl) {
     swapRouteBtnEl.disabled = planLen === 0;
-    if (branches.length >= 2) {
-      swapRouteBtnEl.textContent = `${branches.length} markets (${planLen} hops)`;
+    if (forkBranches >= 2) {
+      swapRouteBtnEl.textContent = `${forkBranches} paths (${planLen} hops)`;
     } else if (planLen) {
       swapRouteBtnEl.textContent = `${planLen} hop${planLen === 1 ? '' : 's'}`;
     } else {
@@ -577,6 +1300,15 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
 
   renderSwapQuoteDetailsPanel(quote);
   updateSwapPairCards();
+}
+
+async function enrichRouteLabels(quote: Record<string, unknown>): Promise<void> {
+  try {
+    await prefetchRouteMintSymbols(quote);
+    renderRoutePanels(quote);
+  } catch {
+    /* keep initial render on symbol fetch failure */
+  }
 }
 
 async function fetchSwapQuote(): Promise<void> {
@@ -620,7 +1352,9 @@ async function fetchSwapQuote(): Promise<void> {
       return;
     }
     lastSwapQuoteOk = body;
+    lastRawQuoteResponse = body;
     renderSwapQuoteUI(body);
+    void enrichRouteLabels(body);
     if (swapBuildBtn) swapBuildBtn.disabled = false;
   } catch (err) {
     if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
@@ -637,8 +1371,17 @@ async function postBuildSwap(): Promise<void> {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Get a quote first.');
     return;
   }
-  const wallet = swapWalletAddressInput?.value.trim() ?? '';
-  if (!wallet) {
+  let wallet = swapWalletAddressInput?.value.trim() ?? '';
+  if (swapBuildMode === 'build-sign') {
+    try {
+      wallet = await ensureBrowserWalletConnected(wallet);
+    } catch (err) {
+      if (swapQuoteError) {
+        showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+      }
+      return;
+    }
+  } else if (!wallet) {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Wallet (accountAddress) is required to build the transaction.');
     return;
   }
@@ -647,7 +1390,8 @@ async function postBuildSwap(): Promise<void> {
   const amount = swapAmountInput ? Number(swapAmountInput.value) : NaN;
   const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : undefined;
   const router = swapRouterSelect?.value ?? 'vybe';
-  const serviceFeeRaw = swapServiceFeeInput?.value.trim() ?? '';
+  const serviceFeeRaw =
+    swapEnableServiceFeeCheckbox?.checked === true ? (swapServiceFeeInput?.value.trim() ?? '') : '';
   const serviceFeeN = serviceFeeRaw ? Number(serviceFeeRaw) : NaN;
 
   if (!swapBuildResultEl || !swapTxBase64El) return;
@@ -668,19 +1412,49 @@ async function postBuildSwap(): Promise<void> {
         gasless: swapGaslessCheckbox?.checked === true,
         autoCalculateSlippage: swapAutoSlippageCheckbox?.checked === true,
         simulate: swapSimulateCheckbox?.checked === true,
-        partner: swapPartnerInput?.value.trim() || undefined,
-        poolAddress: swapPoolAddressInput?.value.trim() || undefined,
-        protocol: swapProtocolSelect?.value.trim() || undefined,
-        swapFee: Number.isFinite(serviceFeeN) && serviceFeeN >= 0 ? serviceFeeN : undefined,
+        partner:
+          swapEnablePartnerCheckbox?.checked === true
+            ? swapPartnerInput?.value.trim() || undefined
+            : undefined,
+        poolAddress:
+          swapEnablePoolAddressCheckbox?.checked === true
+            ? swapPoolAddressInput?.value.trim() || undefined
+            : undefined,
+        protocol:
+          swapEnableProtocolCheckbox?.checked === true
+            ? swapProtocolSelect?.value.trim() || undefined
+            : undefined,
+        swapFee:
+          swapEnableServiceFeeCheckbox?.checked === true &&
+          Number.isFinite(serviceFeeN) &&
+          serviceFeeN >= 0
+            ? serviceFeeN
+            : undefined,
       }),
     });
-    const body = (await res.json().catch(() => ({}))) as { transaction?: string; error?: string };
+    const body = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
+      transaction?: string;
+      error?: string;
+    };
     if (!res.ok) {
       if (swapQuoteError) showInlineError(swapQuoteError, body.error || `Build failed (${res.status})`);
       return;
     }
+    lastRawSwapResponse = body;
+    renderRawResponsePanels();
     if (typeof body.transaction === 'string') {
-      swapTxBase64El.value = body.transaction;
+      if (swapBuildMode === 'build-sign') {
+        try {
+          swapTxBase64El.value = await signSwapTransactionBase64(body.transaction);
+        } catch (err) {
+          if (swapQuoteError) {
+            showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+          }
+          return;
+        }
+      } else {
+        swapTxBase64El.value = body.transaction;
+      }
       swapBuildResultEl.hidden = false;
     }
   } catch (err) {
@@ -688,6 +1462,104 @@ async function postBuildSwap(): Promise<void> {
   } finally {
     if (swapBuildBtn) swapBuildBtn.disabled = false;
   }
+}
+
+function getSolanaWalletProvider(): SolanaWalletProvider | null {
+  const w = getSolanaWindow();
+  if (w.solana?.signTransaction || w.solana?.connect) return w.solana;
+  if (w.phantom?.solana) return w.phantom.solana;
+  return null;
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+  return btoa(binary);
+}
+
+async function ensureBrowserWalletConnected(existingWallet: string): Promise<string> {
+  const provider = getSolanaWalletProvider();
+  if (!provider) {
+    throw new Error('No browser wallet found. Install Phantom or another Solana wallet extension.');
+  }
+  if (!provider.publicKey && provider.connect) {
+    await provider.connect();
+  }
+  const connected = provider.publicKey?.toString() ?? '';
+  if (!connected) {
+    throw new Error('Connect your wallet to build and sign the swap.');
+  }
+  if (swapWalletAddressInput) swapWalletAddressInput.value = connected;
+  if (existingWallet && existingWallet !== connected) {
+    throw new Error('Connected wallet does not match the wallet address field.');
+  }
+  syncWalletFieldForMode();
+  return connected;
+}
+
+async function signSwapTransactionBase64(base64: string): Promise<string> {
+  const provider = getSolanaWalletProvider();
+  if (!provider?.signTransaction) {
+    throw new Error('Connected wallet cannot sign transactions.');
+  }
+  const web3 = getSolanaWindow().solanaWeb3;
+  if (!web3) {
+    throw new Error('Signing library is still loading. Wait a moment and try again.');
+  }
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  let tx: unknown;
+  try {
+    tx = web3.VersionedTransaction.deserialize(bytes);
+  } catch {
+    tx = web3.Transaction.from(bytes);
+  }
+  const signed = await provider.signTransaction(tx);
+  return bytesToBase64(signed.serialize());
+}
+
+function syncWalletFieldForMode(): void {
+  const isSignMode = swapBuildMode === 'build-sign';
+  const hasWallet = Boolean(swapWalletAddressInput?.value.trim());
+  if (swapWalletAddressInput) {
+    swapWalletAddressInput.hidden = isSignMode && !hasWallet;
+    swapWalletAddressInput.readOnly = isSignMode && hasWallet;
+    if (!isSignMode) swapWalletAddressInput.readOnly = false;
+  }
+  if (swapConnectWalletBtn) {
+    swapConnectWalletBtn.hidden = !isSignMode || hasWallet;
+  }
+}
+
+function syncSwapBuildModeUi(): void {
+  const isSignMode = swapBuildMode === 'build-sign';
+  swapModeBuildBtn?.classList.toggle('swap-mode-switch__btn--active', !isSignMode);
+  swapModeBuildSignBtn?.classList.toggle('swap-mode-switch__btn--active', isSignMode);
+  swapModeBuildBtn?.setAttribute('aria-selected', isSignMode ? 'false' : 'true');
+  swapModeBuildSignBtn?.setAttribute('aria-selected', isSignMode ? 'true' : 'false');
+  syncWalletFieldForMode();
+  if (swapBuildBtn) {
+    swapBuildBtn.textContent = isSignMode ? 'Build & sign swap' : 'Build unsigned transaction';
+  }
+  if (swapBuildResultTitleEl) {
+    swapBuildResultTitleEl.textContent = isSignMode
+      ? 'Signed transaction (base64)'
+      : 'Unsigned transaction (base64)';
+  }
+  if (swapBuildResultMetaEl) {
+    swapBuildResultMetaEl.textContent = isSignMode
+      ? 'Signed in your browser wallet. This app does not broadcast.'
+      : 'Sign in your wallet. This app does not broadcast.';
+  }
+  if (swapAdvancedBuildHintEl) {
+    swapAdvancedBuildHintEl.innerHTML = isSignMode
+      ? 'Used only when you click <strong>Build &amp; sign swap</strong>. Quote uses wallet, slippage, and mints.'
+      : 'Used only when you click <strong>Build unsigned transaction</strong>. Quote uses wallet, slippage, and mints.';
+  }
+}
+
+function setSwapBuildMode(mode: SwapBuildMode): void {
+  swapBuildMode = mode;
+  syncSwapBuildModeUi();
 }
 
 function getSwapAmountStep(): number {
@@ -718,6 +1590,38 @@ function adjustSwapAmountByStep(direction: 1 | -1): void {
   swapAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
+function wireBuildOptionToggle(
+  enableEl: HTMLInputElement | null,
+  fieldEl: HTMLElement | null,
+  valueEl: HTMLInputElement | HTMLSelectElement | null
+): void {
+  if (!enableEl || !fieldEl) return;
+  const sync = (): void => {
+    const on = enableEl.checked;
+    fieldEl.hidden = !on;
+    if (!on && valueEl) {
+      if (valueEl instanceof HTMLSelectElement) valueEl.selectedIndex = 0;
+      else valueEl.value = '';
+    }
+  };
+  enableEl.addEventListener('change', sync);
+  sync();
+}
+
+wireBuildOptionToggle(swapEnablePartnerCheckbox, swapPartnerFieldEl, swapPartnerInput);
+wireBuildOptionToggle(swapEnablePoolAddressCheckbox, swapPoolAddressFieldEl, swapPoolAddressInput);
+wireBuildOptionToggle(swapEnableProtocolCheckbox, swapProtocolFieldEl, swapProtocolSelect);
+wireBuildOptionToggle(swapEnableServiceFeeCheckbox, swapServiceFeeFieldEl, swapServiceFeeInput);
+
+swapModeBuildBtn?.addEventListener('click', () => setSwapBuildMode('build'));
+swapModeBuildSignBtn?.addEventListener('click', () => setSwapBuildMode('build-sign'));
+swapConnectWalletBtn?.addEventListener('click', () => {
+  void ensureBrowserWalletConnected(swapWalletAddressInput?.value.trim() ?? '').catch((err) => {
+    if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+  });
+});
+syncSwapBuildModeUi();
+
 if (swapQuoteBtn) swapQuoteBtn.addEventListener('click', () => void fetchSwapQuote());
 if (swapBuildBtn) swapBuildBtn.addEventListener('click', () => void postBuildSwap());
 if (swapCopyTxBtn && swapTxBase64El) {
@@ -733,8 +1637,8 @@ if (swapCopyTxBtn && swapTxBase64El) {
   });
 }
 
-swapAmountUpBtn?.addEventListener('click', () => adjustSwapAmountByStep(1));
-swapAmountDownBtn?.addEventListener('click', () => adjustSwapAmountByStep(-1));
+wireTokenChipMintToggle(swapInputTokenBtn, swapInputMintInput);
+wireTokenChipMintToggle(swapOutputTokenBtn, swapOutputMintInput);
 
 if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
   swapFlipBtnEl.addEventListener('click', () => {
@@ -746,6 +1650,7 @@ if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
     const sb = swapOutputSymbolEl?.textContent ?? '';
     if (swapInputSymbolEl) swapInputSymbolEl.textContent = sb.trim() || '—';
     if (swapOutputSymbolEl) swapOutputSymbolEl.textContent = sa.trim() || '—';
+    updateSwapTokenIcons();
     updateSwapPairCards();
     void fetchSwapQuote();
   });
@@ -795,4 +1700,5 @@ if (swapOutputMintInput) {
 }
 
 void refreshSwapSymbols();
+updateSwapTokenIcons();
 updateSwapPairCards();
