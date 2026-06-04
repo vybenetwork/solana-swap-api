@@ -3,14 +3,19 @@
  */
 
 import {
+  buildTokenHintsForMints,
   ensureTokenCatalogLoaded,
   ensureTokenMetaForMint,
   getCachedTokenMeta,
   getTokenDecimalsFromCache,
   initTokenPicker,
   openTokenPicker,
+  prefetchTokenMetas,
   renderChipTokenIcon,
+  resolveLogoUrl,
+  saveTokenPriceStats,
   type TokenPickerSide,
+  type TokenPriceStats,
 } from './token-picker.js';
 
 interface TokenSymbolResponse {
@@ -40,6 +45,7 @@ interface VybeRoutePlanStepLite {
 
 const MAX_FETCH_RETRIES = 5;
 const FETCH_RETRY_DELAY_MS = 2000;
+const VYBE_BUILD_REUSE_MS = 5000;
 
 /** Hardcoded mint → symbol; never fetch these from API. */
 const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
@@ -126,22 +132,21 @@ const swapFooterRateEl = document.getElementById('swapFooterRate') as HTMLElemen
 const swapFooterImpactEl = document.getElementById('swapFooterImpact') as HTMLElement | null;
 const swapFooterMinOutEl = document.getElementById('swapFooterMinOut') as HTMLElement | null;
 const swapRouteBtnEl = document.getElementById('swapRouteBtn') as HTMLButtonElement | null;
+const swapRouteChipTextEl = swapRouteBtnEl?.querySelector('.swap-route-chip-text') as HTMLElement | null;
 const swapFlipBtnEl = document.getElementById('swapFlipBtn') as HTMLButtonElement | null;
 const swapPasteOutputBtnEl = document.getElementById('swapPasteOutputBtn') as HTMLButtonElement | null;
-const swapCardSellMintEl = document.getElementById('swapCardSellMint') as HTMLElement | null;
-const swapCardBuyMintEl = document.getElementById('swapCardBuyMint') as HTMLElement | null;
-const swapCardSellNameEl = document.getElementById('swapCardSellName') as HTMLElement | null;
-const swapCardBuyNameEl = document.getElementById('swapCardBuyName') as HTMLElement | null;
-const swapCardSellPriceEl = document.getElementById('swapCardSellPrice') as HTMLElement | null;
-const swapCardBuyPriceEl = document.getElementById('swapCardBuyPrice') as HTMLElement | null;
+const swapCardSellEl = document.getElementById('swapCardSell') as HTMLElement | null;
+const swapCardBuyEl = document.getElementById('swapCardBuy') as HTMLElement | null;
 
 const routingDialogEl = document.getElementById('routingDialog') as HTMLDialogElement | null;
+const routingDialogTitleEl = document.getElementById('routingDialogTitle') as HTMLElement | null;
 const routingDialogBodyEl = document.getElementById('routingDialogBody') as HTMLElement | null;
 const routingDialogCloseEl = document.getElementById('routingDialogClose') as HTMLButtonElement | null;
 const swapPairCardsEl = document.getElementById('swapPairCards') as HTMLElement | null;
 const swapQuoteDetailsEmptyEl = document.getElementById('swapQuoteDetailsEmpty') as HTMLElement | null;
 const swapQuoteDetailsBodyEl = document.getElementById('swapQuoteDetailsBody') as HTMLElement | null;
 const swapQuoteDetailsRoutingEl = document.getElementById('swapQuoteDetailsRouting') as HTMLElement | null;
+const swapQuoteRouteSubtitleEl = document.getElementById('swapQuoteRouteSubtitle') as HTMLElement | null;
 const swapQuoteDetailsFieldsEl = document.getElementById('swapQuoteDetailsFields') as HTMLElement | null;
 const swapQuoteDetailsRouteStepsEl = document.getElementById('swapQuoteDetailsRouteSteps') as HTMLElement | null;
 const swapQuoteSummaryEl = document.getElementById('swapQuoteSummary') as HTMLElement | null;
@@ -152,6 +157,10 @@ const swapRawSwapResponseEl = document.getElementById('swapRawSwapResponse') as 
 let lastSwapQuoteOk: Record<string, unknown> | null = null;
 let lastRawQuoteResponse: unknown = null;
 let lastRawSwapResponse: unknown = null;
+let lastVybeBuild: { transaction: string; builtAt: number; paramsKey: string; buildPayload: unknown } | null =
+  null;
+const quotedMintSession = new Set<string>();
+let pairTokenStats: Record<string, TokenPriceStats> = {};
 
 type SwapBuildMode = 'build' | 'build-sign';
 let swapBuildMode: SwapBuildMode = 'build';
@@ -324,6 +333,7 @@ async function refreshSwapSymbols(): Promise<void> {
 function updateSwapTokenIcons(): void {
   renderChipTokenIcon(swapInputTokenIconEl, swapInputMintInput?.value, endpointTokenDotClass(getSwapInSym()));
   renderChipTokenIcon(swapOutputTokenIconEl, swapOutputMintInput?.value, endpointTokenDotClass(getSwapOutSym()));
+  updateSwapPairCards();
 }
 
 function formatSwapFiatDisplay(v: unknown): string {
@@ -572,19 +582,79 @@ function getSwapSellAmountLabel(): string {
   return formatSwapAmount(n).display;
 }
 
-function updateSwapPairCards(): void {
+function formatPctChange(pct: number): string {
+  const sign = pct >= 0 ? '+' : '';
+  return `${sign}${pct.toFixed(2)}%`;
+}
+
+function pairCardSymbol(mint: string, side: 'sell' | 'buy'): string {
+  const meta = getCachedTokenMeta(mint);
+  if (meta?.symbol) return displaySymbol(meta.symbol);
+  return side === 'sell' ? getSwapInSym() : getSwapOutSym();
+}
+
+function pairCardFullName(mint: string, symbol: string): string {
+  const meta = getCachedTokenMeta(mint);
+  const name = meta?.name?.trim();
+  if (name && name.toLowerCase() !== symbol.toLowerCase()) return name;
+  return symbol;
+}
+
+function renderPairCardIcon(mint: string, symbol: string): string {
+  const meta = getCachedTokenMeta(mint);
+  const src = resolveLogoUrl(meta?.logoUrl);
+  if (src) {
+    return `<img class="swap-pair-icon-img" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
+  }
+  const letter = (symbol || '?').slice(0, 1).toUpperCase();
+  return `<span class="swap-pair-icon-fallback" aria-hidden="true">${escapeHtml(letter)}</span>`;
+}
+
+function renderPairCardChangesHtml(stats?: TokenPriceStats): string {
+  if (!stats?.price1d || !stats?.price7d || stats.price1d <= 0 || stats.price7d <= 0) {
+    return '<span class="swap-pair-chg swap-pair-chg--muted">—</span>';
+  }
+  const pct24 = ((stats.price - stats.price1d) / stats.price1d) * 100;
+  const pct7 = ((stats.price - stats.price7d) / stats.price7d) * 100;
+  const cls24 = pct24 >= 0 ? 'swap-pair-chg--up' : 'swap-pair-chg--down';
+  const cls7 = pct7 >= 0 ? 'swap-pair-chg--up' : 'swap-pair-chg--down';
+  return `<span class="swap-pair-chg ${cls24}">24h ${formatPctChange(pct24)}</span><span class="swap-pair-chg ${cls7}">7d ${formatPctChange(pct7)}</span>`;
+}
+
+function renderPairCard(el: HTMLElement | null, mint: string, side: 'sell' | 'buy'): void {
+  if (!el) return;
+  if (!mint) {
+    el.innerHTML = '<div class="swap-pair-empty">Select a token</div>';
+    return;
+  }
+  const symbol = pairCardSymbol(mint, side);
+  const fullName = pairCardFullName(mint, symbol);
+  const stats = pairTokenStats[mint];
+  const spot =
+    stats?.price != null && Number.isFinite(stats.price) && stats.price > 0
+      ? fmtUsd(stats.price)
+      : '—';
+
+  el.innerHTML = `<div class="swap-pair-card-head">
+      <span class="swap-pair-icon">${renderPairCardIcon(mint, symbol)}</span>
+      <div class="swap-pair-identity">
+        <div class="swap-pair-symbol-row">
+          <span class="swap-pair-symbol">${escapeHtml(symbol)}</span>
+          <span class="swap-pair-fullname">${escapeHtml(fullName)}</span>
+        </div>
+        <div class="swap-pair-mint">${escapeHtml(truncate(mint, 4, 4))}</div>
+      </div>
+    </div>
+    <div class="swap-pair-spot">${escapeHtml(spot)}</div>
+    <div class="swap-pair-changes">${renderPairCardChangesHtml(stats)}</div>`;
+}
+
+function updateSwapPairCards(stats?: Record<string, TokenPriceStats>): void {
+  if (stats) pairTokenStats = { ...pairTokenStats, ...stats };
   const inMint = swapInputMintInput?.value.trim() ?? '';
   const outMint = swapOutputMintInput?.value.trim() ?? '';
-  if (swapCardSellMintEl) swapCardSellMintEl.textContent = inMint ? truncate(inMint, 4, 4) : '—';
-  if (swapCardBuyMintEl) swapCardBuyMintEl.textContent = outMint ? truncate(outMint, 4, 4) : '—';
-  if (swapCardSellNameEl) swapCardSellNameEl.textContent = getSwapInSym();
-  if (swapCardBuyNameEl) swapCardBuyNameEl.textContent = getSwapOutSym();
-  if (swapCardSellPriceEl) {
-    swapCardSellPriceEl.innerHTML = '<span class="swap-pair-chg swap-pair-chg--muted">—</span>';
-  }
-  if (swapCardBuyPriceEl) {
-    swapCardBuyPriceEl.innerHTML = '<span class="swap-pair-chg swap-pair-chg--muted">—</span>';
-  }
+  renderPairCard(swapCardSellEl, inMint, 'sell');
+  renderPairCard(swapCardBuyEl, outMint, 'buy');
 }
 
 function routeOutputMintSymbol(mint: string | undefined): string {
@@ -726,6 +796,8 @@ function parseRouteAt(
   plan: VybeRoutePlanStepLite[],
   idx: number,
   depth: number,
+  labelPrefix: string | null,
+  subSeq: number,
   consumed: Set<number>,
 ): { node: RouteNode; nextIdx: number } {
   while (idx < plan.length && consumed.has(idx)) idx++;
@@ -739,12 +811,13 @@ function parseRouteAt(
     for (let b = 0; b < forkLen; b++) {
       const hopIdx = idx + b;
       consumed.add(hopIdx);
+      const branchLabel = labelPrefix ? `${labelPrefix}.${b + 1}` : `${depth}.${b + 1}`;
       const hopNode: RouteNode = {
         kind: 'hop',
         meta: {
           step: plan[hopIdx]!,
           planIndex: hopIdx,
-          label: `${depth}.${b + 1}`,
+          label: branchLabel,
         },
       };
 
@@ -755,7 +828,7 @@ function parseRouteAt(
       let contEnd = contStart;
 
       if (contStart < plan.length) {
-        const cont = parseRouteAt(plan, contStart, depth + 1, consumed);
+        const cont = parseRouteAt(plan, contStart, depth + 1, branchLabel, 1, consumed);
         contNode = cont.node;
         contEnd = cont.nextIdx;
       }
@@ -768,7 +841,7 @@ function parseRouteAt(
 
     const forkEnd = Math.max(idx + forkLen, ...branchEndIdxs);
     const forkNode: RouteNode = { kind: 'fork', branches, depth };
-    const after = parseRouteAt(plan, forkEnd, depth + 1, consumed);
+    const after = parseRouteAt(plan, forkEnd, depth + 1, labelPrefix, subSeq, consumed);
 
     if (after.node.kind === 'empty') {
       return { node: forkNode, nextIdx: forkEnd };
@@ -780,11 +853,12 @@ function parseRouteAt(
   }
 
   consumed.add(idx);
+  const hopLabel = labelPrefix ? `${labelPrefix}.${subSeq}` : String(depth);
   const hopNode: RouteNode = {
     kind: 'hop',
-    meta: { step: plan[idx]!, planIndex: idx, label: String(depth) },
+    meta: { step: plan[idx]!, planIndex: idx, label: hopLabel },
   };
-  const after = parseRouteAt(plan, idx + 1, depth + 1, consumed);
+  const after = parseRouteAt(plan, idx + 1, depth + 1, labelPrefix, subSeq + 1, consumed);
   if (after.node.kind === 'empty') {
     return { node: hopNode, nextIdx: idx + 1 };
   }
@@ -793,7 +867,7 @@ function parseRouteAt(
 
 function buildRouteTree(plan: VybeRoutePlanStepLite[]): RouteNode {
   if (plan.length === 0) return { kind: 'empty' };
-  return parseRouteAt(plan, 0, 1, new Set()).node;
+  return parseRouteAt(plan, 0, 1, null, 1, new Set()).node;
 }
 
 function collectRouteHopMetas(node: RouteNode, out: RouteHopMeta[]): void {
@@ -830,6 +904,23 @@ function countRouteTreeForkBranches(node: RouteNode): number {
   return 0;
 }
 
+function formatRouteChipLabel(plan: VybeRoutePlanStepLite[]): string {
+  const hopCount = plan.length;
+  if (hopCount === 0) return '—';
+  const routeTree = buildRouteTree(plan);
+  const routeCount = countRouteTreeForkBranches(routeTree);
+  if (routeCount >= 2) {
+    return `${routeCount} Routes + ${hopCount} Hops`;
+  }
+  return hopCount === 1 ? '1 Hop' : `${hopCount} Hops`;
+}
+
+function setRouteChipLabel(label: string, disabled: boolean): void {
+  if (swapRouteChipTextEl) swapRouteChipTextEl.textContent = label;
+  else if (swapRouteBtnEl) swapRouteBtnEl.textContent = label;
+  if (swapRouteBtnEl) swapRouteBtnEl.disabled = disabled;
+}
+
 function renderHopConversionLeg(leg: RouteHopLeg, className = 'route-hop-conversion'): string {
   return `<div class="${className}">
     <span class="route-hop-leg">
@@ -844,7 +935,231 @@ function renderHopConversionLeg(leg: RouteHopLeg, className = 'route-hop-convers
   </div>`;
 }
 
+function renderRoutingTokenIcon(mint: string, sym: string): string {
+  const meta = getCachedTokenMeta(mint);
+  const src = resolveLogoUrl(meta?.logoUrl);
+  if (src) {
+    return `<img class="routing-token-img" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
+  }
+  return `<span class="routing-token-dot ${endpointTokenDotClass(sym)}" aria-hidden="true"></span>`;
+}
+
+function renderJupiterEndpointPill(amt: string, sym: string, title?: string): string {
+  const mint =
+    sym === getSwapInSym()
+      ? (swapInputMintInput?.value.trim() ?? '')
+      : sym === getSwapOutSym()
+        ? (swapOutputMintInput?.value.trim() ?? '')
+        : '';
+  const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
+  return `<div class="routing-pill routing-pill--endpoint"${titleAttr}>
+    ${renderRoutingTokenIcon(mint, sym)}
+    <span class="routing-amt">${escapeHtml(amt)}</span>
+    <span class="routing-sym">${escapeHtml(sym)}</span>
+  </div>`;
+}
+
+function renderJupiterPctLink(pct: string): string {
+  return `<div class="routing-hop-link" aria-hidden="true">
+    <span class="routing-hop-link-line"></span>
+    <span class="routing-pct-badge">${escapeHtml(pct)}</span>
+  </div>`;
+}
+
+function renderHopIndexBadge(label: string): string {
+  return `<span class="routing-hop-index-badge">Hop #${escapeHtml(label)}</span>`;
+}
+
+function renderJupiterMarketNode(meta: RouteHopMeta, leg: RouteHopLeg): string {
+  const si = meta.step.swapInfo;
+  const dex = escapeHtml(si?.label ?? 'DEX');
+  const sym = escapeHtml(leg.outSym);
+  return `<div class="routing-market-node">
+    ${renderHopIndexBadge(meta.label)}
+    <div class="routing-pill routing-pill--hop">
+      ${renderRoutingTokenIcon(leg.outMint, leg.outSym)}
+      <span class="routing-token-sym">${sym}</span>
+    </div>
+    <div class="routing-dex-caption">${dex}</div>
+  </div>`;
+}
+
+const ROUTING_CONNECTORS = `<div class="routing-connectors" aria-hidden="true">
+  <div class="routing-corner routing-corner--in"></div>
+  <div class="routing-corner routing-corner--out"></div>
+</div>`;
+
+function renderJupiterTrack(node: RouteNode, legs: RouteHopLeg[]): string {
+  const metas: RouteHopMeta[] = [];
+  collectRouteHopMetas(node, metas);
+  if (metas.length === 0) return '';
+
+  const inner = metas
+    .map((meta) => {
+      const leg = legs[meta.planIndex];
+      if (!leg) return '';
+      return renderJupiterPctLink(hopPercentLabel(meta.step)) + renderJupiterMarketNode(meta, leg);
+    })
+    .join('');
+
+  return `<div class="routing-rail-row">${inner}<div class="routing-rail-tail" aria-hidden="true"></div></div>`;
+}
+
+function renderJupiterFork(node: Extract<RouteNode, { kind: 'fork' }>, legs: RouteHopLeg[]): string {
+  const n = node.branches.length;
+  const boardClass =
+    n === 1 ? 'routing-split-board--1' : n === 2 ? 'routing-split-board--2' : 'routing-split-board--multi';
+  const tracks = node.branches.map((b) => renderJupiterTrack(b, legs)).join('');
+  return `<div class="routing-split-board ${boardClass}">${tracks}</div>`;
+}
+
+function renderJupiterRouteBody(node: RouteNode, legs: RouteHopLeg[]): string {
+  if (node.kind === 'empty') return '';
+  if (node.kind === 'fork') {
+    return renderJupiterFork(node, legs);
+  }
+  if (node.kind === 'hop') {
+    return renderJupiterTrack(node, legs);
+  }
+  const hasFork = node.nodes.some((n) => n.kind === 'fork');
+  if (hasFork) {
+    return node.nodes.map((n) => renderJupiterRouteBody(n, legs)).join('');
+  }
+  return renderJupiterTrack(node, legs);
+}
+
+function routingCanvasHopClass(hopCount: number): string {
+  if (hopCount === 3) return ' routing-canvas--hops-3';
+  if (hopCount > 3) return ' routing-canvas--hops-many';
+  return '';
+}
+
+function renderRoutingFrame(
+  inDisplay: string,
+  inSym: string,
+  outDisplay: string,
+  outSym: string,
+  outTitle: string | undefined,
+  body: string,
+  split: boolean,
+  hopCount = 0,
+): string {
+  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}">
+    <div class="routing-frame">
+      <div class="routing-endpoint routing-endpoint--in">
+        ${renderJupiterEndpointPill(inDisplay, inSym)}
+      </div>
+      <div class="routing-endpoint routing-endpoint--out">
+        ${renderJupiterEndpointPill(outDisplay, outSym, outTitle)}
+      </div>
+      <div class="routing-path">
+        ${ROUTING_CONNECTORS}
+        <div class="routing-stem routing-stem--in" aria-hidden="true"></div>
+        <div class="routing-stem routing-stem--out" aria-hidden="true"></div>
+        <div class="routing-track-wrap">${body}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderRoutingDiagram(quote: Record<string, unknown>): string {
+  const inSym = getSwapInSym();
+  const outSym = getSwapOutSym();
+  const inDisplay = getSwapSellAmountLabel();
+  const outAmt = formatQuoteTokenAmount(quote, 'out');
+
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const legs = resolveRouteHopLegs(plan, quote);
+
+  if (plan.length === 0) {
+    return renderRoutingFrame(
+      inDisplay,
+      inSym,
+      outAmt.display,
+      outSym,
+      outAmt.full || undefined,
+      '<p class="routing-empty">No route steps in this quote.</p>',
+      false,
+      0,
+    );
+  }
+
+  const tree = buildRouteTree(plan);
+  const split = routeTreeHasFork(tree);
+  const body = renderJupiterRouteBody(tree, legs);
+
+  return renderRoutingFrame(
+    inDisplay,
+    inSym,
+    outAmt.display,
+    outSym,
+    outAmt.full || undefined,
+    body,
+    split,
+    plan.length,
+  );
+}
+
+function normalizeRouterId(value: unknown): string {
+  const raw = String(value ?? '').trim().toLowerCase();
+  if (raw === 'jupiter' || raw === 'titan' || raw === 'vybe') return raw;
+  return raw || 'vybe';
+}
+
+function routerDisplayLabel(routerId: string): string {
+  const id = normalizeRouterId(routerId);
+  if (id === 'jupiter') return 'Jupiter';
+  if (id === 'titan') return 'Titan';
+  if (id === 'vybe') return 'Vybe';
+  return id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+function formatRouteDiagramTitle(quote: Record<string, unknown>): string {
+  const selected = normalizeRouterId(
+    quote._selectedRouter ?? quote.router ?? swapRouterSelect?.value ?? 'vybe',
+  );
+  const effective = normalizeRouterId(
+    quote._effectiveRouter ?? quote._buildRouter ?? selected,
+  );
+  const fallback =
+    quote._routerFallbackUsed === true ||
+    quote._quoteSource === 'vybe-swap-quote-fallback' ||
+    effective !== selected;
+
+  if (fallback) {
+    const selectedLabel = routerDisplayLabel(selected);
+    const effectiveLabel = routerDisplayLabel(effective);
+    if (effectiveLabel === selectedLabel) {
+      return `Route · ${effectiveLabel} (fallback)`;
+    }
+    return `Route · ${effectiveLabel} (fallback from ${selectedLabel})`;
+  }
+  return `Route · ${routerDisplayLabel(selected)}`;
+}
+
+function updateRouteDiagramTitle(quote: Record<string, unknown>): void {
+  const title = formatRouteDiagramTitle(quote);
+  if (swapQuoteRouteSubtitleEl) swapQuoteRouteSubtitleEl.textContent = title;
+  if (routingDialogTitleEl) routingDialogTitleEl.textContent = title;
+}
+
+function annotateQuoteRouterMeta(
+  quote: Record<string, unknown>,
+  selectedRouter: string,
+): Record<string, unknown> {
+  const selected = normalizeRouterId(selectedRouter);
+  return {
+    ...quote,
+    _selectedRouter: selected,
+    _effectiveRouter: normalizeRouterId(quote._effectiveRouter ?? quote._buildRouter ?? selected),
+    _routerFallbackUsed:
+      quote._routerFallbackUsed === true ||
+      normalizeRouterId(quote._effectiveRouter ?? quote._buildRouter ?? selected) !== selected,
+  };
+}
+
 function renderRoutePanels(quote: Record<string, unknown>): void {
+  updateRouteDiagramTitle(quote);
   if (swapQuoteDetailsRoutingEl) swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagram(quote);
   if (swapQuoteDetailsRouteStepsEl) swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanSteps(quote);
   if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = renderRoutingDiagram(quote);
@@ -857,103 +1172,6 @@ function endpointTokenDotClass(sym: string): string {
   if (u === 'USDT' || u === 'USDT1') return 'routing-token-dot--usdt';
   if (u === 'BONK') return 'routing-token-dot--bonk';
   return 'routing-token-dot';
-}
-
-function renderRouteFlowConnector(): string {
-  return `<div class="route-flow-connector" aria-hidden="true">
-    <span class="route-flow-connector-line"></span>
-    <span class="route-flow-connector-chevron">›</span>
-  </div>`;
-}
-
-function renderRouteFlowTokenNode(
-  amt: string,
-  sym: string,
-  variant: 'pay' | 'receive',
-  title?: string,
-): string {
-  const dot = endpointTokenDotClass(sym);
-  const label = variant === 'pay' ? 'You pay' : 'You get';
-  const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
-  return `<div class="route-flow-step route-flow-step--token"${titleAttr}>
-    <div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-tile--${variant} route-flow-token-card">
-      <span class="swap-quote-summary-label">${escapeHtml(label)}</span>
-      <div class="route-flow-token-row">
-        <span class="routing-token-dot ${dot}" aria-hidden="true"></span>
-        <span class="swap-quote-summary-value">
-          <span class="swap-quote-summary-amt">${escapeHtml(amt)}</span>
-          <span class="swap-quote-summary-sym">${escapeHtml(sym)}</span>
-        </span>
-      </div>
-    </div>
-  </div>`;
-}
-
-function renderRouteFlowDexNode(step: VybeRoutePlanStepLite, leg: RouteHopLeg, hopLabel: string): string {
-  const si = step.swapInfo;
-  const dex = escapeHtml(si?.label ?? 'DEX');
-  const pct = hopPercentLabel(step);
-  return `<div class="route-flow-step route-flow-step--dex">
-    <div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-tile--route-dex route-flow-dex-card">
-      <div class="route-flow-dex-badges">
-        <span class="route-flow-dex-hop">Hop ${escapeHtml(hopLabel)}</span>
-        <span class="route-flow-dex-pct">${escapeHtml(pct)}</span>
-      </div>
-      <span class="swap-quote-summary-label">Via ${dex}</span>
-      ${renderHopConversionLeg(leg, 'route-hop-conversion route-hop-conversion--diagram')}
-    </div>
-  </div>`;
-}
-
-function renderRouteNodeTree(node: RouteNode, legs: RouteHopLeg[]): string {
-  if (node.kind === 'empty') return '';
-  if (node.kind === 'hop') {
-    const leg = legs[node.meta.planIndex];
-    if (!leg) return '';
-    return renderRouteFlowDexNode(node.meta.step, leg, node.meta.label);
-  }
-  if (node.kind === 'seq') {
-    const parts: string[] = [];
-    node.nodes.forEach((child, i) => {
-      if (i > 0) parts.push(renderRouteFlowConnector());
-      parts.push(renderRouteNodeTree(child, legs));
-    });
-    return parts.join('');
-  }
-  const branchTracks = node.branches
-    .map(
-      (branch) =>
-        `<div class="route-flow-track route-flow-track--branch">${renderRouteNodeTree(branch, legs)}</div>`,
-    )
-    .join('');
-  return `<div class="route-flow-split">${branchTracks}</div>`;
-}
-
-function renderRoutingDiagram(quote: Record<string, unknown>): string {
-  const inSym = getSwapInSym();
-  const outSym = getSwapOutSym();
-  const inDisplay = getSwapSellAmountLabel();
-  const outAmt = formatQuoteTokenAmount(quote, 'out');
-  const inNode = renderRouteFlowTokenNode(inDisplay, inSym, 'pay');
-  const outNode = renderRouteFlowTokenNode(outAmt.display, outSym, 'receive', outAmt.full || undefined);
-
-  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
-  const legs = resolveRouteHopLegs(plan, quote);
-  if (plan.length === 0) {
-    return `<div class="route-flow-diagram route-flow-diagram--vertical">
-      <div class="route-flow-track">${inNode}${renderRouteFlowConnector()}${outNode}</div>
-      <p class="routing-empty">No route steps in this quote.</p>
-    </div>`;
-  }
-
-  const tree = buildRouteTree(plan);
-  const mid = renderRouteNodeTree(tree, legs);
-  const splitClass = routeTreeHasFork(tree) ? ' route-flow-diagram--split' : '';
-  return `<div class="route-flow-diagram route-flow-diagram--vertical${splitClass}">
-    <div class="route-flow-track route-flow-track--main">
-      ${inNode}${renderRouteFlowConnector()}${mid}${renderRouteFlowConnector()}${outNode}
-    </div>
-  </div>`;
 }
 
 const SWAP_QUOTE_FIELD_ORDER: readonly string[] = [
@@ -1152,7 +1370,7 @@ function renderRoutePlanStepDetail(step: VybeRoutePlanStepLite, hopLabel: string
 
   return `<details class="swap-hop-step-details">
     <summary class="swap-hop-step-details__summary">
-      <span class="swap-hop-card__index">Hop ${escapeHtml(hopLabel)}</span>
+      <span class="swap-hop-card__index">Hop #${escapeHtml(hopLabel)}</span>
       <span class="swap-hop-step-details__main">
         <span class="swap-hop-card__dex">${escapeHtml(dex)}</span>
         <span class="swap-hop-step-details__preview">${escapeHtml(preview)}</span>
@@ -1225,6 +1443,8 @@ function resetSwapQuoteDetailsPanel(): void {
   if (swapQuoteDetailsRoutingEl) swapQuoteDetailsRoutingEl.innerHTML = '';
   if (swapQuoteDetailsFieldsEl) swapQuoteDetailsFieldsEl.innerHTML = '';
   if (swapQuoteDetailsRouteStepsEl) swapQuoteDetailsRouteStepsEl.innerHTML = '';
+  if (swapQuoteRouteSubtitleEl) swapQuoteRouteSubtitleEl.textContent = 'Route';
+  if (routingDialogTitleEl) routingDialogTitleEl.textContent = 'Routing';
   renderRawResponsePanels();
 }
 
@@ -1240,13 +1460,10 @@ function clearSwapQuotePanel(): void {
   }
   if (swapSellFiatEl) swapSellFiatEl.textContent = '$0';
   if (swapBuyFiatEl) swapBuyFiatEl.textContent = '$0';
-  if (swapFooterRateEl) swapFooterRateEl.textContent = 'Rate updates after quote';
+  if (swapFooterRateEl) swapFooterRateEl.textContent = '—';
   if (swapFooterImpactEl) swapFooterImpactEl.textContent = '—';
   if (swapFooterMinOutEl) swapFooterMinOutEl.textContent = '—';
-  if (swapRouteBtnEl) {
-    swapRouteBtnEl.disabled = true;
-    swapRouteBtnEl.textContent = 'Routing';
-  }
+  setRouteChipLabel('—', true);
   if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = '';
   resetSwapQuoteDetailsPanel();
   if (swapPairCardsEl) {
@@ -1277,13 +1494,13 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
     if (typeof quote.swapRate === 'number' && Number.isFinite(quote.swapRate)) {
       swapFooterRateEl.textContent = `1 ${inS} ≈ ${formatSwapRate(quote.swapRate)} ${outS}`;
     } else {
-      swapFooterRateEl.textContent = 'Rate from quote';
+      swapFooterRateEl.textContent = '—';
     }
   }
 
   if (swapFooterImpactEl) {
     if (quote.priceImpactPct != null && String(quote.priceImpactPct).length > 0) {
-      swapFooterImpactEl.textContent = `Price impact ${formatPriceImpactPct(quote.priceImpactPct)}`;
+      swapFooterImpactEl.textContent = formatPriceImpactPct(quote.priceImpactPct);
     } else {
       swapFooterImpactEl.textContent = '—';
     }
@@ -1292,26 +1509,14 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
   if (swapFooterMinOutEl) {
     const minOut = formatQuoteTokenAmount(quote, 'min');
     if (minOut.display !== '—') {
-      swapFooterMinOutEl.textContent = `Min. out ${minOut.display} ${outS}`;
+      swapFooterMinOutEl.textContent = `${minOut.display} ${outS}`;
     } else {
       swapFooterMinOutEl.textContent = '—';
     }
   }
 
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
-  const planLen = plan.length;
-  const routeTree = buildRouteTree(plan);
-  const forkBranches = countRouteTreeForkBranches(routeTree);
-  if (swapRouteBtnEl) {
-    swapRouteBtnEl.disabled = planLen === 0;
-    if (forkBranches >= 2) {
-      swapRouteBtnEl.textContent = `${forkBranches} paths (${planLen} hops)`;
-    } else if (planLen) {
-      swapRouteBtnEl.textContent = `${planLen} hop${planLen === 1 ? '' : 's'}`;
-    } else {
-      swapRouteBtnEl.textContent = 'Routing';
-    }
-  }
+  setRouteChipLabel(formatRouteChipLabel(plan), plan.length === 0);
 
   if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = renderRoutingDiagram(quote);
 
@@ -1319,13 +1524,108 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
   updateSwapPairCards();
 }
 
+async function prefetchRouteTokenMetas(quote: Record<string, unknown>): Promise<void> {
+  const mints = new Set<string>();
+  const inputMint = quoteInputMint(quote);
+  const outputMint = quoteOutputMint(quote);
+  if (inputMint) mints.add(inputMint);
+  if (outputMint) mints.add(outputMint);
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  for (const step of plan) {
+    const si = step.swapInfo;
+    const inM = swapInfoInputMint(si);
+    const outM = swapInfoOutputMint(si);
+    if (inM) mints.add(inM);
+    if (outM) mints.add(outM);
+  }
+  await prefetchTokenMetas([...mints]);
+}
+
 async function enrichRouteLabels(quote: Record<string, unknown>): Promise<void> {
   try {
     await prefetchRouteMintSymbols(quote);
+    await prefetchRouteTokenMetas(quote);
     renderRoutePanels(quote);
+    updateSwapTokenIcons();
+    updateSwapPairCards();
   } catch {
     /* keep initial render on symbol fetch failure */
   }
+}
+
+function collectSwapBuildOptions(): Record<string, unknown> {
+  const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : undefined;
+  const router = swapRouterSelect?.value ?? 'vybe';
+  const serviceFeeRaw =
+    swapEnableServiceFeeCheckbox?.checked === true ? (swapServiceFeeInput?.value.trim() ?? '') : '';
+  const serviceFeeN = serviceFeeRaw ? Number(serviceFeeRaw) : NaN;
+  return {
+    slippage: Number.isFinite(slippage) ? slippage : undefined,
+    router,
+    gasless: swapGaslessCheckbox?.checked === true,
+    autoCalculateSlippage: swapAutoSlippageCheckbox?.checked === true,
+    simulate: swapSimulateCheckbox?.checked === true,
+    partner:
+      swapEnablePartnerCheckbox?.checked === true ? swapPartnerInput?.value.trim() || undefined : undefined,
+    poolAddress:
+      swapEnablePoolAddressCheckbox?.checked === true
+        ? swapPoolAddressInput?.value.trim() || undefined
+        : undefined,
+    protocol:
+      swapEnableProtocolCheckbox?.checked === true
+        ? swapProtocolSelect?.value.trim() || undefined
+        : undefined,
+    swapFee:
+      swapEnableServiceFeeCheckbox?.checked === true &&
+      Number.isFinite(serviceFeeN) &&
+      serviceFeeN >= 0
+        ? serviceFeeN
+        : undefined,
+  };
+}
+
+function vybeBuildParamsKey(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  opts: Record<string, unknown>,
+): string {
+  return JSON.stringify({ wallet, inputMint, outputMint, amount, ...opts });
+}
+
+async function resolvePairTokenPrices(
+  inputMint: string,
+  outputMint: string,
+  forceFullDetailsMints: string[],
+): Promise<Record<string, TokenPriceStats>> {
+  const mints = [inputMint, outputMint].filter(Boolean);
+  const res = await fetchWithRetry('/api/tokens/resolve-prices', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mints,
+      tokenHints: buildTokenHintsForMints(mints),
+      forceFullDetailsMints,
+    }),
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    stats?: Record<string, TokenPriceStats>;
+    error?: string;
+  };
+  if (!res.ok) {
+    throw new Error(body.error || `Price resolve failed (${res.status})`);
+  }
+  const stats = body.stats ?? {};
+  for (const [mint, s] of Object.entries(stats)) {
+    saveTokenPriceStats(mint, s);
+  }
+  return stats;
+}
+
+function stripVybeQuoteMetadata(body: Record<string, unknown>): Record<string, unknown> {
+  const { _build, _builtAt, _tokenStats, _buildUnavailable, ...quote } = body;
+  return quote;
 }
 
 async function fetchSwapQuote(): Promise<void> {
@@ -1346,6 +1646,7 @@ async function fetchSwapQuote(): Promise<void> {
   }
 
   lastSwapQuoteOk = null;
+  lastVybeBuild = null;
   if (swapBuildBtn) swapBuildBtn.disabled = true;
   resetSwapQuoteDetailsPanel();
   if (swapQuoteError) clearInlineError(swapQuoteError);
@@ -1361,15 +1662,100 @@ async function fetchSwapQuote(): Promise<void> {
   if (wallet) params.set('accountAddress', wallet);
   if (Number.isFinite(slippage)) params.set('slippage', String(slippage));
 
+  const router = swapRouterSelect?.value ?? 'vybe';
+  const buildOpts = collectSwapBuildOptions();
+  const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
+
   try {
+    let stats: Record<string, TokenPriceStats> = {};
+    try {
+      stats = await resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMints);
+      updateSwapPairCards(stats);
+    } catch (priceErr) {
+      if (swapQuoteError) {
+        showInlineError(
+          swapQuoteError,
+          priceErr instanceof Error ? priceErr.message : String(priceErr),
+        );
+      }
+      return;
+    }
+
+    if (router === 'vybe') {
+      if (!wallet) {
+        if (swapQuoteError) {
+          showInlineError(
+            swapQuoteError,
+            'Wallet required for Vybe quotes (used to build the swap transaction).',
+          );
+        }
+        return;
+      }
+
+      const res = await fetchWithRetry('/api/trading/vybe-quote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accountAddress: wallet,
+          amount,
+          inputMintAddress: inputMint,
+          outputMintAddress: outputMint,
+          ...buildOpts,
+          router: 'vybe',
+          tokenHints: buildTokenHintsForMints([inputMint, outputMint]),
+          forceFullDetailsMints,
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
+        error?: string;
+        _build?: { transaction?: string };
+        _builtAt?: number;
+        _tokenStats?: Record<string, TokenPriceStats>;
+      };
+      if (!res.ok) {
+        if (swapQuoteError) showInlineError(swapQuoteError, body.error || `Quote failed (${res.status})`);
+        return;
+      }
+
+      if (body._tokenStats) {
+        for (const [mint, s] of Object.entries(body._tokenStats)) {
+          saveTokenPriceStats(mint, s);
+        }
+        updateSwapPairCards(body._tokenStats);
+      }
+
+      quotedMintSession.add(inputMint);
+      quotedMintSession.add(outputMint);
+
+      const quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(body), router);
+      lastSwapQuoteOk = quote;
+      lastRawQuoteResponse = body;
+      if (typeof body._build?.transaction === 'string' && typeof body._builtAt === 'number') {
+        lastRawSwapResponse = body._build;
+        lastVybeBuild = {
+          transaction: body._build.transaction,
+          builtAt: body._builtAt,
+          paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts),
+          buildPayload: body._build,
+        };
+        renderRawResponsePanels();
+      }
+      renderSwapQuoteUI(quote);
+      void enrichRouteLabels(quote);
+      if (swapBuildBtn) swapBuildBtn.disabled = false;
+      return;
+    }
+
     const res = await fetchWithRetry(`/api/trading/swap-quote?${params.toString()}`);
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown> & { error?: string };
     if (!res.ok) {
       if (swapQuoteError) showInlineError(swapQuoteError, body.error || `Quote failed (${res.status})`);
       return;
     }
-    lastSwapQuoteOk = body;
+    lastSwapQuoteOk = annotateQuoteRouterMeta(body, router);
     lastRawQuoteResponse = body;
+    quotedMintSession.add(inputMint);
+    quotedMintSession.add(outputMint);
     renderSwapQuoteUI(body);
     void enrichRouteLabels(body);
     if (swapBuildBtn) swapBuildBtn.disabled = false;
@@ -1405,15 +1791,41 @@ async function postBuildSwap(): Promise<void> {
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
   const amount = swapAmountInput ? Number(swapAmountInput.value) : NaN;
-  const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : undefined;
-  const router = swapRouterSelect?.value ?? 'vybe';
-  const serviceFeeRaw =
-    swapEnableServiceFeeCheckbox?.checked === true ? (swapServiceFeeInput?.value.trim() ?? '') : '';
-  const serviceFeeN = serviceFeeRaw ? Number(serviceFeeRaw) : NaN;
+  const buildOpts = collectSwapBuildOptions();
+  const router = (buildOpts.router as string | undefined) ?? 'vybe';
 
   if (!swapBuildResultEl || !swapTxBase64El) return;
   if (swapQuoteError) clearInlineError(swapQuoteError);
   if (swapBuildBtn) swapBuildBtn.disabled = true;
+
+  const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts);
+  if (
+    router === 'vybe' &&
+    lastVybeBuild &&
+    Date.now() - lastVybeBuild.builtAt < VYBE_BUILD_REUSE_MS &&
+    lastVybeBuild.paramsKey === paramsKey
+  ) {
+    try {
+      lastRawSwapResponse = lastVybeBuild.buildPayload;
+      renderRawResponsePanels();
+      if (swapBuildMode === 'build-sign') {
+        try {
+          swapTxBase64El.value = await signSwapTransactionBase64(lastVybeBuild.transaction);
+        } catch (err) {
+          if (swapQuoteError) {
+            showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+          }
+          return;
+        }
+      } else {
+        swapTxBase64El.value = lastVybeBuild.transaction;
+      }
+      swapBuildResultEl.hidden = false;
+    } finally {
+      if (swapBuildBtn) swapBuildBtn.disabled = false;
+    }
+    return;
+  }
 
   try {
     const res = await fetchWithRetry('/api/trading/swap', {
@@ -1424,29 +1836,7 @@ async function postBuildSwap(): Promise<void> {
         amount,
         inputMintAddress: inputMint,
         outputMintAddress: outputMint,
-        slippage: Number.isFinite(slippage) ? slippage : undefined,
-        router,
-        gasless: swapGaslessCheckbox?.checked === true,
-        autoCalculateSlippage: swapAutoSlippageCheckbox?.checked === true,
-        simulate: swapSimulateCheckbox?.checked === true,
-        partner:
-          swapEnablePartnerCheckbox?.checked === true
-            ? swapPartnerInput?.value.trim() || undefined
-            : undefined,
-        poolAddress:
-          swapEnablePoolAddressCheckbox?.checked === true
-            ? swapPoolAddressInput?.value.trim() || undefined
-            : undefined,
-        protocol:
-          swapEnableProtocolCheckbox?.checked === true
-            ? swapProtocolSelect?.value.trim() || undefined
-            : undefined,
-        swapFee:
-          swapEnableServiceFeeCheckbox?.checked === true &&
-          Number.isFinite(serviceFeeN) &&
-          serviceFeeN >= 0
-            ? serviceFeeN
-            : undefined,
+        ...buildOpts,
       }),
     });
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
@@ -1458,6 +1848,14 @@ async function postBuildSwap(): Promise<void> {
       return;
     }
     lastRawSwapResponse = body;
+    if (router === 'vybe' && typeof body.transaction === 'string') {
+      lastVybeBuild = {
+        transaction: body.transaction,
+        builtAt: Date.now(),
+        paramsKey,
+        buildPayload: body,
+      };
+    }
     renderRawResponsePanels();
     if (typeof body.transaction === 'string') {
       if (swapBuildMode === 'build-sign') {

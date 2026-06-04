@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { localizeCatalogIcons } from './token-icon-download.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(__dirname, '..', 'public', 'data');
@@ -51,18 +52,22 @@ async function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const stripped = tokens.map(stripPriceFields);
 
-  const header = `# Vybe swap demo — token catalog from Jupiter datapi (Top list)\n# Source: ${SOURCE.replace('100', String(LIMIT))}\n# Columns: mint\tsymbol\tname\tlogoUrl\tdecimals\ttags\n# Regenerate: npm run fetch:catalog\n`;
-  const rows = tokens.map((t) =>
-    [t.id, t.symbol, t.name, t.icon, t.decimals, token2022Tag(t)].map(escTsv).join('\t'),
+  console.log('Localizing token icons…');
+  const { tokens: withIcons, downloaded, failed } = await localizeCatalogIcons(stripped);
+  console.log(`Icons: ${downloaded} saved, ${failed} skipped/failed`);
+
+  const header = `# Vybe swap demo — token catalog from Jupiter datapi (Top list)\n# Source: ${SOURCE.replace('100', String(LIMIT))}\n# Icons: /data/token-icons/ (run npm run download:token-icons to refresh)\n# Columns: mint\tsymbol\tname\tlogoUrl\tdecimals\ttags\n# Regenerate: npm run fetch:catalog\n`;
+  const rows = withIcons.map((t) =>
+    [t.mint, t.symbol, t.name, t.logoUrl, t.decimals, token2022Tag(t)].map(escTsv).join('\t'),
   );
   fs.writeFileSync(path.join(OUT_DIR, 'token-catalog.tsv'), `${header}mint\tsymbol\tname\tlogoUrl\tdecimals\ttags\n${rows.join('\n')}\n`);
 
   fs.writeFileSync(
     path.join(OUT_DIR, 'token-catalog.json'),
-    `${JSON.stringify({ source: SOURCE, fetchedAt: new Date().toISOString(), count: stripped.length, tokens: stripped }, null, 2)}\n`,
+    `${JSON.stringify({ source: SOURCE, fetchedAt: new Date().toISOString(), iconsLocalizedAt: new Date().toISOString(), count: withIcons.length, tokens: withIcons }, null, 2)}\n`,
   );
 
-  console.log(`Wrote ${tokens.length} tokens to public/data/token-catalog.{tsv,json}`);
+  console.log(`Wrote ${withIcons.length} tokens to public/data/token-catalog.{tsv,json}`);
 }
 
 main().catch((err) => {

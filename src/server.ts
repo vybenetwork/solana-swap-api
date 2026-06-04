@@ -7,8 +7,14 @@ import { loadEnv, getApiKey, PUBLIC_DIR } from './config.js';
 import { createClient } from './api/index.js';
 import { toHumanReadableError } from './api/client.js';
 import { VYBE_SWAP_PROTOCOLS, type SwapProxyProtocol } from './api/swap-build.js';
+import { type TokenPriceHint } from './api/resolve-token-prices.js';
 import { getTokenSymbol } from './api/token-symbol.js';
 import { readSymbolCacheFromDisk, writeSymbolCacheToDisk } from './cache.js';
+import {
+  cacheTokenMetaFromVybe,
+  getCachedTokenMetaFromDisk,
+  getRuntimeIconDir,
+} from './token-icon-cache.js';
 
 loadEnv();
 const apiKey = getApiKey();
@@ -20,6 +26,7 @@ const app = express();
 const client = createClient(apiKey);
 
 app.use(express.json());
+app.use('/cached/token-icons', express.static(getRuntimeIconDir()));
 app.use(express.static(PUBLIC_DIR));
 
 function q(req: Request, key: string): string {
@@ -39,14 +46,55 @@ function qNum(req: Request, key: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function tokenMetaToApiResponse(meta: ReturnType<typeof getCachedTokenMetaFromDisk>): Record<string, unknown> {
+  if (!meta) return {};
+  const { fetchedAt: _fetchedAt, ...out } = meta;
+  return out;
+}
+
 app.get('/api/token/:mint', async (req: Request, res: Response) => {
   try {
     const rawMint = req.params.mint;
     const mint = (Array.isArray(rawMint) ? rawMint[0] : rawMint ?? '').trim();
     if (!mint) return res.status(400).json({ error: 'Mint address required' });
+
+    const cached = getCachedTokenMetaFromDisk(mint);
+    if (cached) {
+      return res.json(tokenMetaToApiResponse(cached));
+    }
+
     const token = await client.getToken(mint);
-    const { priceUsd: _priceUsd, ...meta } = token;
-    res.json(meta);
+    const { priceUsd: _priceUsd, marketCapUsd: _mc, volume24hUsd: _vol, ...rest } = token;
+    const meta = await cacheTokenMetaFromVybe(mint, rest as Record<string, unknown>);
+    res.json(tokenMetaToApiResponse(meta));
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
+    res.status(status).json({ error: toHumanReadableError(err) });
+  }
+});
+
+/** POST /api/tokens/resolve-prices — cache-first token price resolution for pair cards and Vybe quotes */
+app.post('/api/tokens/resolve-prices', async (req: Request, res: Response) => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const mints = Array.isArray(body.mints)
+      ? (body.mints as unknown[]).map((m) => String(m).trim()).filter(Boolean)
+      : [];
+    if (mints.length === 0) return res.status(400).json({ error: 'mints array required' });
+
+    const tokenHints =
+      body.tokenHints && typeof body.tokenHints === 'object'
+        ? (body.tokenHints as Record<string, TokenPriceHint>)
+        : undefined;
+    const forceFullDetailsMints = Array.isArray(body.forceFullDetailsMints)
+      ? (body.forceFullDetailsMints as unknown[]).map((m) => String(m).trim()).filter(Boolean)
+      : undefined;
+
+    const { stats } = await client.resolveTokenPrices(mints, {
+      tokenHints,
+      forceFullDetailsMints,
+    });
+    res.json({ stats });
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
     res.status(status).json({ error: toHumanReadableError(err) });
@@ -143,6 +191,56 @@ app.post('/api/token-symbols', async (req: Request, res: Response) => {
   }
 });
 
+function parseSwapBuildBody(body: Record<string, unknown>): {
+  accountAddress: string;
+  amount: number;
+  inputMintAddress: string;
+  outputMintAddress: string;
+  slippage?: number;
+  router?: 'titan' | 'jupiter' | 'vybe';
+  autoCalculateSlippage?: boolean;
+  gasless?: boolean;
+  partner?: string;
+  poolAddress?: string;
+  protocol?: SwapProxyProtocol;
+  simulate?: boolean;
+  swapFee?: number;
+} | { error: string } {
+  const accountAddress = typeof body.accountAddress === 'string' ? body.accountAddress.trim() : '';
+  const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount);
+  const inputMintAddress = typeof body.inputMintAddress === 'string' ? body.inputMintAddress.trim() : '';
+  const outputMintAddress = typeof body.outputMintAddress === 'string' ? body.outputMintAddress.trim() : '';
+  if (!accountAddress) return { error: 'accountAddress required' };
+  if (!Number.isFinite(amount) || amount <= 0) return { error: 'amount must be a positive number' };
+  if (!inputMintAddress) return { error: 'inputMintAddress required' };
+  if (!outputMintAddress) return { error: 'outputMintAddress required' };
+
+  const slippage = body.slippage != null ? Number(body.slippage) : undefined;
+  const routerRaw = typeof body.router === 'string' ? body.router.trim().toLowerCase() : '';
+  const router =
+    routerRaw === 'titan' || routerRaw === 'jupiter' || routerRaw === 'vybe' ? routerRaw : undefined;
+
+  const protocolRaw = typeof body.protocol === 'string' ? body.protocol.trim() : '';
+  const protocol: SwapProxyProtocol | undefined =
+    protocolRaw && SWAP_PROTOCOL_SET.has(protocolRaw) ? (protocolRaw as SwapProxyProtocol) : undefined;
+
+  return {
+    accountAddress,
+    amount,
+    inputMintAddress,
+    outputMintAddress,
+    slippage: Number.isFinite(slippage) ? slippage : undefined,
+    router,
+    autoCalculateSlippage: typeof body.autoCalculateSlippage === 'boolean' ? body.autoCalculateSlippage : undefined,
+    gasless: typeof body.gasless === 'boolean' ? body.gasless : undefined,
+    partner: typeof body.partner === 'string' ? body.partner : undefined,
+    poolAddress: typeof body.poolAddress === 'string' ? body.poolAddress : undefined,
+    protocol,
+    simulate: typeof body.simulate === 'boolean' ? body.simulate : undefined,
+    swapFee: body.swapFee != null ? Number(body.swapFee) : undefined,
+  };
+}
+
 /** GET /api/trading/swap-quote — Vybe GET /v4/trading/swap-quote */
 app.get('/api/trading/swap-quote', async (req: Request, res: Response) => {
   try {
@@ -170,43 +268,53 @@ app.get('/api/trading/swap-quote', async (req: Request, res: Response) => {
   }
 });
 
+/** POST /api/trading/vybe-quote — spot price + build swap (no swap-quote aggregator) */
+app.post('/api/trading/vybe-quote', async (req: Request, res: Response) => {
+  try {
+    const body = req.body as Record<string, unknown>;
+    const parsed = parseSwapBuildBody(body);
+    if ('error' in parsed) return res.status(400).json({ error: parsed.error });
+
+    const tokenHints =
+      body.tokenHints && typeof body.tokenHints === 'object'
+        ? (body.tokenHints as Record<string, TokenPriceHint>)
+        : undefined;
+    const forceFullDetailsMints = Array.isArray(body.forceFullDetailsMints)
+      ? (body.forceFullDetailsMints as unknown[]).map((m) => String(m).trim()).filter(Boolean)
+      : undefined;
+
+    const result = await client.buildVybeQuote({
+      ...parsed,
+      router: 'vybe',
+      tokenHints,
+      forceFullDetailsMints,
+    });
+
+    res.json({
+      ...result.quote,
+      ...(result.build
+        ? { _build: result.build, _builtAt: result.builtAt }
+        : { _buildUnavailable: true }),
+      _tokenStats: result.tokenStats,
+      _quoteSource: result.quote._quoteSource ?? 'vybe-price-build',
+    });
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
+    res.status(status).json({ error: toHumanReadableError(err) });
+  }
+});
+
 /** POST /api/trading/swap — Vybe POST /v4/trading/swap */
 app.post('/api/trading/swap', async (req: Request, res: Response) => {
   try {
     const body = req.body as Record<string, unknown>;
-    const accountAddress = typeof body.accountAddress === 'string' ? body.accountAddress.trim() : '';
-    const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount);
-    const inputMintAddress = typeof body.inputMintAddress === 'string' ? body.inputMintAddress.trim() : '';
-    const outputMintAddress = typeof body.outputMintAddress === 'string' ? body.outputMintAddress.trim() : '';
-    if (!accountAddress) return res.status(400).json({ error: 'accountAddress required' });
-    if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: 'amount must be a positive number' });
-    if (!inputMintAddress) return res.status(400).json({ error: 'inputMintAddress required' });
-    if (!outputMintAddress) return res.status(400).json({ error: 'outputMintAddress required' });
+    const parsed = parseSwapBuildBody(body);
+    if ('error' in parsed) return res.status(400).json({ error: parsed.error });
 
-    const slippage = body.slippage != null ? Number(body.slippage) : undefined;
-    const routerRaw = typeof body.router === 'string' ? body.router.trim().toLowerCase() : '';
-    const router =
-      routerRaw === 'titan' || routerRaw === 'jupiter' || routerRaw === 'vybe' ? routerRaw : undefined;
-
-    const protocolRaw = typeof body.protocol === 'string' ? body.protocol.trim() : '';
-    const protocol: SwapProxyProtocol | undefined =
-      protocolRaw && SWAP_PROTOCOL_SET.has(protocolRaw) ? (protocolRaw as SwapProxyProtocol) : undefined;
-
-    const data = await client.buildSwap({
-      accountAddress,
-      amount,
-      inputMintAddress,
-      outputMintAddress,
-      slippage: Number.isFinite(slippage) ? slippage : undefined,
-      router,
-      autoCalculateSlippage: typeof body.autoCalculateSlippage === 'boolean' ? body.autoCalculateSlippage : undefined,
-      gasless: typeof body.gasless === 'boolean' ? body.gasless : undefined,
-      partner: typeof body.partner === 'string' ? body.partner : undefined,
-      poolAddress: typeof body.poolAddress === 'string' ? body.poolAddress : undefined,
-      protocol,
-      simulate: typeof body.simulate === 'boolean' ? body.simulate : undefined,
-      swapFee: body.swapFee != null ? Number(body.swapFee) : undefined,
-    });
+    const data =
+      parsed.router === 'vybe'
+        ? await client.buildSwapWithFallback(parsed)
+        : await client.buildSwap(parsed);
     res.json(data);
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;

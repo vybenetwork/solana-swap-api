@@ -2,7 +2,7 @@
  * Vybe POST /v4/trading/swap
  */
 
-import type { AxiosInstance } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import type { VybeSwapBuildResponse } from '../types/swap.js';
 import { withRetry } from './client.js';
 
@@ -41,6 +41,14 @@ export interface BuildSwapParams {
 }
 
 export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
+  const payload = buildSwapPayload(body, body.router);
+  return withRetry(async () => {
+    const { data } = await http.post<VybeSwapBuildResponse>('/v4/trading/swap', payload);
+    return data;
+  });
+}
+
+function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Record<string, unknown> {
   const payload: Record<string, unknown> = {
     accountAddress: body.accountAddress.trim(),
     amount: body.amount,
@@ -48,7 +56,7 @@ export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Pro
     outputMintAddress: body.outputMintAddress.trim(),
   };
   if (body.slippage != null && Number.isFinite(body.slippage)) payload.slippage = body.slippage;
-  if (body.router) payload.router = body.router;
+  if (router) payload.router = router;
   if (body.autoCalculateSlippage != null) payload.autoCalculateSlippage = body.autoCalculateSlippage;
   if (body.gasless != null) payload.gasless = body.gasless;
   if (body.partner?.trim()) payload.partner = body.partner.trim();
@@ -56,9 +64,40 @@ export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Pro
   if (body.protocol) payload.protocol = body.protocol;
   if (body.simulate != null) payload.simulate = body.simulate;
   if (body.swapFee != null) payload.swapFee = body.swapFee;
+  return payload;
+}
 
-  return withRetry(async () => {
-    const { data } = await http.post<VybeSwapBuildResponse>('/v4/trading/swap', payload);
-    return data;
-  });
+function isRetryableBuildError(err: unknown): boolean {
+  if (!axios.isAxiosError(err)) return true;
+  const status = err.response?.status;
+  if (status == null) return true;
+  return status >= 500 || status === 429;
+}
+
+/**
+ * Try POST /v4/trading/swap across routers. Vybe direct (`router=vybe`) can fail for some
+ * pairs (e.g. SOL input) while aggregator routes succeed.
+ */
+export async function buildSwapWithFallback(
+  http: AxiosInstance,
+  body: BuildSwapParams,
+): Promise<VybeSwapBuildResponse> {
+  const preferred = body.router ?? 'vybe';
+  const routers: (SwapProxyRouter | undefined)[] = [
+    preferred,
+    ...(['vybe', 'jupiter', 'titan'] as const).filter((r) => r !== preferred),
+    undefined,
+  ];
+  let lastErr: unknown;
+  for (const router of routers) {
+    try {
+      const payload = buildSwapPayload(body, router);
+      const { data } = await http.post<VybeSwapBuildResponse>('/v4/trading/swap', payload);
+      return data;
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableBuildError(err)) break;
+    }
+  }
+  throw lastErr;
 }

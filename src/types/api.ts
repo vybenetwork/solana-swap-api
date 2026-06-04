@@ -3,18 +3,29 @@
  * @see https://docs.vybenetwork.com/reference/get_trade_data_program_v4
  */
 
-/** Token details from GET /v4/tokens/{mintAddress} */
+/** Token details from GET /v4/tokens/{mintAddress} (TokenInformationCH) */
 export interface VybeToken {
   mintAddress: string;
   symbol?: string;
   name?: string;
+  /** Vybe field name on TokenInformationCH */
+  decimal?: number;
   decimals?: number;
   logoUrl?: string;
+  /** Current spot price in USD */
+  price?: number;
+  /** Price in USD 1 day ago */
+  price1d?: number;
+  /** Price in USD 7 days ago */
+  price7d?: number;
+  /** Unix ms of last price update */
+  updateTime?: number;
   priceUsd?: string;
   marketCapUsd?: string;
   volume24hUsd?: string;
   holders?: number;
   currentSupply?: string;
+  verified?: boolean;
   [key: string]: unknown;
 }
 

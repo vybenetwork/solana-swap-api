@@ -246,38 +246,48 @@
             </div>
           </div>
 
-          <div class="swap-widget-footer">
-            <div class="swap-footer-main">
-              <span id="swapFooterRate" class="swap-footer-rate">Rate updates after quote</span>
-              <button type="button" class="swap-route-chip" id="swapRouteBtn" disabled>Routing</button>
+          <div class="swap-action-buttons">
+            <button type="button" id="swapQuoteBtn" class="swap-action-btn swap-action-btn--primary">
+              <span class="swap-action-btn__icon swap-action-btn__icon--quote" aria-hidden="true"></span>
+              <span class="swap-action-btn__text">
+                <span class="swap-action-btn__label">Get quote</span>
+                <span class="swap-action-btn__hint">Fetch route &amp; pricing</span>
+              </span>
+            </button>
+            <button type="button" id="swapBuildBtn" class="swap-action-btn swap-action-btn--secondary" disabled>
+              <span class="swap-action-btn__icon swap-action-btn__icon--build" aria-hidden="true"></span>
+              <span class="swap-action-btn__text">
+                <span class="swap-action-btn__label">Build unsigned transaction</span>
+                <span class="swap-action-btn__hint">Requires quote &amp; wallet</span>
+              </span>
+            </button>
+          </div>
+
+          <div class="swap-widget-footer" id="swapWidgetFooter">
+            <div class="swap-stat-row">
+              <span class="swap-stat-label">Rate</span>
+              <span class="swap-stat-value" id="swapFooterRate">—</span>
             </div>
-            <div class="swap-footer-sub">
-              <span id="swapFooterImpact">—</span>
-              <span id="swapFooterMinOut">—</span>
+            <div class="swap-stat-row">
+              <span class="swap-stat-label">Price impact</span>
+              <span class="swap-stat-value" id="swapFooterImpact">—</span>
+            </div>
+            <div class="swap-stat-row">
+              <span class="swap-stat-label">Min. received</span>
+              <span class="swap-stat-value" id="swapFooterMinOut">—</span>
+            </div>
+            <div class="swap-stat-row swap-stat-row--route">
+              <span class="swap-stat-label">Route</span>
+              <button type="button" class="swap-route-chip" id="swapRouteBtn" disabled aria-label="View route">
+                <span class="swap-route-chip-icon" aria-hidden="true"></span>
+                <span class="swap-route-chip-text">—</span>
+              </button>
             </div>
           </div>
 
           <div class="swap-pair-cards" id="swapPairCards">
-            <div class="swap-pair-card" id="swapCardSell">
-              <div class="swap-pair-card-head">
-                <span class="swap-pair-icon swap-pair-icon--sell" aria-hidden="true"></span>
-                <div>
-                  <div class="swap-pair-name" id="swapCardSellName">Sell</div>
-                  <div class="swap-pair-mint" id="swapCardSellMint">—</div>
-                </div>
-              </div>
-              <div class="swap-pair-price" id="swapCardSellPrice">—</div>
-            </div>
-            <div class="swap-pair-card" id="swapCardBuy">
-              <div class="swap-pair-card-head">
-                <span class="swap-pair-icon swap-pair-icon--buy" aria-hidden="true"></span>
-                <div>
-                  <div class="swap-pair-name" id="swapCardBuyName">Buy</div>
-                  <div class="swap-pair-mint" id="swapCardBuyMint">—</div>
-                </div>
-              </div>
-              <div class="swap-pair-price" id="swapCardBuyPrice">—</div>
-            </div>
+            <div class="swap-pair-card swap-pair-card--sell" id="swapCardSell" aria-label="Sell token"></div>
+            <div class="swap-pair-card swap-pair-card--buy" id="swapCardBuy" aria-label="Buy token"></div>
           </div>
 
           <div class="swap-advanced" id="swapAdvancedBuild">
@@ -417,9 +427,6 @@
             </div>
           </div>
 
-          <button type="button" id="swapQuoteBtn" class="swap-primary-btn">Get quote</button>
-          <button type="button" id="swapBuildBtn" class="swap-secondary-btn" disabled>Build unsigned transaction</button>
-
           <div id="swapBuildResult" class="swap-build-result" hidden>
             <h3 class="swap-build-title" id="swapBuildResultTitle">Unsigned transaction (base64)</h3>
             <p class="meta" id="swapBuildResultMeta">Sign in your wallet. This app does not broadcast.</p>
@@ -438,7 +445,7 @@
               <div id="swapQuoteDetailsBody" class="swap-quote-details-body" hidden>
                 <div id="swapQuoteSummary" class="swap-quote-summary" hidden aria-live="polite"></div>
                 <section class="swap-quote-details-section swap-quote-details-section--route">
-                  <h4 class="swap-quote-details-subtitle">Route</h4>
+                  <h4 class="swap-quote-details-subtitle" id="swapQuoteRouteSubtitle">Route</h4>
                   <div id="swapQuoteDetailsRouting" class="swap-quote-details-routing"></div>
                 </section>
                 <details class="swap-quote-details-collapsible">
@@ -484,7 +491,9 @@
           <button type="button" class="token-picker-tab token-picker-tab--active" data-tab="top" role="tab">Top</button>
           <button type="button" class="token-picker-tab" data-tab="recent" role="tab">Recent</button>
         </div>
-        <div class="token-picker-list" id="tokenPickerList" role="listbox"></div>
+        <div class="token-picker-list-wrap">
+          <div class="token-picker-list" id="tokenPickerList" role="listbox"></div>
+        </div>
         <p class="token-picker-status" id="tokenPickerStatus" aria-live="polite"></p>
         <button type="button" class="token-picker-close-fab" id="tokenPickerClose" aria-label="Close token picker">×</button>
       </div>
@@ -493,7 +502,7 @@
     <dialog id="routingDialog" class="routing-dialog">
       <div class="routing-dialog-shell">
         <div class="routing-dialog-header">
-          <h2 class="routing-dialog-title">Routing</h2>
+          <h2 class="routing-dialog-title" id="routingDialogTitle">Routing</h2>
           <button type="button" class="routing-dialog-close" id="routingDialogClose" aria-label="Close routing">×</button>
         </div>
         <div id="routingDialogBody" class="routing-dialog-body"></div>

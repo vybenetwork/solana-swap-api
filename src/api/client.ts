@@ -29,7 +29,11 @@ export function toHumanReadableError(err: unknown): string {
       return `API returned 404 Not Found for ${endpoint}.`;
     }
     if (status && status >= 500) {
-      return `API returned ${status} — Vybe server error. Try again later or contact support.`;
+      const id =
+        typeof body === 'object' && body && 'id' in body && body.id != null ? String(body.id) : '';
+      const detail =
+        msg && typeof msg === 'string' ? msg : 'Vybe server error. Try again later or contact support.';
+      return id ? `${detail} (ref: ${id})` : detail;
     }
     if (msg && typeof msg === 'string') return msg;
     if (status) return `API returned ${status} for ${endpoint}.`;

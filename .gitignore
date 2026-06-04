@@ -19,6 +19,10 @@ npm
 # Debug artifacts
 debug-*.json
 
+# Runtime token icon/meta cache (catalog icons live in public/data/token-icons/)
+data/token-icons/
+data/token-meta-cache.json
+
 # Keep locally only (removed from repo)
 deploy/
 scripts/

@@ -8,11 +8,36 @@ export interface TokenMeta {
   name: string;
   logoUrl: string;
   decimals?: number;
+  price?: number;
+  price1d?: number;
+  price7d?: number;
+  priceUpdateTime?: number;
+  priceFetchedAt?: number;
   tags?: string[];
   organicScore?: number;
   isVerified?: boolean;
   source: 'catalog' | 'search';
   savedAt: number;
+}
+
+export interface TokenPriceHint {
+  price?: number;
+  price1d?: number;
+  price7d?: number;
+  decimals?: number;
+  priceFetchedAt?: number;
+  priceUpdateTime?: number;
+  symbol?: string;
+  name?: string;
+}
+
+export interface TokenPriceStats {
+  price: number;
+  price1d: number;
+  price7d: number;
+  decimals: number;
+  priceFetchedAt: number;
+  priceUpdateTime?: number;
 }
 
 export type TokenPickerSide = 'input' | 'output';
@@ -81,6 +106,66 @@ export function getTokenDecimalsFromCache(mint: string): number | undefined {
   return getCachedTokenMeta(mint)?.decimals;
 }
 
+export function buildTokenHintsForMints(mints: string[]): Record<string, TokenPriceHint> {
+  const hints: Record<string, TokenPriceHint> = {};
+  for (const mint of mints) {
+    const m = mint.trim();
+    if (!m) continue;
+    const meta = getCachedTokenMeta(m);
+    if (!meta) continue;
+    const hint: TokenPriceHint = {
+      symbol: meta.symbol,
+      name: meta.name,
+      decimals: meta.decimals,
+      price: meta.price,
+      price1d: meta.price1d,
+      price7d: meta.price7d,
+      priceFetchedAt: meta.priceFetchedAt,
+      priceUpdateTime: meta.priceUpdateTime,
+    };
+    if (hint.decimals != null || hint.price != null) hints[m] = hint;
+  }
+  return hints;
+}
+
+export function saveTokenPriceStats(mint: string, stats: TokenPriceStats): void {
+  const m = mint.trim();
+  if (!m) return;
+  const existing = getCachedTokenMeta(m);
+  const meta: TokenMeta = {
+    mint: m,
+    symbol: existing?.symbol ?? truncateMint(m),
+    name: existing?.name ?? truncateMint(m),
+    logoUrl: existing?.logoUrl ?? '',
+    decimals: stats.decimals,
+    price: stats.price,
+    price1d: stats.price1d,
+    price7d: stats.price7d,
+    priceUpdateTime: stats.priceUpdateTime,
+    priceFetchedAt: stats.priceFetchedAt,
+    tags: existing?.tags,
+    organicScore: existing?.organicScore,
+    isVerified: existing?.isVerified,
+    source: existing?.source ?? 'search',
+    savedAt: Date.now(),
+  };
+  saveTokenMeta(meta);
+}
+
+/** Prefer locally served icon paths; leave remote URLs for server localization. */
+export function resolveLogoUrl(logoUrl: string | undefined): string {
+  const u = (logoUrl ?? '').trim();
+  if (!u) return '';
+  if (u.startsWith('/')) return u;
+  return u;
+}
+
+function needsRemoteLogoResolve(meta: TokenMeta | null | undefined): boolean {
+  if (!meta) return true;
+  const u = meta.logoUrl.trim();
+  return !u || u.startsWith('http://') || u.startsWith('https://');
+}
+
 function saveTokenMeta(meta: TokenMeta): void {
   const cache = readCache();
   cache[meta.mint] = meta;
@@ -114,7 +199,7 @@ function parseCatalogTsv(text: string): TokenMeta[] {
       mint: m,
       symbol: (symbol ?? '').trim() || truncateMint(m),
       name: (name ?? '').trim() || (symbol ?? '').trim() || m,
-      logoUrl: (logoUrl ?? '').trim(),
+      logoUrl: resolveLogoUrl(logoUrl ?? ''),
       decimals: Number.isFinite(dec) ? dec : undefined,
       tags,
       source: 'catalog',
@@ -137,7 +222,7 @@ function catalogEntryFromJson(raw: Record<string, unknown>): TokenMeta | null {
     mint,
     symbol: String(raw.symbol ?? '').trim() || truncateMint(mint),
     name: String(raw.name ?? '').trim() || String(raw.symbol ?? mint),
-    logoUrl: String(raw.logoUrl ?? raw.icon ?? '').trim(),
+    logoUrl: resolveLogoUrl(String(raw.logoUrl ?? raw.icon ?? '')),
     decimals: typeof raw.decimals === 'number' ? raw.decimals : undefined,
     tags,
     organicScore,
@@ -175,7 +260,7 @@ async function loadCatalog(): Promise<void> {
 }
 
 function truncateMint(mint: string): string {
-  if (mint.length <= 12) return mint;
+  if (mint.length <= 13) return mint;
   return `${mint.slice(0, 4)}…${mint.slice(-4)}`;
 }
 
@@ -234,8 +319,13 @@ async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
     if (body.error) return null;
     const symbol = String(body.symbol ?? '').trim();
     const name = String(body.name ?? '').trim();
-    const logoUrl = String(body.logoUrl ?? '').trim();
+    const logoUrl = resolveLogoUrl(String(body.logoUrl ?? ''));
     const decimals = typeof body.decimals === 'number' ? body.decimals : undefined;
+    const price = typeof body.price === 'number' ? body.price : undefined;
+    const price1d = typeof body.price1d === 'number' ? body.price1d : undefined;
+    const price7d = typeof body.price7d === 'number' ? body.price7d : undefined;
+    const priceUpdateTime = typeof body.priceUpdateTime === 'number' ? body.priceUpdateTime : undefined;
+    const priceFetchedAt = typeof body.priceFetchedAt === 'number' ? body.priceFetchedAt : undefined;
     const tokenProgram = String(body.tokenProgram ?? body.program ?? '').trim();
     const tags: string[] = [];
     if (/2022/i.test(tokenProgram) || body.isToken2022 === true) tags.push('Token2022');
@@ -245,6 +335,11 @@ async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
       name: name || symbol || truncateMint(mint),
       logoUrl,
       decimals,
+      price,
+      price1d,
+      price7d,
+      priceUpdateTime,
+      priceFetchedAt,
       tags: tags.length ? tags : undefined,
       isVerified: body.isVerified === true,
       organicScore: typeof body.organicScore === 'number' ? body.organicScore : undefined,
@@ -259,8 +354,9 @@ async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
 }
 
 function renderTokenIcon(token: TokenMeta): string {
-  if (token.logoUrl) {
-    return `<img class="token-picker-row-logo-img" src="${escapeHtml(token.logoUrl)}" alt="" loading="lazy" decoding="async" />`;
+  const src = resolveLogoUrl(token.logoUrl);
+  if (src) {
+    return `<img class="token-picker-row-logo-img" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
   }
   return `<span class="token-picker-row-logo-fallback" aria-hidden="true">${escapeHtml(token.symbol.slice(0, 1))}</span>`;
 }
@@ -272,9 +368,12 @@ function renderTokenRow(token: TokenMeta): string {
       : '';
   const score =
     token.organicScore != null && Number.isFinite(token.organicScore)
-      ? `<span class="token-picker-row-score">${Math.round(token.organicScore)}</span>`
+      ? `<span class="token-picker-row-score"><span class="token-picker-row-score-leaf" aria-hidden="true"></span>${Math.round(token.organicScore)}</span>`
       : '';
-  const verified = token.isVerified !== false ? '<span class="token-picker-row-verified" aria-hidden="true"></span>' : '';
+  const verified =
+    token.isVerified !== false
+      ? '<span class="token-picker-row-verified" aria-hidden="true"><span class="token-picker-row-verified-check"></span></span>'
+      : '';
   return `<button type="button" class="token-picker-row" data-mint="${escapeHtml(token.mint)}">
     <span class="token-picker-row-logo">${renderTokenIcon(token)}</span>
     <span class="token-picker-row-main">
@@ -289,14 +388,27 @@ function renderTokenRow(token: TokenMeta): string {
   </button>`;
 }
 
+const SHORTCUT_MINTS = [
+  'So11111111111111111111111111111111111111112',
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  '27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4',
+  'JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD',
+  'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+];
+
 function renderShortcuts(): void {
   if (!shortcutsEl) return;
-  const picks = catalogTokens.slice(0, 6);
-  shortcutsEl.innerHTML = picks
+  const picks = SHORTCUT_MINTS.map((mint) => catalogTokens.find((t) => t.mint === mint)).filter(
+    (t): t is TokenMeta => Boolean(t),
+  );
+  const fallback = catalogTokens.slice(0, 6);
+  const tokens = picks.length > 0 ? picks : fallback;
+  shortcutsEl.innerHTML = tokens
     .map(
-      (t) =>
-        `<button type="button" class="token-picker-shortcut" data-mint="${escapeHtml(t.mint)}" title="${escapeHtml(t.symbol)}">
-          ${t.logoUrl ? `<img src="${escapeHtml(t.logoUrl)}" alt="" />` : `<span>${escapeHtml(t.symbol.slice(0, 1))}</span>`}
+      (t, i) =>
+        `<button type="button" class="token-picker-shortcut${i === 0 ? ' token-picker-shortcut--lead' : ''}" data-mint="${escapeHtml(t.mint)}" title="${escapeHtml(t.symbol)}">
+          ${resolveLogoUrl(t.logoUrl) ? `<img src="${escapeHtml(resolveLogoUrl(t.logoUrl))}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(t.symbol.slice(0, 1))}</span>`}
         </button>`,
     )
     .join('');
@@ -459,17 +571,27 @@ export async function ensureTokenMetaForMint(mint: string): Promise<TokenMeta | 
   const m = mint.trim();
   if (!m) return null;
   const existing = getCachedTokenMeta(m);
-  if (existing) return existing;
-  if (BASE58_RE.test(m)) return fetchTokenByMint(m);
-  return null;
+  if (existing && !needsRemoteLogoResolve(existing)) return existing;
+  if (BASE58_RE.test(m)) {
+    const fetched = await fetchTokenByMint(m);
+    return fetched ?? existing ?? null;
+  }
+  return existing;
+}
+
+export async function prefetchTokenMetas(mints: string[]): Promise<void> {
+  await loadCatalog();
+  const uniq = [...new Set(mints.map((mint) => mint.trim()).filter(Boolean))];
+  await Promise.all(uniq.map((mint) => ensureTokenMetaForMint(mint)));
 }
 
 export function renderChipTokenIcon(el: HTMLElement | null, mint: string | undefined, fallbackDotClass: string): void {
   if (!el) return;
   const meta = getCachedTokenMeta(mint?.trim() ?? '');
-  if (meta?.logoUrl) {
+  const src = resolveLogoUrl(meta?.logoUrl);
+  if (src) {
     el.className = 'swap-token-chip-icon swap-token-chip-icon--logo';
-    el.innerHTML = `<img src="${escapeHtml(meta.logoUrl)}" alt="" loading="lazy" decoding="async" />`;
+    el.innerHTML = `<img src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
     return;
   }
   el.innerHTML = '';
