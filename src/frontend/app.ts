@@ -129,6 +129,10 @@ const swapCopyTxBtn = document.getElementById('swapCopyTxBtn') as HTMLButtonElem
 const swapModeBuildBtn = document.getElementById('swapModeBuild') as HTMLButtonElement | null;
 const swapModeBuildSignBtn = document.getElementById('swapModeBuildSign') as HTMLButtonElement | null;
 const swapConnectWalletBtn = document.getElementById('swapConnectWalletBtn') as HTMLButtonElement | null;
+const swapConnectWalletBtnIconEl = document.getElementById('swapConnectWalletBtnIcon') as HTMLElement | null;
+const swapConnectWalletBtnTextEl = document.getElementById('swapConnectWalletBtnText') as HTMLElement | null;
+const swapDisconnectWalletBtn = document.getElementById('swapDisconnectWalletBtn') as HTMLButtonElement | null;
+const swapWalletSignRowEl = document.getElementById('swapWalletSignRow') as HTMLElement | null;
 const swapBuildResultTitleEl = document.getElementById('swapBuildResultTitle') as HTMLElement | null;
 const swapBuildResultMetaEl = document.getElementById('swapBuildResultMeta') as HTMLElement | null;
 const swapAdvancedBuildHintEl = document.getElementById('swapAdvancedBuildHint') as HTMLElement | null;
@@ -137,6 +141,7 @@ interface SolanaWalletProvider {
   isPhantom?: boolean;
   publicKey?: { toString(): string };
   connect?: () => Promise<{ publicKey: { toString(): string } }>;
+  disconnect?: () => Promise<void>;
   signTransaction?: (tx: unknown) => Promise<{ serialize(): Uint8Array }>;
 }
 
@@ -201,6 +206,7 @@ let pairTokenStats: Record<string, TokenPriceStats> = {};
 
 type SwapBuildMode = 'build' | 'build-sign';
 let swapBuildMode: SwapBuildMode = 'build-sign';
+let walletConnectLoading = false;
 
 /** Mint → symbol cache for route hop labels (filled after quote). */
 const routeMintSymbolCache: Record<string, string> = {};
@@ -466,6 +472,24 @@ function formatSwapFiatDisplay(v: unknown): string {
   return `~$${n.toFixed(2)}`;
 }
 
+/** Pre-quote sell USD from sell amount × prefetched sell-token spot (SOL on load). */
+function syncSellFiatFromPrefetchedPrices(): void {
+  if (lastSwapQuoteOk) return;
+  if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
+  const sellMint = swapInputMintInput?.value.trim() ?? '';
+  const amount = Number(swapAmountInput?.value);
+  if (!sellMint || !Number.isFinite(amount) || amount <= 0) {
+    if (swapSellFiatEl) swapSellFiatEl.textContent = '~$0.00';
+    return;
+  }
+  const price = pairTokenStats[sellMint]?.price;
+  if (!price || !Number.isFinite(price) || price <= 0) {
+    if (swapSellFiatEl) swapSellFiatEl.textContent = '~$0.00';
+    return;
+  }
+  if (swapSellFiatEl) swapSellFiatEl.textContent = formatSwapFiatDisplay(amount * price);
+}
+
 const SOLANA_WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 
 function isValidSolanaWalletAddress(value: string): boolean {
@@ -586,14 +610,55 @@ function syncSwapAmountMaxFromBalance(): void {
   } else {
     swapAmountInput.removeAttribute('max');
   }
+  clampSwapAmountInputToMax();
   syncSellPctButtonsState();
+}
+
+function getSwapAmountMaxUi(): number | null {
+  if (!swapAmountInput) return null;
+  const maxAttr = swapAmountInput.max;
+  if (maxAttr !== '' && Number.isFinite(Number(maxAttr))) return Number(maxAttr);
+  const mint = swapInputMintInput?.value.trim() ?? '';
+  if (!mint || !hasValidSwapWallet()) return null;
+  return getWalletSellableAmountUi(mint);
+}
+
+function clampSwapAmountInputToMax(): boolean {
+  if (!swapAmountInput || !swapInputMintInput) return false;
+  const raw = swapAmountInput.value.trim();
+  if (!raw || raw === '.' || raw === '-') return false;
+  const amount = Number(raw);
+  if (!Number.isFinite(amount)) return false;
+  const max = getSwapAmountMaxUi();
+  if (max == null || amount <= max) return false;
+  const mint = swapInputMintInput.value.trim();
+  const formatted = formatSwapInputAmountValue(max, getMintDecimals(mint));
+  if (swapAmountInput.value === formatted) return false;
+  swapAmountInput.value = formatted;
+  flashSellPct100Button();
+  return true;
+}
+
+function flashSellPct100Button(): void {
+  const btn = document
+    .getElementById('swapSellPctBtns')
+    ?.querySelector<HTMLButtonElement>('[data-sell-pct="100"]');
+  if (!btn) return;
+  btn.classList.remove('swap-sell-pct-btn--max-flash');
+  void btn.offsetWidth;
+  btn.classList.add('swap-sell-pct-btn--max-flash');
+  const onEnd = (): void => {
+    btn.classList.remove('swap-sell-pct-btn--max-flash');
+    btn.removeEventListener('animationend', onEnd);
+  };
+  btn.addEventListener('animationend', onEnd);
 }
 
 function setSwapSellAmountToBalance(amountUi: number, mint: string): void {
   if (!swapAmountInput) return;
   const formatted = formatSwapInputAmountValue(amountUi, getMintDecimals(mint));
   swapAmountInput.value = formatted;
-  swapAmountInput.max = formatted;
+  syncSwapAmountMaxFromBalance();
   swapAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
@@ -2011,6 +2076,7 @@ async function prefetchSwapPairPrices(options?: {
       saveTokenPriceStats(mint, s);
     }
     updateSwapPairCards(stats);
+    syncSellFiatFromPrefetchedPrices();
   } catch {
     // Prefetch is best-effort; pair cards keep last known stats or em dashes.
   }
@@ -2236,6 +2302,20 @@ async function fetchSwapQuote(): Promise<void> {
   if (!Number.isFinite(amount) || amount <= 0) {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Amount must be a positive number.');
     return;
+  }
+  if (hasValidSwapWallet()) {
+    const sellable = getWalletSellableAmountUi(inputMint);
+    if (sellable != null && amount > sellable) {
+      clampSwapAmountInputToMax();
+      syncSellFiatFromPrefetchedPrices();
+      if (swapQuoteError) {
+        showInlineError(
+          swapQuoteError,
+          `Amount exceeds max sellable balance (${formatSwapInputAmountValue(sellable, getMintDecimals(inputMint))}).`
+        );
+      }
+      return;
+    }
   }
 
   lastSwapQuoteOk = null;
@@ -2545,17 +2625,70 @@ async function signSwapTransactionBase64(base64: string): Promise<string> {
   return bytesToBase64(signed.serialize());
 }
 
+function updateConnectWalletButtonUi(address: string, hasWallet: boolean): void {
+  const btn = swapConnectWalletBtn;
+  const disconnectBtn = swapDisconnectWalletBtn;
+  const iconEl = swapConnectWalletBtnIconEl;
+  const textEl = swapConnectWalletBtnTextEl;
+  if (!btn || !textEl) return;
+
+  btn.classList.remove('swap-wallet-field-connect--connected', 'swap-wallet-field-connect--loading');
+
+  if (walletConnectLoading) {
+    btn.disabled = true;
+    btn.classList.add('swap-wallet-field-connect--loading');
+    if (iconEl) iconEl.className = 'swap-wallet-field-connect__icon swap-wallet-field-connect__icon--spinner';
+    textEl.textContent = 'Connecting…';
+    if (disconnectBtn) disconnectBtn.hidden = true;
+    return;
+  }
+
+  if (hasWallet) {
+    btn.disabled = true;
+    btn.classList.add('swap-wallet-field-connect--connected');
+    if (iconEl) iconEl.className = 'swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet';
+    textEl.textContent = truncate(address, 4, 4);
+    if (disconnectBtn) disconnectBtn.hidden = false;
+    return;
+  }
+
+  btn.disabled = false;
+  if (iconEl) iconEl.className = 'swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet';
+  textEl.textContent = 'Connect wallet';
+  if (disconnectBtn) disconnectBtn.hidden = true;
+}
+
+async function disconnectBrowserWallet(): Promise<void> {
+  const provider = getSolanaWalletProvider();
+  if (provider?.disconnect) {
+    try {
+      await provider.disconnect();
+    } catch {
+      /* extension may reject if already disconnected */
+    }
+  }
+  if (swapWalletAddressInput) swapWalletAddressInput.value = '';
+  walletConnectLoading = false;
+  syncWalletFieldForMode();
+  syncSellTokenPickerState();
+  onWalletAddressReady(true);
+}
+
 function syncWalletFieldForMode(): void {
   const isSignMode = swapBuildMode === 'build-sign';
-  const hasWallet = Boolean(swapWalletAddressInput?.value.trim());
+  const address = swapWalletAddressInput?.value.trim() ?? '';
+  const hasWallet = Boolean(address);
+
+  if (swapWalletSignRowEl) swapWalletSignRowEl.hidden = !isSignMode;
+
   if (swapWalletAddressInput) {
-    swapWalletAddressInput.hidden = isSignMode && !hasWallet;
-    swapWalletAddressInput.readOnly = isSignMode && hasWallet;
-    if (!isSignMode) swapWalletAddressInput.readOnly = false;
+    swapWalletAddressInput.hidden = isSignMode;
+    swapWalletAddressInput.readOnly = false;
   }
-  if (swapConnectWalletBtn) {
-    swapConnectWalletBtn.hidden = !isSignMode || hasWallet;
-  }
+
+  if (!isSignMode) return;
+
+  updateConnectWalletButtonUi(address, hasWallet);
 }
 
 function syncSwapBuildModeUi(): void {
@@ -2657,9 +2790,20 @@ swapRouterSwitchEl?.addEventListener('click', (e) => {
   setSwapRouter(btn.dataset.router);
 });
 swapConnectWalletBtn?.addEventListener('click', () => {
-  void ensureBrowserWalletConnected(swapWalletAddressInput?.value.trim() ?? '').catch((err) => {
-    if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
-  });
+  if (walletConnectLoading || swapConnectWalletBtn.disabled) return;
+  walletConnectLoading = true;
+  syncWalletFieldForMode();
+  void ensureBrowserWalletConnected(swapWalletAddressInput?.value.trim() ?? '')
+    .catch((err) => {
+      if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+    })
+    .finally(() => {
+      walletConnectLoading = false;
+      syncWalletFieldForMode();
+    });
+});
+swapDisconnectWalletBtn?.addEventListener('click', () => {
+  void disconnectBrowserWallet();
 });
 swapWalletAddressInput?.addEventListener('input', () => onWalletAddressReady(false));
 swapWalletAddressInput?.addEventListener('change', () => onWalletAddressReady(true));
@@ -2773,6 +2917,15 @@ if (swapOutputMintInput) {
     void prefetchSwapPairPrices({ forceFullDetails: true });
   });
 }
+
+swapAmountInput?.addEventListener('input', () => {
+  clampSwapAmountInputToMax();
+  syncSellFiatFromPrefetchedPrices();
+});
+swapAmountInput?.addEventListener('change', () => {
+  clampSwapAmountInputToMax();
+  syncSellFiatFromPrefetchedPrices();
+});
 
 void ensureTokenCatalogLoaded().then(() => updateSwapTokenIcons());
 void refreshSwapSymbols();

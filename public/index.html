@@ -173,7 +173,13 @@
                 </span>
                 <div class="swap-wallet-field-control">
                   <input type="text" id="swapWalletAddress" placeholder="Signer / account address" autocomplete="off" />
-                  <button type="button" id="swapConnectWalletBtn" class="swap-wallet-field-connect" hidden>Connect wallet</button>
+                  <div class="swap-wallet-field-sign-row" id="swapWalletSignRow" hidden>
+                    <button type="button" id="swapConnectWalletBtn" class="swap-wallet-field-connect">
+                      <span class="swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet" id="swapConnectWalletBtnIcon" aria-hidden="true"></span>
+                      <span class="swap-wallet-field-connect__text" id="swapConnectWalletBtnText">Connect wallet</span>
+                    </button>
+                    <button type="button" id="swapDisconnectWalletBtn" class="swap-wallet-field-disconnect" hidden>Disconnect</button>
+                  </div>
                 </div>
               </label>
               <label class="swap-adv-field">
