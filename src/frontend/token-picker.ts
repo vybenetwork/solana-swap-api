@@ -392,6 +392,13 @@ function formatBalanceAmount(amount: number): string {
   return amount.toFixed(6).replace(/\.?0+$/, '') || '0';
 }
 
+function formatWalletBalanceUsd(valueUsd: number): string {
+  if (!Number.isFinite(valueUsd) || valueUsd <= 0) return '~$0.00';
+  const abs = Math.abs(valueUsd);
+  const maxFrac = abs >= 9.99 ? 0 : abs >= 1 ? 2 : 4;
+  return `~$${valueUsd.toLocaleString(undefined, { maximumFractionDigits: maxFrac, minimumFractionDigits: 2 })}`;
+}
+
 function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
   const catalogHit = catalogTokens.find((t) => t.mint === item.mintAddress);
   const cached = readCache()[item.mintAddress];
@@ -415,6 +422,7 @@ function renderWalletBalanceRow(item: WalletBalanceListItem): string {
   const swapMint = preferNativeSolMint(item.mintAddress);
   const tradable = isWalletTokenTradable(swapMint);
   const amountLabel = `${formatBalanceAmount(item.amountUi)} ${token.symbol}`;
+  const fiatLabel = formatWalletBalanceUsd(item.valueUsd);
   const tooSmall =
     !tradable && isSolMint(item.mintAddress)
       ? '<span class="token-picker-row-tag token-picker-row-tag--muted">Too small</span>'
@@ -429,7 +437,10 @@ function renderWalletBalanceRow(item: WalletBalanceListItem): string {
       </span>
       <span class="token-picker-row-sub">${escapeHtml(token.name)}</span>
     </span>
-    <span class="token-picker-row-amount">${escapeHtml(amountLabel)}</span>
+    <span class="token-picker-row-amount-wrap">
+      <span class="token-picker-row-amount">${escapeHtml(amountLabel)}</span>
+      <span class="token-picker-row-fiat">${escapeHtml(fiatLabel)}</span>
+    </span>
   </button>`;
 }
 

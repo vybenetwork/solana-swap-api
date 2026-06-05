@@ -472,22 +472,49 @@ function formatSwapFiatDisplay(v: unknown): string {
   return `~$${n.toFixed(2)}`;
 }
 
-/** Pre-quote sell USD from sell amount × prefetched sell-token spot (SOL on load). */
-function syncSellFiatFromPrefetchedPrices(): void {
-  if (lastSwapQuoteOk) return;
-  if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
-  const sellMint = swapInputMintInput?.value.trim() ?? '';
+function syncSwapSellAmountUi(): void {
   const amount = Number(swapAmountInput?.value);
-  if (!sellMint || !Number.isFinite(amount) || amount <= 0) {
+  const hasPositiveAmount = Number.isFinite(amount) && amount > 0;
+
+  if (!hasPositiveAmount) {
+    lastSwapQuoteOk = null;
+    lastVybeBuild = null;
+    if (swapBuildBtn) swapBuildBtn.disabled = true;
+    if (swapBuyAmountDisplayEl) {
+      swapBuyAmountDisplayEl.textContent = '0.00';
+      swapBuyAmountDisplayEl.dataset.empty = 'true';
+      swapBuyAmountDisplayEl.removeAttribute('title');
+    }
     if (swapSellFiatEl) swapSellFiatEl.textContent = '~$0.00';
+    if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
+    resetSwapQuoteDetailsPanel();
+    if (swapFooterRateEl) swapFooterRateEl.textContent = '—';
+    if (swapFooterImpactEl) swapFooterImpactEl.textContent = '—';
+    if (swapFooterMinOutEl) swapFooterMinOutEl.textContent = '—';
+    if (swapFooterMaxSlippageEl) swapFooterMaxSlippageEl.textContent = '—';
+    setRouteChipLabel('—', true);
+    if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = '';
     return;
   }
+
+  if (lastSwapQuoteOk) return;
+
+  if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
+  const sellMint = swapInputMintInput?.value.trim() ?? '';
   const price = pairTokenStats[sellMint]?.price;
-  if (!price || !Number.isFinite(price) || price <= 0) {
+  if (!sellMint || !price || !Number.isFinite(price) || price <= 0) {
     if (swapSellFiatEl) swapSellFiatEl.textContent = '~$0.00';
     return;
   }
   if (swapSellFiatEl) swapSellFiatEl.textContent = formatSwapFiatDisplay(amount * price);
+}
+
+function invalidateSwapQuoteUi(): void {
+  lastSwapQuoteOk = null;
+  lastVybeBuild = null;
+  if (swapBuildBtn) swapBuildBtn.disabled = true;
+  resetSwapQuoteDetailsPanel();
+  syncSwapSellAmountUi();
 }
 
 const SOLANA_WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -607,11 +634,14 @@ function syncSwapAmountMaxFromBalance(): void {
   const sellable = getWalletSellableAmountUi(mint);
   if (sellable != null && sellable > 0) {
     swapAmountInput.max = formatSwapInputAmountValue(sellable, getMintDecimals(mint));
+  } else if (hasValidSwapWallet() && mint) {
+    swapAmountInput.max = '0';
   } else {
     swapAmountInput.removeAttribute('max');
   }
   clampSwapAmountInputToMax();
   syncSellPctButtonsState();
+  syncSwapSellAmountUi();
 }
 
 function getSwapAmountMaxUi(): number | null {
@@ -2076,7 +2106,7 @@ async function prefetchSwapPairPrices(options?: {
       saveTokenPriceStats(mint, s);
     }
     updateSwapPairCards(stats);
-    syncSellFiatFromPrefetchedPrices();
+    syncSwapSellAmountUi();
   } catch {
     // Prefetch is best-effort; pair cards keep last known stats or em dashes.
   }
@@ -2192,6 +2222,14 @@ async function enrichRouteLabels(quote: Record<string, unknown>): Promise<void> 
   }
 }
 
+function syncSlippageInputForAutoSlippage(): void {
+  const auto = swapAutoSlippageCheckbox?.checked === true;
+  if (swapSlippageInput) {
+    swapSlippageInput.disabled = auto;
+    swapSlippageInput.title = auto ? 'Disabled while auto slippage is on' : 'Slippage percent';
+  }
+}
+
 function collectSwapBuildOptions(): Record<string, unknown> {
   const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : undefined;
   const router = getSwapRouter();
@@ -2299,15 +2337,21 @@ async function fetchSwapQuote(): Promise<void> {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Input and output mint required for quote.');
     return;
   }
-  if (!Number.isFinite(amount) || amount <= 0) {
+  if (!Number.isFinite(amount) || amount < 0) {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Amount must be a positive number.');
+    syncSwapSellAmountUi();
+    return;
+  }
+  if (amount === 0) {
+    if (swapQuoteError) clearInlineError(swapQuoteError);
+    syncSwapSellAmountUi();
     return;
   }
   if (hasValidSwapWallet()) {
     const sellable = getWalletSellableAmountUi(inputMint);
     if (sellable != null && amount > sellable) {
       clampSwapAmountInputToMax();
-      syncSellFiatFromPrefetchedPrices();
+      syncSwapSellAmountUi();
       if (swapQuoteError) {
         showInlineError(
           swapQuoteError,
@@ -2349,6 +2393,7 @@ async function fetchSwapQuote(): Promise<void> {
             'Wallet required for Vybe quotes (used to build the swap transaction).',
           );
         }
+        invalidateSwapQuoteUi();
         return;
       }
       try {
@@ -2360,6 +2405,7 @@ async function fetchSwapQuote(): Promise<void> {
             balanceErr instanceof Error ? balanceErr.message : String(balanceErr),
           );
         }
+        invalidateSwapQuoteUi();
         return;
       }
       void refreshLowSolTradeWarning();
@@ -2378,6 +2424,7 @@ async function fetchSwapQuote(): Promise<void> {
           priceErr instanceof Error ? priceErr.message : String(priceErr),
         );
       }
+      invalidateSwapQuoteUi();
       return;
     }
 
@@ -2404,6 +2451,7 @@ async function fetchSwapQuote(): Promise<void> {
       };
       if (!res.ok) {
         if (swapQuoteError) showInlineError(swapQuoteError, body.error || `Quote failed (${res.status})`);
+        invalidateSwapQuoteUi();
         return;
       }
 
@@ -2440,6 +2488,7 @@ async function fetchSwapQuote(): Promise<void> {
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown> & { error?: string };
     if (!res.ok) {
       if (swapQuoteError) showInlineError(swapQuoteError, body.error || `Quote failed (${res.status})`);
+      invalidateSwapQuoteUi();
       return;
     }
     lastSwapQuoteOk = annotateQuoteRouterMeta(body, router);
@@ -2847,6 +2896,8 @@ if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
     void syncSwapSideLabels();
     updateSwapTokenIcons();
     updateSwapPairCards();
+    syncSwapAmountMaxFromBalance();
+    void prefetchSwapPairPrices({ forceFullDetails: true, mints: [swapInputMintInput.value.trim()] });
     void fetchSwapQuote();
   });
 }
@@ -2898,12 +2949,15 @@ routingDialogCloseEl?.addEventListener('click', () => routingDialogEl?.close());
 swapGaslessCheckbox?.addEventListener('change', () => {
   void refreshLowSolTradeWarning();
 });
+swapAutoSlippageCheckbox?.addEventListener('change', syncSlippageInputForAutoSlippage);
+syncSlippageInputForAutoSlippage();
 
 if (swapInputMintInput) {
   swapInputMintInput.addEventListener('input', () => {
     updateSwapPairCards();
     void refreshSwapSymbols();
     void refreshLowSolTradeWarning();
+    syncSwapAmountMaxFromBalance();
     if (!lastSwapQuoteOk) resetSwapQuoteDetailsPanel();
     void prefetchSwapPairPrices({ forceFullDetails: true });
   });
@@ -2920,11 +2974,11 @@ if (swapOutputMintInput) {
 
 swapAmountInput?.addEventListener('input', () => {
   clampSwapAmountInputToMax();
-  syncSellFiatFromPrefetchedPrices();
+  syncSwapSellAmountUi();
 });
 swapAmountInput?.addEventListener('change', () => {
   clampSwapAmountInputToMax();
-  syncSellFiatFromPrefetchedPrices();
+  syncSwapSellAmountUi();
 });
 
 void ensureTokenCatalogLoaded().then(() => updateSwapTokenIcons());
