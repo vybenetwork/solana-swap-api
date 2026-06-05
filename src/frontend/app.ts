@@ -9,6 +9,7 @@ import {
   getCachedTokenMeta,
   getTokenDecimalsFromCache,
   getWalletSellableAmountUi,
+  getWalletBalanceAmountUi,
   isSolMint,
   preferNativeSolMint,
   NATIVE_SOL_MINT,
@@ -103,7 +104,8 @@ const swapOutputTokenBtn = document.getElementById('swapOutputTokenBtn') as HTML
 const swapInputTokenIconEl = document.getElementById('swapInputTokenIcon') as HTMLElement | null;
 const swapOutputTokenIconEl = document.getElementById('swapOutputTokenIcon') as HTMLElement | null;
 const swapSlippageInput = document.getElementById('swapSlippage') as HTMLInputElement | null;
-const swapRouterSelect = document.getElementById('swapRouter') as HTMLSelectElement | null;
+const swapRouterInput = document.getElementById('swapRouter') as HTMLInputElement | null;
+const swapRouterSwitchEl = document.getElementById('swapRouterSwitch') as HTMLElement | null;
 const swapGaslessCheckbox = document.getElementById('swapGasless') as HTMLInputElement | null;
 const swapAutoSlippageCheckbox = document.getElementById('swapAutoSlippage') as HTMLInputElement | null;
 const swapSimulateCheckbox = document.getElementById('swapSimulate') as HTMLInputElement | null;
@@ -492,6 +494,47 @@ function syncSellTokenPickerState(): void {
     swapInputTokenBtn.tabIndex = valid ? 0 : -1;
     swapInputTokenBtn.title = valid ? '' : 'Enter or connect a valid Solana wallet to choose a sell token';
   }
+  syncSellPctButtonsState();
+}
+
+function syncSellPctButtonsState(): void {
+  const container = document.getElementById('swapSellPctBtns');
+  if (!container) return;
+  const mint = swapInputMintInput?.value.trim() ?? '';
+  const enabled =
+    hasValidSwapWallet() && mint.length > 0 && (getWalletSellableAmountUi(mint) ?? 0) > 0;
+  for (const btn of container.querySelectorAll<HTMLButtonElement>('.swap-sell-pct-btn')) {
+    btn.disabled = !enabled;
+  }
+}
+
+function applySellAmountPercent(percent: number): void {
+  if (!swapInputMintInput || !swapAmountInput) return;
+  const mint = swapInputMintInput.value.trim();
+  if (!mint) return;
+  if (!hasValidSwapWallet()) {
+    if (swapQuoteError) showInlineError(swapQuoteError, 'Enter or connect a wallet to set sell amount.');
+    return;
+  }
+
+  const total = getWalletBalanceAmountUi(mint);
+  if (total == null || total <= 0) {
+    if (swapQuoteError) showInlineError(swapQuoteError, 'No balance for this token in the connected wallet.');
+    return;
+  }
+
+  const sellable = getWalletSellableAmountUi(mint);
+  if (sellable == null || sellable <= 0) {
+    if (swapQuoteError) showInlineError(swapQuoteError, 'Balance too low to sell this token.');
+    return;
+  }
+
+  let amount = percent >= 100 ? sellable : total * (percent / 100);
+  if (amount > sellable) amount = sellable;
+  if (amount <= 0) return;
+
+  if (swapQuoteError) clearInlineError(swapQuoteError);
+  setSwapSellAmountToBalance(amount, mint);
 }
 
 function formatSwapInputAmountValue(amount: number, decimals = 9): string {
@@ -542,6 +585,7 @@ function syncSwapAmountMaxFromBalance(): void {
   } else {
     swapAmountInput.removeAttribute('max');
   }
+  syncSellPctButtonsState();
 }
 
 function setSwapSellAmountToBalance(amountUi: number, mint: string): void {
@@ -1508,6 +1552,20 @@ function renderRoutingDiagram(quote: Record<string, unknown>): string {
   );
 }
 
+function getSwapRouter(): string {
+  return swapRouterInput?.value.trim() || 'vybe';
+}
+
+function setSwapRouter(router: string): void {
+  const normalized = normalizeRouterId(router);
+  if (swapRouterInput) swapRouterInput.value = normalized;
+  for (const btn of swapRouterSwitchEl?.querySelectorAll<HTMLButtonElement>('[data-router]') ?? []) {
+    const active = btn.dataset.router === normalized;
+    btn.classList.toggle('swap-mode-switch__btn--active', active);
+    btn.setAttribute('aria-selected', active ? 'true' : 'false');
+  }
+}
+
 function normalizeRouterId(value: unknown): string {
   const raw = String(value ?? '').trim().toLowerCase();
   if (raw === 'jupiter' || raw === 'titan' || raw === 'vybe') return raw;
@@ -1524,7 +1582,7 @@ function routerDisplayLabel(routerId: string): string {
 
 function formatRouteDiagramTitle(quote: Record<string, unknown>): string {
   const selected = normalizeRouterId(
-    quote._selectedRouter ?? quote.router ?? swapRouterSelect?.value ?? 'vybe',
+    quote._selectedRouter ?? quote.router ?? getSwapRouter(),
   );
   const effective = normalizeRouterId(
     quote._effectiveRouter ?? quote._buildRouter ?? selected,
@@ -1929,7 +1987,7 @@ async function enrichRouteLabels(quote: Record<string, unknown>): Promise<void> 
 
 function collectSwapBuildOptions(): Record<string, unknown> {
   const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : undefined;
-  const router = swapRouterSelect?.value ?? 'vybe';
+  const router = getSwapRouter();
   const serviceFeeRaw =
     swapEnableServiceFeeCheckbox?.checked === true ? (swapServiceFeeInput?.value.trim() ?? '') : '';
   const serviceFeeN = serviceFeeRaw ? Number(serviceFeeRaw) : NaN;
@@ -2057,7 +2115,7 @@ async function fetchSwapQuote(): Promise<void> {
   if (wallet) params.set('accountAddress', wallet);
   if (Number.isFinite(slippage)) params.set('slippage', String(slippage));
 
-  const router = swapRouterSelect?.value ?? 'vybe';
+  const router = getSwapRouter();
   const buildOpts = collectSwapBuildOptions();
   const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
 
@@ -2452,6 +2510,11 @@ wireBuildOptionToggle(swapEnableServiceFeeCheckbox, swapServiceFeeFieldEl, swapS
 
 swapModeBuildBtn?.addEventListener('click', () => setSwapBuildMode('build'));
 swapModeBuildSignBtn?.addEventListener('click', () => setSwapBuildMode('build-sign'));
+swapRouterSwitchEl?.addEventListener('click', (e) => {
+  const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-router]');
+  if (!btn?.dataset.router) return;
+  setSwapRouter(btn.dataset.router);
+});
 swapConnectWalletBtn?.addEventListener('click', () => {
   void ensureBrowserWalletConnected(swapWalletAddressInput?.value.trim() ?? '').catch((err) => {
     if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
@@ -2517,6 +2580,17 @@ if (swapPasteOutputBtnEl && swapOutputMintInput) {
     } catch {
       if (swapQuoteError) showInlineError(swapQuoteError, 'Could not read clipboard (permission denied).');
     }
+  });
+}
+
+const swapSellPctBtnsEl = document.getElementById('swapSellPctBtns');
+if (swapSellPctBtnsEl) {
+  swapSellPctBtnsEl.addEventListener('click', (event) => {
+    const btn = (event.target as HTMLElement).closest<HTMLButtonElement>('.swap-sell-pct-btn');
+    if (!btn || btn.disabled) return;
+    const pct = Number(btn.dataset.sellPct);
+    if (!Number.isFinite(pct) || pct <= 0) return;
+    applySellAmountPercent(pct);
   });
 }
 

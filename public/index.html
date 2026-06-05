@@ -186,26 +186,31 @@
                   <span class="swap-toggle-field__suffix" aria-hidden="true">%</span>
                 </span>
               </label>
-              <label class="swap-adv-field swap-adv-field--router">
-                <span class="swap-adv-label-row">
-                  <span class="label-icon field-icon icon-grid swap-adv-label-icon" aria-hidden="true"></span>
-                  <span>Router used</span>
-                </span>
-                <div class="swap-router-pill">
-                  <span class="swap-router-pill-spark" aria-hidden="true">✦</span>
-                  <select id="swapRouter" class="swap-router-select" aria-label="Router">
-                    <option value="vybe" selected>Vybe</option>
-                    <option value="jupiter">Jupiter</option>
-                    <option value="titan">Titan</option>
-                  </select>
-                </div>
-              </label>
+            </div>
+            <div class="swap-router-switch-wrap">
+              <div class="swap-adv-label-row swap-router-switch-label">
+                <span class="label-icon field-icon icon-grid swap-adv-label-icon" aria-hidden="true"></span>
+                <span>Router</span>
+              </div>
+              <input type="hidden" id="swapRouter" value="vybe" />
+              <div class="swap-mode-switch swap-router-switch" id="swapRouterSwitch" role="tablist" aria-label="Router">
+                <button type="button" class="swap-mode-switch__btn swap-mode-switch__btn--active" id="swapRouterVybe" role="tab" aria-selected="true" data-router="vybe"><img class="swap-router-switch__icon swap-router-switch__icon--vybe" src="/favicon.svg" alt="" width="22" height="22" decoding="async" />Vybe</button>
+                <button type="button" class="swap-mode-switch__btn" id="swapRouterJupiter" role="tab" aria-selected="false" data-router="jupiter"><img class="swap-router-switch__icon swap-router-switch__icon--jupiter" src="/images/jupiter-logo.png" alt="" width="18" height="18" decoding="async" />Jupiter</button>
+                <button type="button" class="swap-mode-switch__btn" id="swapRouterTitan" role="tab" aria-selected="false" data-router="titan"><img class="swap-router-switch__icon swap-router-switch__icon--titan" src="/images/titan-logo.png" alt="" width="18" height="18" decoding="async" />Titan</button>
+              </div>
             </div>
           </section>
 
           <div class="swap-sides">
             <div class="swap-side swap-side--sell">
-              <div class="swap-side-label">Sell <span class="swap-side-label-token" id="swapSellLabelToken">Solana</span></div>
+              <div class="swap-side-label-row">
+                <span class="swap-side-label">Sell <span class="swap-side-label-token" id="swapSellLabelToken">Solana</span></span>
+                <div class="swap-sell-pct-btns" id="swapSellPctBtns">
+                  <button type="button" class="swap-paste-ca swap-sell-pct-btn" data-sell-pct="25">25%</button>
+                  <button type="button" class="swap-paste-ca swap-sell-pct-btn" data-sell-pct="50">50%</button>
+                  <button type="button" class="swap-paste-ca swap-sell-pct-btn" data-sell-pct="100">100%</button>
+                </div>
+              </div>
               <div class="swap-side-body">
                 <button type="button" class="swap-token-chip" id="swapInputTokenBtn" aria-label="Input token">
                   <span class="swap-token-chip-icon routing-token-dot routing-token-dot--sol" id="swapInputTokenIcon" aria-hidden="true"></span>
