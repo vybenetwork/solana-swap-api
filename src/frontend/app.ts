@@ -457,6 +457,7 @@ async function refreshSwapSymbols(): Promise<void> {
   await syncSwapSideLabels();
   updateSwapTokenIcons();
   updateSwapPairCards();
+  if (!lastSwapQuoteOk) refreshSwapQuoteDetailsPlaceholders();
 }
 
 function updateSwapTokenIcons(): void {
@@ -504,9 +505,11 @@ function syncSwapSellAmountUi(): void {
   const price = pairTokenStats[sellMint]?.price;
   if (!sellMint || !price || !Number.isFinite(price) || price <= 0) {
     if (swapSellFiatEl) swapSellFiatEl.textContent = '~$0.00';
+    refreshSwapQuoteDetailsPlaceholders();
     return;
   }
   if (swapSellFiatEl) swapSellFiatEl.textContent = formatSwapFiatDisplay(amount * price);
+  refreshSwapQuoteDetailsPlaceholders();
 }
 
 function invalidateSwapQuoteUi(): void {
@@ -1655,12 +1658,14 @@ function renderRoutingDiagramPlaceholder(): string {
   const outSym = getSwapOutSym();
   const inMint = swapInputMintInput?.value.trim() ?? '';
   const outMint = swapOutputMintInput?.value.trim() ?? '';
+  const inDisplay = getSwapSellAmountLabel();
+  const hasIn = inDisplay !== '—';
   const mockLeg: RouteHopLeg = {
     inMint,
     outMint,
     inSym,
     outSym,
-    inAmt: '—',
+    inAmt: hasIn ? inDisplay : '—',
     outAmt: '—',
   };
   const mockMeta: RouteHopMeta = {
@@ -1672,7 +1677,17 @@ function renderRoutingDiagramPlaceholder(): string {
     renderJupiterPctLink('100%') +
     renderJupiterMarketNode(mockMeta, mockLeg);
   const trackBody = `<div class="routing-rail-row">${body}<div class="routing-rail-tail" aria-hidden="true"></div></div>`;
-  return renderRoutingFrame('—', inSym, '—', outSym, undefined, trackBody, false, 1, true);
+  return renderRoutingFrame(
+    hasIn ? inDisplay : '—',
+    inSym,
+    '—',
+    outSym,
+    undefined,
+    trackBody,
+    false,
+    1,
+    !hasIn,
+  );
 }
 
 function getSwapRouter(): string {
@@ -1821,11 +1836,23 @@ function renderQuoteSummaryHeroTile(
     </div>`;
 }
 
+function getSwapSellUsdSubLabel(): string | null {
+  const amount = Number(swapAmountInput?.value);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const sellMint = swapInputMintInput?.value.trim() ?? '';
+  const price = pairTokenStats[sellMint]?.price;
+  if (!price || !Number.isFinite(price) || price <= 0) return null;
+  return formatSwapFiatDisplay(amount * price);
+}
+
 function renderQuoteSummaryPlaceholder(): string {
   const inSym = getSwapInSym();
   const outSym = getSwapOutSym();
+  const payAmt = getSwapSellAmountLabel();
+  const hasPay = payAmt !== '—';
+  const paySub = getSwapSellUsdSubLabel() ?? '≈ —';
   return `<div class="swap-quote-summary-primary" data-quote-placeholder="true">
-      ${renderQuoteSummaryHeroTile('You pay', '—', inSym, 'pay', '≈ —', true)}
+      ${renderQuoteSummaryHeroTile('You pay', hasPay ? payAmt : '—', inSym, 'pay', paySub, !hasPay)}
       <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
       ${renderQuoteSummaryHeroTile('You receive', '—', outSym, 'receive', '≈ —', true)}
     </div>`;
@@ -1967,19 +1994,21 @@ function renderQuoteRoutePlanStepsPlaceholder(): string {
   const outSym = getSwapOutSym();
   const inMint = swapInputMintInput?.value.trim() ?? '';
   const outMint = swapOutputMintInput?.value.trim() ?? '';
+  const inDisplay = getSwapSellAmountLabel();
+  const hasIn = inDisplay !== '—';
   const mockLeg: RouteHopLeg = {
     inMint,
     outMint,
     inSym,
     outSym,
-    inAmt: '—',
+    inAmt: hasIn ? inDisplay : '—',
     outAmt: '—',
   };
   const mockStep: VybeRoutePlanStepLite = {
     percent: 100,
     swapInfo: { label: '—' },
   };
-  return renderRoutePlanStepDetail(mockStep, '1', mockLeg, true, true);
+  return renderRoutePlanStepDetail(mockStep, '1', mockLeg, true, !hasIn);
 }
 
 function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): string {
@@ -2051,6 +2080,18 @@ function ensureFirstHopExpanded(): void {
 function syncRoutePlanStepsUi(): void {
   ensureRoutePlanStepsExpanded();
   ensureFirstHopExpanded();
+}
+
+function refreshSwapQuoteDetailsPlaceholders(): void {
+  if (lastSwapQuoteOk) return;
+  if (swapQuoteSummaryEl) swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder();
+  if (swapQuoteDetailsRoutingEl) {
+    swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagramPlaceholder();
+  }
+  if (swapQuoteDetailsRouteStepsEl) {
+    swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder();
+  }
+  syncRoutePlanStepsUi();
 }
 
 function resetSwapQuoteDetailsPanel(): void {
@@ -2767,8 +2808,8 @@ function syncSwapBuildModeUi(): void {
   }
   if (swapAdvancedBuildHintEl) {
     swapAdvancedBuildHintEl.innerHTML = isSignMode
-      ? 'Used only when you click <strong>Build &amp; sign swap</strong>. Quote uses wallet, slippage, and mints.'
-      : 'Used only when you click <strong>Build swap (no signing)</strong>. Quote uses wallet, slippage, and mints.';
+      ? 'Used only when you click <strong>Build &amp; sign swap</strong>.'
+      : 'Used only when you click <strong>Build swap (no signing)</strong>.';
   }
 }
 
