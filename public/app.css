@@ -1923,6 +1923,15 @@ tr:hover td {
   margin-top: 0.1rem;
 }
 
+.swap-quote-summary-amt--placeholder {
+  color: #52525b;
+  font-weight: 600;
+}
+
+.swap-quote-summary-sub--placeholder {
+  color: #52525b;
+}
+
 .swap-quote-summary-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2541,6 +2550,12 @@ tr:hover td {
   text-align: center;
 }
 
+.routing-canvas--placeholder .routing-amt,
+.routing-canvas--placeholder .routing-dex-caption,
+.routing-canvas--placeholder .routing-hop-index-badge {
+  color: #52525b;
+}
+
 .route-hop-conversion {
   display: flex;
   align-items: center;
@@ -2605,6 +2620,12 @@ tr:hover td {
   border-color: #3f3f46;
 }
 
+.swap-hop-step-details--placeholder .swap-hop-card__dex,
+.swap-hop-step-details--placeholder .swap-hop-step-details__preview,
+.swap-hop-step-details--placeholder .swap-hop-card__pct {
+  color: #52525b;
+}
+
 .swap-hop-step-details__summary {
   list-style: none;
   cursor: pointer;
@@ -2649,6 +2670,10 @@ tr:hover td {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.swap-hop-step-details:not([open]) > .swap-hop-step-details__body {
+  display: none;
 }
 
 .swap-hop-step-details__body {

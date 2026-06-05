@@ -185,6 +185,7 @@ const swapQuoteDetailsRoutingEl = document.getElementById('swapQuoteDetailsRouti
 const swapQuoteRouteSubtitleEl = document.getElementById('swapQuoteRouteSubtitle') as HTMLElement | null;
 const swapQuoteDetailsFieldsEl = document.getElementById('swapQuoteDetailsFields') as HTMLElement | null;
 const swapQuoteDetailsRouteStepsEl = document.getElementById('swapQuoteDetailsRouteSteps') as HTMLElement | null;
+const swapQuoteRoutePlanDetailsEl = document.getElementById('swapQuoteRoutePlanDetails') as HTMLDetailsElement | null;
 const swapQuoteSummaryEl = document.getElementById('swapQuoteSummary') as HTMLElement | null;
 const swapRawQuoteResponseEl = document.getElementById('swapRawQuoteResponse') as HTMLElement | null;
 const swapRawSwapResponseEl = document.getElementById('swapRawSwapResponse') as HTMLElement | null;
@@ -1495,8 +1496,10 @@ function renderRoutingFrame(
   body: string,
   split: boolean,
   hopCount = 0,
+  placeholder = false,
 ): string {
-  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}">
+  const placeholderClass = placeholder ? ' routing-canvas--placeholder' : '';
+  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${placeholderClass}">
     <div class="routing-frame">
       <div class="routing-endpoint routing-endpoint--in">
         ${renderJupiterEndpointPill(inDisplay, inSym)}
@@ -1550,6 +1553,31 @@ function renderRoutingDiagram(quote: Record<string, unknown>): string {
     split,
     plan.length,
   );
+}
+
+function renderRoutingDiagramPlaceholder(): string {
+  const inSym = getSwapInSym();
+  const outSym = getSwapOutSym();
+  const inMint = swapInputMintInput?.value.trim() ?? '';
+  const outMint = swapOutputMintInput?.value.trim() ?? '';
+  const mockLeg: RouteHopLeg = {
+    inMint,
+    outMint,
+    inSym,
+    outSym,
+    inAmt: '—',
+    outAmt: '—',
+  };
+  const mockMeta: RouteHopMeta = {
+    label: '1',
+    planIndex: 0,
+    step: { percent: 100, swapInfo: { label: '—' } },
+  };
+  const body =
+    renderJupiterPctLink('100%') +
+    renderJupiterMarketNode(mockMeta, mockLeg);
+  const trackBody = `<div class="routing-rail-row">${body}<div class="routing-rail-tail" aria-hidden="true"></div></div>`;
+  return renderRoutingFrame('—', inSym, '—', outSym, undefined, trackBody, false, 1, true);
 }
 
 function getSwapRouter(): string {
@@ -1628,6 +1656,7 @@ function renderRoutePanels(quote: Record<string, unknown>): void {
   updateRouteDiagramTitle(quote);
   if (swapQuoteDetailsRoutingEl) swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagram(quote);
   if (swapQuoteDetailsRouteStepsEl) swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanSteps(quote);
+  syncRoutePlanStepsUi();
   if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = renderRoutingDiagram(quote);
 }
 
@@ -1677,6 +1706,36 @@ const SWAP_QUOTE_SUMMARY_KEYS = new Set([
 const SWAP_QUOTE_NESTED_KEYS = new Set(['mostReliableAmmsQuoteReport', 'otherRoutePlans']);
 const SWAP_QUOTE_LONG_STRING_MIN = 48;
 
+function renderQuoteSummaryHeroTile(
+  label: string,
+  amt: string,
+  sym: string,
+  variant: 'pay' | 'receive',
+  sub?: string | null,
+  placeholder = false,
+): string {
+  const amtCls = placeholder ? ' swap-quote-summary-amt--placeholder' : '';
+  const subCls = placeholder ? ' swap-quote-summary-sub--placeholder' : '';
+  return `<div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-tile--${variant}">
+      <span class="swap-quote-summary-label">${escapeHtml(label)}</span>
+      <span class="swap-quote-summary-value">
+        <span class="swap-quote-summary-amt${amtCls}">${escapeHtml(amt)}</span>
+        <span class="swap-quote-summary-sym">${escapeHtml(sym)}</span>
+      </span>
+      ${sub ? `<span class="swap-quote-summary-sub${subCls}">${escapeHtml(sub)}</span>` : ''}
+    </div>`;
+}
+
+function renderQuoteSummaryPlaceholder(): string {
+  const inSym = getSwapInSym();
+  const outSym = getSwapOutSym();
+  return `<div class="swap-quote-summary-primary" data-quote-placeholder="true">
+      ${renderQuoteSummaryHeroTile('You pay', '—', inSym, 'pay', '≈ —', true)}
+      <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
+      ${renderQuoteSummaryHeroTile('You receive', '—', outSym, 'receive', '≈ —', true)}
+    </div>`;
+}
+
 function renderQuoteSummary(quote: Record<string, unknown>): string {
   const inSym = getSwapInSym();
   const outSym = getSwapOutSym();
@@ -1684,20 +1743,10 @@ function renderQuoteSummary(quote: Record<string, unknown>): string {
   const outAmt = formatQuoteTokenAmount(quote, 'out');
   const usd = formatSwapUsdLabel(quote.swapUsdValue);
 
-  const heroTile = (label: string, amt: string, sym: string, variant: 'pay' | 'receive', sub?: string | null) =>
-    `<div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-tile--${variant}">
-      <span class="swap-quote-summary-label">${escapeHtml(label)}</span>
-      <span class="swap-quote-summary-value">
-        <span class="swap-quote-summary-amt">${escapeHtml(amt)}</span>
-        <span class="swap-quote-summary-sym">${escapeHtml(sym)}</span>
-      </span>
-      ${sub ? `<span class="swap-quote-summary-sub">${escapeHtml(sub)}</span>` : ''}
-    </div>`;
-
   return `<div class="swap-quote-summary-primary">
-      ${heroTile('You pay', payAmt, inSym, 'pay', usd ? `≈ ${usd}` : null)}
+      ${renderQuoteSummaryHeroTile('You pay', payAmt, inSym, 'pay', usd ? `≈ ${usd}` : null)}
       <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
-      ${heroTile('You receive', outAmt.display, outSym, 'receive', usd ? `≈ ${usd}` : null)}
+      ${renderQuoteSummaryHeroTile('You receive', outAmt.display, outSym, 'receive', usd ? `≈ ${usd}` : null)}
     </div>`;
 }
 
@@ -1755,7 +1804,13 @@ function renderQuoteFieldsTable(quote: Record<string, unknown>): string {
   return `<div class="swap-quote-fields-grid">${rowHtml.join('')}${routeRow}</div>`;
 }
 
-function renderRoutePlanStepDetail(step: VybeRoutePlanStepLite, hopLabel: string, leg: RouteHopLeg): string {
+function renderRoutePlanStepDetail(
+  step: VybeRoutePlanStepLite,
+  hopLabel: string,
+  leg: RouteHopLeg,
+  expanded = false,
+  placeholder = false,
+): string {
   const si = step.swapInfo;
   const dex = si?.label ?? 'Unknown DEX';
   const pct = hopPercentLabel(step);
@@ -1795,7 +1850,8 @@ function renderRoutePlanStepDetail(step: VybeRoutePlanStepLite, hopLabel: string
   }
   if (feeAmt) rows.push(detailRow('Fee', `${feeAmt} ${feeSym}`));
 
-  return `<details class="swap-hop-step-details">
+  const placeholderClass = placeholder ? ' swap-hop-step-details--placeholder' : '';
+  return `<details class="swap-hop-step-details${placeholderClass}"${expanded ? ' open' : ''}>
     <summary class="swap-hop-step-details__summary">
       <span class="swap-hop-card__index">Hop #${escapeHtml(hopLabel)}</span>
       <span class="swap-hop-step-details__main">
@@ -1811,6 +1867,26 @@ function renderRoutePlanStepDetail(step: VybeRoutePlanStepLite, hopLabel: string
   </details>`;
 }
 
+function renderQuoteRoutePlanStepsPlaceholder(): string {
+  const inSym = getSwapInSym();
+  const outSym = getSwapOutSym();
+  const inMint = swapInputMintInput?.value.trim() ?? '';
+  const outMint = swapOutputMintInput?.value.trim() ?? '';
+  const mockLeg: RouteHopLeg = {
+    inMint,
+    outMint,
+    inSym,
+    outSym,
+    inAmt: '—',
+    outAmt: '—',
+  };
+  const mockStep: VybeRoutePlanStepLite = {
+    percent: 100,
+    swapInfo: { label: '—' },
+  };
+  return renderRoutePlanStepDetail(mockStep, '1', mockLeg, true, true);
+}
+
 function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): string {
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   if (plan.length === 0) return '<p class="routing-empty">No route steps in this quote.</p>';
@@ -1819,10 +1895,14 @@ function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): string {
   const metas: RouteHopMeta[] = [];
   collectRouteHopMetas(tree, metas);
   if (metas.length === 0) {
-    return plan.map((s, i) => renderRoutePlanStepDetail(s, String(i + 1), legs[i]!)).join('');
+    return plan
+      .map((s, i) => renderRoutePlanStepDetail(s, String(i + 1), legs[i]!, i === 0))
+      .join('');
   }
   return metas
-    .map((meta) => renderRoutePlanStepDetail(meta.step, meta.label, legs[meta.planIndex]!))
+    .map((meta, i) =>
+      renderRoutePlanStepDetail(meta.step, meta.label, legs[meta.planIndex]!, i === 0),
+    )
     .join('');
 }
 
@@ -1860,19 +1940,80 @@ function renderSwapQuoteDetailsPanel(quote: Record<string, unknown>): void {
   renderRawResponsePanels();
 }
 
+function ensureRoutePlanStepsExpanded(): void {
+  if (swapQuoteRoutePlanDetailsEl) swapQuoteRoutePlanDetailsEl.open = true;
+}
+
+function ensureFirstHopExpanded(): void {
+  const hops =
+    swapQuoteDetailsRouteStepsEl?.querySelectorAll<HTMLDetailsElement>('.swap-hop-step-details');
+  if (!hops?.length) return;
+  hops.forEach((el, i) => {
+    el.open = i === 0;
+  });
+}
+
+function syncRoutePlanStepsUi(): void {
+  ensureRoutePlanStepsExpanded();
+  ensureFirstHopExpanded();
+}
+
 function resetSwapQuoteDetailsPanel(): void {
-  if (swapQuoteDetailsEmptyEl) swapQuoteDetailsEmptyEl.hidden = false;
-  if (swapQuoteDetailsBodyEl) swapQuoteDetailsBodyEl.hidden = true;
+  if (swapQuoteDetailsEmptyEl) swapQuoteDetailsEmptyEl.hidden = true;
+  if (swapQuoteDetailsBodyEl) swapQuoteDetailsBodyEl.hidden = false;
   if (swapQuoteSummaryEl) {
-    swapQuoteSummaryEl.innerHTML = '';
-    swapQuoteSummaryEl.hidden = true;
+    swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder();
+    swapQuoteSummaryEl.hidden = false;
   }
-  if (swapQuoteDetailsRoutingEl) swapQuoteDetailsRoutingEl.innerHTML = '';
-  if (swapQuoteDetailsFieldsEl) swapQuoteDetailsFieldsEl.innerHTML = '';
-  if (swapQuoteDetailsRouteStepsEl) swapQuoteDetailsRouteStepsEl.innerHTML = '';
+  if (swapQuoteDetailsRoutingEl) {
+    swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagramPlaceholder();
+  }
+  if (swapQuoteDetailsRouteStepsEl) {
+    swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder();
+  }
+  syncRoutePlanStepsUi();
+  if (swapQuoteDetailsFieldsEl) {
+    swapQuoteDetailsFieldsEl.innerHTML = '<p class="routing-empty">—</p>';
+  }
   if (swapQuoteRouteSubtitleEl) swapQuoteRouteSubtitleEl.textContent = 'Route';
   if (routingDialogTitleEl) routingDialogTitleEl.textContent = 'Routing';
   renderRawResponsePanels();
+}
+
+async function prefetchSwapPairPrices(options?: {
+  forceFullDetails?: boolean;
+  mints?: string[];
+}): Promise<void> {
+  const inputMint = swapInputMintInput?.value.trim() ?? '';
+  const outputMint = swapOutputMintInput?.value.trim() ?? '';
+  const mints = [...new Set((options?.mints ?? [inputMint, outputMint]).filter(Boolean))];
+  if (mints.length === 0) return;
+  try {
+    const forceFullDetailsMints = options?.forceFullDetails ? mints : [];
+    const res = await fetchWithRetry('/api/tokens/resolve-prices', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        mints,
+        tokenHints: buildTokenHintsForMints(mints),
+        forceFullDetailsMints,
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      stats?: Record<string, TokenPriceStats>;
+      error?: string;
+    };
+    if (!res.ok) {
+      throw new Error(body.error || `Price resolve failed (${res.status})`);
+    }
+    const stats = body.stats ?? {};
+    for (const [mint, s] of Object.entries(stats)) {
+      saveTokenPriceStats(mint, s);
+    }
+    updateSwapPairCards(stats);
+  } catch {
+    // Prefetch is best-effort; pair cards keep last known stats or em dashes.
+  }
 }
 
 function clearSwapQuotePanel(): void {
@@ -2619,6 +2760,8 @@ if (swapInputMintInput) {
     updateSwapPairCards();
     void refreshSwapSymbols();
     void refreshLowSolTradeWarning();
+    if (!lastSwapQuoteOk) resetSwapQuoteDetailsPanel();
+    void prefetchSwapPairPrices({ forceFullDetails: true });
   });
 }
 if (swapOutputMintInput) {
@@ -2626,9 +2769,16 @@ if (swapOutputMintInput) {
     updateSwapPairCards();
     void refreshSwapSymbols();
     void refreshLowSolTradeWarning();
+    if (!lastSwapQuoteOk) resetSwapQuoteDetailsPanel();
+    void prefetchSwapPairPrices({ forceFullDetails: true });
   });
 }
 
 void ensureTokenCatalogLoaded().then(() => updateSwapTokenIcons());
 void refreshSwapSymbols();
 updateSwapPairCards();
+resetSwapQuoteDetailsPanel();
+const initialSellMint = swapInputMintInput?.value.trim() ?? '';
+if (initialSellMint) {
+  void prefetchSwapPairPrices({ forceFullDetails: true, mints: [initialSellMint] });
+}

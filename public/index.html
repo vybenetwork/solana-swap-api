@@ -446,16 +446,16 @@
                 <div class="swap-pair-card swap-pair-card--sell" id="swapCardSell" aria-label="Sell token"></div>
                 <div class="swap-pair-card swap-pair-card--buy" id="swapCardBuy" aria-label="Buy token"></div>
               </div>
-              <p class="swap-quote-details-empty" id="swapQuoteDetailsEmpty">
+              <p class="swap-quote-details-empty" id="swapQuoteDetailsEmpty" hidden>
                 Get a quote to see Vybe <code>swap-quote</code> fields, the route diagram, and per-hop <code>swapInfo</code> details.
               </p>
-              <div id="swapQuoteDetailsBody" class="swap-quote-details-body" hidden>
-                <div id="swapQuoteSummary" class="swap-quote-summary" hidden aria-live="polite"></div>
+              <div id="swapQuoteDetailsBody" class="swap-quote-details-body">
+                <div id="swapQuoteSummary" class="swap-quote-summary" aria-live="polite"></div>
                 <section class="swap-quote-details-section swap-quote-details-section--route">
                   <h4 class="swap-quote-details-subtitle" id="swapQuoteRouteSubtitle">Route</h4>
                   <div id="swapQuoteDetailsRouting" class="swap-quote-details-routing"></div>
                 </section>
-                <details class="swap-quote-details-collapsible">
+                <details class="swap-quote-details-collapsible" id="swapQuoteRoutePlanDetails" open>
                   <summary class="swap-quote-details-collapsible__summary">Route plan steps</summary>
                   <div id="swapQuoteDetailsRouteSteps" class="swap-quote-details-route-steps"></div>
                 </details>
