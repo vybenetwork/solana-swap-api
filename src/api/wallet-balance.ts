@@ -7,6 +7,35 @@ import type { AxiosInstance } from 'axios';
 import type { VybeWalletTokenBalanceResponse } from '../types/api.js';
 import { withRetry } from './client.js';
 
+/** Vybe reports native SOL under System Program id, not WSOL mint. */
+const NATIVE_SOL_MINT = '11111111111111111111111111111111';
+const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+/** Leave this much SOL in wallet when selling (rent + fees). */
+const SOL_WALLET_MIN_RESERVE_UI = 0.0045;
+/** Total SOL below this is not tradable. */
+const SOL_MIN_TRADABLE_TOTAL_UI = 0.0046;
+/** Max sell fraction for SPL tokens (not native/wrapped SOL). */
+const TOKEN_MAX_SELL_FRACTION = 0.995;
+
+function isSolMint(mint: string): boolean {
+  const m = mint.trim();
+  return m === NATIVE_SOL_MINT || m === WSOL_MINT;
+}
+
+export { isSolMint, NATIVE_SOL_MINT, WSOL_MINT };
+
+function sumSolBalanceRaw(rows: VybeWalletTokenBalanceResponse['data']): bigint {
+  let total = 0n;
+  for (const row of rows) {
+    const mint = row.mintAddress.trim();
+    if (mint !== NATIVE_SOL_MINT && mint !== WSOL_MINT) continue;
+    const decimals = Number(row.decimals);
+    if (!Number.isFinite(decimals) || decimals < 0) continue;
+    total += balanceAmountToRaw(row.amount, decimals);
+  }
+  return total;
+}
+
 export class InsufficientBalanceError extends Error {
   readonly availableUi: number;
   readonly requiredUi: number;
@@ -138,6 +167,18 @@ export async function listWalletTokenBalances(
     .slice(0, limit);
 }
 
+export async function getWalletSolBalanceUi(
+  http: AxiosInstance,
+  ownerAddress: string,
+): Promise<number> {
+  const balance = await getWalletTokenBalance(http, {
+    ownerAddress,
+    includeNoPriceBalance: true,
+  });
+  const totalRaw = sumSolBalanceRaw(balance.data);
+  return rawToUiAmount(totalRaw.toString(), 9);
+}
+
 /**
  * Throws InsufficientBalanceError when the wallet does not hold enough of inputMint (UI amount).
  */
@@ -156,9 +197,57 @@ export async function assertWalletHasSellAmount(
 
   const balance = await getWalletTokenBalance(http, {
     ownerAddress,
-    mintAddresses: [mint],
+    // Vybe rejects native SOL / WSOL in mintAddresses; fetch all rows and filter locally.
+    mintAddresses: isSolMint(mint) ? undefined : [mint],
     includeNoPriceBalance: true,
   });
+
+  if (isSolMint(mint)) {
+    const symbol = 'SOL';
+    const totalRaw = sumSolBalanceRaw(balance.data);
+    if (totalRaw <= 0n) {
+      throw new InsufficientBalanceError(
+        `Insufficient balance: no ${symbol} in this wallet.`,
+        0,
+        amountUi,
+        symbol,
+      );
+    }
+    const totalUi = rawToUiAmount(totalRaw.toString(), 9);
+
+    if (totalUi < SOL_MIN_TRADABLE_TOTAL_UI) {
+      throw new InsufficientBalanceError(
+        `Insufficient balance: SOL amount too small to trade (minimum ${formatUiAmount(SOL_MIN_TRADABLE_TOTAL_UI)} SOL).`,
+        totalUi,
+        amountUi,
+        symbol,
+      );
+    }
+
+    const reserveRaw = uiAmountToRaw(SOL_WALLET_MIN_RESERVE_UI, 9);
+    const sellableRaw = totalRaw > reserveRaw ? totalRaw - reserveRaw : 0n;
+    const requiredRaw = uiAmountToRaw(amountUi, 9);
+    const sellableUi = rawToUiAmount(sellableRaw.toString(), 9);
+
+    if (sellableRaw <= 0n) {
+      throw new InsufficientBalanceError(
+        `Insufficient balance: need at least ${formatUiAmount(SOL_WALLET_MIN_RESERVE_UI)} SOL reserved in wallet (you have ${formatUiAmount(totalUi)} SOL).`,
+        totalUi,
+        amountUi,
+        symbol,
+      );
+    }
+
+    if (requiredRaw > sellableRaw) {
+      throw new InsufficientBalanceError(
+        `Insufficient balance: you have ${formatUiAmount(totalUi)} SOL (${formatUiAmount(sellableUi)} available after ${formatUiAmount(SOL_WALLET_MIN_RESERVE_UI)} SOL reserve) but tried to sell ${formatUiAmount(amountUi)} SOL.`,
+        sellableUi,
+        amountUi,
+        symbol,
+      );
+    }
+    return;
+  }
 
   const row = balance.data.find((t) => t.mintAddress === mint);
   const symbol = row?.symbol?.trim() || symbolHint?.trim() || mint.slice(0, 6);
@@ -180,11 +269,22 @@ export async function assertWalletHasSellAmount(
   const availableUi = balanceAmountToUi(row.amount, decimals);
   const availableRaw = balanceAmountToRaw(row.amount, decimals);
   const requiredRaw = uiAmountToRaw(amountUi, decimals);
+  const maxSellableRaw = (availableRaw * 995n) / 1000n;
+  const maxSellableUi = rawToUiAmount(maxSellableRaw.toString(), decimals);
 
-  if (availableRaw < requiredRaw) {
+  if (requiredRaw > availableRaw) {
     throw new InsufficientBalanceError(
       `Insufficient balance: you have ${formatUiAmount(availableUi)} ${symbol} but tried to sell ${formatUiAmount(amountUi)} ${symbol}.`,
       availableUi,
+      amountUi,
+      symbol,
+    );
+  }
+
+  if (requiredRaw > maxSellableRaw) {
+    throw new InsufficientBalanceError(
+      `Insufficient balance: maximum sellable is ${formatUiAmount(maxSellableUi)} ${symbol} (99.5% of balance).`,
+      maxSellableUi,
       amountUi,
       symbol,
     );

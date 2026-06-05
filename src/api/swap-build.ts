@@ -5,6 +5,7 @@
 import axios, { type AxiosInstance } from 'axios';
 import type { VybeSwapBuildResponse } from '../types/swap.js';
 import { withRetry } from './client.js';
+import { toVybeSwapMint } from './sol-mints.js';
 
 export type SwapProxyRouter = 'titan' | 'jupiter' | 'vybe';
 
@@ -52,7 +53,7 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
   const payload: Record<string, unknown> = {
     accountAddress: body.accountAddress.trim(),
     amount: body.amount,
-    inputMintAddress: body.inputMintAddress.trim(),
+    inputMintAddress: toVybeSwapMint(body.inputMintAddress.trim()),
     outputMintAddress: body.outputMintAddress.trim(),
   };
   if (body.slippage != null && Number.isFinite(body.slippage)) payload.slippage = body.slippage;

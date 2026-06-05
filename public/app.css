@@ -2879,8 +2879,24 @@ tr:hover td {
 }
 
 .swap-widget-loading-row .section-loading,
-.swap-widget-loading-row .section-error {
+.swap-widget-loading-row .section-error,
+.swap-widget-loading-row .section-warning {
   margin: 0;
+}
+
+.section-warning {
+  display: block;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+}
+
+.section-warning[hidden] {
+  display: none !important;
 }
 
 .swap-widget {
@@ -4579,6 +4595,18 @@ tr:hover td {
 
 .token-picker-row--wallet {
   padding-right: 0.55rem;
+}
+
+.token-picker-row--wallet.token-picker-row--untradable {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.token-picker-row-tag--muted {
+  color: #71717a;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  margin-left: 0.35rem;
 }
 
 .token-picker-row-amount {

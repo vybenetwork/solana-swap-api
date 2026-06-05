@@ -5,6 +5,7 @@
 import type { AxiosInstance } from 'axios';
 import type { VybeSwapQuote } from '../types/swap.js';
 import { withRetry } from './client.js';
+import { toVybeSwapMint } from './sol-mints.js';
 
 export interface GetSwapQuoteParams {
   /** Amount in UI units (e.g. 0.1 SOL) */
@@ -19,7 +20,7 @@ export interface GetSwapQuoteParams {
 export async function getSwapQuote(http: AxiosInstance, params: GetSwapQuoteParams): Promise<VybeSwapQuote> {
   const query: Record<string, string | number> = {
     amount: params.amount,
-    inputMintAddress: params.inputMintAddress.trim(),
+    inputMintAddress: toVybeSwapMint(params.inputMintAddress.trim()),
     outputMintAddress: params.outputMintAddress.trim(),
   };
   const acc = params.accountAddress?.trim();

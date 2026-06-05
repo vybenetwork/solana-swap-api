@@ -8,14 +8,24 @@ import {
   ensureTokenMetaForMint,
   getCachedTokenMeta,
   getTokenDecimalsFromCache,
+  getWalletSellableAmountUi,
+  isSolMint,
+  preferNativeSolMint,
+  NATIVE_SOL_MINT,
+  SOL_MIN_TRADABLE_TOTAL_UI,
+  WSOL_MINT,
   initTokenPicker,
   openTokenPicker,
   prefetchTokenMetas,
+  prefetchWalletBalances,
+  refreshWalletBalancesPanel,
   renderChipTokenIcon,
   resolveLogoUrl,
   saveTokenPriceStats,
+  saveWalletBalanceItemsToCache,
   type TokenPickerSide,
   type TokenPriceStats,
+  type WalletBalanceListItem,
 } from './token-picker.js';
 
 interface TokenSymbolResponse {
@@ -49,6 +59,7 @@ const VYBE_BUILD_REUSE_MS = 5000;
 
 /** Hardcoded mint → symbol; never fetch these from API. */
 const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
+  [NATIVE_SOL_MINT]: 'SOL',
   So11111111111111111111111111111111111111112: 'SOL',
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 'USDC',
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 'USDT',
@@ -56,14 +67,28 @@ const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
 };
 
 const HARDCODED_MINT_DECIMALS: Record<string, number> = {
+  [NATIVE_SOL_MINT]: 9,
   So11111111111111111111111111111111111111112: 9,
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 6,
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 6,
   DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263: 5,
 };
 
+/** Prefer SOL, then USDC, then USDT when auto-picking sell token from wallet balances. */
+const SELL_TOKEN_PRIORITY_MINTS: readonly string[] = [
+  'So11111111111111111111111111111111111111112',
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+];
+
+let walletBalanceFetchGen = 0;
+let walletBalanceRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let lastWalletBalanceFetchAddress = '';
+let lastAutoAppliedWalletAddress = '';
+
 const swapQuoteLoading = document.getElementById('swapQuoteLoading') as HTMLElement | null;
 const swapQuoteError = document.getElementById('swapQuoteError') as HTMLElement | null;
+const swapQuoteWarning = document.getElementById('swapQuoteWarning') as HTMLElement | null;
 const swapWalletAddressInput = document.getElementById('swapWalletAddress') as HTMLInputElement | null;
 const swapInputMintInput = document.getElementById('swapInputMint') as HTMLInputElement | null;
 const swapOutputMintInput = document.getElementById('swapOutputMint') as HTMLInputElement | null;
@@ -201,6 +226,48 @@ function clearInlineError(el: HTMLElement): void {
   el.textContent = '';
   el.hidden = true;
   el.setAttribute('aria-hidden', 'true');
+}
+
+function showInlineWarning(el: HTMLElement, msg: string): void {
+  el.textContent = msg;
+  el.hidden = false;
+  el.removeAttribute('aria-hidden');
+}
+
+function clearInlineWarning(el: HTMLElement): void {
+  el.textContent = '';
+  el.hidden = true;
+  el.setAttribute('aria-hidden', 'true');
+}
+
+async function refreshLowSolTradeWarning(): Promise<void> {
+  if (!swapQuoteWarning) return;
+  clearInlineWarning(swapQuoteWarning);
+
+  const wallet = swapWalletAddressInput?.value.trim() ?? '';
+  const inputMint = swapInputMintInput?.value.trim() ?? '';
+  const outputMint = swapOutputMintInput?.value.trim() ?? '';
+  if (!wallet || !inputMint || !outputMint || !isValidSolanaWalletAddress(wallet)) return;
+  if (isSolMint(inputMint)) return;
+
+  const gasless = swapGaslessCheckbox?.checked === true;
+  const params = new URLSearchParams({
+    inputMint,
+    outputMint,
+    gasless: gasless ? '1' : '0',
+  });
+
+  try {
+    const res = await fetch(
+      `/api/wallets/${encodeURIComponent(wallet)}/low-sol-trade-warning?${params.toString()}`,
+    );
+    const body = (await res.json().catch(() => ({}))) as { warn?: boolean; message?: string };
+    if (body.warn && body.message) {
+      showInlineWarning(swapQuoteWarning, body.message);
+    }
+  } catch {
+    /* non-blocking */
+  }
 }
 
 function truncate(s: string | undefined, front = 4, back = 4): string {
@@ -373,6 +440,148 @@ function syncSellTokenPickerState(): void {
   }
 }
 
+function formatSwapInputAmountValue(amount: number, decimals = 9): string {
+  if (!Number.isFinite(amount) || amount <= 0) return '0';
+  const maxFrac = Math.min(Math.max(decimals, 0), 9);
+  const s = amount.toFixed(maxFrac).replace(/\.?0+$/, '');
+  return s || '0';
+}
+
+function findSolBalanceItem(items: WalletBalanceListItem[]): WalletBalanceListItem | null {
+  const native = items.find((i) => i.mintAddress === NATIVE_SOL_MINT);
+  const wrapped = items.find((i) => i.mintAddress === WSOL_MINT);
+  if (!native && !wrapped) return null;
+  const totalUi = (native?.amountUi ?? 0) + (wrapped?.amountUi ?? 0);
+  if (totalUi < SOL_MIN_TRADABLE_TOTAL_UI) return null;
+  const base = native ?? wrapped!;
+  return {
+    ...base,
+    mintAddress: NATIVE_SOL_MINT,
+    symbol: 'SOL',
+    amountUi: totalUi,
+  };
+}
+
+function pickDefaultSellBalance(items: WalletBalanceListItem[]): WalletBalanceListItem | null {
+  const positive = items.filter((i) => i.amountUi > 0);
+  if (positive.length === 0) return null;
+  const sol = findSolBalanceItem(positive);
+  if (sol) return sol;
+  for (const mint of SELL_TOKEN_PRIORITY_MINTS) {
+    if (isSolMint(mint)) continue;
+    const hit = positive.find((i) => i.mintAddress === mint);
+    if (hit) return hit;
+  }
+  return (
+    positive
+      .filter((i) => !isSolMint(i.mintAddress))
+      .sort((a, b) => b.valueUsd - a.valueUsd || b.amountUi - a.amountUi)[0] ?? null
+  );
+}
+
+function syncSwapAmountMaxFromBalance(): void {
+  if (!swapAmountInput || !swapInputMintInput) return;
+  const mint = swapInputMintInput.value.trim();
+  const sellable = getWalletSellableAmountUi(mint);
+  if (sellable != null && sellable > 0) {
+    swapAmountInput.max = formatSwapInputAmountValue(sellable, getMintDecimals(mint));
+  } else {
+    swapAmountInput.removeAttribute('max');
+  }
+}
+
+function setSwapSellAmountToBalance(amountUi: number, mint: string): void {
+  if (!swapAmountInput) return;
+  const formatted = formatSwapInputAmountValue(amountUi, getMintDecimals(mint));
+  swapAmountInput.value = formatted;
+  swapAmountInput.max = formatted;
+  swapAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: boolean): void {
+  if (!swapInputMintInput) return;
+  const swapMint = preferNativeSolMint(item.mintAddress);
+  swapInputMintInput.value = swapMint;
+  const sym =
+    item.symbol ||
+    HARDCODED_MINT_SYMBOLS[swapMint] ||
+    HARDCODED_MINT_SYMBOLS[item.mintAddress] ||
+    item.mintAddress.slice(0, 6);
+  if (swapInputSymbolEl) swapInputSymbolEl.textContent = sym === 'WSOL' ? 'SOL' : sym;
+  if (item.decimals != null) routeMintDecimalsCache[swapMint] = item.decimals;
+  updateSwapTokenIcons();
+  updateSwapPairCards();
+  void refreshSwapSymbols();
+  syncSwapAmountMaxFromBalance();
+  if (useMaxAmount) {
+    const sellable = getWalletSellableAmountUi(swapMint);
+    if (sellable != null && sellable > 0) {
+      setSwapSellAmountToBalance(sellable, swapMint);
+    }
+  }
+}
+
+async function refreshWalletBalancesForSwap(wallet: string, applyDefaults: boolean): Promise<void> {
+  const gen = ++walletBalanceFetchGen;
+  const force = wallet !== lastWalletBalanceFetchAddress;
+  try {
+    const items = await prefetchWalletBalances(wallet, force);
+    if (gen !== walletBalanceFetchGen) return;
+    lastWalletBalanceFetchAddress = wallet;
+    saveWalletBalanceItemsToCache(items);
+    refreshWalletBalancesPanel();
+
+    if (applyDefaults) {
+      lastAutoAppliedWalletAddress = wallet;
+      const pick = pickDefaultSellBalance(items);
+      if (pick) {
+        applySellTokenFromBalance(pick, true);
+        void fetchSwapQuote();
+        return;
+      }
+    }
+
+    syncSwapAmountMaxFromBalance();
+  } catch {
+    if (gen !== walletBalanceFetchGen) return;
+    refreshWalletBalancesPanel();
+  }
+}
+
+function onWalletAddressReady(immediate = false): void {
+  const wallet = swapWalletAddressInput?.value.trim() ?? '';
+  syncSellTokenPickerState();
+
+  if (walletBalanceRefreshTimer) {
+    clearTimeout(walletBalanceRefreshTimer);
+    walletBalanceRefreshTimer = null;
+  }
+
+  if (!isValidSolanaWalletAddress(wallet)) {
+    walletBalanceFetchGen++;
+    lastWalletBalanceFetchAddress = '';
+    lastAutoAppliedWalletAddress = '';
+    if (swapAmountInput) swapAmountInput.removeAttribute('max');
+    return;
+  }
+
+  if (swapQuoteError && !swapQuoteError.hidden) {
+    clearInlineError(swapQuoteError);
+  }
+
+  const applyDefaults = wallet !== lastAutoAppliedWalletAddress;
+  const run = (): void => {
+    void refreshWalletBalancesForSwap(wallet, applyDefaults);
+  };
+
+  if (immediate) {
+    run();
+    return;
+  }
+
+  walletBalanceRefreshTimer = setTimeout(run, 300);
+}
+
 function tryOpenSellTokenPicker(): void {
   if (!hasValidSwapWallet()) {
     if (swapQuoteError) {
@@ -405,14 +614,23 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
   const input = side === 'input' ? swapInputMintInput : swapOutputMintInput;
   const symbolEl = side === 'input' ? swapInputSymbolEl : swapOutputSymbolEl;
   if (!input) return;
-  input.value = mint;
-  const meta = getCachedTokenMeta(mint);
-  if (meta && symbolEl) symbolEl.textContent = meta.symbol;
-  if (meta?.decimals != null) routeMintDecimalsCache[mint] = meta.decimals;
+  const resolvedMint = side === 'input' ? preferNativeSolMint(mint) : mint;
+  input.value = resolvedMint;
+  const meta = getCachedTokenMeta(resolvedMint);
+  if (meta && symbolEl) symbolEl.textContent = meta.symbol === 'WSOL' || meta.symbol === 'wSOL' ? 'SOL' : meta.symbol;
+  if (meta?.decimals != null) routeMintDecimalsCache[resolvedMint] = meta.decimals;
   updateSwapTokenIcons();
   updateSwapPairCards();
   void refreshSwapSymbols();
+  if (side === 'input') {
+    syncSwapAmountMaxFromBalance();
+    const sellable = getWalletSellableAmountUi(resolvedMint);
+    if (sellable != null && sellable > 0) {
+      setSwapSellAmountToBalance(sellable, resolvedMint);
+    }
+  }
   void fetchSwapQuote();
+  void refreshLowSolTradeWarning();
 }
 
 function getSwapInSym(): string {
@@ -1720,6 +1938,7 @@ async function fetchSwapQuote(): Promise<void> {
   if (swapBuildBtn) swapBuildBtn.disabled = true;
   resetSwapQuoteDetailsPanel();
   if (swapQuoteError) clearInlineError(swapQuoteError);
+  if (swapQuoteWarning) clearInlineWarning(swapQuoteWarning);
   if (swapQuoteLoading) {
     swapQuoteLoading.hidden = false;
     swapQuoteLoading.setAttribute('aria-hidden', 'false');
@@ -1758,6 +1977,9 @@ async function fetchSwapQuote(): Promise<void> {
         }
         return;
       }
+      void refreshLowSolTradeWarning();
+    } else {
+      void refreshLowSolTradeWarning();
     }
 
     let stats: Record<string, TokenPriceStats> = {};
@@ -1879,6 +2101,7 @@ async function postBuildSwap(): Promise<void> {
 
   if (!swapBuildResultEl || !swapTxBase64El) return;
   if (swapQuoteError) clearInlineError(swapQuoteError);
+  void refreshLowSolTradeWarning();
   if (swapBuildBtn) swapBuildBtn.disabled = true;
 
   const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts);
@@ -1993,6 +2216,7 @@ async function ensureBrowserWalletConnected(existingWallet: string): Promise<str
   }
   syncWalletFieldForMode();
   syncSellTokenPickerState();
+  onWalletAddressReady(true);
   return connected;
 }
 
@@ -2085,6 +2309,9 @@ function adjustSwapAmountByStep(direction: 1 | -1): void {
   const minAttr = swapAmountInput.min;
   const min = minAttr !== '' && Number.isFinite(Number(minAttr)) ? Number(minAttr) : 0;
   if (next < min) next = min;
+  const maxAttr = swapAmountInput.max;
+  const max = maxAttr !== '' && Number.isFinite(Number(maxAttr)) ? Number(maxAttr) : null;
+  if (max != null && next > max) next = max;
   const rounded = Math.round(next / step) * step;
   const out =
     Number.isInteger(rounded) || Math.abs(rounded - Math.round(rounded)) < 1e-9
@@ -2120,23 +2347,15 @@ wireBuildOptionToggle(swapEnableServiceFeeCheckbox, swapServiceFeeFieldEl, swapS
 swapModeBuildBtn?.addEventListener('click', () => setSwapBuildMode('build'));
 swapModeBuildSignBtn?.addEventListener('click', () => setSwapBuildMode('build-sign'));
 swapConnectWalletBtn?.addEventListener('click', () => {
-  void ensureBrowserWalletConnected(swapWalletAddressInput?.value.trim() ?? '')
-    .then(() => {
-      syncSellTokenPickerState();
-      if (swapQuoteError) clearInlineError(swapQuoteError);
-    })
-    .catch((err) => {
-      if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
-    });
+  void ensureBrowserWalletConnected(swapWalletAddressInput?.value.trim() ?? '').catch((err) => {
+    if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+  });
 });
-swapWalletAddressInput?.addEventListener('input', () => {
-  syncSellTokenPickerState();
-  if (hasValidSwapWallet() && swapQuoteError && !swapQuoteError.hidden) {
-    clearInlineError(swapQuoteError);
-  }
-});
+swapWalletAddressInput?.addEventListener('input', () => onWalletAddressReady(false));
+swapWalletAddressInput?.addEventListener('change', () => onWalletAddressReady(true));
 syncSwapBuildModeUi();
 syncSellTokenPickerState();
+onWalletAddressReady(true);
 
 if (swapQuoteBtn) swapQuoteBtn.addEventListener('click', () => void fetchSwapQuote());
 if (swapBuildBtn) swapBuildBtn.addEventListener('click', () => void postBuildSwap());
@@ -2210,16 +2429,22 @@ routingDialogEl?.addEventListener('close', () => {
 
 routingDialogCloseEl?.addEventListener('click', () => routingDialogEl?.close());
 
+swapGaslessCheckbox?.addEventListener('change', () => {
+  void refreshLowSolTradeWarning();
+});
+
 if (swapInputMintInput) {
   swapInputMintInput.addEventListener('input', () => {
     updateSwapPairCards();
     void refreshSwapSymbols();
+    void refreshLowSolTradeWarning();
   });
 }
 if (swapOutputMintInput) {
   swapOutputMintInput.addEventListener('input', () => {
     updateSwapPairCards();
     void refreshSwapSymbols();
+    void refreshLowSolTradeWarning();
   });
 }
 

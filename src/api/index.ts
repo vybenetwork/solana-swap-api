@@ -15,6 +15,10 @@ import {
   type GetWalletTokenBalanceParams,
   type WalletBalanceListItem,
 } from './wallet-balance.js';
+import {
+  evaluateLowSolTradeWarning,
+  type LowSolTradeWarningResult,
+} from './trade-sol-warning.js';
 import type { VybeToken } from '../types/api.js';
 import type { VybeSwapQuote, VybeSwapBuildResponse } from '../types/swap.js';
 import type { ResolveTokenPricesResult } from './resolve-token-prices.js';
@@ -27,6 +31,7 @@ export type {
   VybeQuoteResult,
   GetWalletTokenBalanceParams,
   WalletBalanceListItem,
+  LowSolTradeWarningResult,
 };
 
 export interface VybeClient {
@@ -46,6 +51,12 @@ export interface VybeClient {
     symbolHint?: string,
   ): Promise<void>;
   listWalletTokenBalances(ownerAddress: string, limit?: number): Promise<WalletBalanceListItem[]>;
+  evaluateLowSolTradeWarning(params: {
+    ownerAddress: string;
+    inputMint: string;
+    outputMint: string;
+    gasless: boolean;
+  }): Promise<LowSolTradeWarningResult>;
 }
 
 export function createClient(apiKey: string): VybeClient {
@@ -62,5 +73,6 @@ export function createClient(apiKey: string): VybeClient {
       assertWalletHasSellAmount(http, ownerAddress, inputMint, amountUi, symbolHint),
     listWalletTokenBalances: (ownerAddress, limit) =>
       listWalletTokenBalances(http, ownerAddress, limit),
+    evaluateLowSolTradeWarning: (params) => evaluateLowSolTradeWarning(http, params),
   };
 }

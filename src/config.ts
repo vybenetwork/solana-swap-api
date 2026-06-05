@@ -44,3 +44,11 @@ export const VYBE_RETRY_DELAY_MS = 2000;
 /** Path to public static assets (for Express). */
 export const PUBLIC_DIR = path.join(projectRoot, 'public');
 
+/** Solana JSON-RPC endpoint for on-chain account checks. */
+export const SOLANA_RPC_URL = (
+  process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com'
+).trim();
+
+/** Minimum SOL to pay fees + ATA rent when selling SPL tokens (non-gasless). */
+export const SOL_MIN_TX_FEE_BALANCE_UI = 0.0045;
+

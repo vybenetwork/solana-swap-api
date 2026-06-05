@@ -5,6 +5,7 @@
 
 import type { AxiosInstance } from 'axios';
 import { getToken } from './tokens.js';
+import { NATIVE_SOL_MINT, toVybeSwapMint } from './sol-mints.js';
 import type { VybeToken } from '../types/api.js';
 import {
   cacheTokenMetaFromVybe,
@@ -162,14 +163,17 @@ export async function resolveTokenPrices(
   mints: string[],
   options: ResolveTokenPricesOptions = {},
 ): Promise<ResolveTokenPricesResult> {
-  const uniq = [...new Set(mints.map((m) => m.trim()).filter(Boolean))];
-  const forceSet = new Set((options.forceFullDetailsMints ?? []).map((m) => m.trim()).filter(Boolean));
+  const originalMints = [...new Set(mints.map((m) => m.trim()).filter(Boolean))];
+  const vybeMints = [...new Set(originalMints.map((m) => toVybeSwapMint(m)))];
+  const forceSet = new Set(
+    (options.forceFullDetailsMints ?? []).map((m) => toVybeSwapMint(m.trim())).filter(Boolean),
+  );
   const hints = options.tokenHints ?? {};
   const stats: Record<string, TokenPriceStats> = {};
 
   await Promise.all(
-    uniq.map(async (mint) => {
-      const hint = hints[mint];
+    vybeMints.map(async (mint) => {
+      const hint = hints[mint] ?? (mint !== NATIVE_SOL_MINT ? hints[NATIVE_SOL_MINT] : undefined);
       const disk = getCachedTokenMetaFromDisk(mint);
       const mode = pickResolveMode(mint, hint, disk, forceSet.has(mint));
 
@@ -218,6 +222,13 @@ export async function resolveTokenPrices(
       }
     }),
   );
+
+  for (const originalMint of originalMints) {
+    const vybeMint = toVybeSwapMint(originalMint);
+    if (stats[vybeMint] && !stats[originalMint]) {
+      stats[originalMint] = stats[vybeMint]!;
+    }
+  }
 
   return { stats };
 }

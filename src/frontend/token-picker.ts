@@ -42,7 +42,7 @@ export interface TokenPriceStats {
 
 export type TokenPickerSide = 'input' | 'output';
 
-interface WalletBalanceListItem {
+export interface WalletBalanceListItem {
   mintAddress: string;
   symbol: string;
   name: string;
@@ -117,7 +117,10 @@ export function getCachedTokenMeta(mint: string): TokenMeta | null {
   if (!m) return null;
   const fromCatalog = catalogTokens.find((t) => t.mint === m);
   if (fromCatalog) return fromCatalog;
-  return readCache()[m] ?? null;
+  const cached = readCache()[m];
+  if (cached) return cached;
+  if (m === NATIVE_SOL_MINT) return readCache()[WSOL_MINT] ?? catalogTokens.find((t) => t.mint === WSOL_MINT) ?? null;
+  return null;
 }
 
 export function getTokenDecimalsFromCache(mint: string): number | undefined {
@@ -142,6 +145,9 @@ export function buildTokenHintsForMints(mints: string[]): Record<string, TokenPr
       priceUpdateTime: meta.priceUpdateTime,
     };
     if (hint.decimals != null || hint.price != null) hints[m] = hint;
+  }
+  if (!hints[NATIVE_SOL_MINT] && hints[WSOL_MINT]) {
+    hints[NATIVE_SOL_MINT] = { ...hints[WSOL_MINT], symbol: 'SOL', name: 'SOL' };
   }
   return hints;
 }
@@ -406,12 +412,20 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
 
 function renderWalletBalanceRow(item: WalletBalanceListItem): string {
   const token = walletItemToTokenMeta(item);
+  const swapMint = preferNativeSolMint(item.mintAddress);
+  const tradable = isWalletTokenTradable(swapMint);
   const amountLabel = `${formatBalanceAmount(item.amountUi)} ${token.symbol}`;
-  return `<button type="button" class="token-picker-row token-picker-row--wallet" data-mint="${escapeHtml(item.mintAddress)}">
+  const tooSmall =
+    !tradable && isSolMint(item.mintAddress)
+      ? '<span class="token-picker-row-tag token-picker-row-tag--muted">Too small</span>'
+      : '';
+  const disabledAttr = tradable ? '' : ' disabled aria-disabled="true"';
+  return `<button type="button" class="token-picker-row token-picker-row--wallet${tradable ? '' : ' token-picker-row--untradable'}" data-mint="${escapeHtml(item.mintAddress)}"${disabledAttr}>
     <span class="token-picker-row-logo">${renderTokenIcon(token)}</span>
     <span class="token-picker-row-main">
       <span class="token-picker-row-title">
         <span class="token-picker-row-symbol">${escapeHtml(token.symbol)}</span>
+        ${tooSmall}
       </span>
       <span class="token-picker-row-sub">${escapeHtml(token.name)}</span>
     </span>
@@ -424,9 +438,10 @@ function syncWalletBalancesVisibility(): void {
   walletBalancesEl.hidden = activeSide !== 'input' || Boolean(searchQuery.trim());
 }
 
-async function fetchWalletBalances(wallet: string): Promise<WalletBalanceListItem[]> {
+async function fetchWalletBalances(wallet: string, force = false): Promise<WalletBalanceListItem[]> {
   const now = Date.now();
   if (
+    !force &&
     walletBalanceCache &&
     walletBalanceCache.wallet === wallet &&
     now - walletBalanceCache.at < WALLET_BALANCE_TTL_MS
@@ -445,6 +460,83 @@ async function fetchWalletBalances(wallet: string): Promise<WalletBalanceListIte
   const items = Array.isArray(body.tokens) ? body.tokens : [];
   walletBalanceCache = { wallet, at: now, items };
   return items;
+}
+
+export async function prefetchWalletBalances(
+  wallet: string,
+  force = false,
+): Promise<WalletBalanceListItem[]> {
+  return fetchWalletBalances(wallet.trim(), force);
+}
+
+/** Vybe reports native SOL under System Program id, not WSOL mint. */
+export const NATIVE_SOL_MINT = '11111111111111111111111111111111';
+export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+/** Leave this much SOL in wallet when selling (rent + fees). */
+export const SOL_WALLET_MIN_RESERVE_UI = 0.0045;
+/** Total SOL below this is not tradable (max sell would be ≤ 0.0001 SOL). */
+export const SOL_MIN_TRADABLE_TOTAL_UI = 0.0046;
+/** Max sell fraction for SPL tokens (not native/wrapped SOL). */
+export const TOKEN_MAX_SELL_FRACTION = 0.995;
+
+export function isSolMint(mint: string): boolean {
+  const m = mint.trim();
+  return m === NATIVE_SOL_MINT || m === WSOL_MINT;
+}
+
+export function preferNativeSolMint(mint: string): string {
+  const m = mint.trim();
+  return m === WSOL_MINT ? NATIVE_SOL_MINT : m;
+}
+
+/** @deprecated Use preferNativeSolMint — UI keeps native SOL; Vybe uses WSOL server-side. */
+export function normalizeSwapSolMint(mint: string): string {
+  return preferNativeSolMint(mint);
+}
+
+export function getWalletBalanceAmountUi(mint: string): number | null {
+  const m = mint.trim();
+  if (!m || !walletBalanceCache) return null;
+  if (isSolMint(m)) {
+    const native = walletBalanceCache.items.find((i) => i.mintAddress === NATIVE_SOL_MINT);
+    const wrapped = walletBalanceCache.items.find((i) => i.mintAddress === WSOL_MINT);
+    const total = (native?.amountUi ?? 0) + (wrapped?.amountUi ?? 0);
+    return total > 0 ? total : null;
+  }
+  const item = walletBalanceCache.items.find((i) => i.mintAddress === m);
+  return item && item.amountUi > 0 ? item.amountUi : null;
+}
+
+export function computeWalletSellableAmountUi(total: number, mint: string): number | null {
+  if (!Number.isFinite(total) || total <= 0) return null;
+  if (isSolMint(mint)) {
+    if (total < SOL_MIN_TRADABLE_TOTAL_UI) return null;
+    const sellable = total - SOL_WALLET_MIN_RESERVE_UI;
+    return sellable > 0 ? sellable : null;
+  }
+  const sellable = total * TOKEN_MAX_SELL_FRACTION;
+  return sellable > 0 ? sellable : null;
+}
+
+/** Max sellable UI amount (SOL reserve or 99.5% of balance for other tokens). */
+export function getWalletSellableAmountUi(mint: string): number | null {
+  const total = getWalletBalanceAmountUi(mint);
+  if (total == null) return null;
+  return computeWalletSellableAmountUi(total, mint);
+}
+
+export function isWalletTokenTradable(mint: string): boolean {
+  return getWalletSellableAmountUi(mint) != null;
+}
+
+export function saveWalletBalanceItemsToCache(items: WalletBalanceListItem[]): void {
+  for (const item of items) {
+    saveTokenMeta(walletItemToTokenMeta(item));
+  }
+}
+
+export function refreshWalletBalancesPanel(): void {
+  void renderWalletBalances();
 }
 
 function renderWalletBalancesLoading(): string {
@@ -685,7 +777,7 @@ export function initTokenPicker(options: {
 
   walletBalancesListEl?.addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.token-picker-row--wallet');
-    if (!btn?.dataset.mint) return;
+    if (!btn?.dataset.mint || btn.disabled) return;
     selectToken(btn.dataset.mint);
   });
 
