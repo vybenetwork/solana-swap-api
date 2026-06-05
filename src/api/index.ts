@@ -54,7 +54,7 @@ export interface VybeClient {
   evaluateLowSolTradeWarning(params: {
     ownerAddress: string;
     inputMint: string;
-    outputMint: string;
+    outputMint?: string;
     gasless: boolean;
   }): Promise<LowSolTradeWarningResult>;
 }

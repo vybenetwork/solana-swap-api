@@ -218,18 +218,17 @@ app.get('/api/wallets/:ownerAddress/sell-balance-check', async (req: Request, re
   }
 });
 
-/** GET /api/wallets/:ownerAddress/low-sol-trade-warning — fee/ATA warning for SPL sells */
+/** GET /api/wallets/:ownerAddress/low-sol-trade-warning — low SOL warning for SPL sells */
 app.get('/api/wallets/:ownerAddress/low-sol-trade-warning', async (req: Request, res: Response) => {
   try {
     const rawOwner = req.params.ownerAddress;
     const ownerAddress = (Array.isArray(rawOwner) ? rawOwner[0] : rawOwner ?? '').trim();
     const inputMint = q(req, 'inputMint').trim();
-    const outputMint = q(req, 'outputMint').trim();
+    const outputMint = q(req, 'outputMint').trim() || undefined;
     const gasless = q(req, 'gasless') === '1' || q(req, 'gasless').toLowerCase() === 'true';
 
     if (!ownerAddress) return res.status(400).json({ error: 'Wallet address required' });
     if (!inputMint) return res.status(400).json({ error: 'inputMint query parameter required' });
-    if (!outputMint) return res.status(400).json({ error: 'outputMint query parameter required' });
 
     const result = await client.evaluateLowSolTradeWarning({
       ownerAddress,
