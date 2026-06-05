@@ -29,8 +29,8 @@ export interface TokenPriceHint {
 
 export interface TokenPriceStats {
   price: number;
-  price1d: number;
-  price7d: number;
+  price1d?: number;
+  price7d?: number;
   decimals: number;
   priceFetchedAt: number;
   priceUpdateTime?: number;
@@ -53,21 +53,15 @@ function vybeDecimals(token: VybeToken): number | undefined {
   return undefined;
 }
 
-function hasCompletePriceStats(
+function hasSpotPriceStats(
   entry: { price?: number; price1d?: number; price7d?: number; decimals?: number } | null | undefined,
-): entry is { price: number; price1d: number; price7d: number; decimals: number } {
+): entry is { price: number; decimals: number; price1d?: number; price7d?: number } {
   if (!entry) return false;
-  const { price, price1d, price7d, decimals } = entry;
+  const { price, decimals } = entry;
   return (
     typeof price === 'number' &&
     Number.isFinite(price) &&
     price > 0 &&
-    typeof price1d === 'number' &&
-    Number.isFinite(price1d) &&
-    price1d > 0 &&
-    typeof price7d === 'number' &&
-    Number.isFinite(price7d) &&
-    price7d > 0 &&
     typeof decimals === 'number' &&
     Number.isFinite(decimals)
   );
@@ -76,25 +70,30 @@ function hasCompletePriceStats(
 function statsFromEntry(
   entry: {
     price: number;
-    price1d: number;
-    price7d: number;
+    price1d?: number;
+    price7d?: number;
     decimals: number;
     priceFetchedAt?: number;
     priceUpdateTime?: number;
   },
 ): TokenPriceStats {
-  return {
+  const stats: TokenPriceStats = {
     price: entry.price,
-    price1d: entry.price1d,
-    price7d: entry.price7d,
     decimals: entry.decimals,
     priceFetchedAt: entry.priceFetchedAt ?? Date.now(),
     priceUpdateTime: entry.priceUpdateTime,
   };
+  if (typeof entry.price1d === 'number' && Number.isFinite(entry.price1d) && entry.price1d > 0) {
+    stats.price1d = entry.price1d;
+  }
+  if (typeof entry.price7d === 'number' && Number.isFinite(entry.price7d) && entry.price7d > 0) {
+    stats.price7d = entry.price7d;
+  }
+  return stats;
 }
 
 function diskToStats(disk: CachedTokenMeta): TokenPriceStats | null {
-  if (!hasCompletePriceStats(disk)) return null;
+  if (!hasSpotPriceStats(disk)) return null;
   const fetchedAt =
     typeof disk.priceFetchedAt === 'number' && Number.isFinite(disk.priceFetchedAt)
       ? disk.priceFetchedAt
@@ -112,11 +111,11 @@ function diskToStats(disk: CachedTokenMeta): TokenPriceStats | null {
 function hintToStats(hint: TokenPriceHint): TokenPriceStats | null {
   const priceFetchedAt = hint.priceFetchedAt;
   const priceUpdateTime = hint.priceUpdateTime;
-  if (!hasCompletePriceStats(hint)) return null;
+  if (!hasSpotPriceStats(hint)) return null;
   return statsFromEntry({
     price: hint.price!,
-    price1d: hint.price1d!,
-    price7d: hint.price7d!,
+    price1d: hint.price1d,
+    price7d: hint.price7d,
     decimals: hint.decimals!,
     priceFetchedAt,
     priceUpdateTime,
@@ -147,11 +146,11 @@ function vybeToStats(token: VybeToken, fetchedAt: number): TokenPriceStats | nul
   const price = typeof token.price === 'number' ? token.price : undefined;
   const price1d = typeof token.price1d === 'number' ? token.price1d : undefined;
   const price7d = typeof token.price7d === 'number' ? token.price7d : undefined;
-  if (!hasCompletePriceStats({ price, price1d, price7d, decimals })) return null;
+  if (!hasSpotPriceStats({ price, price1d, price7d, decimals })) return null;
   return statsFromEntry({
     price: price!,
-    price1d: price1d!,
-    price7d: price7d!,
+    price1d,
+    price7d,
     decimals: decimals!,
     priceFetchedAt: fetchedAt,
     priceUpdateTime: typeof token.updateTime === 'number' ? token.updateTime : undefined,

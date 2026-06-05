@@ -33,8 +33,8 @@ export interface TokenPriceHint {
 
 export interface TokenPriceStats {
   price: number;
-  price1d: number;
-  price7d: number;
+  price1d?: number;
+  price7d?: number;
   decimals: number;
   priceFetchedAt: number;
   priceUpdateTime?: number;
@@ -147,7 +147,7 @@ export function buildTokenHintsForMints(mints: string[]): Record<string, TokenPr
     if (hint.decimals != null || hint.price != null) hints[m] = hint;
   }
   if (!hints[NATIVE_SOL_MINT] && hints[WSOL_MINT]) {
-    hints[NATIVE_SOL_MINT] = { ...hints[WSOL_MINT], symbol: 'SOL', name: 'SOL' };
+    hints[NATIVE_SOL_MINT] = { ...hints[WSOL_MINT], symbol: 'SOL', name: 'Solana' };
   }
   return hints;
 }
@@ -474,6 +474,8 @@ export const NATIVE_SOL_MINT = '11111111111111111111111111111111';
 export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 /** Leave this much SOL in wallet when selling (rent + fees). */
 export const SOL_WALLET_MIN_RESERVE_UI = 0.0045;
+/** Total SOL below this is skipped for auto-pick (prefer USDC/USDT instead). */
+export const SOL_MIN_AUTO_PICK_TOTAL_UI = 0.005;
 /** Total SOL below this is not tradable (max sell would be ≤ 0.0001 SOL). */
 export const SOL_MIN_TRADABLE_TOTAL_UI = 0.0046;
 /** Max sell fraction for SPL tokens (not native/wrapped SOL). */

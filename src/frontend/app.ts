@@ -12,7 +12,7 @@ import {
   isSolMint,
   preferNativeSolMint,
   NATIVE_SOL_MINT,
-  SOL_MIN_TRADABLE_TOTAL_UI,
+  SOL_MIN_AUTO_PICK_TOTAL_UI,
   WSOL_MINT,
   initTokenPicker,
   openTokenPicker,
@@ -64,6 +64,11 @@ const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 'USDC',
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 'USDT',
   DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263: 'BONK',
+};
+
+const HARDCODED_MINT_NAMES: Record<string, string> = {
+  [NATIVE_SOL_MINT]: 'Solana',
+  So11111111111111111111111111111111111111112: 'Solana',
 };
 
 const HARDCODED_MINT_DECIMALS: Record<string, number> = {
@@ -151,12 +156,15 @@ function getSolanaWindow(): WindowWithSolana {
 
 const swapInputSymbolEl = document.getElementById('swapInputSymbol') as HTMLElement | null;
 const swapOutputSymbolEl = document.getElementById('swapOutputSymbol') as HTMLElement | null;
+const swapSellLabelTokenEl = document.getElementById('swapSellLabelToken') as HTMLElement | null;
+const swapBuyLabelTokenEl = document.getElementById('swapBuyLabelToken') as HTMLElement | null;
 const swapBuyAmountDisplayEl = document.getElementById('swapBuyAmountDisplay') as HTMLElement | null;
 const swapSellFiatEl = document.getElementById('swapSellFiat') as HTMLElement | null;
 const swapBuyFiatEl = document.getElementById('swapBuyFiat') as HTMLElement | null;
 const swapFooterRateEl = document.getElementById('swapFooterRate') as HTMLElement | null;
 const swapFooterImpactEl = document.getElementById('swapFooterImpact') as HTMLElement | null;
 const swapFooterMinOutEl = document.getElementById('swapFooterMinOut') as HTMLElement | null;
+const swapFooterMaxSlippageEl = document.getElementById('swapFooterMaxSlippage') as HTMLElement | null;
 const swapRouteBtnEl = document.getElementById('swapRouteBtn') as HTMLButtonElement | null;
 const swapRouteChipTextEl = swapRouteBtnEl?.querySelector('.swap-route-chip-text') as HTMLElement | null;
 const swapFlipBtnEl = document.getElementById('swapFlipBtn') as HTMLButtonElement | null;
@@ -375,6 +383,49 @@ async function fetchSymbol(mint: string): Promise<string> {
   return displaySymbol(sym || truncate(m, 4, 4));
 }
 
+function resolvedSideSymbol(mint: string, chipSymbol: string): string {
+  const chip = chipSymbol?.trim();
+  if (chip && chip !== '—') return displaySymbol(chip);
+  const metaSym = getCachedTokenMeta(mint)?.symbol?.trim();
+  if (metaSym) return displaySymbol(metaSym);
+  const hard = HARDCODED_MINT_SYMBOLS[mint.trim()];
+  if (hard) return hard;
+  return '';
+}
+
+function looksLikeTruncatedAddress(value: string, mint: string): boolean {
+  if (!value || value === mint) return false;
+  if (value === truncate(mint, 4, 4)) return true;
+  return /^[1-9A-HJ-NP-Za-km-z]{4}[.…]{1,5}[1-9A-HJ-NP-Za-km-z]{4}$/.test(value);
+}
+
+function swapSideTokenName(mint: string, chipSymbol: string): string {
+  const m = mint.trim();
+  if (!m) return '';
+
+  if (HARDCODED_MINT_NAMES[m] || isSolMint(m)) return 'Solana';
+
+  const meta = getCachedTokenMeta(m);
+  const metaName = meta?.name?.trim();
+  if (metaName && !looksLikeTruncatedAddress(metaName, m)) return metaName;
+
+  const sym = resolvedSideSymbol(m, chipSymbol);
+  if (sym) return sym;
+
+  return truncate(m, 4, 4);
+}
+
+async function syncSwapSideLabels(): Promise<void> {
+  const inMint = swapInputMintInput?.value.trim() ?? '';
+  const outMint = swapOutputMintInput?.value.trim() ?? '';
+  const mints = [...new Set([inMint, outMint].filter(Boolean))];
+  await Promise.all(mints.map((mint) => ensureTokenMetaForMint(mint)));
+  const sellSym = getSwapInSym();
+  const buySym = getSwapOutSym();
+  if (swapSellLabelTokenEl) swapSellLabelTokenEl.textContent = swapSideTokenName(inMint, sellSym);
+  if (swapBuyLabelTokenEl) swapBuyLabelTokenEl.textContent = swapSideTokenName(outMint, buySym);
+}
+
 async function refreshSwapSymbols(): Promise<void> {
   const inMint = swapInputMintInput?.value.trim() ?? '';
   const outMint = swapOutputMintInput?.value.trim() ?? '';
@@ -394,6 +445,7 @@ async function refreshSwapSymbols(): Promise<void> {
     );
   }
   await Promise.all(tasks);
+  await syncSwapSideLabels();
   updateSwapTokenIcons();
   updateSwapPairCards();
 }
@@ -405,8 +457,10 @@ function updateSwapTokenIcons(): void {
 }
 
 function formatSwapFiatDisplay(v: unknown): string {
-  const label = formatSwapUsdLabel(v);
-  return label ?? '$0';
+  if (v == null || v === '') return '~$0.00';
+  const n = typeof v === 'number' ? v : Number(String(v));
+  if (!Number.isFinite(n)) return '~$0.00';
+  return `~$${n.toFixed(2)}`;
 }
 
 const SOLANA_WALLET_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -452,7 +506,7 @@ function findSolBalanceItem(items: WalletBalanceListItem[]): WalletBalanceListIt
   const wrapped = items.find((i) => i.mintAddress === WSOL_MINT);
   if (!native && !wrapped) return null;
   const totalUi = (native?.amountUi ?? 0) + (wrapped?.amountUi ?? 0);
-  if (totalUi < SOL_MIN_TRADABLE_TOTAL_UI) return null;
+  if (totalUi < SOL_MIN_AUTO_PICK_TOTAL_UI) return null;
   const base = native ?? wrapped!;
   return {
     ...base,
@@ -508,6 +562,7 @@ function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: bo
     HARDCODED_MINT_SYMBOLS[item.mintAddress] ||
     item.mintAddress.slice(0, 6);
   if (swapInputSymbolEl) swapInputSymbolEl.textContent = sym === 'WSOL' ? 'SOL' : sym;
+  void syncSwapSideLabels();
   if (item.decimals != null) routeMintDecimalsCache[swapMint] = item.decimals;
   updateSwapTokenIcons();
   updateSwapPairCards();
@@ -618,6 +673,7 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
   input.value = resolvedMint;
   const meta = getCachedTokenMeta(resolvedMint);
   if (meta && symbolEl) symbolEl.textContent = meta.symbol === 'WSOL' || meta.symbol === 'wSOL' ? 'SOL' : meta.symbol;
+  void syncSwapSideLabels();
   if (meta?.decimals != null) routeMintDecimalsCache[resolvedMint] = meta.decimals;
   updateSwapTokenIcons();
   updateSwapPairCards();
@@ -823,6 +879,39 @@ function formatQuoteTokenAmount(
   return { display: '—', full: '' };
 }
 
+function quoteTokenAmountUiNumber(quote: Record<string, unknown>, field: 'out' | 'min'): number | null {
+  const mint = getQuoteOutputMint(quote);
+  const rawKey = field === 'out' ? 'outAmount' : 'otherAmountThreshold';
+  const raw = quote[rawKey];
+  if (raw != null && raw !== '') {
+    const digits = String(raw).replace(/,/g, '');
+    if (/^\d+$/.test(digits)) {
+      const n = rawAmountToUiNumber(digits, getMintDecimals(mint));
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  const ui = quoteUiAmount(quote, field);
+  if (typeof ui === 'number' && Number.isFinite(ui) && ui > 0) return ui;
+  if (ui != null && ui !== '') {
+    const n = Number(ui);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+/** Max slippage % = (1 − min received ÷ output) × 100 */
+function formatMaxSlippageRatio(quote: Record<string, unknown>): string {
+  const out = quoteTokenAmountUiNumber(quote, 'out');
+  const min = quoteTokenAmountUiNumber(quote, 'min');
+  if (out == null || min == null || out <= 0) return '—';
+  const pct = (1 - min / out) * 100;
+  if (!Number.isFinite(pct)) return '—';
+  const abs = Math.abs(pct);
+  if (abs === 0) return '0%';
+  if (abs < 0.01) return '< 0.01%';
+  return `${pct.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 0 })}%`;
+}
+
 function formatSwapRate(value: unknown): string {
   if (typeof value !== 'number' || !Number.isFinite(value)) return '—';
   return formatSwapAmount(value).display;
@@ -851,8 +940,21 @@ function getSwapSellAmountLabel(): string {
 }
 
 function formatPctChange(pct: number): string {
-  const sign = pct >= 0 ? '+' : '';
-  return `${sign}${pct.toFixed(2)}%`;
+  const sign = pct > 0 ? '+' : pct < 0 ? '-' : '';
+  const abs = Math.abs(pct);
+  if (abs < 0.99) {
+    return `${sign}${abs.toFixed(2)}%`;
+  }
+  return `${sign}${Math.trunc(abs)}%`;
+}
+
+function formatPctChangeWithArrow(pct: number): string {
+  const arrow = pct >= 0 ? '↑' : '↓';
+  const abs = Math.abs(pct);
+  if (abs < 0.99) {
+    return `${arrow}${abs.toFixed(2)}%`;
+  }
+  return `${arrow}${Math.trunc(abs)}%`;
 }
 
 function pairCardSymbol(mint: string, side: 'sell' | 'buy'): string {
@@ -861,11 +963,48 @@ function pairCardSymbol(mint: string, side: 'sell' | 'buy'): string {
   return side === 'sell' ? getSwapInSym() : getSwapOutSym();
 }
 
-function pairCardFullName(mint: string, symbol: string): string {
-  const meta = getCachedTokenMeta(mint);
-  const name = meta?.name?.trim();
-  if (name && name.toLowerCase() !== symbol.toLowerCase()) return name;
-  return symbol;
+function pairCardUnitSymbol(mint: string, chipSymbol: string): string {
+  if (isSolMint(mint)) return 'SOL';
+  const sym = displaySymbol(chipSymbol);
+  if (sym === 'SOL' || sym === 'WSOL') return 'SOL';
+  return sym.toUpperCase();
+}
+
+function renderPairCardSpotHtml(
+  stats: TokenPriceStats | undefined,
+  mint: string,
+  chipSymbol: string,
+): string {
+  if (!stats?.price || !Number.isFinite(stats.price) || stats.price <= 0) {
+    return '<div class="swap-pair-spot"><span class="swap-pair-spot-value swap-pair-spot-value--empty">—</span></div>';
+  }
+  const unit = pairCardUnitSymbol(mint, chipSymbol);
+  const price = fmtUsd(stats.price);
+  return `<div class="swap-pair-spot">
+    <span class="swap-pair-spot-value">${escapeHtml(price)}</span>
+    <span class="swap-pair-spot-unit">USD / 1 ${escapeHtml(unit)}</span>
+  </div>`;
+}
+
+function renderPairCard(el: HTMLElement | null, mint: string, side: 'sell' | 'buy'): void {
+  if (!el) return;
+  if (!mint) {
+    el.innerHTML = '<div class="swap-pair-empty">Select a token</div>';
+    return;
+  }
+  const symbol = pairCardSymbol(mint, side);
+  const displayName = swapSideTokenName(mint, symbol);
+  const stats = pairTokenStats[mint];
+
+  el.innerHTML = `<div class="swap-pair-card-head-left">
+      <span class="swap-pair-icon">${renderPairCardIcon(mint, symbol)}</span>
+      <div class="swap-pair-identity">
+        <div class="swap-pair-name">${escapeHtml(displayName)}</div>
+        <div class="swap-pair-mint">${escapeHtml(truncate(mint, 4, 4))}</div>
+      </div>
+    </div>
+    <div class="swap-pair-changes">${renderPairCardChangesHtml(stats)}</div>
+    ${renderPairCardSpotHtml(stats, mint, symbol)}`;
 }
 
 function renderPairCardIcon(mint: string, symbol: string): string {
@@ -878,43 +1017,43 @@ function renderPairCardIcon(mint: string, symbol: string): string {
   return `<span class="swap-pair-icon-fallback" aria-hidden="true">${escapeHtml(letter)}</span>`;
 }
 
-function renderPairCardChangesHtml(stats?: TokenPriceStats): string {
-  if (!stats?.price1d || !stats?.price7d || stats.price1d <= 0 || stats.price7d <= 0) {
+function renderSwapSideChangeHtml(stats?: TokenPriceStats): string {
+  if (!stats?.price || stats.price <= 0 || !stats.price1d || stats.price1d <= 0) {
     return '<span class="swap-pair-chg swap-pair-chg--muted">—</span>';
   }
-  const pct24 = ((stats.price - stats.price1d) / stats.price1d) * 100;
-  const pct7 = ((stats.price - stats.price7d) / stats.price7d) * 100;
-  const cls24 = pct24 >= 0 ? 'swap-pair-chg--up' : 'swap-pair-chg--down';
-  const cls7 = pct7 >= 0 ? 'swap-pair-chg--up' : 'swap-pair-chg--down';
-  return `<span class="swap-pair-chg ${cls24}">24h ${formatPctChange(pct24)}</span><span class="swap-pair-chg ${cls7}">7d ${formatPctChange(pct7)}</span>`;
+  const pct1d = ((stats.price - stats.price1d) / stats.price1d) * 100;
+  const cls = pct1d >= 0 ? 'swap-pair-chg--up' : 'swap-pair-chg--down';
+  return `<span class="swap-pair-chg ${cls}">24hr: ${formatPctChangeWithArrow(pct1d)}</span>`;
 }
 
-function renderPairCard(el: HTMLElement | null, mint: string, side: 'sell' | 'buy'): void {
-  if (!el) return;
-  if (!mint) {
-    el.innerHTML = '<div class="swap-pair-empty">Select a token</div>';
-    return;
+function renderPairCardChangesHtml(stats?: TokenPriceStats): string {
+  if (!stats?.price || stats.price <= 0) {
+    return '<span class="swap-pair-chg swap-pair-chg--muted">—</span>';
   }
-  const symbol = pairCardSymbol(mint, side);
-  const fullName = pairCardFullName(mint, symbol);
-  const stats = pairTokenStats[mint];
-  const spot =
-    stats?.price != null && Number.isFinite(stats.price) && stats.price > 0
-      ? fmtUsd(stats.price)
-      : '—';
+  const parts: string[] = [];
+  if (stats.price1d && stats.price1d > 0) {
+    const pct1d = ((stats.price - stats.price1d) / stats.price1d) * 100;
+    const cls1d = pct1d >= 0 ? 'swap-pair-chg--up' : 'swap-pair-chg--down';
+    parts.push(`<span class="swap-pair-chg ${cls1d}">24hr: ${formatPctChangeWithArrow(pct1d)}</span>`);
+  }
+  if (stats.price7d && stats.price7d > 0) {
+    const pct7 = ((stats.price - stats.price7d) / stats.price7d) * 100;
+    const cls7 = pct7 >= 0 ? 'swap-pair-chg--up' : 'swap-pair-chg--down';
+    parts.push(`<span class="swap-pair-chg ${cls7}">7d: ${formatPctChangeWithArrow(pct7)}</span>`);
+  }
+  if (parts.length === 0) {
+    return '<span class="swap-pair-chg swap-pair-chg--muted">—</span>';
+  }
+  return parts.join('');
+}
 
-  el.innerHTML = `<div class="swap-pair-card-head">
-      <span class="swap-pair-icon">${renderPairCardIcon(mint, symbol)}</span>
-      <div class="swap-pair-identity">
-        <div class="swap-pair-symbol-row">
-          <span class="swap-pair-symbol">${escapeHtml(symbol)}</span>
-          <span class="swap-pair-fullname">${escapeHtml(fullName)}</span>
-        </div>
-        <div class="swap-pair-mint">${escapeHtml(truncate(mint, 4, 4))}</div>
-      </div>
-    </div>
-    <div class="swap-pair-spot">${escapeHtml(spot)}</div>
-    <div class="swap-pair-changes">${renderPairCardChangesHtml(stats)}</div>`;
+function updateSwapSideChanges(): void {
+  const inMint = swapInputMintInput?.value.trim() ?? '';
+  const outMint = swapOutputMintInput?.value.trim() ?? '';
+  const sellEl = document.getElementById('swapSellChanges');
+  const buyEl = document.getElementById('swapBuyChanges');
+  if (sellEl) sellEl.innerHTML = renderSwapSideChangeHtml(inMint ? pairTokenStats[inMint] : undefined);
+  if (buyEl) buyEl.innerHTML = renderSwapSideChangeHtml(outMint ? pairTokenStats[outMint] : undefined);
 }
 
 function updateSwapPairCards(stats?: Record<string, TokenPriceStats>): void {
@@ -923,6 +1062,7 @@ function updateSwapPairCards(stats?: Record<string, TokenPriceStats>): void {
   const outMint = swapOutputMintInput?.value.trim() ?? '';
   renderPairCard(swapCardSellEl, inMint, 'sell');
   renderPairCard(swapCardBuyEl, outMint, 'buy');
+  updateSwapSideChanges();
 }
 
 function routeOutputMintSymbol(mint: string | undefined): string {
@@ -1485,23 +1625,6 @@ function renderQuoteSummary(quote: Record<string, unknown>): string {
   const payAmt = getSwapSellAmountLabel();
   const outAmt = formatQuoteTokenAmount(quote, 'out');
   const usd = formatSwapUsdLabel(quote.swapUsdValue);
-  const rateAmt =
-    typeof quote.swapRate === 'number' && Number.isFinite(quote.swapRate) ? formatSwapRate(quote.swapRate) : '—';
-  const impact = formatPriceImpactPct(quote.priceImpactPct);
-  const impactTitle =
-    quote.priceImpactPct != null && String(quote.priceImpactPct).length > 0
-      ? `${String(quote.priceImpactPct).replace(/%$/, '')}%`
-      : undefined;
-  const impactVariant =
-    impact === '0% (No Impact)'
-      ? 'none'
-      : impact === '< 0.01%'
-        ? 'low'
-        : 'default';
-  const minOutAmt = formatQuoteTokenAmount(quote, 'min').display;
-
-  const rateLine =
-    rateAmt === '—' ? '—' : `1 ${inSym} ≈ ${rateAmt} ${outSym}`;
 
   const heroTile = (label: string, amt: string, sym: string, variant: 'pay' | 'receive', sub?: string | null) =>
     `<div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-tile--${variant}">
@@ -1513,32 +1636,10 @@ function renderQuoteSummary(quote: Record<string, unknown>): string {
       ${sub ? `<span class="swap-quote-summary-sub">${escapeHtml(sub)}</span>` : ''}
     </div>`;
 
-  const metricTile = (
-    label: string,
-    amt: string,
-    variant: 'rate' | 'impact' | 'minout',
-    opts?: { sub?: string; sym?: string; title?: string; impactTone?: string },
-  ) => {
-    const toneClass = opts?.impactTone ? ` swap-quote-summary-metric--impact-${opts.impactTone}` : '';
-    return `<div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-metric swap-quote-summary-metric--${variant}${toneClass}"${opts?.title ? ` title="${escapeHtml(opts.title)}"` : ''}>
-      <span class="swap-quote-summary-label">${escapeHtml(label)}</span>
-      ${opts?.sub ? `<span class="swap-quote-summary-metric-sub">${escapeHtml(opts.sub)}</span>` : ''}
-      <span class="swap-quote-summary-value">
-        <span class="swap-quote-summary-amt">${escapeHtml(amt)}</span>
-        ${opts?.sym ? `<span class="swap-quote-summary-sym">${escapeHtml(opts.sym)}</span>` : ''}
-      </span>
-    </div>`;
-  };
-
   return `<div class="swap-quote-summary-primary">
       ${heroTile('You pay', payAmt, inSym, 'pay', usd ? `≈ ${usd}` : null)}
       <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
       ${heroTile('You receive', outAmt.display, outSym, 'receive', usd ? `≈ ${usd}` : null)}
-    </div>
-    <div class="swap-quote-summary-metrics">
-      ${metricTile('Rate', rateLine, 'rate')}
-      ${metricTile('Impact', impact, 'impact', { title: impactTitle, impactTone: impactVariant })}
-      ${metricTile('Min out', minOutAmt, 'minout', { sym: minOutAmt !== '—' ? outSym : undefined })}
     </div>`;
 }
 
@@ -1726,11 +1827,12 @@ function clearSwapQuotePanel(): void {
     swapBuyAmountDisplayEl.textContent = '0.00';
     swapBuyAmountDisplayEl.dataset.empty = 'true';
   }
-  if (swapSellFiatEl) swapSellFiatEl.textContent = '$0';
-  if (swapBuyFiatEl) swapBuyFiatEl.textContent = '$0';
+  if (swapSellFiatEl) swapSellFiatEl.textContent = '~$0.00';
+  if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
   if (swapFooterRateEl) swapFooterRateEl.textContent = '—';
   if (swapFooterImpactEl) swapFooterImpactEl.textContent = '—';
   if (swapFooterMinOutEl) swapFooterMinOutEl.textContent = '—';
+  if (swapFooterMaxSlippageEl) swapFooterMaxSlippageEl.textContent = '—';
   setRouteChipLabel('—', true);
   if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = '';
   resetSwapQuoteDetailsPanel();
@@ -1781,6 +1883,10 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
     } else {
       swapFooterMinOutEl.textContent = '—';
     }
+  }
+
+  if (swapFooterMaxSlippageEl) {
+    swapFooterMaxSlippageEl.textContent = formatMaxSlippageRatio(quote);
   }
 
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
@@ -2390,6 +2496,7 @@ if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
     const sb = swapOutputSymbolEl?.textContent ?? '';
     if (swapInputSymbolEl) swapInputSymbolEl.textContent = sb.trim() || '—';
     if (swapOutputSymbolEl) swapOutputSymbolEl.textContent = sa.trim() || '—';
+    void syncSwapSideLabels();
     updateSwapTokenIcons();
     updateSwapPairCards();
     void fetchSwapQuote();

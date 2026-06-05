@@ -205,17 +205,16 @@
 
           <div class="swap-sides">
             <div class="swap-side swap-side--sell">
-              <div class="swap-side-label">Sell</div>
+              <div class="swap-side-label">Sell <span class="swap-side-label-token" id="swapSellLabelToken">Solana</span></div>
               <div class="swap-side-body">
                 <button type="button" class="swap-token-chip" id="swapInputTokenBtn" aria-label="Input token">
                   <span class="swap-token-chip-icon routing-token-dot routing-token-dot--sol" id="swapInputTokenIcon" aria-hidden="true"></span>
                   <span class="swap-token-chip-symbol" id="swapInputSymbol">SOL</span>
                   <span class="swap-token-chip-chevron" aria-hidden="true"></span>
                 </button>
-                <div class="swap-amount-col">
-                  <input type="number" id="swapAmount" class="swap-amount-input" min="0" step="any" value="0.05" placeholder="0.00" title="Amount to sell" />
-                  <span class="swap-fiat" id="swapSellFiat">$0</span>
-                </div>
+                <div class="swap-side-changes" id="swapSellChanges" aria-live="polite"></div>
+                <input type="number" id="swapAmount" class="swap-amount-input" min="0" step="any" value="0.05" placeholder="0.00" title="Amount to sell" />
+                <span class="swap-fiat" id="swapSellFiat">~$0.00</span>
               </div>
               <input type="text" id="swapInputMint" class="swap-mint-field" value="11111111111111111111111111111111" autocomplete="off" spellcheck="false" title="Input mint" hidden />
             </div>
@@ -226,7 +225,7 @@
 
             <div class="swap-side swap-side--buy">
               <div class="swap-side-label-row">
-                <span class="swap-side-label">Buy</span>
+                <span class="swap-side-label">Buy <span class="swap-side-label-token" id="swapBuyLabelToken">Bonk</span></span>
                 <button type="button" class="swap-paste-ca" id="swapPasteOutputBtn" title="Paste mint from clipboard">
                   <span class="swap-paste-ca-icon" aria-hidden="true"></span>
                   Paste CA
@@ -238,10 +237,9 @@
                   <span class="swap-token-chip-symbol" id="swapOutputSymbol">BONK</span>
                   <span class="swap-token-chip-chevron" aria-hidden="true"></span>
                 </button>
-                <div class="swap-amount-col">
-                  <div class="swap-out-readout" id="swapBuyAmountDisplay" data-empty="true">0.00</div>
-                  <span class="swap-fiat" id="swapBuyFiat">$0</span>
-                </div>
+                <div class="swap-side-changes" id="swapBuyChanges" aria-live="polite"></div>
+                <div class="swap-out-readout" id="swapBuyAmountDisplay" data-empty="true">0.00</div>
+                <span class="swap-fiat" id="swapBuyFiat">~$0.00</span>
               </div>
               <input type="text" id="swapOutputMint" class="swap-mint-field" value="DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263" placeholder="Output mint address" autocomplete="off" spellcheck="false" title="Output mint" hidden />
             </div>
@@ -274,8 +272,12 @@
               <span class="swap-stat-value" id="swapFooterImpact">—</span>
             </div>
             <div class="swap-stat-row">
-              <span class="swap-stat-label">Min. received</span>
+              <span class="swap-stat-label">Minimum received</span>
               <span class="swap-stat-value" id="swapFooterMinOut">—</span>
+            </div>
+            <div class="swap-stat-row">
+              <span class="swap-stat-label">Max slippage</span>
+              <span class="swap-stat-value" id="swapFooterMaxSlippage">—</span>
             </div>
             <div class="swap-stat-row swap-stat-row--route">
               <span class="swap-stat-label">Route</span>
@@ -284,11 +286,6 @@
                 <span class="swap-route-chip-text">—</span>
               </button>
             </div>
-          </div>
-
-          <div class="swap-pair-cards" id="swapPairCards">
-            <div class="swap-pair-card swap-pair-card--sell" id="swapCardSell" aria-label="Sell token"></div>
-            <div class="swap-pair-card swap-pair-card--buy" id="swapCardBuy" aria-label="Buy token"></div>
           </div>
 
           <div class="swap-advanced" id="swapAdvancedBuild">
@@ -440,6 +437,10 @@
           <div class="swap-hero-col swap-hero-col--details">
             <div class="swap-quote-details-panel" id="swapQuoteDetailsPanel">
               <h3 class="swap-quote-details-title">Quote response &amp; route</h3>
+              <div class="swap-pair-cards" id="swapPairCards">
+                <div class="swap-pair-card swap-pair-card--sell" id="swapCardSell" aria-label="Sell token"></div>
+                <div class="swap-pair-card swap-pair-card--buy" id="swapCardBuy" aria-label="Buy token"></div>
+              </div>
               <p class="swap-quote-details-empty" id="swapQuoteDetailsEmpty">
                 Get a quote to see Vybe <code>swap-quote</code> fields, the route diagram, and per-hop <code>swapInfo</code> details.
               </p>
