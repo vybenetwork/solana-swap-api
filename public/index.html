@@ -39,8 +39,8 @@
     <meta name="twitter:image:alt" content="Solana quote and swap API demo powered by Vybe API" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="shortcut icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="vybe-demo-shell.css?v=1" />
-    <link rel="stylesheet" href="app.css?v=1" />
+    <link rel="stylesheet" href="vybe-demo-shell.css?v=2" />
+    <link rel="stylesheet" href="app.css?v=2" />
   </head>
   <body>
     <div class="container">
@@ -146,6 +146,13 @@
       </header>
 
       <section class="section-card section-card--swap panel swap-hero" id="swapSection">
+        <div class="section-header">
+          <span class="section-header__marker" aria-hidden="true"></span>
+          <h2 class="section-header__title">Swap quote &amp; build</h2>
+        </div>
+        <p class="meta">
+          Get a swap quote from the Vybe Trading API, review routing and price impact, then build an unsigned transaction to sign in your wallet. This demo does not broadcast.
+        </p>
         <div class="swap-widget-loading-row">
           <div class="section-loading swap-quote-loading" id="swapQuoteLoading" hidden aria-hidden="true">
             <span class="loading-spinner"></span>
