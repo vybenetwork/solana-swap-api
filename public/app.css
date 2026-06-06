@@ -2938,6 +2938,47 @@ tr:hover td {
   padding: 1rem 1rem 1.05rem;
 }
 
+.swap-mode-switch--triple {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+
+@media (max-width: 520px) {
+  .swap-mode-switch--triple {
+    grid-template-columns: 1fr;
+  }
+
+  .swap-mode-switch--triple .swap-mode-switch__btn {
+    white-space: normal;
+    text-align: center;
+  }
+}
+
+.swap-paste-sign {
+  margin-bottom: 0.85rem;
+  padding: 0.75rem 0.85rem;
+  background: #0c0c10;
+  border: 1px solid #27272f;
+  border-radius: 12px;
+}
+
+.swap-paste-sign-heading {
+  margin: 0 0 0.35rem;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #f4f4f5;
+}
+
+.swap-paste-sign-hint {
+  margin: 0 0 0.65rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.swap-paste-sign-input {
+  min-height: 7rem;
+  resize: vertical;
+}
+
 .swap-mode-switch {
   display: grid;
   grid-template-columns: 1fr 1fr;

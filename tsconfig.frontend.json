@@ -7,7 +7,7 @@
     "outDir": "public",
     "rootDir": "src/frontend",
     "strict": true,
-    "noEmit": false,
+    "noEmit": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "allowSyntheticDefaultImports": true,

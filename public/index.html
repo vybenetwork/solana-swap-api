@@ -158,9 +158,10 @@
         <div class="swap-hero-layout">
           <div class="swap-hero-col swap-hero-col--widget">
         <div class="swap-widget">
-          <div class="swap-mode-switch" role="tablist" aria-label="Swap mode">
-            <button type="button" class="swap-mode-switch__btn swap-mode-switch__btn--active" id="swapModeBuildSign" role="tab" aria-selected="true" data-mode="build-sign">Build &amp; Sign Swap</button>
-            <button type="button" class="swap-mode-switch__btn" id="swapModeBuild" role="tab" aria-selected="false" data-mode="build">Build Swap (No Signing)</button>
+          <div class="swap-mode-switch swap-mode-switch--triple" role="tablist" aria-label="Swap mode">
+            <button type="button" class="swap-mode-switch__btn swap-mode-switch__btn--active" id="swapModeBuildSign" role="tab" aria-selected="true" data-mode="build-sign">Build &amp; Sign</button>
+            <button type="button" class="swap-mode-switch__btn" id="swapModeBuild" role="tab" aria-selected="false" data-mode="build">Build only</button>
+            <button type="button" class="swap-mode-switch__btn" id="swapModePasteSign" role="tab" aria-selected="false" data-mode="paste-sign">Paste &amp; Sign</button>
           </div>
 
           <section class="swap-wallet-execution" id="swapWalletExecution">
@@ -197,6 +198,23 @@
             </div>
           </section>
 
+          <section class="swap-paste-sign" id="swapPasteSignPanel" hidden>
+            <div class="swap-paste-sign-heading">Paste transaction</div>
+            <p class="swap-paste-sign-hint meta">
+              Paste a base64 wire transaction (Moonbags CustomSign style). Connect your wallet, then click
+              <strong>Sign pasted tx</strong>. Uses the same flow as Trade-Sol-Debug: in-page RPC, blockhash refresh, sign, send.
+            </p>
+            <textarea
+              id="swapPasteTxInput"
+              class="swap-tx-textarea swap-paste-sign-input"
+              rows="6"
+              placeholder="Paste base64 transaction…"
+              spellcheck="false"
+              autocomplete="off"
+            ></textarea>
+          </section>
+
+          <div id="swapStandardFlow">
           <div class="swap-sides">
             <div class="swap-side swap-side--sell">
               <div class="swap-side-label-row">
@@ -398,6 +416,8 @@
             </div>
           </details>
 
+          </div>
+
           <div class="swap-action-buttons">
             <button type="button" id="swapQuoteBtn" class="swap-action-btn swap-action-btn--primary">
               <span class="swap-action-btn__icon swap-action-btn__icon--quote" aria-hidden="true"></span>
@@ -568,15 +588,15 @@
     <script type="importmap">
       {
         "imports": {
-          "@solana/web3.js": "https://esm.sh/@solana/web3.js@1.98.4"
+          "bs58": "https://esm.sh/bs58@4.0.1"
         }
       }
     </script>
     <script type="module">
-      import * as solanaWeb3 from '@solana/web3.js';
-      window.solanaWeb3 = solanaWeb3;
+      import bs58 from 'bs58';
+      window.bs58 = bs58;
     </script>
-    <script type="module" src="app.js"></script>
+    <script type="module" src="app.js?v=8"></script>
   </body>
 </html>
 

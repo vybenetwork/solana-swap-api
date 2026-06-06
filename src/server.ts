@@ -3,7 +3,7 @@
  */
 
 import express, { type Request, type Response } from 'express';
-import { loadEnv, getApiKey, PUBLIC_DIR } from './config.js';
+import { loadEnv, getApiKey, PUBLIC_DIR, SOLANA_RPC_URL } from './config.js';
 import { createClient } from './api/index.js';
 import { toHumanReadableError } from './api/client.js';
 import { InsufficientBalanceError } from './api/wallet-balance.js';
@@ -16,6 +16,8 @@ import {
   getCachedTokenMetaFromDisk,
   getRuntimeIconDir,
 } from './token-icon-cache.js';
+import { Connection } from '@solana/web3.js';
+import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
 
 loadEnv();
 const apiKey = getApiKey();
@@ -391,6 +393,43 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
     res.status(status).json({ error: toHumanReadableError(err) });
+  }
+});
+
+/** POST /api/solana/rpc — browser Connection proxy (Moonbags uses in-page Connection for blockhash + send) */
+app.post('/api/solana/rpc', async (req: Request, res: Response) => {
+  try {
+    const upstream = await fetch(SOLANA_RPC_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+    const text = await upstream.text();
+    res.status(upstream.status).type('application/json').send(text);
+  } catch (err) {
+    res.status(500).json({ error: toHumanReadableError(err) });
+  }
+});
+
+/** GET /api/solana/latest-blockhash — fresh blockhash for wallet simulation before sign (Moonbags CustomSign) */
+app.get('/api/solana/latest-blockhash', async (_req: Request, res: Response) => {
+  try {
+    const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
+    const latest = await connection.getLatestBlockhash('confirmed');
+    res.json(latest);
+  } catch (err) {
+    res.status(500).json({ error: toHumanReadableError(err) });
+  }
+});
+
+/** POST /api/solana/prepare-swap-tx — refresh blockhash (+ ALTs) so Phantom can simulate swaps */
+app.post('/api/solana/prepare-swap-tx', async (req: Request, res: Response) => {
+  try {
+    const tx = typeof req.body?.tx === 'string' ? req.body.tx : '';
+    const prepared = await prepareSwapTransactionForSigning(tx);
+    res.json(prepared);
+  } catch (err) {
+    res.status(400).json({ error: toHumanReadableError(err) });
   }
 });
 

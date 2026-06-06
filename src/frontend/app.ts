@@ -2,6 +2,7 @@
  * Swap quote & build UI — built from TypeScript; compiles to public/app.js.
  */
 
+import { Connection, PublicKey, VersionedTransaction } from '@solana/web3.js';
 import {
   buildTokenHintsForMints,
   ensureTokenCatalogLoaded,
@@ -128,6 +129,10 @@ const swapTxBase64El = document.getElementById('swapTxBase64') as HTMLTextAreaEl
 const swapCopyTxBtn = document.getElementById('swapCopyTxBtn') as HTMLButtonElement | null;
 const swapModeBuildBtn = document.getElementById('swapModeBuild') as HTMLButtonElement | null;
 const swapModeBuildSignBtn = document.getElementById('swapModeBuildSign') as HTMLButtonElement | null;
+const swapModePasteSignBtn = document.getElementById('swapModePasteSign') as HTMLButtonElement | null;
+const swapPasteSignPanelEl = document.getElementById('swapPasteSignPanel') as HTMLElement | null;
+const swapPasteTxInputEl = document.getElementById('swapPasteTxInput') as HTMLTextAreaElement | null;
+const swapStandardFlowEl = document.getElementById('swapStandardFlow') as HTMLElement | null;
 const swapConnectWalletBtn = document.getElementById('swapConnectWalletBtn') as HTMLButtonElement | null;
 const swapConnectWalletBtnIconEl = document.getElementById('swapConnectWalletBtnIcon') as HTMLElement | null;
 const swapConnectWalletBtnTextEl = document.getElementById('swapConnectWalletBtnText') as HTMLElement | null;
@@ -143,18 +148,18 @@ interface SolanaWalletProvider {
   connect?: () => Promise<{ publicKey: { toString(): string } }>;
   disconnect?: () => Promise<void>;
   signTransaction?: (tx: unknown) => Promise<{ serialize(): Uint8Array }>;
+  signAllTransactions?: (txs: unknown[]) => Promise<Array<{ serialize(): Uint8Array }>>;
 }
 
-interface SolanaWeb3Global {
-  VersionedTransaction: { deserialize(bytes: Uint8Array): unknown };
-  Transaction: { from(bytes: Uint8Array): unknown };
-  PublicKey?: new (value: string) => { toBase58(): string };
+interface SignableVersionedTransaction {
+  serialize(): Uint8Array;
 }
 
 type WindowWithSolana = Window & {
   solana?: SolanaWalletProvider;
   phantom?: { solana?: SolanaWalletProvider };
-  solanaWeb3?: SolanaWeb3Global;
+  bs58?: { decode(source: string): Uint8Array };
+  __swapBrowserConnection?: Connection;
 };
 
 function getSolanaWindow(): WindowWithSolana {
@@ -206,12 +211,11 @@ const swapRawSwapResponseEl = document.getElementById('swapRawSwapResponse') as 
 let lastSwapQuoteOk: Record<string, unknown> | null = null;
 let lastRawQuoteResponse: unknown = null;
 let lastRawSwapResponse: unknown = null;
-let lastVybeBuild: { transaction: string; builtAt: number; paramsKey: string; buildPayload: unknown } | null =
-  null;
+let lastVybeBuild: { tx: string; builtAt: number; paramsKey: string; buildPayload: unknown } | null = null;
 const quotedMintSession = new Set<string>();
 let pairTokenStats: Record<string, TokenPriceStats> = {};
 
-type SwapBuildMode = 'build' | 'build-sign';
+type SwapBuildMode = 'build' | 'build-sign' | 'paste-sign';
 let swapBuildMode: SwapBuildMode = 'build-sign';
 let walletConnectLoading = false;
 let swapQuoteFetching = false;
@@ -564,7 +568,7 @@ function syncSwapSellAmountUi(): void {
   if (!hasPositiveAmount) {
     lastSwapQuoteOk = null;
     lastVybeBuild = null;
-    if (swapBuildBtn) swapBuildBtn.disabled = true;
+    if (swapBuildBtn) syncBuildButtonState();
     if (swapBuyAmountDisplayEl) {
       swapBuyAmountDisplayEl.textContent = '0.00';
       swapBuyAmountDisplayEl.dataset.empty = 'true';
@@ -613,7 +617,7 @@ function invalidateSwapQuoteUi(): void {
   swapQuoteFetching = false;
   lastSwapQuoteOk = null;
   lastVybeBuild = null;
-  if (swapBuildBtn) swapBuildBtn.disabled = true;
+  if (swapBuildBtn) syncBuildButtonState();
   setFooterStatsLoading(false);
   setBuyReadoutLoading(false);
   setBuyFiatLoading(false);
@@ -627,15 +631,11 @@ function isValidSolanaWalletAddress(value: string): boolean {
   const addr = value.trim();
   if (!addr || !SOLANA_WALLET_RE.test(addr)) return false;
   try {
-    const PublicKey = getSolanaWindow().solanaWeb3?.PublicKey;
-    if (PublicKey) {
-      const pk = new PublicKey(addr);
-      return pk.toBase58() === addr;
-    }
+    const pk = new PublicKey(addr);
+    return pk.toBase58() === addr;
   } catch {
     return false;
   }
-  return true;
 }
 
 function hasValidSwapWallet(): boolean {
@@ -2375,7 +2375,7 @@ function clearSwapQuotePanel(): void {
   lastRawQuoteResponse = null;
   for (const k of Object.keys(routeMintSymbolCache)) delete routeMintSymbolCache[k];
   for (const k of Object.keys(routeMintDecimalsCache)) delete routeMintDecimalsCache[k];
-  if (swapBuildBtn) swapBuildBtn.disabled = true;
+  if (swapBuildBtn) syncBuildButtonState();
   if (swapBuyAmountDisplayEl) {
     swapBuyAmountDisplayEl.textContent = '0.00';
     swapBuyAmountDisplayEl.dataset.empty = 'true';
@@ -2529,10 +2529,11 @@ function vybeBuildParamsKey(
   return JSON.stringify({ wallet, inputMint, outputMint, amount, ...opts });
 }
 
+/** Vybe returns base64 wire tx as `tx` — use that string exactly, no transforms. */
 function extractSwapBuildTransaction(payload: Record<string, unknown> | null | undefined): string | null {
   if (!payload) return null;
-  const tx = payload.transaction ?? payload.tx;
-  return typeof tx === 'string' && tx.trim().length > 0 ? tx.trim() : null;
+  const tx = payload.tx ?? payload.transaction;
+  return typeof tx === 'string' && tx.length > 0 ? tx : null;
 }
 
 async function resolvePairTokenPrices(
@@ -2660,7 +2661,7 @@ async function fetchSwapQuote(): Promise<void> {
 
   lastSwapQuoteOk = null;
   lastVybeBuild = null;
-  if (swapBuildBtn) swapBuildBtn.disabled = true;
+  if (swapBuildBtn) syncBuildButtonState();
   resetSwapQuoteDetailsPanel();
   if (swapQuoteError) clearInlineError(swapQuoteError);
   if (swapQuoteWarning) clearInlineWarning(swapQuoteWarning);
@@ -2754,7 +2755,7 @@ async function fetchSwapQuote(): Promise<void> {
       if (buildTx && typeof body._builtAt === 'number') {
         lastRawSwapResponse = body._build;
         lastVybeBuild = {
-          transaction: buildTx,
+          tx: buildTx,
           builtAt: body._builtAt,
           paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts),
           buildPayload: body._build as Record<string, unknown>,
@@ -2763,7 +2764,7 @@ async function fetchSwapQuote(): Promise<void> {
       }
       renderSwapQuoteUI(quote);
       void enrichRouteLabels(quote);
-      if (swapBuildBtn) swapBuildBtn.disabled = false;
+      if (swapBuildBtn) syncBuildButtonState();
       return;
     }
 
@@ -2780,7 +2781,7 @@ async function fetchSwapQuote(): Promise<void> {
     quotedMintSession.add(outputMint);
     renderSwapQuoteUI(body);
     void enrichRouteLabels(body);
-    if (swapBuildBtn) swapBuildBtn.disabled = false;
+    syncBuildButtonState();
   } catch (err) {
     if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
   } finally {
@@ -2847,28 +2848,55 @@ function promptSignSwapConfirm(
   });
 }
 
-async function applyBuiltSwapTx(buildTx: string, buildPayload: Record<string, unknown>): Promise<boolean> {
+async function applyBuiltSwapTx(buildTx: string, _buildPayload: Record<string, unknown>): Promise<boolean> {
   if (!swapTxBase64El || !swapBuildResultEl) return false;
-  if (swapBuildMode === 'build-sign') {
-    if (!lastSwapQuoteOk) return false;
-    const confirmed = await promptSignSwapConfirm(lastSwapQuoteOk, buildPayload);
-    if (!confirmed) return true;
-    try {
-      swapTxBase64El.value = await signSwapTransactionBase64(buildTx);
-    } catch (err) {
-      if (swapQuoteError) {
-        showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
-      }
-      return false;
-    }
-  } else {
-    swapTxBase64El.value = buildTx;
-  }
+  swapTxBase64El.value = buildTx;
   swapBuildResultEl.hidden = false;
   return true;
 }
 
+async function postPasteSignSwap(): Promise<void> {
+  if (!swapPasteTxInputEl || !swapBuildResultEl || !swapTxBase64El) return;
+  const pasted = swapPasteTxInputEl.value.trim();
+  if (!pasted) {
+    if (swapQuoteError) showInlineError(swapQuoteError, 'Paste a base64 transaction first.');
+    return;
+  }
+  if (swapQuoteError) clearInlineError(swapQuoteError);
+  try {
+    await ensureBrowserWalletConnected(swapWalletAddressInput?.value.trim() ?? '');
+  } catch (err) {
+    if (swapQuoteError) {
+      showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+    }
+    return;
+  }
+  if (swapBuildBtn) swapBuildBtn.disabled = true;
+  try {
+    swapTxBase64El.value = await signSwapTransactionBase64(pasted, true);
+    swapBuildResultEl.hidden = false;
+  } catch (err) {
+    if (swapQuoteError) {
+      showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+    }
+  } finally {
+    syncBuildButtonState();
+  }
+}
+
+function syncBuildButtonState(): void {
+  if (!swapBuildBtn) return;
+  if (swapBuildMode === 'paste-sign') {
+    swapBuildBtn.disabled = false;
+    return;
+  }
+  swapBuildBtn.disabled = !lastSwapQuoteOk;
+}
+
 async function postBuildSwap(): Promise<void> {
+  if (swapBuildMode === 'paste-sign') {
+    return postPasteSignSwap();
+  }
   if (!lastSwapQuoteOk) {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Get a quote first.');
     return;
@@ -2883,6 +2911,8 @@ async function postBuildSwap(): Promise<void> {
       }
       return;
     }
+    const confirmed = await promptSignSwapConfirm(lastSwapQuoteOk);
+    if (!confirmed) return;
   } else if (!wallet) {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Wallet (accountAddress) is required to build the transaction.');
     return;
@@ -2909,9 +2939,9 @@ async function postBuildSwap(): Promise<void> {
     try {
       lastRawSwapResponse = lastVybeBuild.buildPayload;
       renderRawResponsePanels();
-      await applyBuiltSwapTx(lastVybeBuild.transaction, lastVybeBuild.buildPayload as Record<string, unknown>);
+      await applyBuiltSwapTx(lastVybeBuild.tx, lastVybeBuild.buildPayload as Record<string, unknown>);
     } finally {
-      if (swapBuildBtn) swapBuildBtn.disabled = false;
+      syncBuildButtonState();
     }
     return;
   }
@@ -2940,7 +2970,7 @@ async function postBuildSwap(): Promise<void> {
     const buildTx = extractSwapBuildTransaction(body);
     if (router === 'vybe' && buildTx) {
       lastVybeBuild = {
-        transaction: buildTx,
+        tx: buildTx,
         builtAt: Date.now(),
         paramsKey,
         buildPayload: body,
@@ -2948,15 +2978,26 @@ async function postBuildSwap(): Promise<void> {
     }
     renderRawResponsePanels();
     if (buildTx) {
-      const ok = await applyBuiltSwapTx(buildTx, body);
-      if (!ok) return;
+      if (swapBuildMode === 'build-sign') {
+        try {
+          swapTxBase64El.value = await signSwapTransactionBase64(buildTx, true);
+          swapBuildResultEl.hidden = false;
+        } catch (err) {
+          if (swapQuoteError) {
+            showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+          }
+        }
+      } else {
+        const ok = await applyBuiltSwapTx(buildTx, body);
+        if (!ok) return;
+      }
     } else if (swapQuoteError) {
       showInlineError(swapQuoteError, 'Build succeeded but no transaction was returned to sign.');
     }
   } catch (err) {
     if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
   } finally {
-    if (swapBuildBtn) swapBuildBtn.disabled = false;
+    syncBuildButtonState();
   }
 }
 
@@ -2997,31 +3038,56 @@ async function ensureBrowserWalletConnected(existingWallet: string): Promise<str
   return connected;
 }
 
-async function signSwapTransactionBase64(base64: string): Promise<string> {
-  const provider = getSolanaWalletProvider();
-  if (!provider?.signTransaction) {
-    throw new Error('Connected wallet cannot sign transactions.');
+function getBrowserConnection(): Connection {
+  const w = getSolanaWindow();
+  if (!w.__swapBrowserConnection) {
+    w.__swapBrowserConnection = new Connection(`${window.location.origin}/api/solana/rpc`, 'confirmed');
   }
-  const web3 = await waitForSolanaWeb3();
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-  let tx: unknown;
-  try {
-    tx = web3.VersionedTransaction.deserialize(bytes);
-  } catch {
-    tx = web3.Transaction.from(bytes);
-  }
-  const signed = await provider.signTransaction(tx);
-  return bytesToBase64(signed.serialize());
+  return w.__swapBrowserConnection;
 }
 
-async function waitForSolanaWeb3(timeoutMs = 10000): Promise<SolanaWeb3Global> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    const web3 = getSolanaWindow().solanaWeb3;
-    if (web3) return web3;
-    await new Promise((resolve) => setTimeout(resolve, 50));
+function decodeVersionedTxFromBase64(txString: string): VersionedTransaction {
+  const trimmed = txString.trim();
+  try {
+    return VersionedTransaction.deserialize(
+      Uint8Array.from(atob(trimmed), (c) => c.charCodeAt(0)),
+    );
+  } catch {
+    throw new Error('Could not decode swap transaction (expected base64 wire bytes).');
   }
-  throw new Error('Signing library is still loading. Wait a moment and try again.');
+}
+
+/** Match Moonbags Trade-Sol-Debug CustomSign: deserialize paste → patch blockhash in place → sign → send. */
+async function signSwapTransactionBase64(txString: string, sendAfterSign = false): Promise<string> {
+  const provider = getSolanaWalletProvider();
+  if (!provider?.signTransaction && !provider?.signAllTransactions) {
+    throw new Error('Connected wallet cannot sign transactions.');
+  }
+
+  const vtx = decodeVersionedTxFromBase64(txString);
+  vtx.message.recentBlockhash = (
+    await getBrowserConnection().getLatestBlockhash('confirmed')
+  ).blockhash;
+
+  let signed: SignableVersionedTransaction;
+  if (provider.signTransaction) {
+    signed = await provider.signTransaction(vtx);
+  } else if (provider.signAllTransactions) {
+    signed = (await provider.signAllTransactions([vtx]))[0]!;
+  } else {
+    throw new Error('Connected wallet cannot sign transactions.');
+  }
+
+  if (sendAfterSign) {
+    const sig = await getBrowserConnection().sendRawTransaction(signed.serialize(), {
+      skipPreflight: false,
+    });
+    if (swapQuoteWarning) {
+      showInlineWarning(swapQuoteWarning, `Transaction sent: ${sig}`);
+    }
+  }
+
+  return bytesToBase64(signed.serialize());
 }
 
 function updateConnectWalletButtonUi(address: string, hasWallet: boolean): void {
@@ -3074,51 +3140,75 @@ async function disconnectBrowserWallet(): Promise<void> {
 }
 
 function syncWalletFieldForMode(): void {
-  const isSignMode = swapBuildMode === 'build-sign';
+  const needsWalletConnect = swapBuildMode === 'build-sign' || swapBuildMode === 'paste-sign';
   const address = swapWalletAddressInput?.value.trim() ?? '';
   const hasWallet = Boolean(address);
 
-  if (swapWalletSignRowEl) swapWalletSignRowEl.hidden = !isSignMode;
+  if (swapWalletSignRowEl) swapWalletSignRowEl.hidden = !needsWalletConnect;
 
   if (swapWalletAddressInput) {
-    swapWalletAddressInput.hidden = isSignMode;
+    swapWalletAddressInput.hidden = needsWalletConnect;
     swapWalletAddressInput.readOnly = false;
   }
 
-  if (!isSignMode) return;
+  if (!needsWalletConnect) return;
 
   updateConnectWalletButtonUi(address, hasWallet);
 }
 
 function syncSwapBuildModeUi(): void {
   const isSignMode = swapBuildMode === 'build-sign';
-  swapModeBuildBtn?.classList.toggle('swap-mode-switch__btn--active', !isSignMode);
+  const isPasteMode = swapBuildMode === 'paste-sign';
+  const isBuildOnlyMode = swapBuildMode === 'build';
+
+  swapModeBuildBtn?.classList.toggle('swap-mode-switch__btn--active', isBuildOnlyMode);
   swapModeBuildSignBtn?.classList.toggle('swap-mode-switch__btn--active', isSignMode);
-  swapModeBuildBtn?.setAttribute('aria-selected', isSignMode ? 'false' : 'true');
+  swapModePasteSignBtn?.classList.toggle('swap-mode-switch__btn--active', isPasteMode);
+  swapModeBuildBtn?.setAttribute('aria-selected', isBuildOnlyMode ? 'true' : 'false');
   swapModeBuildSignBtn?.setAttribute('aria-selected', isSignMode ? 'true' : 'false');
+  swapModePasteSignBtn?.setAttribute('aria-selected', isPasteMode ? 'true' : 'false');
+
+  if (swapPasteSignPanelEl) swapPasteSignPanelEl.hidden = !isPasteMode;
+  if (swapStandardFlowEl) swapStandardFlowEl.hidden = isPasteMode;
+  if (swapQuoteBtn) swapQuoteBtn.hidden = isPasteMode;
+
   syncWalletFieldForMode();
+  syncBuildButtonState();
+
   const buildLabelEl = swapBuildBtn?.querySelector('.swap-action-btn__label');
   const buildHintEl = swapBuildBtn?.querySelector('.swap-action-btn__hint');
   if (buildLabelEl) {
-    buildLabelEl.textContent = isSignMode ? 'Build & sign swap' : 'Build swap (no signing)';
+    buildLabelEl.textContent = isPasteMode
+      ? 'Sign pasted tx'
+      : isSignMode
+        ? 'Build & sign swap'
+        : 'Build swap (no signing)';
   }
   if (buildHintEl) {
-    buildHintEl.textContent = isSignMode ? 'Connect wallet & sign' : 'Requires quote & wallet';
+    buildHintEl.textContent = isPasteMode
+      ? 'Wallet signs pasted base64'
+      : isSignMode
+        ? 'Connect wallet & sign'
+        : 'Requires quote & wallet';
   }
   if (swapBuildResultTitleEl) {
-    swapBuildResultTitleEl.textContent = isSignMode
-      ? 'Signed transaction (base64)'
-      : 'Unsigned transaction (base64)';
+    swapBuildResultTitleEl.textContent =
+      isSignMode || isPasteMode ? 'Signed transaction (base64)' : 'Unsigned transaction (base64)';
   }
   if (swapBuildResultMetaEl) {
-    swapBuildResultMetaEl.textContent = isSignMode
-      ? 'Signed in your browser wallet. This app does not broadcast.'
-      : 'Sign in your wallet. This app does not broadcast.';
+    swapBuildResultMetaEl.textContent =
+      isSignMode || isPasteMode
+        ? 'Signed in your browser wallet. This app does not broadcast.'
+        : 'Unsigned wire transaction from Vybe build. This app does not broadcast.';
   }
   if (swapAdvancedBuildHintEl) {
-    swapAdvancedBuildHintEl.innerHTML = isSignMode
-      ? 'Used only when you click <strong>Build &amp; sign swap</strong>.'
-      : 'Used only when you click <strong>Build swap (no signing)</strong>.';
+    if (isPasteMode) {
+      swapAdvancedBuildHintEl.textContent = 'Not used in Paste & Sign mode.';
+    } else {
+      swapAdvancedBuildHintEl.innerHTML = isSignMode
+        ? 'Used only when you click <strong>Build &amp; sign swap</strong>.'
+        : 'Used only when you click <strong>Build swap (no signing)</strong>.';
+    }
   }
 }
 
@@ -3183,6 +3273,7 @@ wireBuildOptionToggle(swapEnableServiceFeeCheckbox, swapServiceFeeFieldEl, swapS
 
 swapModeBuildBtn?.addEventListener('click', () => setSwapBuildMode('build'));
 swapModeBuildSignBtn?.addEventListener('click', () => setSwapBuildMode('build-sign'));
+swapModePasteSignBtn?.addEventListener('click', () => setSwapBuildMode('paste-sign'));
 swapRouterSwitchEl?.addEventListener('click', (e) => {
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-router]');
   if (!btn?.dataset.router) return;
