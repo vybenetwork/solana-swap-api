@@ -693,6 +693,7 @@ body {
   height: 8px;
   border-radius: 50%;
   background: #3f3f46;
+  align-self: center;
 }
 
 .section-card--remote .section-header__marker { background: #3b82f6; box-shadow: 0 0 10px rgba(59, 130, 246, 0.45); }
@@ -710,6 +711,10 @@ body {
   font-size: 1.05rem;
   font-weight: 650;
   color: #f4f4f5;
+  line-height: 40px;
+  height: 40px;
+  text-transform: none;
+  letter-spacing: normal;
 }
 .vybe-action-btn {
   display: inline-flex;
@@ -814,9 +819,8 @@ body {
 .section-header {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  flex-wrap: wrap;
   gap: 0.5rem;
+  flex-wrap: wrap;
   min-height: 40px;
   max-height: 40px;
 }
@@ -827,6 +831,18 @@ body {
   font-size: 1.05rem;
   font-weight: 650;
   color: #f4f4f5;
+  line-height: 40px;
+  height: 40px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.section-header .section-loading,
+.section-header .section-error,
+.section-header .section-warning {
+  align-self: center;
+  flex-shrink: 1;
+  min-width: 0;
 }
 @keyframes section-loading-pulse {
   0%,

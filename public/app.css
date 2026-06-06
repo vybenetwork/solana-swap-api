@@ -280,11 +280,36 @@ a:hover {
 .local-filters-panel .section-header {
   margin-bottom: 0.75rem;
 }
+
+/* Help copy sits on row 2 — keep the marker aligned with the title on row 1 only. */
+.section-header:has(.remote-filters-help) {
+  display: grid;
+  grid-template-columns: 8px 1fr;
+  column-gap: 0.75rem;
+  row-gap: 0.35rem;
+  align-items: center;
+  min-height: unset;
+  max-height: none;
+}
+
+.section-header:has(.remote-filters-help) .section-header__marker {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+}
+
+.section-header:has(.remote-filters-help) .section-header__title {
+  grid-column: 2;
+  grid-row: 1;
+}
+
 .remote-filters-help {
-  margin: 0.5rem 0 0.5rem;
+  margin: 0;
   font-size: 0.8rem;
   color: #a1a1aa;
-  flex-basis: 100%;
+  flex-basis: auto;
+  grid-column: 2;
+  grid-row: 2;
 }
 
 .local-filters-help {
@@ -2902,22 +2927,15 @@ tr:hover td {
   word-break: break-word;
 }
 
-.swap-widget-loading-row {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  min-height: 1.5rem;
-  margin-bottom: 0.5rem;
-}
-
-.swap-widget-loading-row .section-loading,
-.swap-widget-loading-row .section-error,
-.swap-widget-loading-row .section-warning {
-  margin: 0;
+.section-header .section-loading,
+.section-header .section-error,
+.section-header .section-warning {
+  margin: 0 0 0 13px;
 }
 
 .section-warning {
-  display: block;
+  display: inline-flex;
+  align-items: center;
   font-size: 0.8125rem;
   line-height: 1.45;
   color: #fbbf24;
