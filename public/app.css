@@ -2550,6 +2550,13 @@ tr:hover td {
   text-align: center;
 }
 
+.routing-empty--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.5rem;
+}
+
 .routing-canvas--placeholder .routing-amt,
 .routing-canvas--placeholder .routing-dex-caption,
 .routing-canvas--placeholder .routing-hop-index-badge {
@@ -4289,6 +4296,83 @@ tr:hover td {
   outline-offset: 2px;
 }
 
+.swap-action-btn--loading {
+  cursor: wait;
+  filter: saturate(0.92);
+}
+
+.swap-action-btn--loading .swap-action-btn__icon--quote::after {
+  display: none;
+}
+
+.swap-action-btn--loading .swap-action-btn__icon {
+  position: relative;
+}
+
+.swap-action-btn--loading .swap-action-btn__icon::before {
+  content: '';
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid rgba(12, 12, 16, 0.25);
+  border-top-color: #0c0c10;
+  border-radius: 50%;
+  animation: loading-spin 0.7s linear infinite;
+}
+
+.inline-loading-spinner {
+  display: inline-block;
+  vertical-align: middle;
+  border: 2px solid #3f3f46;
+  border-top-color: #c4f20b;
+  border-radius: 50%;
+  animation: loading-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+.inline-loading-spinner--sm {
+  width: 0.72rem;
+  height: 0.72rem;
+}
+
+.inline-loading-spinner--md {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.inline-loading-spinner--lg {
+  width: 1.35rem;
+  height: 1.35rem;
+  border-width: 2.5px;
+}
+
+.swap-out-readout .inline-loading-spinner--lg {
+  vertical-align: -0.15em;
+}
+
+.swap-stat-value .inline-loading-spinner,
+.swap-route-chip-text .inline-loading-spinner,
+.swap-fiat .inline-loading-spinner {
+  vertical-align: -0.12em;
+}
+
+.swap-pair-spot-value--loading,
+.swap-pair-chg--loading {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1rem;
+}
+
+.routing-canvas--loading .routing-amt .inline-loading-spinner,
+.routing-canvas--loading .routing-dex-caption .inline-loading-spinner {
+  vertical-align: -0.1em;
+}
+
+.swap-hop-step-details--loading .swap-hop-card__dex .inline-loading-spinner,
+.swap-hop-step-details--loading .swap-hop-step-details__preview .inline-loading-spinner {
+  vertical-align: -0.1em;
+}
+
 .swap-action-btn--secondary {
   border: 1px solid #3f3f46;
   background: linear-gradient(180deg, #1a1a22 0%, #14141a 100%);
@@ -4702,8 +4786,77 @@ tr:hover td {
 }
 
 .routing-dialog-close:hover {
-  color: #fafafa;
   background: #27272a;
+  color: #fff;
+}
+
+.swap-sign-dialog {
+  padding: 0;
+  border: none;
+  border-radius: 18px;
+  background: #0c0c10;
+  color: #e4e4e7;
+  max-width: min(420px, calc(100vw - 2rem));
+  width: 100%;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+}
+
+.swap-sign-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.swap-sign-dialog__shell {
+  padding: 1rem 1.1rem 1.15rem;
+}
+
+.swap-sign-dialog__lead {
+  margin: 0 0 0.85rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #a1a1aa;
+}
+
+.swap-sign-dialog__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+  padding: 0.75rem 0.85rem;
+  background: #09090b;
+  border: 1px solid #27272a;
+  border-radius: 12px;
+}
+
+.swap-sign-dialog__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.swap-sign-dialog__label {
+  font-size: 0.72rem;
+  color: #71717a;
+}
+
+.swap-sign-dialog__value {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #f4f4f5;
+  text-align: right;
+}
+
+.swap-sign-dialog__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.55rem;
+}
+
+.swap-sign-dialog__confirm {
+  width: auto;
+  min-width: 11rem;
+  padding: 0.62rem 0.95rem;
 }
 
 /* --- Vybe swap quote / build (legacy grid / inline routes) --- */

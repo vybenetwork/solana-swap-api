@@ -183,6 +183,13 @@ const routingDialogEl = document.getElementById('routingDialog') as HTMLDialogEl
 const routingDialogTitleEl = document.getElementById('routingDialogTitle') as HTMLElement | null;
 const routingDialogBodyEl = document.getElementById('routingDialogBody') as HTMLElement | null;
 const routingDialogCloseEl = document.getElementById('routingDialogClose') as HTMLButtonElement | null;
+const swapSignConfirmDialogEl = document.getElementById('swapSignConfirmDialog') as HTMLDialogElement | null;
+const swapSignConfirmPayEl = document.getElementById('swapSignConfirmPay') as HTMLElement | null;
+const swapSignConfirmReceiveEl = document.getElementById('swapSignConfirmReceive') as HTMLElement | null;
+const swapSignConfirmRouteEl = document.getElementById('swapSignConfirmRoute') as HTMLElement | null;
+const swapSignConfirmProceedEl = document.getElementById('swapSignConfirmProceed') as HTMLButtonElement | null;
+const swapSignConfirmCancelEl = document.getElementById('swapSignConfirmCancel') as HTMLButtonElement | null;
+const swapSignConfirmCloseEl = document.getElementById('swapSignConfirmClose') as HTMLButtonElement | null;
 const swapPairCardsEl = document.getElementById('swapPairCards') as HTMLElement | null;
 const swapQuoteDetailsEmptyEl = document.getElementById('swapQuoteDetailsEmpty') as HTMLElement | null;
 const swapQuoteDetailsBodyEl = document.getElementById('swapQuoteDetailsBody') as HTMLElement | null;
@@ -207,6 +214,83 @@ let pairTokenStats: Record<string, TokenPriceStats> = {};
 type SwapBuildMode = 'build' | 'build-sign';
 let swapBuildMode: SwapBuildMode = 'build-sign';
 let walletConnectLoading = false;
+let swapQuoteFetching = false;
+
+function renderLoadingSpinner(size: 'sm' | 'md' | 'lg' = 'sm'): string {
+  return `<span class="inline-loading-spinner inline-loading-spinner--${size}" aria-hidden="true"></span>`;
+}
+
+function setSwapQuoteButtonLoading(loading: boolean): void {
+  if (!swapQuoteBtn) return;
+  swapQuoteBtn.disabled = loading;
+  swapQuoteBtn.classList.toggle('swap-action-btn--loading', loading);
+  swapQuoteBtn.setAttribute('aria-busy', loading ? 'true' : 'false');
+  const labelEl = swapQuoteBtn.querySelector('.swap-action-btn__label');
+  const hintEl = swapQuoteBtn.querySelector('.swap-action-btn__hint');
+  if (labelEl) labelEl.textContent = loading ? 'Loading…' : 'Get quote';
+  if (hintEl) hintEl.textContent = loading ? 'Fetching route & pricing' : 'Fetch route & pricing';
+}
+
+function setFooterStatsLoading(loading: boolean): void {
+  const html = loading ? renderLoadingSpinner('sm') : '—';
+  if (swapFooterRateEl) swapFooterRateEl.innerHTML = html;
+  if (swapFooterImpactEl) swapFooterImpactEl.innerHTML = html;
+  if (swapFooterMinOutEl) swapFooterMinOutEl.innerHTML = html;
+  if (swapFooterMaxSlippageEl) swapFooterMaxSlippageEl.innerHTML = html;
+  if (swapRouteChipTextEl) swapRouteChipTextEl.innerHTML = html;
+  if (swapRouteBtnEl) swapRouteBtnEl.disabled = true;
+}
+
+function setBuyReadoutLoading(loading: boolean): void {
+  if (!swapBuyAmountDisplayEl) return;
+  if (loading) {
+    swapBuyAmountDisplayEl.innerHTML = renderLoadingSpinner('lg');
+    swapBuyAmountDisplayEl.dataset.empty = 'true';
+    swapBuyAmountDisplayEl.dataset.loading = 'true';
+    swapBuyAmountDisplayEl.removeAttribute('title');
+    return;
+  }
+  if (swapBuyAmountDisplayEl.dataset.loading === 'true') {
+    swapBuyAmountDisplayEl.dataset.loading = 'false';
+    swapBuyAmountDisplayEl.textContent = '0.00';
+    swapBuyAmountDisplayEl.dataset.empty = 'true';
+    swapBuyAmountDisplayEl.removeAttribute('title');
+  }
+}
+
+function setBuyFiatLoading(loading: boolean): void {
+  if (!swapBuyFiatEl) return;
+  if (loading) {
+    swapBuyFiatEl.innerHTML = renderLoadingSpinner('sm');
+    return;
+  }
+  if (!lastSwapQuoteOk) swapBuyFiatEl.textContent = '~$0.00';
+}
+
+function refreshPendingQuoteUi(loading = swapQuoteFetching): void {
+  if (swapQuoteSummaryEl) {
+    swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder(loading);
+  }
+  if (swapQuoteDetailsRoutingEl) {
+    swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagramPlaceholder(loading);
+  }
+  if (swapQuoteDetailsRouteStepsEl) {
+    swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(loading);
+  }
+  if (swapQuoteDetailsFieldsEl && loading) {
+    swapQuoteDetailsFieldsEl.innerHTML = `<p class="routing-empty routing-empty--loading">${renderLoadingSpinner('sm')}</p>`;
+  }
+}
+
+function applyQuoteLoadingUi(): void {
+  swapQuoteFetching = true;
+  setSwapQuoteButtonLoading(true);
+  setFooterStatsLoading(true);
+  setBuyReadoutLoading(true);
+  setBuyFiatLoading(true);
+  refreshPendingQuoteUi(true);
+  updateSwapPairCards(undefined, true);
+}
 
 /** Mint → symbol cache for route hop labels (filled after quote). */
 const routeMintSymbolCache: Record<string, string> = {};
@@ -500,6 +584,19 @@ function syncSwapSellAmountUi(): void {
 
   if (lastSwapQuoteOk) return;
 
+  if (swapQuoteFetching) {
+    const sellMint = swapInputMintInput?.value.trim() ?? '';
+    const price = pairTokenStats[sellMint]?.price;
+    if (sellMint && price && Number.isFinite(price) && price > 0 && swapSellFiatEl) {
+      swapSellFiatEl.textContent = formatSwapFiatDisplay(amount * price);
+    }
+    setBuyReadoutLoading(true);
+    setBuyFiatLoading(true);
+    refreshPendingQuoteUi(true);
+    updateSwapPairCards(undefined, true);
+    return;
+  }
+
   if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
   const sellMint = swapInputMintInput?.value.trim() ?? '';
   const price = pairTokenStats[sellMint]?.price;
@@ -513,9 +610,13 @@ function syncSwapSellAmountUi(): void {
 }
 
 function invalidateSwapQuoteUi(): void {
+  swapQuoteFetching = false;
   lastSwapQuoteOk = null;
   lastVybeBuild = null;
   if (swapBuildBtn) swapBuildBtn.disabled = true;
+  setFooterStatsLoading(false);
+  setBuyReadoutLoading(false);
+  setBuyFiatLoading(false);
   resetSwapQuoteDetailsPanel();
   syncSwapSellAmountUi();
 }
@@ -1117,8 +1218,12 @@ function renderPairCardSpotHtml(
   stats: TokenPriceStats | undefined,
   mint: string,
   chipSymbol: string,
+  loading = false,
 ): string {
   if (!stats?.price || !Number.isFinite(stats.price) || stats.price <= 0) {
+    if (loading) {
+      return `<div class="swap-pair-spot"><span class="swap-pair-spot-value swap-pair-spot-value--loading">${renderLoadingSpinner('sm')}</span></div>`;
+    }
     return '<div class="swap-pair-spot"><span class="swap-pair-spot-value swap-pair-spot-value--empty">—</span></div>';
   }
   const unit = pairCardUnitSymbol(mint, chipSymbol);
@@ -1129,7 +1234,12 @@ function renderPairCardSpotHtml(
   </div>`;
 }
 
-function renderPairCard(el: HTMLElement | null, mint: string, side: 'sell' | 'buy'): void {
+function renderPairCard(
+  el: HTMLElement | null,
+  mint: string,
+  side: 'sell' | 'buy',
+  loading = false,
+): void {
   if (!el) return;
   if (!mint) {
     el.innerHTML = '<div class="swap-pair-empty">Select a token</div>';
@@ -1138,6 +1248,7 @@ function renderPairCard(el: HTMLElement | null, mint: string, side: 'sell' | 'bu
   const symbol = pairCardSymbol(mint, side);
   const displayName = swapSideTokenName(mint, symbol);
   const stats = pairTokenStats[mint];
+  const showLoading = loading && side === 'buy';
 
   el.innerHTML = `<div class="swap-pair-card-head-left">
       <span class="swap-pair-icon">${renderPairCardIcon(mint, symbol)}</span>
@@ -1146,8 +1257,8 @@ function renderPairCard(el: HTMLElement | null, mint: string, side: 'sell' | 'bu
         <div class="swap-pair-mint">${escapeHtml(truncate(mint, 4, 4))}</div>
       </div>
     </div>
-    <div class="swap-pair-changes">${renderPairCardChangesHtml(stats)}</div>
-    ${renderPairCardSpotHtml(stats, mint, symbol)}`;
+    <div class="swap-pair-changes">${renderPairCardChangesHtml(stats, showLoading)}</div>
+    ${renderPairCardSpotHtml(stats, mint, symbol, showLoading)}`;
 }
 
 function renderPairCardIcon(mint: string, symbol: string): string {
@@ -1160,8 +1271,11 @@ function renderPairCardIcon(mint: string, symbol: string): string {
   return `<span class="swap-pair-icon-fallback" aria-hidden="true">${escapeHtml(letter)}</span>`;
 }
 
-function renderSwapSideChangeHtml(stats?: TokenPriceStats): string {
+function renderSwapSideChangeHtml(stats?: TokenPriceStats, loading = false): string {
   if (!stats?.price || stats.price <= 0 || !stats.price1d || stats.price1d <= 0) {
+    if (loading) {
+      return `<span class="swap-pair-chg swap-pair-chg--loading">${renderLoadingSpinner('sm')}</span>`;
+    }
     return '<span class="swap-pair-chg swap-pair-chg--muted">—</span>';
   }
   const pct1d = ((stats.price - stats.price1d) / stats.price1d) * 100;
@@ -1169,8 +1283,11 @@ function renderSwapSideChangeHtml(stats?: TokenPriceStats): string {
   return `<span class="swap-pair-chg ${cls}">24hr: ${formatPctChangeWithArrow(pct1d)}</span>`;
 }
 
-function renderPairCardChangesHtml(stats?: TokenPriceStats): string {
+function renderPairCardChangesHtml(stats?: TokenPriceStats, loading = false): string {
   if (!stats?.price || stats.price <= 0) {
+    if (loading) {
+      return `<span class="swap-pair-chg swap-pair-chg--loading">${renderLoadingSpinner('sm')}</span>`;
+    }
     return '<span class="swap-pair-chg swap-pair-chg--muted">—</span>';
   }
   const parts: string[] = [];
@@ -1190,22 +1307,27 @@ function renderPairCardChangesHtml(stats?: TokenPriceStats): string {
   return parts.join('');
 }
 
-function updateSwapSideChanges(): void {
+function updateSwapSideChanges(loading = false): void {
   const inMint = swapInputMintInput?.value.trim() ?? '';
   const outMint = swapOutputMintInput?.value.trim() ?? '';
   const sellEl = document.getElementById('swapSellChanges');
   const buyEl = document.getElementById('swapBuyChanges');
   if (sellEl) sellEl.innerHTML = renderSwapSideChangeHtml(inMint ? pairTokenStats[inMint] : undefined);
-  if (buyEl) buyEl.innerHTML = renderSwapSideChangeHtml(outMint ? pairTokenStats[outMint] : undefined);
+  if (buyEl) {
+    buyEl.innerHTML = renderSwapSideChangeHtml(
+      outMint ? pairTokenStats[outMint] : undefined,
+      loading,
+    );
+  }
 }
 
-function updateSwapPairCards(stats?: Record<string, TokenPriceStats>): void {
+function updateSwapPairCards(stats?: Record<string, TokenPriceStats>, loading = false): void {
   if (stats) pairTokenStats = { ...pairTokenStats, ...stats };
   const inMint = swapInputMintInput?.value.trim() ?? '';
   const outMint = swapOutputMintInput?.value.trim() ?? '';
-  renderPairCard(swapCardSellEl, inMint, 'sell');
-  renderPairCard(swapCardBuyEl, outMint, 'buy');
-  updateSwapSideChanges();
+  renderPairCard(swapCardSellEl, inMint, 'sell', loading);
+  renderPairCard(swapCardBuyEl, outMint, 'buy', loading);
+  updateSwapSideChanges(loading);
 }
 
 function routeOutputMintSymbol(mint: string | undefined): string {
@@ -1472,15 +1594,21 @@ function setRouteChipLabel(label: string, disabled: boolean): void {
   if (swapRouteBtnEl) swapRouteBtnEl.disabled = disabled;
 }
 
-function renderHopConversionLeg(leg: RouteHopLeg, className = 'route-hop-conversion'): string {
+function renderHopConversionLeg(
+  leg: RouteHopLeg,
+  className = 'route-hop-conversion',
+  loading?: { in?: boolean; out?: boolean },
+): string {
+  const inAmtHtml = loading?.in ? renderLoadingSpinner('sm') : escapeHtml(leg.inAmt);
+  const outAmtHtml = loading?.out ? renderLoadingSpinner('sm') : escapeHtml(leg.outAmt);
   return `<div class="${className}">
     <span class="route-hop-leg">
-      <span class="route-hop-amt">${escapeHtml(leg.inAmt)}</span>
+      <span class="route-hop-amt">${inAmtHtml}</span>
       <span class="route-hop-sym">${escapeHtml(leg.inSym)}</span>
     </span>
     <span class="route-hop-arrow" aria-hidden="true">→</span>
     <span class="route-hop-leg">
-      <span class="route-hop-amt">${escapeHtml(leg.outAmt)}</span>
+      <span class="route-hop-amt">${outAmtHtml}</span>
       <span class="route-hop-sym">${escapeHtml(leg.outSym)}</span>
     </span>
   </div>`;
@@ -1495,7 +1623,12 @@ function renderRoutingTokenIcon(mint: string, sym: string): string {
   return `<span class="routing-token-dot ${endpointTokenDotClass(sym)}" aria-hidden="true"></span>`;
 }
 
-function renderJupiterEndpointPill(amt: string, sym: string, title?: string): string {
+function renderJupiterEndpointPill(
+  amt: string,
+  sym: string,
+  title?: string,
+  amtLoading = false,
+): string {
   const mint =
     sym === getSwapInSym()
       ? (swapInputMintInput?.value.trim() ?? '')
@@ -1503,9 +1636,10 @@ function renderJupiterEndpointPill(amt: string, sym: string, title?: string): st
         ? (swapOutputMintInput?.value.trim() ?? '')
         : '';
   const titleAttr = title ? ` title="${escapeHtml(title)}"` : '';
+  const amtHtml = amtLoading ? renderLoadingSpinner('md') : escapeHtml(amt);
   return `<div class="routing-pill routing-pill--endpoint"${titleAttr}>
     ${renderRoutingTokenIcon(mint, sym)}
-    <span class="routing-amt">${escapeHtml(amt)}</span>
+    <span class="routing-amt">${amtHtml}</span>
     <span class="routing-sym">${escapeHtml(sym)}</span>
   </div>`;
 }
@@ -1521,9 +1655,9 @@ function renderHopIndexBadge(label: string): string {
   return `<span class="routing-hop-index-badge">Hop #${escapeHtml(label)}</span>`;
 }
 
-function renderJupiterMarketNode(meta: RouteHopMeta, leg: RouteHopLeg): string {
+function renderJupiterMarketNode(meta: RouteHopMeta, leg: RouteHopLeg, dexLoading = false): string {
   const si = meta.step.swapInfo;
-  const dex = escapeHtml(si?.label ?? 'DEX');
+  const dexHtml = dexLoading ? renderLoadingSpinner('sm') : escapeHtml(si?.label ?? 'DEX');
   const sym = escapeHtml(leg.outSym);
   return `<div class="routing-market-node">
     ${renderHopIndexBadge(meta.label)}
@@ -1531,7 +1665,7 @@ function renderJupiterMarketNode(meta: RouteHopMeta, leg: RouteHopLeg): string {
       ${renderRoutingTokenIcon(leg.outMint, leg.outSym)}
       <span class="routing-token-sym">${sym}</span>
     </div>
-    <div class="routing-dex-caption">${dex}</div>
+    <div class="routing-dex-caption">${dexHtml}</div>
   </div>`;
 }
 
@@ -1595,15 +1729,17 @@ function renderRoutingFrame(
   split: boolean,
   hopCount = 0,
   placeholder = false,
+  loading = false,
 ): string {
   const placeholderClass = placeholder ? ' routing-canvas--placeholder' : '';
-  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${placeholderClass}">
+  const loadingClass = loading ? ' routing-canvas--loading' : '';
+  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${placeholderClass}${loadingClass}">
     <div class="routing-frame">
       <div class="routing-endpoint routing-endpoint--in">
-        ${renderJupiterEndpointPill(inDisplay, inSym)}
+        ${renderJupiterEndpointPill(inDisplay, inSym, undefined, loading && inDisplay === '—')}
       </div>
       <div class="routing-endpoint routing-endpoint--out">
-        ${renderJupiterEndpointPill(outDisplay, outSym, outTitle)}
+        ${renderJupiterEndpointPill(outDisplay, outSym, outTitle, loading)}
       </div>
       <div class="routing-path">
         ${ROUTING_CONNECTORS}
@@ -1653,7 +1789,7 @@ function renderRoutingDiagram(quote: Record<string, unknown>): string {
   );
 }
 
-function renderRoutingDiagramPlaceholder(): string {
+function renderRoutingDiagramPlaceholder(loading = false): string {
   const inSym = getSwapInSym();
   const outSym = getSwapOutSym();
   const inMint = swapInputMintInput?.value.trim() ?? '';
@@ -1675,7 +1811,7 @@ function renderRoutingDiagramPlaceholder(): string {
   };
   const body =
     renderJupiterPctLink('100%') +
-    renderJupiterMarketNode(mockMeta, mockLeg);
+    renderJupiterMarketNode(mockMeta, mockLeg, loading);
   const trackBody = `<div class="routing-rail-row">${body}<div class="routing-rail-tail" aria-hidden="true"></div></div>`;
   return renderRoutingFrame(
     hasIn ? inDisplay : '—',
@@ -1686,7 +1822,8 @@ function renderRoutingDiagramPlaceholder(): string {
     trackBody,
     false,
     1,
-    !hasIn,
+    !hasIn && !loading,
+    loading,
   );
 }
 
@@ -1823,16 +1960,25 @@ function renderQuoteSummaryHeroTile(
   variant: 'pay' | 'receive',
   sub?: string | null,
   placeholder = false,
+  loading = false,
 ): string {
   const amtCls = placeholder ? ' swap-quote-summary-amt--placeholder' : '';
   const subCls = placeholder ? ' swap-quote-summary-sub--placeholder' : '';
+  const amtHtml =
+    loading && placeholder ? renderLoadingSpinner('md') : escapeHtml(amt);
+  const subHtml =
+    loading && placeholder && sub
+      ? renderLoadingSpinner('sm')
+      : sub
+        ? escapeHtml(sub)
+        : '';
   return `<div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-tile--${variant}">
       <span class="swap-quote-summary-label">${escapeHtml(label)}</span>
       <span class="swap-quote-summary-value">
-        <span class="swap-quote-summary-amt${amtCls}">${escapeHtml(amt)}</span>
+        <span class="swap-quote-summary-amt${amtCls}">${amtHtml}</span>
         <span class="swap-quote-summary-sym">${escapeHtml(sym)}</span>
       </span>
-      ${sub ? `<span class="swap-quote-summary-sub${subCls}">${escapeHtml(sub)}</span>` : ''}
+      ${subHtml ? `<span class="swap-quote-summary-sub${subCls}">${subHtml}</span>` : ''}
     </div>`;
 }
 
@@ -1845,16 +1991,16 @@ function getSwapSellUsdSubLabel(): string | null {
   return formatSwapFiatDisplay(amount * price);
 }
 
-function renderQuoteSummaryPlaceholder(): string {
+function renderQuoteSummaryPlaceholder(loading = false): string {
   const inSym = getSwapInSym();
   const outSym = getSwapOutSym();
   const payAmt = getSwapSellAmountLabel();
   const hasPay = payAmt !== '—';
   const paySub = getSwapSellUsdSubLabel() ?? '≈ —';
   return `<div class="swap-quote-summary-primary" data-quote-placeholder="true">
-      ${renderQuoteSummaryHeroTile('You pay', hasPay ? payAmt : '—', inSym, 'pay', paySub, !hasPay)}
+      ${renderQuoteSummaryHeroTile('You pay', hasPay ? payAmt : '—', inSym, 'pay', paySub, !hasPay, loading && !hasPay)}
       <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
-      ${renderQuoteSummaryHeroTile('You receive', '—', outSym, 'receive', '≈ —', true)}
+      ${renderQuoteSummaryHeroTile('You receive', '—', outSym, 'receive', '≈ —', true, loading)}
     </div>`;
 }
 
@@ -1926,17 +2072,41 @@ function renderQuoteFieldsTable(quote: Record<string, unknown>): string {
   return `<div class="swap-quote-fields-grid">${rowHtml.join('')}${routeRow}</div>`;
 }
 
+function getPlaceholderHopInAmountRaw(): string | null {
+  const amount = Number(swapAmountInput?.value);
+  const inputMint = swapInputMintInput?.value.trim() ?? '';
+  if (!Number.isFinite(amount) || amount <= 0 || !inputMint) return null;
+  const decimals = getMintDecimals(inputMint);
+  try {
+    const raw = BigInt(Math.round(amount * 10 ** decimals));
+    return raw.toString();
+  } catch {
+    return null;
+  }
+}
+
+function hopDetailPendingCell(loading: boolean, html: string): string {
+  return loading ? renderLoadingSpinner('sm') : html;
+}
+
 function renderRoutePlanStepDetail(
   step: VybeRoutePlanStepLite,
   hopLabel: string,
   leg: RouteHopLeg,
   expanded = false,
   placeholder = false,
+  loading = false,
 ): string {
   const si = step.swapInfo;
   const dex = si?.label ?? 'Unknown DEX';
   const pct = hopPercentLabel(step);
-  const preview = `${leg.inAmt} ${leg.inSym} → ${leg.outAmt} ${leg.outSym} · ${pct}`;
+  const pendingHop = placeholder || loading;
+  const hasInAmt = leg.inAmt !== '—' && leg.inAmt !== '';
+  const hasOutAmt = leg.outAmt !== '—' && leg.outAmt !== '';
+  const previewInAmt =
+    loading && !hasInAmt ? renderLoadingSpinner('sm') : escapeHtml(leg.inAmt);
+  const previewOutAmt = loading && !hasOutAmt ? renderLoadingSpinner('sm') : escapeHtml(leg.outAmt);
+  const preview = `${previewInAmt} ${escapeHtml(leg.inSym)} → ${previewOutAmt} ${escapeHtml(leg.outSym)} · ${escapeHtml(pct)}`;
   const feeSym = si?.feeMintAddress ? mintSymbolSync(si.feeMintAddress) : '—';
   const feeMint = (si?.feeMintAddress ?? '').trim();
   const feeAmt =
@@ -1944,52 +2114,104 @@ function renderRoutePlanStepDetail(
       ? formatRawTokenAmount(si.feeAmount, feeMint || leg.inMint).display
       : null;
 
-  const detailRow = (label: string, value: string, full?: string) =>
+  const detailRow = (label: string, valueHtml: string, full?: string) =>
     `<div class="swap-hop-detail-row">
       <span class="swap-hop-detail-k">${escapeHtml(label)}</span>
-      <span class="swap-hop-detail-v"${full ? ` title="${escapeHtml(full)}"` : ''}><code>${escapeHtml(value)}</code></span>
+      <span class="swap-hop-detail-v"${full ? ` title="${escapeHtml(full)}"` : ''}><code>${valueHtml}</code></span>
     </div>`;
 
+  const venueHtml =
+    dex !== '—' && dex !== 'Unknown DEX'
+      ? escapeHtml(dex)
+      : hopDetailPendingCell(loading, '—');
+  const inputHtml = hasInAmt
+    ? `${escapeHtml(leg.inAmt)} ${escapeHtml(leg.inSym)}`
+    : `${hopDetailPendingCell(loading, '—')} ${escapeHtml(leg.inSym)}`;
+  const outputHtml = hasOutAmt
+    ? `${escapeHtml(leg.outAmt)} ${escapeHtml(leg.outSym)}`
+    : `${hopDetailPendingCell(loading, '—')} ${escapeHtml(leg.outSym)}`;
+  const dexSummaryHtml =
+    dex !== '—' && dex !== 'Unknown DEX'
+      ? escapeHtml(dex)
+      : hopDetailPendingCell(loading, '—');
+
   const rows: string[] = [
-    detailRow('Route share', pct),
-    detailRow('Venue', dex),
-    detailRow('Input', `${leg.inAmt} ${leg.inSym}`),
-    detailRow('Output', `${leg.outAmt} ${leg.outSym}`),
+    detailRow('Route share', escapeHtml(pct)),
+    detailRow('Venue', venueHtml),
+    detailRow('Input', inputHtml),
+    detailRow('Output', outputHtml),
   ];
   if (step.bps != null && Number.isFinite(Number(step.bps))) {
-    rows.push(detailRow('BPS', String(step.bps)));
+    rows.push(detailRow('BPS', escapeHtml(String(step.bps))));
   }
-  if (si?.ammKey) rows.push(detailRow('Market (AMM)', truncate(si.ammKey, 8, 8), si.ammKey));
-  if (leg.inMint) rows.push(detailRow('Input mint', truncate(leg.inMint, 8, 8), leg.inMint));
-  if (leg.outMint) rows.push(detailRow('Output mint', truncate(leg.outMint, 8, 8), leg.outMint));
+  if (si?.ammKey) {
+    rows.push(detailRow('Market (AMM)', escapeHtml(truncate(si.ammKey, 8, 8)), si.ammKey));
+  } else if (pendingHop) {
+    rows.push(detailRow('Market (AMM)', hopDetailPendingCell(loading, '—')));
+  }
+  if (leg.inMint) {
+    rows.push(detailRow('Input mint', escapeHtml(truncate(leg.inMint, 8, 8)), leg.inMint));
+  } else if (pendingHop) {
+    rows.push(detailRow('Input mint', hopDetailPendingCell(loading, '—')));
+  }
+  if (leg.outMint) {
+    rows.push(detailRow('Output mint', escapeHtml(truncate(leg.outMint, 8, 8)), leg.outMint));
+  } else if (pendingHop) {
+    rows.push(detailRow('Output mint', hopDetailPendingCell(loading, '—')));
+  }
   if (si?.inAmount) {
     const inFmt = formatRawTokenAmount(si.inAmount, leg.inMint);
-    rows.push(detailRow('In amount', `${inFmt.display} (${String(si.inAmount)} raw)`, inFmt.full || String(si.inAmount)));
+    rows.push(
+      detailRow(
+        'In amount',
+        escapeHtml(`${inFmt.display} (${String(si.inAmount)} raw)`),
+        inFmt.full || String(si.inAmount),
+      ),
+    );
+  } else if (pendingHop) {
+    const inRaw = getPlaceholderHopInAmountRaw();
+    const inAmountHtml =
+      hasInAmt && inRaw
+        ? escapeHtml(`${leg.inAmt} (${inRaw} raw)`)
+        : hopDetailPendingCell(loading, '—');
+    rows.push(detailRow('In amount', inAmountHtml));
   }
   if (si?.outAmount) {
     const outFmt = formatRawTokenAmount(si.outAmount, leg.outMint);
-    rows.push(detailRow('Out amount', `${outFmt.display} (${String(si.outAmount)} raw)`, outFmt.full || String(si.outAmount)));
+    rows.push(
+      detailRow(
+        'Out amount',
+        escapeHtml(`${outFmt.display} (${String(si.outAmount)} raw)`),
+        outFmt.full || String(si.outAmount),
+      ),
+    );
+  } else if (pendingHop) {
+    rows.push(detailRow('Out amount', hopDetailPendingCell(loading, '—')));
   }
-  if (feeAmt) rows.push(detailRow('Fee', `${feeAmt} ${feeSym}`));
+  if (feeAmt) rows.push(detailRow('Fee', escapeHtml(`${feeAmt} ${feeSym}`)));
 
   const placeholderClass = placeholder ? ' swap-hop-step-details--placeholder' : '';
-  return `<details class="swap-hop-step-details${placeholderClass}"${expanded ? ' open' : ''}>
+  const loadingClass = loading ? ' swap-hop-step-details--loading' : '';
+  return `<details class="swap-hop-step-details${placeholderClass}${loadingClass}"${expanded ? ' open' : ''}>
     <summary class="swap-hop-step-details__summary">
       <span class="swap-hop-card__index">Hop #${escapeHtml(hopLabel)}</span>
       <span class="swap-hop-step-details__main">
-        <span class="swap-hop-card__dex">${escapeHtml(dex)}</span>
-        <span class="swap-hop-step-details__preview">${escapeHtml(preview)}</span>
+        <span class="swap-hop-card__dex">${dexSummaryHtml}</span>
+        <span class="swap-hop-step-details__preview">${preview}</span>
       </span>
       <span class="swap-hop-card__pct">${escapeHtml(pct)}</span>
     </summary>
     <div class="swap-hop-step-details__body">
-      ${renderHopConversionLeg(leg, 'route-hop-conversion route-hop-conversion--card')}
+      ${renderHopConversionLeg(leg, 'route-hop-conversion route-hop-conversion--card', {
+        in: loading && !hasInAmt,
+        out: loading && !hasOutAmt,
+      })}
       <div class="swap-hop-detail-grid">${rows.join('')}</div>
     </div>
   </details>`;
 }
 
-function renderQuoteRoutePlanStepsPlaceholder(): string {
+function renderQuoteRoutePlanStepsPlaceholder(loading = false): string {
   const inSym = getSwapInSym();
   const outSym = getSwapOutSym();
   const inMint = swapInputMintInput?.value.trim() ?? '';
@@ -2008,7 +2230,7 @@ function renderQuoteRoutePlanStepsPlaceholder(): string {
     percent: 100,
     swapInfo: { label: '—' },
   };
-  return renderRoutePlanStepDetail(mockStep, '1', mockLeg, true, !hasIn);
+  return renderRoutePlanStepDetail(mockStep, '1', mockLeg, true, true, loading);
 }
 
 function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): string {
@@ -2082,34 +2304,29 @@ function syncRoutePlanStepsUi(): void {
   ensureFirstHopExpanded();
 }
 
-function refreshSwapQuoteDetailsPlaceholders(): void {
+function refreshSwapQuoteDetailsPlaceholders(loading = swapQuoteFetching): void {
   if (lastSwapQuoteOk) return;
-  if (swapQuoteSummaryEl) swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder();
-  if (swapQuoteDetailsRoutingEl) {
-    swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagramPlaceholder();
-  }
-  if (swapQuoteDetailsRouteStepsEl) {
-    swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder();
-  }
-  syncRoutePlanStepsUi();
+  refreshPendingQuoteUi(loading);
 }
 
 function resetSwapQuoteDetailsPanel(): void {
   if (swapQuoteDetailsEmptyEl) swapQuoteDetailsEmptyEl.hidden = true;
   if (swapQuoteDetailsBodyEl) swapQuoteDetailsBodyEl.hidden = false;
   if (swapQuoteSummaryEl) {
-    swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder();
+    swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder(swapQuoteFetching);
     swapQuoteSummaryEl.hidden = false;
   }
   if (swapQuoteDetailsRoutingEl) {
-    swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagramPlaceholder();
+    swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagramPlaceholder(swapQuoteFetching);
   }
   if (swapQuoteDetailsRouteStepsEl) {
-    swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder();
+    swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(swapQuoteFetching);
   }
   syncRoutePlanStepsUi();
   if (swapQuoteDetailsFieldsEl) {
-    swapQuoteDetailsFieldsEl.innerHTML = '<p class="routing-empty">—</p>';
+    swapQuoteDetailsFieldsEl.innerHTML = swapQuoteFetching
+      ? `<p class="routing-empty routing-empty--loading">${renderLoadingSpinner('sm')}</p>`
+      : '<p class="routing-empty">—</p>';
   }
   if (swapQuoteRouteSubtitleEl) swapQuoteRouteSubtitleEl.textContent = 'Route';
   if (routingDialogTitleEl) routingDialogTitleEl.textContent = 'Routing';
@@ -2312,6 +2529,12 @@ function vybeBuildParamsKey(
   return JSON.stringify({ wallet, inputMint, outputMint, amount, ...opts });
 }
 
+function extractSwapBuildTransaction(payload: Record<string, unknown> | null | undefined): string | null {
+  if (!payload) return null;
+  const tx = payload.transaction ?? payload.tx;
+  return typeof tx === 'string' && tx.trim().length > 0 ? tx.trim() : null;
+}
+
 async function resolvePairTokenPrices(
   inputMint: string,
   outputMint: string,
@@ -2366,6 +2589,29 @@ function stripVybeQuoteMetadata(body: Record<string, unknown>): Record<string, u
   return quote;
 }
 
+function getBrowserWalletAddress(): string {
+  return getSolanaWalletProvider()?.publicKey?.toString() ?? '';
+}
+
+/** Returns an error message when Vybe quote prerequisites are not met. */
+function validateVybeQuoteWallet(): string | null {
+  const wallet = swapWalletAddressInput?.value.trim() ?? '';
+  if (!wallet) {
+    return 'Connect your wallet or enter a signer address to get a Vybe quote.';
+  }
+  if (!hasValidSwapWallet()) {
+    return 'Enter a valid Solana wallet address.';
+  }
+  const connected = getBrowserWalletAddress();
+  if (!connected) {
+    return 'Connect your wallet to get a Vybe quote.';
+  }
+  if (connected !== wallet) {
+    return 'Connected wallet does not match the address field.';
+  }
+  return null;
+}
+
 async function fetchSwapQuote(): Promise<void> {
   if (!swapInputMintInput || !swapOutputMintInput || !swapAmountInput) return;
   const inputMint = swapInputMintInput.value.trim();
@@ -2403,16 +2649,22 @@ async function fetchSwapQuote(): Promise<void> {
     }
   }
 
+  const router = getSwapRouter();
+  if (router === 'vybe') {
+    const walletErr = validateVybeQuoteWallet();
+    if (walletErr) {
+      if (swapQuoteError) showInlineError(swapQuoteError, walletErr);
+      return;
+    }
+  }
+
   lastSwapQuoteOk = null;
   lastVybeBuild = null;
   if (swapBuildBtn) swapBuildBtn.disabled = true;
   resetSwapQuoteDetailsPanel();
   if (swapQuoteError) clearInlineError(swapQuoteError);
   if (swapQuoteWarning) clearInlineWarning(swapQuoteWarning);
-  if (swapQuoteLoading) {
-    swapQuoteLoading.hidden = false;
-    swapQuoteLoading.setAttribute('aria-hidden', 'false');
-  }
+  applyQuoteLoadingUi();
 
   const params = new URLSearchParams();
   params.set('amount', String(amount));
@@ -2421,22 +2673,11 @@ async function fetchSwapQuote(): Promise<void> {
   if (wallet) params.set('accountAddress', wallet);
   if (Number.isFinite(slippage)) params.set('slippage', String(slippage));
 
-  const router = getSwapRouter();
   const buildOpts = collectSwapBuildOptions();
   const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
 
   try {
     if (router === 'vybe') {
-      if (!wallet) {
-        if (swapQuoteError) {
-          showInlineError(
-            swapQuoteError,
-            'Wallet required for Vybe quotes (used to build the swap transaction).',
-          );
-        }
-        invalidateSwapQuoteUi();
-        return;
-      }
       try {
         await assertVybeSellBalance(wallet, inputMint, amount, getSwapInSym());
       } catch (balanceErr) {
@@ -2457,7 +2698,7 @@ async function fetchSwapQuote(): Promise<void> {
     let stats: Record<string, TokenPriceStats> = {};
     try {
       stats = await resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMints);
-      updateSwapPairCards(stats);
+      updateSwapPairCards(stats, swapQuoteFetching);
     } catch (priceErr) {
       if (swapQuoteError) {
         showInlineError(
@@ -2500,7 +2741,7 @@ async function fetchSwapQuote(): Promise<void> {
         for (const [mint, s] of Object.entries(body._tokenStats)) {
           saveTokenPriceStats(mint, s);
         }
-        updateSwapPairCards(body._tokenStats);
+        updateSwapPairCards(body._tokenStats, swapQuoteFetching);
       }
 
       quotedMintSession.add(inputMint);
@@ -2509,13 +2750,14 @@ async function fetchSwapQuote(): Promise<void> {
       const quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(body), router);
       lastSwapQuoteOk = quote;
       lastRawQuoteResponse = body;
-      if (typeof body._build?.transaction === 'string' && typeof body._builtAt === 'number') {
+      const buildTx = extractSwapBuildTransaction(body._build as Record<string, unknown> | undefined);
+      if (buildTx && typeof body._builtAt === 'number') {
         lastRawSwapResponse = body._build;
         lastVybeBuild = {
-          transaction: body._build.transaction,
+          transaction: buildTx,
           builtAt: body._builtAt,
           paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts),
-          buildPayload: body._build,
+          buildPayload: body._build as Record<string, unknown>,
         };
         renderRawResponsePanels();
       }
@@ -2542,11 +2784,88 @@ async function fetchSwapQuote(): Promise<void> {
   } catch (err) {
     if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
   } finally {
+    swapQuoteFetching = false;
+    setSwapQuoteButtonLoading(false);
     if (swapQuoteLoading) {
       swapQuoteLoading.hidden = true;
       swapQuoteLoading.setAttribute('aria-hidden', 'true');
     }
   }
+}
+
+function formatSignConfirmRoute(
+  quote: Record<string, unknown>,
+  buildPayload?: Record<string, unknown>,
+): string {
+  const details = buildPayload?.details as Record<string, unknown> | undefined;
+  const buildQuote = details?.quote as Record<string, unknown> | undefined;
+  const provider = String(buildPayload?.provider ?? buildQuote?.provider ?? '').trim();
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const labels = plan
+    .map((step) => step.swapInfo?.label?.trim())
+    .filter((label): label is string => !!label);
+  if (labels.length) return [...new Set(labels)].join(' → ');
+  if (provider) return provider;
+  return 'Vybe';
+}
+
+function getSignConfirmSummary(
+  quote: Record<string, unknown>,
+  buildPayload?: Record<string, unknown>,
+): { pay: string; receive: string; route: string } {
+  const inSym = getSwapInSym();
+  const outSym = getSwapOutSym();
+  const payAmt = getSwapSellAmountLabel();
+  const outAmt = formatQuoteTokenAmount(quote, 'out');
+  return {
+    pay: `${payAmt} ${inSym}`,
+    receive: `${outAmt.display} ${outSym}`,
+    route: formatSignConfirmRoute(quote, buildPayload),
+  };
+}
+
+let signConfirmResolver: ((confirmed: boolean) => void) | null = null;
+
+function finishSignConfirm(confirmed: boolean): void {
+  const resolve = signConfirmResolver;
+  signConfirmResolver = null;
+  if (swapSignConfirmDialogEl?.open) swapSignConfirmDialogEl.close();
+  resolve?.(confirmed);
+}
+
+function promptSignSwapConfirm(
+  quote: Record<string, unknown>,
+  buildPayload?: Record<string, unknown>,
+): Promise<boolean> {
+  const summary = getSignConfirmSummary(quote, buildPayload);
+  if (swapSignConfirmPayEl) swapSignConfirmPayEl.textContent = summary.pay;
+  if (swapSignConfirmReceiveEl) swapSignConfirmReceiveEl.textContent = summary.receive;
+  if (swapSignConfirmRouteEl) swapSignConfirmRouteEl.textContent = summary.route;
+  swapSignConfirmDialogEl?.showModal();
+  return new Promise((resolve) => {
+    signConfirmResolver = resolve;
+  });
+}
+
+async function applyBuiltSwapTx(buildTx: string, buildPayload: Record<string, unknown>): Promise<boolean> {
+  if (!swapTxBase64El || !swapBuildResultEl) return false;
+  if (swapBuildMode === 'build-sign') {
+    if (!lastSwapQuoteOk) return false;
+    const confirmed = await promptSignSwapConfirm(lastSwapQuoteOk, buildPayload);
+    if (!confirmed) return true;
+    try {
+      swapTxBase64El.value = await signSwapTransactionBase64(buildTx);
+    } catch (err) {
+      if (swapQuoteError) {
+        showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+      }
+      return false;
+    }
+  } else {
+    swapTxBase64El.value = buildTx;
+  }
+  swapBuildResultEl.hidden = false;
+  return true;
 }
 
 async function postBuildSwap(): Promise<void> {
@@ -2580,28 +2899,17 @@ async function postBuildSwap(): Promise<void> {
   if (swapBuildBtn) swapBuildBtn.disabled = true;
 
   const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts);
-  if (
+  const canReuseVybeBuild =
+    swapBuildMode !== 'build-sign' &&
     router === 'vybe' &&
     lastVybeBuild &&
     Date.now() - lastVybeBuild.builtAt < VYBE_BUILD_REUSE_MS &&
-    lastVybeBuild.paramsKey === paramsKey
-  ) {
+    lastVybeBuild.paramsKey === paramsKey;
+  if (canReuseVybeBuild && lastVybeBuild) {
     try {
       lastRawSwapResponse = lastVybeBuild.buildPayload;
       renderRawResponsePanels();
-      if (swapBuildMode === 'build-sign') {
-        try {
-          swapTxBase64El.value = await signSwapTransactionBase64(lastVybeBuild.transaction);
-        } catch (err) {
-          if (swapQuoteError) {
-            showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
-          }
-          return;
-        }
-      } else {
-        swapTxBase64El.value = lastVybeBuild.transaction;
-      }
-      swapBuildResultEl.hidden = false;
+      await applyBuiltSwapTx(lastVybeBuild.transaction, lastVybeBuild.buildPayload as Record<string, unknown>);
     } finally {
       if (swapBuildBtn) swapBuildBtn.disabled = false;
     }
@@ -2629,29 +2937,21 @@ async function postBuildSwap(): Promise<void> {
       return;
     }
     lastRawSwapResponse = body;
-    if (router === 'vybe' && typeof body.transaction === 'string') {
+    const buildTx = extractSwapBuildTransaction(body);
+    if (router === 'vybe' && buildTx) {
       lastVybeBuild = {
-        transaction: body.transaction,
+        transaction: buildTx,
         builtAt: Date.now(),
         paramsKey,
         buildPayload: body,
       };
     }
     renderRawResponsePanels();
-    if (typeof body.transaction === 'string') {
-      if (swapBuildMode === 'build-sign') {
-        try {
-          swapTxBase64El.value = await signSwapTransactionBase64(body.transaction);
-        } catch (err) {
-          if (swapQuoteError) {
-            showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
-          }
-          return;
-        }
-      } else {
-        swapTxBase64El.value = body.transaction;
-      }
-      swapBuildResultEl.hidden = false;
+    if (buildTx) {
+      const ok = await applyBuiltSwapTx(buildTx, body);
+      if (!ok) return;
+    } else if (swapQuoteError) {
+      showInlineError(swapQuoteError, 'Build succeeded but no transaction was returned to sign.');
     }
   } catch (err) {
     if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
@@ -2662,8 +2962,10 @@ async function postBuildSwap(): Promise<void> {
 
 function getSolanaWalletProvider(): SolanaWalletProvider | null {
   const w = getSolanaWindow();
-  if (w.solana?.signTransaction || w.solana?.connect) return w.solana;
-  if (w.phantom?.solana) return w.phantom.solana;
+  if (w.phantom?.solana?.signTransaction) return w.phantom.solana;
+  if (w.solana?.signTransaction) return w.solana;
+  if (w.phantom?.solana?.connect) return w.phantom.solana;
+  if (w.solana?.connect) return w.solana;
   return null;
 }
 
@@ -2700,10 +3002,7 @@ async function signSwapTransactionBase64(base64: string): Promise<string> {
   if (!provider?.signTransaction) {
     throw new Error('Connected wallet cannot sign transactions.');
   }
-  const web3 = getSolanaWindow().solanaWeb3;
-  if (!web3) {
-    throw new Error('Signing library is still loading. Wait a moment and try again.');
-  }
+  const web3 = await waitForSolanaWeb3();
   const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
   let tx: unknown;
   try {
@@ -2713,6 +3012,16 @@ async function signSwapTransactionBase64(base64: string): Promise<string> {
   }
   const signed = await provider.signTransaction(tx);
   return bytesToBase64(signed.serialize());
+}
+
+async function waitForSolanaWeb3(timeoutMs = 10000): Promise<SolanaWeb3Global> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const web3 = getSolanaWindow().solanaWeb3;
+    if (web3) return web3;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error('Signing library is still loading. Wait a moment and try again.');
 }
 
 function updateConnectWalletButtonUi(address: string, hasWallet: boolean): void {
@@ -2986,6 +3295,14 @@ routingDialogEl?.addEventListener('close', () => {
 });
 
 routingDialogCloseEl?.addEventListener('click', () => routingDialogEl?.close());
+
+swapSignConfirmProceedEl?.addEventListener('click', () => finishSignConfirm(true));
+swapSignConfirmCancelEl?.addEventListener('click', () => finishSignConfirm(false));
+swapSignConfirmCloseEl?.addEventListener('click', () => finishSignConfirm(false));
+swapSignConfirmDialogEl?.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  finishSignConfirm(false);
+});
 
 swapGaslessCheckbox?.addEventListener('change', () => {
   void refreshLowSolTradeWarning();

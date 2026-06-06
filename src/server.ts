@@ -354,7 +354,7 @@ app.post('/api/trading/vybe-quote', async (req: Request, res: Response) => {
 
     const result = await client.buildVybeQuote({
       ...parsed,
-      router: 'vybe',
+      router: parsed.router ?? 'vybe',
       tokenHints,
       forceFullDetailsMints,
     });

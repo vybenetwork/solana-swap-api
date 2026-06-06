@@ -41,11 +41,23 @@ export interface BuildSwapParams {
   swapFee?: number;
 }
 
+/** Vybe returns base64 tx as `tx`; normalize to `transaction` for the rest of the app. */
+export function normalizeSwapBuildResponse(data: VybeSwapBuildResponse): VybeSwapBuildResponse {
+  const raw = data as VybeSwapBuildResponse & { tx?: string };
+  const transaction =
+    typeof raw.transaction === 'string' && raw.transaction.length > 0
+      ? raw.transaction
+      : typeof raw.tx === 'string' && raw.tx.length > 0
+        ? raw.tx
+        : '';
+  return { ...raw, transaction };
+}
+
 export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
   const payload = buildSwapPayload(body, body.router);
   return withRetry(async () => {
     const { data } = await http.post<VybeSwapBuildResponse>('/v4/trading/swap', payload);
-    return data;
+    return normalizeSwapBuildResponse(data);
   });
 }
 
@@ -94,7 +106,7 @@ export async function buildSwapWithFallback(
     try {
       const payload = buildSwapPayload(body, router);
       const { data } = await http.post<VybeSwapBuildResponse>('/v4/trading/swap', payload);
-      return data;
+      return normalizeSwapBuildResponse(data);
     } catch (err) {
       lastErr = err;
       if (!isRetryableBuildError(err)) break;

@@ -531,6 +531,40 @@
       </div>
     </dialog>
 
+    <dialog id="swapSignConfirmDialog" class="swap-sign-dialog">
+      <div class="swap-sign-dialog__shell">
+        <div class="routing-dialog-header">
+          <h2 class="routing-dialog-title">Confirm swap in wallet</h2>
+          <button type="button" class="routing-dialog-close" id="swapSignConfirmClose" aria-label="Close">×</button>
+        </div>
+        <p class="swap-sign-dialog__lead">
+          Phantom may show <strong>Advanced</strong> instructions for Vybe-routed swaps. The swap is still included — review the amounts below, then confirm to open your wallet.
+        </p>
+        <div class="swap-sign-dialog__summary">
+          <div class="swap-sign-dialog__row">
+            <span class="swap-sign-dialog__label">You pay</span>
+            <span class="swap-sign-dialog__value" id="swapSignConfirmPay">—</span>
+          </div>
+          <div class="swap-sign-dialog__row">
+            <span class="swap-sign-dialog__label">You receive</span>
+            <span class="swap-sign-dialog__value" id="swapSignConfirmReceive">—</span>
+          </div>
+          <div class="swap-sign-dialog__row">
+            <span class="swap-sign-dialog__label">Route</span>
+            <span class="swap-sign-dialog__value" id="swapSignConfirmRoute">—</span>
+          </div>
+        </div>
+        <div class="swap-sign-dialog__actions">
+          <button type="button" class="swap-ghost-btn" id="swapSignConfirmCancel">Cancel</button>
+          <button type="button" class="swap-action-btn swap-action-btn--primary swap-sign-dialog__confirm" id="swapSignConfirmProceed">
+            <span class="swap-action-btn__text">
+              <span class="swap-action-btn__label">Open wallet to sign</span>
+            </span>
+          </button>
+        </div>
+      </div>
+    </dialog>
+
     <script type="importmap">
       {
         "imports": {

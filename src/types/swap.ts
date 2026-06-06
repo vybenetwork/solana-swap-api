@@ -59,7 +59,10 @@ export interface VybeSwapDetails {
 
 /** Response body from POST /v4/trading/swap */
 export interface VybeSwapBuildResponse {
+  /** Base64 serialized transaction (normalized from Vybe `tx` when needed). */
   transaction: string;
+  /** Raw Vybe field name before normalization. */
+  tx?: string;
   provider: string;
   details: VybeSwapDetails;
   slippage: number;
