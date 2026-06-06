@@ -2,7 +2,13 @@
  * Swap quote & build UI — built from TypeScript; compiles to public/app.js.
  */
 
-import { Connection, PublicKey, VersionedTransaction } from '@solana/web3.js';
+import {
+  Connection,
+  PublicKey,
+  TransactionMessage,
+  VersionedTransaction,
+  type AddressLookupTableAccount,
+} from '@solana/web3.js';
 import {
   buildTokenHintsForMints,
   ensureTokenCatalogLoaded,
@@ -57,7 +63,7 @@ interface VybeRoutePlanStepLite {
 
 const MAX_FETCH_RETRIES = 5;
 const FETCH_RETRY_DELAY_MS = 2000;
-const VYBE_BUILD_REUSE_MS = 5000;
+const VYBE_QUOTE_TX_REUSE_MS = 45_000;
 
 /** Hardcoded mint → symbol; never fetch these from API. */
 const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
@@ -149,6 +155,10 @@ interface SolanaWalletProvider {
   disconnect?: () => Promise<void>;
   signTransaction?: (tx: unknown) => Promise<{ serialize(): Uint8Array }>;
   signAllTransactions?: (txs: unknown[]) => Promise<Array<{ serialize(): Uint8Array }>>;
+  signAndSendTransaction?: (
+    tx: unknown,
+    options?: { skipPreflight?: boolean; maxRetries?: number; preflightCommitment?: string },
+  ) => Promise<{ signature: string }>;
 }
 
 interface SignableVersionedTransaction {
@@ -2529,6 +2539,123 @@ function vybeBuildParamsKey(
   return JSON.stringify({ wallet, inputMint, outputMint, amount, ...opts });
 }
 
+type VybeQuoteApiBody = Record<string, unknown> & {
+  error?: string;
+  _build?: Record<string, unknown>;
+  _builtAt?: number;
+  _tokenStats?: Record<string, TokenPriceStats>;
+  _buildUnavailable?: boolean;
+};
+
+function isVybeQuoteTxFresh(paramsKey: string): boolean {
+  return (
+    lastVybeBuild != null &&
+    lastVybeBuild.paramsKey === paramsKey &&
+    Date.now() - lastVybeBuild.builtAt < VYBE_QUOTE_TX_REUSE_MS
+  );
+}
+
+function cacheVybeQuoteBuild(
+  body: VybeQuoteApiBody,
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): string | null {
+  const buildTx = extractSwapBuildTransaction(body._build);
+  if (buildTx && typeof body._builtAt === 'number') {
+    lastRawSwapResponse = body._build;
+    lastVybeBuild = {
+      tx: buildTx,
+      builtAt: body._builtAt,
+      paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts),
+      buildPayload: body._build as Record<string, unknown>,
+    };
+    return buildTx;
+  }
+  return null;
+}
+
+function applyVybeQuoteBodyToUi(
+  body: VybeQuoteApiBody,
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): void {
+  if (body._tokenStats) {
+    for (const [mint, s] of Object.entries(body._tokenStats)) {
+      saveTokenPriceStats(mint, s);
+    }
+    updateSwapPairCards(body._tokenStats, swapQuoteFetching);
+  }
+  quotedMintSession.add(inputMint);
+  quotedMintSession.add(outputMint);
+  const quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(body), 'vybe');
+  lastSwapQuoteOk = quote;
+  lastRawQuoteResponse = body;
+  cacheVybeQuoteBuild(body, wallet, inputMint, outputMint, amount, buildOpts);
+  renderRawResponsePanels();
+  renderSwapQuoteUI(quote);
+  void enrichRouteLabels(quote);
+  if (swapBuildBtn) syncBuildButtonState();
+}
+
+async function requestVybeQuote(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
+  const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
+  const res = await fetchWithRetry('/api/trading/vybe-quote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      accountAddress: wallet,
+      amount,
+      inputMintAddress: inputMint,
+      outputMintAddress: outputMint,
+      ...buildOpts,
+      router: 'vybe',
+      tokenHints: buildTokenHintsForMints([inputMint, outputMint]),
+      forceFullDetailsMints,
+    }),
+  });
+  const body = (await res.json().catch(() => ({}))) as VybeQuoteApiBody;
+  if (!res.ok) {
+    throw new Error(body.error || `Quote failed (${res.status})`);
+  }
+  applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, buildOpts);
+  const buildTx = extractSwapBuildTransaction(body._build);
+  if (!buildTx) {
+    throw new Error('Vybe quote did not return a transaction.');
+  }
+  return { tx: buildTx, buildPayload: body._build as Record<string, unknown> };
+}
+
+async function resolveVybeBuildTx(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
+  const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts);
+  if (isVybeQuoteTxFresh(paramsKey) && lastVybeBuild) {
+    lastRawSwapResponse = lastVybeBuild.buildPayload;
+    renderRawResponsePanels();
+    return {
+      tx: lastVybeBuild.tx,
+      buildPayload: lastVybeBuild.buildPayload as Record<string, unknown>,
+    };
+  }
+  return requestVybeQuote(wallet, inputMint, outputMint, amount, buildOpts);
+}
+
 /** Vybe returns base64 wire tx as `tx` — use that string exactly, no transforms. */
 function extractSwapBuildTransaction(payload: Record<string, unknown> | null | undefined): string | null {
   if (!payload) return null;
@@ -2712,59 +2839,17 @@ async function fetchSwapQuote(): Promise<void> {
     }
 
     if (router === 'vybe') {
-      const res = await fetchWithRetry('/api/trading/vybe-quote', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountAddress: wallet,
-          amount,
-          inputMintAddress: inputMint,
-          outputMintAddress: outputMint,
-          ...buildOpts,
-          router: 'vybe',
-          tokenHints: buildTokenHintsForMints([inputMint, outputMint]),
-          forceFullDetailsMints,
-        }),
-      });
-      const body = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
-        error?: string;
-        _build?: { transaction?: string };
-        _builtAt?: number;
-        _tokenStats?: Record<string, TokenPriceStats>;
-      };
-      if (!res.ok) {
-        if (swapQuoteError) showInlineError(swapQuoteError, body.error || `Quote failed (${res.status})`);
-        invalidateSwapQuoteUi();
-        return;
-      }
-
-      if (body._tokenStats) {
-        for (const [mint, s] of Object.entries(body._tokenStats)) {
-          saveTokenPriceStats(mint, s);
+      try {
+        await requestVybeQuote(wallet, inputMint, outputMint, amount, buildOpts);
+      } catch (quoteErr) {
+        if (swapQuoteError) {
+          showInlineError(
+            swapQuoteError,
+            quoteErr instanceof Error ? quoteErr.message : String(quoteErr),
+          );
         }
-        updateSwapPairCards(body._tokenStats, swapQuoteFetching);
+        invalidateSwapQuoteUi();
       }
-
-      quotedMintSession.add(inputMint);
-      quotedMintSession.add(outputMint);
-
-      const quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(body), router);
-      lastSwapQuoteOk = quote;
-      lastRawQuoteResponse = body;
-      const buildTx = extractSwapBuildTransaction(body._build as Record<string, unknown> | undefined);
-      if (buildTx && typeof body._builtAt === 'number') {
-        lastRawSwapResponse = body._build;
-        lastVybeBuild = {
-          tx: buildTx,
-          builtAt: body._builtAt,
-          paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts),
-          buildPayload: body._build as Record<string, unknown>,
-        };
-        renderRawResponsePanels();
-      }
-      renderSwapQuoteUI(quote);
-      void enrichRouteLabels(quote);
-      if (swapBuildBtn) syncBuildButtonState();
       return;
     }
 
@@ -2928,25 +3013,25 @@ async function postBuildSwap(): Promise<void> {
   void refreshLowSolTradeWarning();
   if (swapBuildBtn) swapBuildBtn.disabled = true;
 
-  const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts);
-  const canReuseVybeBuild =
-    swapBuildMode !== 'build-sign' &&
-    router === 'vybe' &&
-    lastVybeBuild &&
-    Date.now() - lastVybeBuild.builtAt < VYBE_BUILD_REUSE_MS &&
-    lastVybeBuild.paramsKey === paramsKey;
-  if (canReuseVybeBuild && lastVybeBuild) {
-    try {
-      lastRawSwapResponse = lastVybeBuild.buildPayload;
-      renderRawResponsePanels();
-      await applyBuiltSwapTx(lastVybeBuild.tx, lastVybeBuild.buildPayload as Record<string, unknown>);
-    } finally {
-      syncBuildButtonState();
-    }
-    return;
-  }
-
   try {
+    if (router === 'vybe') {
+      const { tx: buildTx, buildPayload } = await resolveVybeBuildTx(
+        wallet,
+        inputMint,
+        outputMint,
+        amount,
+        buildOpts,
+      );
+      if (swapBuildMode === 'build-sign') {
+        swapTxBase64El.value = await signSwapTransactionBase64(buildTx, true);
+        swapBuildResultEl.hidden = false;
+      } else {
+        const ok = await applyBuiltSwapTx(buildTx, buildPayload);
+        if (!ok) return;
+      }
+      return;
+    }
+
     const res = await fetchWithRetry('/api/trading/swap', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2968,14 +3053,6 @@ async function postBuildSwap(): Promise<void> {
     }
     lastRawSwapResponse = body;
     const buildTx = extractSwapBuildTransaction(body);
-    if (router === 'vybe' && buildTx) {
-      lastVybeBuild = {
-        tx: buildTx,
-        builtAt: Date.now(),
-        paramsKey,
-        buildPayload: body,
-      };
-    }
     renderRawResponsePanels();
     if (buildTx) {
       if (swapBuildMode === 'build-sign') {
@@ -3057,25 +3134,90 @@ function decodeVersionedTxFromBase64(txString: string): VersionedTransaction {
   }
 }
 
-/** Match Moonbags Trade-Sol-Debug CustomSign: deserialize paste → patch blockhash in place → sign → send. */
+/** Vybe v0 swap txs use ALTs — refresh blockhash (+ ALTs) before wallet sign/simulate. */
+async function prepareSwapTxForSigning(txString: string): Promise<VersionedTransaction> {
+  const trimmed = txString.trim();
+  try {
+    const res = await fetch('/api/solana/prepare-swap-tx', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tx: trimmed }),
+    });
+    const body = (await res.json().catch(() => ({}))) as {
+      tx?: string;
+      simulationErr?: unknown;
+      error?: string;
+    };
+    if (res.ok && typeof body.tx === 'string' && body.tx.length > 0) {
+      if (body.simulationErr) {
+        console.warn('Swap tx simulation warning:', body.simulationErr);
+      }
+      return decodeVersionedTxFromBase64(body.tx);
+    }
+    if (!res.ok && body.error) {
+      console.warn('Server prepare-swap-tx failed, using browser fallback:', body.error);
+    }
+  } catch (err) {
+    console.warn('Server prepare-swap-tx unavailable, using browser fallback:', err);
+  }
+
+  const vtx = decodeVersionedTxFromBase64(trimmed);
+  const connection = getBrowserConnection();
+  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  const lookups = vtx.message.addressTableLookups;
+
+  if (lookups.length > 0) {
+    const altAccounts: AddressLookupTableAccount[] = [];
+    for (const lookup of lookups) {
+      const res = await connection.getAddressLookupTable(lookup.accountKey);
+      if (!res.value) {
+        throw new Error(`Failed to load address lookup table ${lookup.accountKey.toBase58()}.`);
+      }
+      altAccounts.push(res.value);
+    }
+    const decompiled = TransactionMessage.decompile(vtx.message, {
+      addressLookupTableAccounts: altAccounts,
+    });
+    decompiled.recentBlockhash = blockhash;
+    return new VersionedTransaction(decompiled.compileToV0Message(altAccounts));
+  }
+
+  vtx.message.recentBlockhash = blockhash;
+  return vtx;
+}
+
+/** Phantom shows balance changes only when the wallet simulates before sign — use signAndSendTransaction. */
 async function signSwapTransactionBase64(txString: string, sendAfterSign = false): Promise<string> {
   const provider = getSolanaWalletProvider();
-  if (!provider?.signTransaction && !provider?.signAllTransactions) {
+  if (
+    !provider?.signAndSendTransaction &&
+    !provider?.signTransaction &&
+    !provider?.signAllTransactions
+  ) {
     throw new Error('Connected wallet cannot sign transactions.');
   }
 
-  const vtx = decodeVersionedTxFromBase64(txString);
-  vtx.message.recentBlockhash = (
-    await getBrowserConnection().getLatestBlockhash('confirmed')
-  ).blockhash;
+  const vtx = await prepareSwapTxForSigning(txString);
+
+  if (sendAfterSign && provider.signAndSendTransaction) {
+    const { signature } = await provider.signAndSendTransaction(vtx, {
+      skipPreflight: false,
+    });
+    if (swapQuoteWarning) {
+      showInlineWarning(swapQuoteWarning, `Transaction sent: ${signature}`);
+    }
+    return signature;
+  }
+
+  if (!provider.signTransaction && !provider.signAllTransactions) {
+    throw new Error('Connected wallet cannot sign transactions.');
+  }
 
   let signed: SignableVersionedTransaction;
   if (provider.signTransaction) {
     signed = await provider.signTransaction(vtx);
-  } else if (provider.signAllTransactions) {
-    signed = (await provider.signAllTransactions([vtx]))[0]!;
   } else {
-    throw new Error('Connected wallet cannot sign transactions.');
+    signed = (await provider.signAllTransactions!([vtx]))[0]!;
   }
 
   if (sendAfterSign) {
@@ -3085,6 +3227,7 @@ async function signSwapTransactionBase64(txString: string, sendAfterSign = false
     if (swapQuoteWarning) {
       showInlineWarning(swapQuoteWarning, `Transaction sent: ${sig}`);
     }
+    return bytesToBase64(signed.serialize());
   }
 
   return bytesToBase64(signed.serialize());
@@ -3193,13 +3336,13 @@ function syncSwapBuildModeUi(): void {
   }
   if (swapBuildResultTitleEl) {
     swapBuildResultTitleEl.textContent =
-      isSignMode || isPasteMode ? 'Signed transaction (base64)' : 'Unsigned transaction (base64)';
+      isSignMode || isPasteMode ? 'Transaction signature' : 'Unsigned transaction (base64)';
   }
   if (swapBuildResultMetaEl) {
     swapBuildResultMetaEl.textContent =
       isSignMode || isPasteMode
-        ? 'Signed in your browser wallet. This app does not broadcast.'
-        : 'Unsigned wire transaction from Vybe build. This app does not broadcast.';
+        ? 'Signed and sent via your browser wallet (Phantom simulates balance changes before you approve).'
+        : 'Unsigned wire transaction from Vybe build. Copy or sign separately.';
   }
   if (swapAdvancedBuildHintEl) {
     if (isPasteMode) {
