@@ -2930,7 +2930,8 @@ tr:hover td {
 .section-header .section-loading,
 .section-header .section-error,
 .section-header .section-warning {
-  margin: 0 0 0 13px;
+  margin: 0 0 0 6px;
+  max-height: 30px;
 }
 
 .section-warning {
