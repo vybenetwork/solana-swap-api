@@ -11,9 +11,9 @@ import { withRetry } from './client.js';
 const NATIVE_SOL_MINT = '11111111111111111111111111111111';
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 /** Leave this much SOL in wallet when selling (rent + fees). */
-const SOL_WALLET_MIN_RESERVE_UI = 0.0045;
+const SOL_WALLET_MIN_RESERVE_UI = 0.006;
 /** Total SOL below this is not tradable. */
-const SOL_MIN_TRADABLE_TOTAL_UI = 0.0046;
+const SOL_MIN_TRADABLE_TOTAL_UI = 0.0061;
 /** Max sell fraction for SPL tokens (not native/wrapped SOL). */
 const TOKEN_MAX_SELL_FRACTION = 0.995;
 

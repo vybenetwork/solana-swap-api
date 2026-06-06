@@ -50,5 +50,5 @@ export const SOLANA_RPC_URL = (
 ).trim();
 
 /** Minimum SOL to pay fees + ATA rent when selling SPL tokens (non-gasless). */
-export const SOL_MIN_TX_FEE_BALANCE_UI = 0.0045;
+export const SOL_MIN_TX_FEE_BALANCE_UI = 0.006;
 

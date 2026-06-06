@@ -57,6 +57,19 @@ Get your API key at [vybenetwork.com/pricing](https://vybenetwork.com/pricing).
 
 ---
 
+## SOL balance thresholds
+
+These UI amounts (in SOL) guard wallet balance checks across the server and swap UI. They are not env vars — edit the source constants if you need different limits.
+
+| Constant | Value | Description |
+|----------|-------|-------------|
+| `SOL_MIN_TX_FEE_BALANCE_UI` | `0.006` | Minimum SOL a wallet should hold when **selling an SPL token** (non-gasless). Below this, the UI warns to enable **Gasless** or deposit more SOL for transaction fees and possible ATA rent. Defined in `src/config.ts`; used by `src/api/trade-sol-warning.ts`. |
+| `SOL_WALLET_MIN_RESERVE_UI` | `0.006` | SOL left in the wallet when **selling native/wrapped SOL** — covers rent + fees so the account stays funded after the swap. Max sell = total SOL minus this reserve. Defined in `src/api/wallet-balance.ts` and `src/frontend/token-picker.ts`. |
+| `SOL_MIN_TRADABLE_TOTAL_UI` | `0.0061` | Minimum **total** SOL (native + wSOL) required before a SOL sell is allowed. Set to reserve (`0.006`) plus `0.0001` so at least a tiny amount remains tradable after the reserve. Enforced server-side in `wallet-balance.ts` and in the token picker max-amount logic. |
+| `SOL_MIN_AUTO_PICK_TOTAL_UI` | `0.0065` | Minimum total SOL to **auto-select SOL** as the sell token when loading wallet balances. Wallets below this prefer USDC/USDT (or the next largest holding) instead. Used in `src/frontend/app.ts` and `token-picker.ts`. |
+
+---
+
 ## Frontend Overview
 
 The swap UI lives in `src/frontend/app.ts` and compiles to `public/app.js` via `npm run build:frontend` (run automatically by `npm start`).
