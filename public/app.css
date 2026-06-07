@@ -2731,11 +2731,6 @@ tr:hover td {
   font-weight: 700;
 }
 
-.routing-pct-tip__row--drag .routing-pct-tip__label,
-.routing-pct-tip__row--drag .routing-pct-tip__usd {
-  color: #fbbf24;
-}
-
 .routing-pct-tip__section {
   display: flex;
   flex-direction: column;

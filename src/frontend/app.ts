@@ -1833,21 +1833,8 @@ function scaleQuotedRawToWalletPay(quotedRaw: bigint, quote: Record<string, unkn
   return quotedRaw;
 }
 
-/** Parse priceImpactPct to a finite number (absolute %). */
-function parsePriceImpactNumber(quote: Record<string, unknown>): number | null {
-  const raw = quote.priceImpactPct;
-  if (raw == null || raw === '') return null;
-  const n = Number(String(raw).trim().replace(/%$/, ''));
-  if (!Number.isFinite(n)) return null;
-  return Math.abs(n);
-}
-
 interface HopOutgoingPercentBreakdown {
   pctLabel: string;
-  retainPct: number;
-  netRaw: bigint;
-  quotedRaw: bigint;
-  denomRaw: bigint;
   netDisplay: string;
   quotedDisplay: string;
   denomDisplay: string;
@@ -1924,10 +1911,6 @@ function computeHopOutgoingPercentBreakdown(
 
   return {
     pctLabel: `${Math.round(pct * 100) / 100}%`,
-    retainPct: Math.round(pct * 100) / 100,
-    netRaw,
-    quotedRaw,
-    denomRaw: denom,
     netDisplay: formatRawTokenAmount(String(netRaw), outMint).display,
     quotedDisplay: formatRawTokenAmount(String(quotedRaw), outMint).display,
     denomDisplay: formatRawTokenAmount(String(denom), outMint).display,
@@ -2937,112 +2920,25 @@ function getQuoteTotalInputUsdIncludingFees(quote: Record<string, unknown>): num
   return swapUi * price + feeUsd;
 }
 
-function quoteHasMultiHopRouting(quote: Record<string, unknown>): boolean {
-  const plan = Array.isArray(quote.routePlan) ? quote.routePlan : [];
-  if (plan.length > 1) return true;
-  const payRaw = quoteWalletPayRaw(quote);
-  const swapRaw = quoteInAmountRaw(quote);
-  if (!payRaw || !swapRaw) return false;
-  try {
-    return BigInt(payRaw) > BigInt(swapRaw);
-  } catch {
-    return false;
-  }
-}
-
-interface OutputPctTooltipBreakdown {
-  hop: HopOutgoingPercentBreakdown;
-  totalInputUsd: number;
-  feeTotalUsd: number;
-  slippageUsd: number | null;
-  slippagePctLabel: string | null;
-  multiHopSpreadUsd: number | null;
-  multiHopSpreadPctLabel: string | null;
-}
-
-function pctLabelFromRate(ratePct: number): string {
-  return `${Math.round(ratePct * 100) / 100}%`;
-}
-
-function usdDragRatePct(usd: number, totalInputUsd: number): number {
-  return totalInputUsd > 0 ? (usd / totalInputUsd) * 100 : 0;
-}
-
-function computeOutputPctTooltipBreakdown(
-  quote: Record<string, unknown>,
-  lastHopStep: VybeRoutePlanStepLite,
-): OutputPctTooltipBreakdown | null {
-  const hop = computeHopOutgoingPercentBreakdown(lastHopStep, quote, true);
-  if (!hop) return null;
-
-  const totalInputUsd = getQuoteTotalInputUsdIncludingFees(quote);
-  if (totalInputUsd == null || totalInputUsd <= 0) return null;
-
-  const feeLines = collectQuoteRouteFeeUsdLines(quote);
-  const feeTotalUsd = feeLines.reduce((sum, line) => sum + line.usd, 0);
-
-  const receiveUsd = getQuoteReceiveUsd(quote);
-  const totalLossUsd =
-    receiveUsd != null
-      ? Math.max(0, totalInputUsd - receiveUsd)
-      : totalInputUsd * (1 - hop.retainPct / 100);
-
-  let slippageUsd: number | null = null;
-  let multiHopSpreadUsd: number | null = null;
-  const afterFees = Math.max(0, totalLossUsd - feeTotalUsd);
-  const isMultiHop = quoteHasMultiHopRouting(quote);
-
-  if (!isMultiHop) {
-    if (afterFees >= 0.0001) slippageUsd = afterFees;
-  } else {
-    const impactPct = parsePriceImpactNumber(quote);
-    if (impactPct != null && impactPct > 0) {
-      slippageUsd = Math.min(totalInputUsd * (impactPct / 100), afterFees);
-    }
-    const afterSlippage = slippageUsd != null ? Math.max(0, afterFees - slippageUsd) : afterFees;
-    if (afterSlippage >= 0.0001) multiHopSpreadUsd = afterSlippage;
-    if (slippageUsd != null && slippageUsd < 0.0001) slippageUsd = null;
-  }
-
-  return {
-    hop,
-    totalInputUsd,
-    feeTotalUsd,
-    slippageUsd: slippageUsd != null && slippageUsd >= 0.0001 ? slippageUsd : null,
-    slippagePctLabel:
-      slippageUsd != null && slippageUsd >= 0.0001
-        ? pctLabelFromRate(usdDragRatePct(slippageUsd, totalInputUsd))
-        : null,
-    multiHopSpreadUsd: multiHopSpreadUsd != null && multiHopSpreadUsd >= 0.0001 ? multiHopSpreadUsd : null,
-    multiHopSpreadPctLabel:
-      multiHopSpreadUsd != null && multiHopSpreadUsd >= 0.0001
-        ? pctLabelFromRate(usdDragRatePct(multiHopSpreadUsd, totalInputUsd))
-        : null,
-  };
-}
-
-function lastHopOutputPercentLabel(
-  quote: Record<string, unknown>,
-  lastHopStep: VybeRoutePlanStepLite,
-): string | null {
-  return computeHopOutgoingPercentBreakdown(lastHopStep, quote, true)?.pctLabel ?? null;
-}
-
-function renderOutputPctBreakdownSection(breakdown: OutputPctTooltipBreakdown, pctLabel: string): string {
-  const hop = breakdown.hop;
+function renderOutputPctBreakdownSection(
+  breakdown: HopOutgoingPercentBreakdown,
+  pctLabel: string,
+): string {
   const rows: string[] = [
     `<span class="routing-pct-tip__section-title">Output %</span>`,
-    `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Net output</span><span class="routing-pct-tip__amt">${escapeHtml(hop.netDisplay)} ${escapeHtml(hop.outSym)}</span></span>`,
+    `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Net output</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.netDisplay)} ${escapeHtml(breakdown.outSym)}</span></span>`,
   ];
-  if (hop.inputScaled && hop.payDisplay && hop.swapDisplay) {
+  if (breakdown.inputScaled && breakdown.payDisplay && breakdown.swapDisplay) {
     rows.push(
-      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Hop quoted</span><span class="routing-pct-tip__amt">${escapeHtml(hop.quotedDisplay)} ${escapeHtml(hop.outSym)}</span></span>`,
-      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Cost basis</span><span class="routing-pct-tip__amt">${escapeHtml(hop.denomDisplay)} ${escapeHtml(hop.outSym)}</span></span>`,
-      `<span class="routing-pct-tip__formula">quoted × ${escapeHtml(hop.payDisplay)} ÷ ${escapeHtml(hop.swapDisplay)} ${escapeHtml(hop.inSym)}</span>`,
+      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Total input</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.payDisplay)} ${escapeHtml(breakdown.inSym)}</span></span>`,
+      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Swap leg</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.swapDisplay)} ${escapeHtml(breakdown.inSym)}</span></span>`,
+      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Hop quoted</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.quotedDisplay)} ${escapeHtml(breakdown.outSym)}</span></span>`,
+      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Cost basis</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.denomDisplay)} ${escapeHtml(breakdown.outSym)}</span></span>`,
+      `<span class="routing-pct-tip__formula">quoted × total input ÷ swap leg</span>`,
     );
   } else {
     rows.push(
-      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Hop quoted</span><span class="routing-pct-tip__amt">${escapeHtml(hop.denomDisplay)} ${escapeHtml(hop.outSym)}</span></span>`,
+      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Hop quoted</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.denomDisplay)} ${escapeHtml(breakdown.outSym)}</span></span>`,
     );
   }
   rows.push(
@@ -3054,15 +2950,17 @@ function renderOutputPctBreakdownSection(breakdown: OutputPctTooltipBreakdown, p
 
 function renderOutputPctBadgeTooltip(
   quote: Record<string, unknown>,
-  lastHopStep: VybeRoutePlanStepLite | undefined,
+  lastHopStep?: VybeRoutePlanStepLite,
   pctLabel?: string,
 ): string {
   const feeLines = collectQuoteRouteFeeUsdLines(quote);
   const totalInputUsd = getQuoteTotalInputUsdIncludingFees(quote);
-  const dragBreakdown =
-    lastHopStep && pctLabel ? computeOutputPctTooltipBreakdown(quote, lastHopStep) : null;
+  const breakdown =
+    lastHopStep && pctLabel
+      ? computeHopOutgoingPercentBreakdown(lastHopStep, quote, true)
+      : null;
   const outputSection =
-    dragBreakdown && pctLabel ? renderOutputPctBreakdownSection(dragBreakdown, pctLabel) : '';
+    breakdown && pctLabel ? renderOutputPctBreakdownSection(breakdown, pctLabel) : '';
   if (feeLines.length === 0 && totalInputUsd == null && !outputSection) return '';
 
   const rows: string[] = [];
@@ -3074,17 +2972,7 @@ function renderOutputPctBadgeTooltip(
   if (feeLines.length > 1) {
     const feeTotal = feeLines.reduce((sum, line) => sum + line.usd, 0);
     rows.push(
-      `<span class="routing-pct-tip__row routing-pct-tip__row--fees-total"><span class="routing-pct-tip__label">Total fees</span><span class="routing-pct-tip__usd">${escapeHtml(formatHopFeeUsdCell(feeTotal))}</span></span>`,
-    );
-  }
-  if (dragBreakdown?.slippageUsd != null) {
-    rows.push(
-      `<span class="routing-pct-tip__row routing-pct-tip__row--drag"><span class="routing-pct-tip__label">Slippage</span><span class="routing-pct-tip__usd">${escapeHtml(formatHopFeeUsdCell(dragBreakdown.slippageUsd))}</span></span>`,
-    );
-  }
-  if (dragBreakdown?.multiHopSpreadUsd != null) {
-    rows.push(
-      `<span class="routing-pct-tip__row routing-pct-tip__row--drag"><span class="routing-pct-tip__label">Multi-hop spread</span><span class="routing-pct-tip__usd">${escapeHtml(formatHopFeeUsdCell(dragBreakdown.multiHopSpreadUsd))}</span></span>`,
+      `<span class="routing-pct-tip__row routing-pct-tip__row--fees-total"><span class="routing-pct-tip__label">Total fees</span><span class="routing-pct-tip__usd">${escapeHtml(`$${formatSwapPayUsdAmount(feeTotal)}`)}</span></span>`,
     );
   }
   if (totalInputUsd != null) {
@@ -3248,9 +3136,7 @@ function renderJupiterTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<
       const leg = legs[meta.planIndex];
       if (!leg) return '';
       const isLastHop = i === metas.length - 1;
-      const outPct = isLastHop
-        ? lastHopOutputPercentLabel(quote, meta.step)
-        : hopOutgoingPercentLabel(meta.step, quote, false);
+      const outPct = hopOutgoingPercentLabel(meta.step, quote, isLastHop);
       const outLink =
         outPct && outPct !== '100%'
           ? renderJupiterPctLink(outPct, 'out', quote, isLastHop ? meta.step : undefined)
