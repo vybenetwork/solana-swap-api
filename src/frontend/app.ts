@@ -648,20 +648,19 @@ function formatSwapPayUsdLabel(v: unknown): string | null {
   return `$${formatSwapPayUsdAmount(n)}`;
 }
 
-/** Receive / fee USD — up to 3 dp, trailing zeros trimmed (0.320 → 0.32, 0.321 → 0.321). */
+/** Receive / output USD — min 2 dp, max 3 dp (0.8 → 0.80, 0.802 → 0.802). */
 function formatSwapLegUsdAmount(n: number): string {
   const abs = Math.abs(n);
-  if (abs === 0) return '0.00';
-  if (abs >= 0.01) return trimUsdTrailingZeros(abs.toFixed(3));
-
-  for (let decimals = 3; decimals <= 10; decimals++) {
-    const scaled = Math.round(abs * 10 ** decimals);
-    if (scaled > 0) {
-      const formatted = (scaled / 10 ** decimals).toFixed(decimals);
-      return trimUsdTrailingZeros(formatted);
-    }
-  }
-  return '0.00';
+  if (!Number.isFinite(abs)) return '0.00';
+  const rounded = Math.round(abs * 1000) / 1000;
+  if (rounded === 0) return '0.00';
+  let s = rounded.toFixed(3);
+  if (s.endsWith('0')) s = s.slice(0, -1);
+  const dotIdx = s.indexOf('.');
+  if (dotIdx === -1) return `${s}.00`;
+  const fracLen = s.length - dotIdx - 1;
+  if (fracLen < 2) return `${s}${'0'.repeat(2 - fracLen)}`;
+  return s;
 }
 
 function formatSwapReceiveFiatDisplay(v: unknown): string {
