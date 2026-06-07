@@ -3272,7 +3272,7 @@ tr:hover td {
 
 .swap-hop-fees-table__row {
   display: grid;
-  grid-template-columns: minmax(5.5rem, 0.95fr) repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(5.5rem, 0.9fr) minmax(6rem, 2.2fr) minmax(0, 0.45fr) minmax(0, 1fr);
   gap: 0.35rem;
   padding: 0.45rem 0.55rem;
   border-bottom: 1px solid #27272a;
@@ -3347,8 +3347,6 @@ tr:hover td {
 }
 
 .swap-hop-fees-table__cell--amt {
-  font-size: 0.78rem;
-  font-weight: 700;
   color: #fafafa;
 }
 

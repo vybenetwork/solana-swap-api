@@ -18,6 +18,7 @@ import {
   getWalletSellableAmountUi,
   getWalletBalanceAmountUi,
   isSolMint,
+  TOKEN_MAX_SELL_FRACTION,
   preferNativeSolMint,
   NATIVE_SOL_MINT,
   SOL_MIN_AUTO_PICK_TOTAL_UI,
@@ -762,6 +763,15 @@ function syncSellTokenPickerState(): void {
   syncSellPctButtonsState();
 }
 
+function getMaxSellPercentForMint(mint: string): number {
+  return isSolMint(mint) ? 100 : TOKEN_MAX_SELL_FRACTION * 100;
+}
+
+function formatMaxSellPercentButtonLabel(mint: string): string {
+  const pct = getMaxSellPercentForMint(mint);
+  return pct === 100 ? '100%' : `${pct.toFixed(1)}%`;
+}
+
 function syncSellPctButtonsState(): void {
   const container = document.getElementById('swapSellPctBtns');
   if (!container) return;
@@ -770,6 +780,15 @@ function syncSellPctButtonsState(): void {
     hasValidSwapWallet() && mint.length > 0 && (getWalletSellableAmountUi(mint) ?? 0) > 0;
   for (const btn of container.querySelectorAll<HTMLButtonElement>('.swap-sell-pct-btn')) {
     btn.disabled = !enabled;
+  }
+  const maxBtn = container.querySelector<HTMLButtonElement>('[data-sell-pct-max]');
+  if (maxBtn && mint) {
+    const maxPct = getMaxSellPercentForMint(mint);
+    maxBtn.dataset.sellPct = String(maxPct);
+    maxBtn.textContent = formatMaxSellPercentButtonLabel(mint);
+  } else if (maxBtn) {
+    maxBtn.dataset.sellPct = '100';
+    maxBtn.textContent = '100%';
   }
 }
 
@@ -794,7 +813,8 @@ function applySellAmountPercent(percent: number): void {
     return;
   }
 
-  let amount = percent >= 100 ? sellable : total * (percent / 100);
+  let amount =
+    percent >= getMaxSellPercentForMint(mint) ? sellable : total * (percent / 100);
   if (amount > sellable) amount = sellable;
   if (amount <= 0) return;
 
@@ -883,7 +903,7 @@ function clampSwapAmountInputToMax(): boolean {
 function flashSellPct100Button(): void {
   const btn = document
     .getElementById('swapSellPctBtns')
-    ?.querySelector<HTMLButtonElement>('[data-sell-pct="100"]');
+    ?.querySelector<HTMLButtonElement>('[data-sell-pct-max]');
   if (!btn) return;
   btn.classList.remove('swap-sell-pct-btn--max-flash');
   void btn.offsetWidth;
@@ -1444,7 +1464,7 @@ function estimateWalletPayDebitFromQuote(quote: Record<string, unknown>): string
 }
 
 function quoteWalletPayRaw(quote: Record<string, unknown>): string | null {
-  return parseRawAmountDigits(quote._walletPayDebitRaw) ?? estimateWalletPayDebitFromQuote(quote);
+  return resolveWalletPayDebitRaw(quote);
 }
 
 function quoteWalletPayUi(quote: Record<string, unknown>, mint?: string): number | null {
@@ -1905,6 +1925,49 @@ function sumRouteFeesInSellMintUi(quote: Record<string, unknown>): number | null
   return found && total > 0 ? total : null;
 }
 
+/** Swap leg + hop fees converted to sell mint (matches diagram input total fallback). */
+function estimateWalletPayDebitFromRouteFeesRaw(quote: Record<string, unknown>): string | null {
+  const swapRaw = quoteInAmountRaw(quote);
+  const mint = quoteInputMint(quote);
+  if (!swapRaw || !mint) return null;
+  const routeFeeUi = sumRouteFeesInSellMintUi(quote);
+  if (routeFeeUi == null || routeFeeUi <= 0) return null;
+  try {
+    const swap = BigInt(swapRaw);
+    const feeRaw = uiAmountToRawBigInt(routeFeeUi, mint);
+    const total = swap + feeRaw;
+    return total > swap ? total.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Best total wallet debit: simulation, hop-fee sum, or route-fee conversion in sell mint. */
+function resolveWalletPayDebitRaw(quote: Record<string, unknown>): string | null {
+  const swapRaw = quoteInAmountRaw(quote);
+  if (!swapRaw) return null;
+  let best: bigint | null = null;
+  for (const candidate of [
+    parseRawAmountDigits(quote._walletPayDebitRaw),
+    estimateWalletPayDebitFromQuote(quote),
+    estimateWalletPayDebitFromRouteFeesRaw(quote),
+  ]) {
+    if (!candidate) continue;
+    try {
+      const n = BigInt(candidate);
+      if (!best || n > best) best = n;
+    } catch {
+      /* skip */
+    }
+  }
+  try {
+    const swap = BigInt(swapRaw);
+    return best && best > swap ? best.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Diagram input endpoint: wallet debit addon or route fees in sell token. */
 function getQuoteDiagramInputFeeAddon(quote: Record<string, unknown>): string | null {
   const walletAddon = getQuoteInputSideAddonLabel(quote);
@@ -2309,11 +2372,36 @@ function pairCardEffectiveStats(mint: string, quote?: Record<string, unknown>): 
   const price = lookupMintPriceUsd(mint, quote ?? {});
   if (!Number.isFinite(price) || price <= 0) return base;
   if (base) return { ...base, price };
+  const cached = getCachedTokenMeta(mint);
   return {
     price,
-    decimals: getMintDecimals(mint),
-    priceFetchedAt: Date.now(),
+    price1d: cached?.price1d,
+    price7d: cached?.price7d,
+    decimals: cached?.decimals ?? getMintDecimals(mint),
+    priceFetchedAt: cached?.priceFetchedAt ?? Date.now(),
+    priceUpdateTime: cached?.priceUpdateTime,
   };
+}
+
+/** Mirror Vybe quote metadata so aggregator routes get buy-side USD + pair-card stats. */
+function attachQuoteTokenPriceMeta(
+  quote: Record<string, unknown>,
+  inputMint: string,
+  outputMint: string,
+): Record<string, unknown> {
+  const inKey = inputMint.trim();
+  const outKey = outputMint.trim();
+  const inputStats = pairTokenStats[inKey];
+  const outputStats = pairTokenStats[outKey];
+  const tokenStats: Record<string, TokenPriceStats> = {};
+  if (inputStats) tokenStats[inKey] = inputStats;
+  if (outputStats) tokenStats[outKey] = outputStats;
+
+  const next: Record<string, unknown> = { ...quote };
+  if (Object.keys(tokenStats).length > 0) next._tokenStats = tokenStats;
+  if (inputStats?.price) next._inputPriceUsd = inputStats.price;
+  if (outputStats?.price) next._outputPriceUsd = outputStats.price;
+  return next;
 }
 
 function routeLegMintMatches(a: string, b: string): boolean {
@@ -4071,6 +4159,15 @@ async function prefetchRouteTokenPrices(quote: Record<string, unknown>): Promise
     for (const [mint, s] of Object.entries(stats)) {
       saveTokenPriceStats(mint, s);
     }
+    if (Object.keys(stats).length > 0) {
+      updateSwapPairCards(stats);
+      if (lastSwapQuoteOk) {
+        const inputMint = swapInputMintInput?.value.trim() ?? '';
+        const outputMint = swapOutputMintInput?.value.trim() ?? '';
+        lastSwapQuoteOk = attachQuoteTokenPriceMeta(lastSwapQuoteOk, inputMint, outputMint);
+        renderSwapQuoteUI(lastSwapQuoteOk);
+      }
+    }
   } catch {
     // Best-effort — fee USD chips fall back to em dash when price is unavailable.
   }
@@ -4081,7 +4178,14 @@ async function enrichRouteLabels(quote: Record<string, unknown>): Promise<void> 
     await prefetchRouteMintSymbols(quote);
     await prefetchRouteTokenMetas(quote);
     await prefetchRouteTokenPrices(quote);
-    const activeQuote = lastSwapQuoteOk ?? quote;
+    const inputMint = swapInputMintInput?.value.trim() ?? quoteInputMint(quote) ?? '';
+    const outputMint = swapOutputMintInput?.value.trim() ?? quoteOutputMint(quote) ?? '';
+    const activeQuote = attachQuoteTokenPriceMeta(
+      lastSwapQuoteOk ?? quote,
+      inputMint,
+      outputMint,
+    );
+    lastSwapQuoteOk = activeQuote;
     renderSwapQuoteUI(activeQuote);
     updateSwapTokenIcons();
     updateSwapPairCards();
@@ -4350,15 +4454,15 @@ function applyAggregatorBuildToUi(
     if (synced != null) effectiveAmount = synced;
   }
 
-  lastSwapQuoteOk = quote;
-
   if (!quote._walletPayDebitRaw) {
-    const estimatedPay = estimateWalletPayDebitFromQuote(quote);
+    const estimatedPay = resolveWalletPayDebitRaw(quote);
     if (estimatedPay) {
       quote = { ...quote, _walletPayDebitRaw: estimatedPay };
-      lastSwapQuoteOk = quote;
     }
   }
+
+  quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
+  lastSwapQuoteOk = quote;
 
   const buildTx = extractSwapBuildTransaction(swapBody);
   if (buildTx) {
@@ -4614,8 +4718,8 @@ async function fetchSwapQuote(): Promise<void> {
     void refreshLowSolTradeWarning();
 
     try {
-      await resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMints);
-      updateSwapPairCards(undefined, swapQuoteFetching);
+      const pairStats = await resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMints);
+      updateSwapPairCards(pairStats, swapQuoteFetching);
     } catch (priceErr) {
       if (swapQuoteError) {
         showInlineError(
@@ -5307,6 +5411,7 @@ swapAmountInput?.addEventListener('change', () => {
 void ensureTokenCatalogLoaded().then(() => updateSwapTokenIcons());
 void refreshSwapSymbols();
 updateSwapPairCards();
+syncSellPctButtonsState();
 bindRoutingDiagramZoomListeners();
 scheduleRoutingDiagramZoom();
 resetSwapQuoteDetailsPanel();

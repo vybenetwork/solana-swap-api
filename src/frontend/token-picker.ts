@@ -112,14 +112,34 @@ function writeRecent(mints: string[]): void {
   localStorage.setItem(RECENT_KEY, JSON.stringify(mints.slice(0, MAX_RECENT)));
 }
 
+function mergeCatalogWithDeviceCache(fromCatalog: TokenMeta, cached: TokenMeta): TokenMeta {
+  return {
+    ...fromCatalog,
+    ...cached,
+    symbol: cached.symbol?.trim() || fromCatalog.symbol,
+    name: cached.name?.trim() || fromCatalog.name,
+    logoUrl: cached.logoUrl?.trim() || fromCatalog.logoUrl,
+    tags: cached.tags ?? fromCatalog.tags,
+    organicScore: cached.organicScore ?? fromCatalog.organicScore,
+    isVerified: cached.isVerified ?? fromCatalog.isVerified,
+    source: cached.source ?? fromCatalog.source,
+  };
+}
+
 export function getCachedTokenMeta(mint: string): TokenMeta | null {
   const m = mint.trim();
   if (!m) return null;
   const fromCatalog = catalogTokens.find((t) => t.mint === m);
-  if (fromCatalog) return fromCatalog;
   const cached = readCache()[m];
+  if (fromCatalog && cached) return mergeCatalogWithDeviceCache(fromCatalog, cached);
+  if (fromCatalog) return fromCatalog;
   if (cached) return cached;
-  if (m === NATIVE_SOL_MINT) return readCache()[WSOL_MINT] ?? catalogTokens.find((t) => t.mint === WSOL_MINT) ?? null;
+  if (m === NATIVE_SOL_MINT) {
+    const wsolCatalog = catalogTokens.find((t) => t.mint === WSOL_MINT);
+    const wsolCached = readCache()[WSOL_MINT];
+    if (wsolCatalog && wsolCached) return mergeCatalogWithDeviceCache(wsolCatalog, wsolCached);
+    return wsolCached ?? wsolCatalog ?? null;
+  }
   return null;
 }
 
