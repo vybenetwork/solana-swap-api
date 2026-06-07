@@ -191,13 +191,13 @@ function attachRouterMetadata(
   };
 }
 
-function aliasSolPriceStats(
+function aliasNativeSolPriceStats(
   stats: Record<string, TokenPriceStats>,
-  uiInputMint: string,
+  uiMint: string,
 ): Record<string, TokenPriceStats> {
-  const vybeInput = toVybeSwapMint(uiInputMint);
-  if (uiInputMint === NATIVE_SOL_MINT && stats[vybeInput] && !stats[uiInputMint]) {
-    return { ...stats, [uiInputMint]: stats[vybeInput]! };
+  const vybeMint = toVybeSwapMint(uiMint);
+  if (uiMint === NATIVE_SOL_MINT && stats[vybeMint] && !stats[uiMint]) {
+    return { ...stats, [uiMint]: stats[vybeMint]! };
   }
   return stats;
 }
@@ -207,8 +207,9 @@ export async function buildVybeQuoteFromPriceAndSwap(
   params: VybeQuoteParams,
 ): Promise<VybeQuoteResult> {
   const uiInputMint = params.inputMintAddress.trim();
+  const uiOutputMint = params.outputMintAddress.trim();
   const vybeInputMint = toVybeSwapMint(uiInputMint);
-  const outputMint = params.outputMintAddress.trim();
+  const vybeOutputMint = toVybeSwapMint(uiOutputMint);
 
   const inputSymbolHint = params.tokenHints?.[uiInputMint]?.symbol ?? params.tokenHints?.[vybeInputMint]?.symbol;
   await assertWalletHasSellAmount(
@@ -225,23 +226,31 @@ export async function buildVybeQuoteFromPriceAndSwap(
   if (uiInputMint === NATIVE_SOL_MINT && hints[vybeInputMint] && !hints[uiInputMint]) {
     hints[uiInputMint] = hints[vybeInputMint];
   }
+  if (uiOutputMint === NATIVE_SOL_MINT && hints[vybeOutputMint] && !hints[uiOutputMint]) {
+    hints[uiOutputMint] = hints[vybeOutputMint];
+  }
 
-  const { stats: rawStats } = await resolveTokenPrices(http, [priceMint, outputMint], {
+  const { stats: rawStats } = await resolveTokenPrices(http, [priceMint, uiOutputMint], {
     tokenHints: hints,
     forceFullDetailsMints: forceFull,
   });
-  const tokenStats = aliasSolPriceStats(rawStats, uiInputMint);
+  let tokenStats = aliasNativeSolPriceStats(rawStats, uiInputMint);
+  tokenStats = aliasNativeSolPriceStats(tokenStats, uiOutputMint);
 
   const inputStats = tokenStats[uiInputMint] ?? tokenStats[vybeInputMint];
-  const outputStats = tokenStats[outputMint];
+  const outputStats = tokenStats[uiOutputMint] ?? tokenStats[vybeOutputMint];
   if (!inputStats) {
     throw new Error(`Could not resolve price for input mint ${uiInputMint}`);
   }
   if (!outputStats) {
-    throw new Error(`Could not resolve price for output mint ${outputMint}`);
+    throw new Error(`Could not resolve price for output mint ${uiOutputMint}`);
   }
 
-  const vybeParams: VybeQuoteParams = { ...params, inputMintAddress: vybeInputMint };
+  const vybeParams: VybeQuoteParams = {
+    ...params,
+    inputMintAddress: vybeInputMint,
+    outputMintAddress: vybeOutputMint,
+  };
   const selected = normalizeRouterId(params.router ?? 'vybe') as SwapProxyRouter;
   const build =
     selected === 'vybe'
@@ -255,7 +264,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
     const sim = await simulateSwapEffects(
       buildTx,
       params.accountAddress,
-      outputMint,
+      vybeOutputMint,
       uiInputMint,
     );
     simulatedOutRaw = sim.outputDeltaRaw;
@@ -268,7 +277,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
       vybeParams,
       build,
       vybeInputMint,
-      outputMint,
+      vybeOutputMint,
       inputStats,
       outputStats,
       simulatedOutRaw ?? undefined,
@@ -280,6 +289,9 @@ export async function buildVybeQuoteFromPriceAndSwap(
   );
   if (uiInputMint === NATIVE_SOL_MINT) {
     quote.inputMintAddress = NATIVE_SOL_MINT;
+  }
+  if (uiOutputMint === NATIVE_SOL_MINT) {
+    quote.outputMintAddress = NATIVE_SOL_MINT;
   }
   return {
     quote,

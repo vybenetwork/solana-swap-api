@@ -14,8 +14,6 @@ const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 const SOL_WALLET_MIN_RESERVE_UI = 0.006;
 /** Total SOL below this is not tradable. */
 const SOL_MIN_TRADABLE_TOTAL_UI = 0.0061;
-/** Max sell fraction for SPL tokens (not native/wrapped SOL). */
-const TOKEN_MAX_SELL_FRACTION = 0.995;
 
 function isSolMint(mint: string): boolean {
   const m = mint.trim();
@@ -269,22 +267,11 @@ export async function assertWalletHasSellAmount(
   const availableUi = balanceAmountToUi(row.amount, decimals);
   const availableRaw = balanceAmountToRaw(row.amount, decimals);
   const requiredRaw = uiAmountToRaw(amountUi, decimals);
-  const maxSellableRaw = (availableRaw * 995n) / 1000n;
-  const maxSellableUi = rawToUiAmount(maxSellableRaw.toString(), decimals);
 
   if (requiredRaw > availableRaw) {
     throw new InsufficientBalanceError(
       `Insufficient balance: you have ${formatUiAmount(availableUi)} ${symbol} but tried to sell ${formatUiAmount(amountUi)} ${symbol}.`,
       availableUi,
-      amountUi,
-      symbol,
-    );
-  }
-
-  if (requiredRaw > maxSellableRaw) {
-    throw new InsufficientBalanceError(
-      `Insufficient balance: maximum sellable is ${formatUiAmount(maxSellableUi)} ${symbol} (99.5% of balance).`,
-      maxSellableUi,
       amountUi,
       symbol,
     );

@@ -54,7 +54,7 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
     accountAddress: body.accountAddress.trim(),
     amount: body.amount,
     inputMintAddress: toVybeSwapMint(body.inputMintAddress.trim()),
-    outputMintAddress: body.outputMintAddress.trim(),
+    outputMintAddress: toVybeSwapMint(body.outputMintAddress.trim()),
   };
   if (body.slippage != null && Number.isFinite(body.slippage)) payload.slippage = body.slippage;
   if (router) payload.router = router;

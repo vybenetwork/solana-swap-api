@@ -509,8 +509,6 @@ export const SOL_WALLET_MIN_RESERVE_UI = 0.006;
 export const SOL_MIN_AUTO_PICK_TOTAL_UI = 0.0065;
 /** Total SOL below this is not tradable (max sell would be ≤ 0.0001 SOL). */
 export const SOL_MIN_TRADABLE_TOTAL_UI = 0.0061;
-/** Max sell fraction for SPL tokens (not native/wrapped SOL). */
-export const TOKEN_MAX_SELL_FRACTION = 0.995;
 
 export function isSolMint(mint: string): boolean {
   const m = mint.trim();
@@ -547,11 +545,10 @@ export function computeWalletSellableAmountUi(total: number, mint: string): numb
     const sellable = total - SOL_WALLET_MIN_RESERVE_UI;
     return sellable > 0 ? sellable : null;
   }
-  const sellable = total * TOKEN_MAX_SELL_FRACTION;
-  return sellable > 0 ? sellable : null;
+  return total;
 }
 
-/** Max sellable UI amount (SOL reserve or 99.5% of balance for other tokens). */
+/** Max sellable UI amount (SOL reserve for native SOL; full balance for other tokens). */
 export function getWalletSellableAmountUi(mint: string): number | null {
   const total = getWalletBalanceAmountUi(mint);
   if (total == null) return null;

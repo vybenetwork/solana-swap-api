@@ -21,7 +21,7 @@ export async function getSwapQuote(http: AxiosInstance, params: GetSwapQuotePara
   const query: Record<string, string | number> = {
     amount: params.amount,
     inputMintAddress: toVybeSwapMint(params.inputMintAddress.trim()),
-    outputMintAddress: params.outputMintAddress.trim(),
+    outputMintAddress: toVybeSwapMint(params.outputMintAddress.trim()),
   };
   const acc = params.accountAddress?.trim();
   if (acc) query.accountAddress = acc;
