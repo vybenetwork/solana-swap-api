@@ -2664,9 +2664,9 @@ tr:hover td {
 .routing-pct-tip {
   display: none;
   position: absolute;
-  bottom: calc(100% + 0.65rem);
+  top: 50%;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   z-index: 100;
   min-width: 12.5rem;
   max-width: 16rem;
@@ -2722,6 +2722,18 @@ tr:hover td {
   border-top: 1px solid #27272a;
 }
 
+.routing-pct-tip__row--detail .routing-pct-tip__label {
+  color: #71717a;
+}
+
+.routing-pct-tip__row--detail .routing-pct-tip__amt {
+  color: #a1a1aa;
+}
+
+.routing-pct-tip__formula--detail {
+  margin-top: 0.08rem;
+}
+
 .routing-pct-tip__row--input-total .routing-pct-tip__label {
   color: #d4d4d8;
 }
@@ -2735,6 +2747,9 @@ tr:hover td {
   display: flex;
   flex-direction: column;
   gap: 0.28rem;
+}
+
+.routing-pct-tip__section--fees {
   margin-top: 0.12rem;
   padding-top: 0.35rem;
   border-top: 1px solid #27272a;

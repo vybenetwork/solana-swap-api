@@ -1857,12 +1857,13 @@ function computeHopOutgoingPercentBreakdown(
 
   const quotedRaw =
     parsePositiveBigInt(hopFees?.quotedOutRaw) ??
-    parsePositiveBigInt(String(quote._quotedOutAmount ?? '')) ??
-    parsePositiveBigInt(si?.outAmount);
+    parsePositiveBigInt(si?.outAmount) ??
+    (isLastHop ? parsePositiveBigInt(String(quote._quotedOutAmount ?? '')) : null);
   if (!quotedRaw || !outMint) return null;
 
   const inRaw =
-    parsePositiveBigInt(si?.inAmount) ?? parsePositiveBigInt(String(quote.inAmount ?? ''));
+    parsePositiveBigInt(si?.inAmount) ??
+    (isLastHop ? parsePositiveBigInt(String(quote.inAmount ?? '')) : null);
 
   const feeDeductionOut =
     hopFees?.items.length && outMint
@@ -1914,7 +1915,7 @@ function computeHopOutgoingPercentBreakdown(
     netDisplay: formatRawTokenAmount(String(netRaw), outMint).display,
     quotedDisplay: formatRawTokenAmount(String(quotedRaw), outMint).display,
     denomDisplay: formatRawTokenAmount(String(denom), outMint).display,
-    outSym: getSwapOutSym(),
+    outSym: mintSymbolSync(outMint),
     inputScaled,
     payDisplay: formatQuoteRawAmountLabel(payRaw, quoteInputMint(quote)),
     swapDisplay: formatQuoteRawAmountLabel(swapRaw, quoteInputMint(quote)),
@@ -2924,27 +2925,42 @@ function renderOutputPctBreakdownSection(
   breakdown: HopOutgoingPercentBreakdown,
   pctLabel: string,
 ): string {
+  const tok = breakdown.outSym;
   const rows: string[] = [
     `<span class="routing-pct-tip__section-title">Output %</span>`,
-    `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Net output</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.netDisplay)} ${escapeHtml(breakdown.outSym)}</span></span>`,
+    `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Net output</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.netDisplay)} ${escapeHtml(tok)}</span></span>`,
   ];
-  if (breakdown.inputScaled && breakdown.payDisplay && breakdown.swapDisplay) {
+  if (
+    breakdown.inputScaled &&
+    breakdown.payDisplay &&
+    breakdown.swapDisplay &&
+    breakdown.quotedDisplay !== breakdown.denomDisplay
+  ) {
     rows.push(
-      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Total input</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.payDisplay)} ${escapeHtml(breakdown.inSym)}</span></span>`,
-      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Swap leg</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.swapDisplay)} ${escapeHtml(breakdown.inSym)}</span></span>`,
-      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Hop quoted</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.quotedDisplay)} ${escapeHtml(breakdown.outSym)}</span></span>`,
-      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Cost basis</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.denomDisplay)} ${escapeHtml(breakdown.outSym)}</span></span>`,
-      `<span class="routing-pct-tip__formula">quoted × total input ÷ swap leg</span>`,
+      `<span class="routing-pct-tip__row routing-pct-tip__row--detail"><span class="routing-pct-tip__label">Hop quoted</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.quotedDisplay)} ${escapeHtml(tok)}</span></span>`,
+      `<span class="routing-pct-tip__row routing-pct-tip__row--detail"><span class="routing-pct-tip__label">Route input</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.payDisplay)} ${escapeHtml(breakdown.inSym)}</span></span>`,
+      `<span class="routing-pct-tip__row routing-pct-tip__row--detail"><span class="routing-pct-tip__label">Swap leg</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.swapDisplay)} ${escapeHtml(breakdown.inSym)}</span></span>`,
     );
-  } else {
+  } else if (breakdown.quotedDisplay !== breakdown.netDisplay) {
     rows.push(
-      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Hop quoted</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.denomDisplay)} ${escapeHtml(breakdown.outSym)}</span></span>`,
+      `<span class="routing-pct-tip__row routing-pct-tip__row--detail"><span class="routing-pct-tip__label">Hop quoted</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.quotedDisplay)} ${escapeHtml(tok)}</span></span>`,
     );
   }
   rows.push(
+    `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Cost basis</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.denomDisplay)} ${escapeHtml(tok)}</span></span>`,
     `<span class="routing-pct-tip__row routing-pct-tip__row--pct-total"><span class="routing-pct-tip__label">Output retain</span><span class="routing-pct-tip__pct">${escapeHtml(pctLabel)}</span></span>`,
-    `<span class="routing-pct-tip__formula">net output ÷ cost basis = ${escapeHtml(pctLabel)}</span>`,
+    `<span class="routing-pct-tip__formula">${escapeHtml(breakdown.netDisplay)} ÷ ${escapeHtml(breakdown.denomDisplay)} = ${escapeHtml(pctLabel)}</span>`,
   );
+  if (
+    breakdown.inputScaled &&
+    breakdown.payDisplay &&
+    breakdown.swapDisplay &&
+    breakdown.quotedDisplay !== breakdown.denomDisplay
+  ) {
+    rows.push(
+      `<span class="routing-pct-tip__formula routing-pct-tip__formula--detail">${escapeHtml(breakdown.quotedDisplay)} × ${escapeHtml(breakdown.payDisplay)} ÷ ${escapeHtml(breakdown.swapDisplay)} = ${escapeHtml(breakdown.denomDisplay)} ${escapeHtml(tok)}</span>`,
+    );
+  }
   return `<span class="routing-pct-tip__section">${rows.join('')}</span>`;
 }
 
@@ -2981,7 +2997,8 @@ function renderOutputPctBadgeTooltip(
       `<span class="routing-pct-tip__row routing-pct-tip__row--input-total"><span class="routing-pct-tip__label">Total input (incl. fees)</span><span class="routing-pct-tip__usd">${escapeHtml(totalLabel ?? '—')}</span></span>`,
     );
   }
-  return `<span class="routing-pct-tip" role="tooltip">${rows.join('')}${outputSection}</span>`;
+  const feeSection = rows.length > 0 ? `<span class="routing-pct-tip__section routing-pct-tip__section--fees">${rows.join('')}</span>` : '';
+  return `<span class="routing-pct-tip" role="tooltip">${outputSection}${feeSection}</span>`;
 }
 
 function renderRoutingFeeConnectors(feeCount: number): string {
