@@ -794,14 +794,66 @@ function hasValidSwapWallet(): boolean {
   return isValidSolanaWalletAddress(swapWalletAddressInput?.value.trim() ?? '');
 }
 
+const SWAP_WALLET_LOCKED_TITLE = 'Enter or connect a valid Solana wallet first';
+
+function lockTokenChipButton(
+  btn: HTMLButtonElement | null,
+  locked: boolean,
+  lockedTitle: string,
+): void {
+  if (!btn) return;
+  btn.classList.toggle('swap-token-chip--locked', locked);
+  btn.setAttribute('aria-disabled', locked ? 'true' : 'false');
+  btn.tabIndex = locked ? -1 : 0;
+  btn.title = locked ? lockedTitle : '';
+}
+
+function setWalletGatedDisabled(
+  el: HTMLInputElement | HTMLButtonElement | HTMLSelectElement | null,
+  disabled: boolean,
+  lockedTitle = SWAP_WALLET_LOCKED_TITLE,
+): void {
+  if (!el) return;
+  el.disabled = disabled;
+  if (disabled) el.title = lockedTitle;
+}
+
 function syncSellTokenPickerState(): void {
   const valid = hasValidSwapWallet();
-  if (swapInputTokenBtn) {
-    swapInputTokenBtn.classList.toggle('swap-token-chip--locked', !valid);
-    swapInputTokenBtn.setAttribute('aria-disabled', valid ? 'false' : 'true');
-    swapInputTokenBtn.tabIndex = valid ? 0 : -1;
-    swapInputTokenBtn.title = valid ? '' : 'Enter or connect a valid Solana wallet to choose a sell token';
+  lockTokenChipButton(
+    swapInputTokenBtn,
+    !valid,
+    'Enter or connect a valid Solana wallet to choose a sell token',
+  );
+  lockTokenChipButton(
+    swapOutputTokenBtn,
+    !valid,
+    'Enter or connect a valid Solana wallet to choose a buy token',
+  );
+
+  if (swapFlipBtnEl) {
+    swapFlipBtnEl.disabled = !valid;
+    swapFlipBtnEl.title = valid ? 'Flip tokens' : SWAP_WALLET_LOCKED_TITLE;
   }
+  if (swapPasteOutputBtnEl) {
+    swapPasteOutputBtnEl.disabled = !valid;
+    swapPasteOutputBtnEl.title = valid ? 'Paste mint from clipboard' : SWAP_WALLET_LOCKED_TITLE;
+  }
+
+  setWalletGatedDisabled(swapAutoSlippageCheckbox, !valid);
+  setWalletGatedDisabled(swapGaslessCheckbox, !valid);
+  setWalletGatedDisabled(swapVybeFallbackCheckbox, !valid);
+  setWalletGatedDisabled(swapEnablePoolAddressCheckbox, !valid);
+  setWalletGatedDisabled(swapPoolAddressInput, !valid);
+  setWalletGatedDisabled(swapEnableProtocolCheckbox, !valid);
+  setWalletGatedDisabled(swapProtocolSelect, !valid);
+  setWalletGatedDisabled(swapSimulateCheckbox, !valid);
+  setWalletGatedDisabled(swapEnablePartnerCheckbox, !valid);
+  setWalletGatedDisabled(swapPartnerInput, !valid);
+  setWalletGatedDisabled(swapEnableServiceFeeCheckbox, !valid);
+  setWalletGatedDisabled(swapServiceFeeInput, !valid);
+
+  syncSlippageInputForAutoSlippage();
   syncSellPctButtonsState();
 }
 
@@ -1054,6 +1106,19 @@ function onWalletAddressReady(immediate = false): void {
   walletBalanceRefreshTimer = setTimeout(run, 300);
 }
 
+function tryOpenBuyTokenPicker(): void {
+  if (!hasValidSwapWallet()) {
+    if (swapQuoteError) {
+      showInlineError(
+        swapQuoteError,
+        'Enter or connect a valid Solana wallet to choose a buy token.',
+      );
+    }
+    return;
+  }
+  openTokenPicker('output');
+}
+
 function tryOpenSellTokenPicker(): void {
   if (!hasValidSwapWallet()) {
     if (swapQuoteError) {
@@ -1078,8 +1143,8 @@ function wireTokenPickerOpen(
     mintInput.addEventListener('click', tryOpenSellTokenPicker);
     return;
   }
-  btn.addEventListener('click', () => openTokenPicker(side));
-  mintInput.addEventListener('click', () => openTokenPicker(side));
+  btn.addEventListener('click', tryOpenBuyTokenPicker);
+  mintInput.addEventListener('click', tryOpenBuyTokenPicker);
 }
 
 function applySelectedToken(mint: string, side: TokenPickerSide): void {
@@ -4567,10 +4632,15 @@ async function enrichRouteLabels(quote: Record<string, unknown>): Promise<void> 
 }
 
 function syncSlippageInputForAutoSlippage(): void {
+  const walletOk = hasValidSwapWallet();
   const auto = swapAutoSlippageCheckbox?.checked === true;
   if (swapSlippageInput) {
-    swapSlippageInput.disabled = auto;
-    swapSlippageInput.title = auto ? 'Disabled while auto slippage is on' : 'Slippage percent';
+    swapSlippageInput.disabled = !walletOk || auto;
+    swapSlippageInput.title = !walletOk
+      ? SWAP_WALLET_LOCKED_TITLE
+      : auto
+        ? 'Disabled while auto slippage is on'
+        : 'Slippage percent';
   }
 }
 
@@ -5728,12 +5798,14 @@ initTokenPicker({
   onSelect: applySelectedToken,
   getWalletAddress: () => swapWalletAddressInput?.value.trim() ?? '',
   canOpenSellPicker: hasValidSwapWallet,
+  canOpenBuyPicker: hasValidSwapWallet,
 });
 wireTokenPickerOpen(swapInputTokenBtn, swapInputMintInput, 'input');
 wireTokenPickerOpen(swapOutputTokenBtn, swapOutputMintInput, 'output');
 
 if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
   swapFlipBtnEl.addEventListener('click', () => {
+    if (!hasValidSwapWallet()) return;
     invalidateSwapQuoteAfterInputChange();
     const a = swapInputMintInput.value;
     const b = swapOutputMintInput.value;
@@ -5757,6 +5829,7 @@ if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
 
 if (swapPasteOutputBtnEl && swapOutputMintInput) {
   swapPasteOutputBtnEl.addEventListener('click', async () => {
+    if (!hasValidSwapWallet()) return;
     try {
       const t = (await navigator.clipboard.readText()).trim();
       if (!t) return;

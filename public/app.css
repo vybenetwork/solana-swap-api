@@ -4322,6 +4322,17 @@ tr:hover td {
   background: #18181b;
 }
 
+.swap-paste-ca:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.swap-paste-ca:disabled:hover {
+  color: #a1a1aa;
+  border-color: #27272a;
+  background: #101015;
+}
+
 .swap-token-chip {
   display: inline-flex;
   align-items: center;
@@ -4500,32 +4511,49 @@ tr:hover td {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 2.75rem;
+  height: 2.75rem;
   border-radius: 50%;
   border: 4px solid #101015;
   background: #18181b;
-  color: #e4e4e7;
+  color: #ffffff;
+  opacity: 1;
   cursor: pointer;
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .swap-flip-fab-icon {
-  width: 0.85rem;
-  height: 1rem;
-  background: currentColor;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 16V4M7 4L3 8M7 4l4 4M17 8v12M17 20l4-4M17 20l-4-4'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 16V4M7 4L3 8M7 4l4 4M17 8v12M17 20l4-4M17 20l-4-4'/%3E%3C/svg%3E") center / contain no-repeat;
+  width: 1.35rem;
+  height: 1.55rem;
+  flex-shrink: 0;
+  display: block;
+  opacity: 1;
 }
 
 .swap-flip-fab:hover {
   background: #27272a;
-  color: #fff;
+  color: #ffffff;
+}
+
+.swap-flip-fab:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  color: #a1a1aa;
+  background: #18181b;
+}
+
+.swap-flip-fab:disabled .swap-flip-fab-icon {
+  opacity: 1;
+}
+
+.swap-flip-fab:disabled:hover {
+  background: #18181b;
+  color: #a1a1aa;
 }
 
 .swap-advanced {
@@ -4775,6 +4803,23 @@ tr:hover td {
 
 .swap-pill-switch__input:focus-visible + .swap-pill-switch__track {
   box-shadow: 0 0 0 2px rgba(196, 242, 11, 0.35);
+}
+
+.swap-pill-switch__input:disabled + .swap-pill-switch__track {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.swap-quote-slippage-row__toggle:has(.swap-pill-switch__input:disabled) {
+  opacity: 0.55;
+}
+
+.swap-build-toggles:has(.swap-pill-switch__input:disabled) .swap-toggle-row {
+  opacity: 0.55;
+}
+
+.swap-advanced-details:has(.swap-pill-switch__input:disabled) .swap-toggle-row {
+  opacity: 0.55;
 }
 
 .swap-build-params {

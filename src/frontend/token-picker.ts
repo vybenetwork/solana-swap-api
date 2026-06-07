@@ -78,6 +78,7 @@ let statusEl: HTMLElement | null = null;
 let onSelectCb: ((mint: string, side: TokenPickerSide) => void) | null = null;
 let getWalletAddressCb: (() => string) | null = null;
 let canOpenSellPickerCb: (() => boolean) | null = null;
+let canOpenBuyPickerCb: (() => boolean) | null = null;
 
 let walletBalanceCache: { wallet: string; at: number; items: WalletBalanceListItem[] } | null = null;
 const WALLET_BALANCE_TTL_MS = 15000;
@@ -704,6 +705,7 @@ function selectToken(mint: string): void {
 export function openTokenPicker(side: TokenPickerSide): void {
   if (!dialogEl) return;
   if (side === 'input' && canOpenSellPickerCb && !canOpenSellPickerCb()) return;
+  if (side === 'output' && canOpenBuyPickerCb && !canOpenBuyPickerCb()) return;
   activeSide = side;
   activeTab = 'top';
   searchQuery = '';
@@ -760,10 +762,12 @@ export function initTokenPicker(options: {
   onSelect: (mint: string, side: TokenPickerSide) => void;
   getWalletAddress?: () => string;
   canOpenSellPicker?: () => boolean;
+  canOpenBuyPicker?: () => boolean;
 }): void {
   onSelectCb = options.onSelect;
   getWalletAddressCb = options.getWalletAddress ?? null;
   canOpenSellPickerCb = options.canOpenSellPicker ?? null;
+  canOpenBuyPickerCb = options.canOpenBuyPicker ?? null;
   dialogEl = document.getElementById('tokenPickerDialog') as HTMLDialogElement | null;
   searchInputEl = document.getElementById('tokenPickerSearch') as HTMLInputElement | null;
   listEl = document.getElementById('tokenPickerList');
