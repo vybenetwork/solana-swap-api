@@ -1825,15 +1825,10 @@ function hopOutgoingPercentLabel(
   const inputMint = si?.inputMintAddress ?? quoteInputMint(quote);
 
   const quotedRaw =
-    parsePositiveBigInt(hopFees?.quotedOutRaw) ?? parsePositiveBigInt(si?.outAmount);
+    parsePositiveBigInt(hopFees?.quotedOutRaw) ??
+    parsePositiveBigInt(String(quote._quotedOutAmount ?? '')) ??
+    parsePositiveBigInt(si?.outAmount);
   if (!quotedRaw) return null;
-
-  let netRaw = parsePositiveBigInt(hopFees?.netOutRaw);
-  if (!netRaw && isLastHop) {
-    netRaw =
-      parsePositiveBigInt(String(quote._simulatedOutAmount ?? '')) ??
-      parsePositiveBigInt(String(quote.outAmount ?? ''));
-  }
 
   const inRaw =
     parsePositiveBigInt(si?.inAmount) ?? parsePositiveBigInt(String(quote.inAmount ?? ''));
@@ -1843,11 +1838,20 @@ function hopOutgoingPercentLabel(
       ? sumHopFeeDeductionInOutputRaw(hopFees, outMint, inRaw, quotedRaw, inputMint)
       : 0n;
 
-  if (!netRaw && feeDeductionOut > 0n && quotedRaw > feeDeductionOut) {
-    netRaw = quotedRaw - feeDeductionOut;
-  } else if (!netRaw && hopFees?.totalAmountRaw) {
-    const feeRaw = parsePositiveBigInt(hopFees.totalAmountRaw);
-    if (feeRaw && quotedRaw > feeRaw) netRaw = quotedRaw - feeRaw;
+  const derivedNetFromFees =
+    feeDeductionOut > 0n && quotedRaw > feeDeductionOut ? quotedRaw - feeDeductionOut : null;
+
+  let netRaw = parsePositiveBigInt(hopFees?.netOutRaw);
+  if (!netRaw && isLastHop) {
+    netRaw = parsePositiveBigInt(String(quote._simulatedOutAmount ?? ''));
+  }
+  // Vybe quotes often omit simulation net while hop fees are still present — outAmount may
+  // equal quoted gross, which would hide the output % badge entirely.
+  if ((!netRaw || netRaw >= quotedRaw) && derivedNetFromFees != null) {
+    netRaw = derivedNetFromFees;
+  } else if (!netRaw && isLastHop) {
+    const fromOut = parsePositiveBigInt(String(quote.outAmount ?? ''));
+    if (fromOut && fromOut < quotedRaw) netRaw = fromOut;
   }
   if (!netRaw) return null;
 
@@ -2838,9 +2842,14 @@ function renderJupiterRouteBody(
 }
 
 function routingCanvasHopClass(hopCount: number): string {
+  if (hopCount === 2) return ' routing-canvas--hops-2';
   if (hopCount === 3) return ' routing-canvas--hops-3';
   if (hopCount > 3) return ' routing-canvas--hops-many';
   return '';
+}
+
+function routingCanvasLayoutAttrs(hopCount: number, hasAccRentAbove: boolean): string {
+  return ` data-routing-hop-count="${hopCount}" data-routing-acc-rent="${hasAccRentAbove ? '1' : '0'}"`;
 }
 
 function renderRoutingFrame(
@@ -2881,7 +2890,7 @@ function renderRoutingFrame(
     outputUsdSubline && outputUsdSubline !== '—'
       ? `<span class="routing-output-usd">USD Output: <span class="routing-output-usd__val">${escapeHtml(outputUsdSubline)}</span></span>`
       : '';
-  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${placeholderClass}${loadingClass}">
+  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${placeholderClass}${loadingClass}"${routingCanvasLayoutAttrs(hopCount, hasAccRentAbove)}>
     <div class="routing-frame">
       <div class="routing-endpoint routing-endpoint--in">
         <div class="routing-endpoint-stack">
@@ -3179,7 +3188,24 @@ function renderRoutePanels(quote: Record<string, unknown>): void {
   scheduleRoutingDiagramZoom();
 }
 
-const ROUTING_SCROLL_FIT_SCALE = 0.75; /* matches .routing-canvas--scroll-fit { zoom } in app.css */
+const ROUTING_SCROLL_FIT_SCALE_DEFAULT = 0.75;
+
+function routingScrollFitScale(canvas: HTMLElement): number {
+  const hops = Number(canvas.dataset.routingHopCount ?? '0');
+  const accRent = canvas.dataset.routingAccRent === '1';
+  if (hops >= 4) return 0.68;
+  if (hops >= 3) return 0.72;
+  if (hops >= 2 && accRent) return 0.78;
+  if (hops >= 2) return 0.82;
+  if (accRent) return 0.85;
+  return ROUTING_SCROLL_FIT_SCALE_DEFAULT;
+}
+
+function routingCanvasPrefersScrollFit(canvas: HTMLElement): boolean {
+  const hops = Number(canvas.dataset.routingHopCount ?? '0');
+  const accRent = canvas.dataset.routingAccRent === '1';
+  return hops >= 3 || (hops >= 2 && accRent);
+}
 
 function syncRoutingDiagramZoom(container: HTMLElement | null): void {
   if (!container) return;
@@ -3190,11 +3216,15 @@ function syncRoutingDiagramZoom(container: HTMLElement | null): void {
   }
 
   canvas.classList.remove('routing-canvas--scroll-fit');
+  canvas.style.removeProperty('--routing-scroll-fit-scale');
   container.classList.remove('swap-quote-details-routing--scroll-fit', 'routing-dialog-body--scroll-fit');
 
   const overflows = canvas.scrollWidth > container.clientWidth + 2;
-  if (!overflows) return;
+  const prefersFit = routingCanvasPrefersScrollFit(canvas);
+  if (!overflows && !prefersFit) return;
 
+  const scale = routingScrollFitScale(canvas);
+  canvas.style.setProperty('--routing-scroll-fit-scale', String(scale));
   canvas.classList.add('routing-canvas--scroll-fit');
   if (container.id === 'routingDialogBody') {
     container.classList.add('routing-dialog-body--scroll-fit');
@@ -3207,6 +3237,10 @@ function scheduleRoutingDiagramZoom(): void {
   requestAnimationFrame(() => {
     syncRoutingDiagramZoom(swapQuoteDetailsRoutingEl);
     syncRoutingDiagramZoom(routingDialogBodyEl);
+    requestAnimationFrame(() => {
+      syncRoutingDiagramZoom(swapQuoteDetailsRoutingEl);
+      syncRoutingDiagramZoom(routingDialogBodyEl);
+    });
   });
 }
 
@@ -3316,7 +3350,10 @@ function buildQuotePaySubLabel(quote: Record<string, unknown> | null): string | 
       : lastSwapQuoteOk != null && getQuotePayFeeAmountLabel(lastSwapQuoteOk) != null;
   const parts: string[] = [];
   if (payUsdLabel) parts.push(`≈ ${payUsdLabel}`);
-  if (hasBreakdown && feeUsd != null) parts.push(`+ ${formatSwapPayFiatDisplay(feeUsd)} (fees)`);
+  if (hasBreakdown && feeUsd != null) {
+    const feeLabel = formatSwapPayUsdLabel(feeUsd);
+    if (feeLabel) parts.push(`+ ${feeLabel} (fees)`);
+  }
   return parts.length ? parts.join(' ') : null;
 }
 

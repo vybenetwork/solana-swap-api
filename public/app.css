@@ -2215,12 +2215,12 @@ tr:hover td {
 }
 
 .routing-canvas--scroll-fit {
-  zoom: 0.75;
+  zoom: var(--routing-scroll-fit-scale, 0.75);
 }
 
 @supports not (zoom: 1) {
   .routing-canvas--scroll-fit {
-    transform: scale(0.75);
+    transform: scale(var(--routing-scroll-fit-scale, 0.75));
     transform-origin: top left;
     width: max-content;
   }
@@ -2251,7 +2251,32 @@ tr:hover td {
 /* Jupiter-style horizontal routing diagram */
 .routing-canvas.routing-canvas--flow {
   display: block;
-  min-width: min(100%, 520px);
+  min-width: max(100%, 520px);
+}
+
+.routing-canvas--hops-2.routing-canvas--flow {
+  min-width: max(100%, 620px);
+}
+
+.routing-canvas--hops-3.routing-canvas--flow {
+  min-width: max(100%, 700px);
+}
+
+.routing-canvas--hops-many.routing-canvas--flow {
+  min-width: max(100%, 780px);
+}
+
+.routing-canvas--has-acc-rent-above.routing-canvas--flow {
+  min-width: max(100%, 580px);
+}
+
+.routing-canvas--has-acc-rent-above.routing-canvas--hops-2.routing-canvas--flow {
+  min-width: max(100%, 700px);
+}
+
+.routing-canvas--has-acc-rent-above.routing-canvas--hops-3.routing-canvas--flow,
+.routing-canvas--has-acc-rent-above.routing-canvas--hops-many.routing-canvas--flow {
+  min-width: max(100%, 820px);
 }
 
 .routing-frame {
@@ -2618,22 +2643,45 @@ tr:hover td {
   z-index: 1;
 }
 
+.routing-canvas--hops-2 .routing-market-node,
 .routing-canvas--hops-3 .routing-market-node,
 .routing-canvas--hops-many .routing-market-node {
   min-width: 3.35rem;
   max-width: 5.75rem;
 }
 
+.routing-canvas--hops-2 .routing-hop-link,
 .routing-canvas--hops-3 .routing-hop-link,
 .routing-canvas--hops-many .routing-hop-link {
   flex: 1 1 0;
   min-width: calc(var(--routing-chip-gap) * 2 + 2.25rem);
 }
 
+.routing-canvas--hops-2 .routing-rail-row {
+  --routing-chip-gap: 1.55rem;
+}
+
+.routing-canvas--hops-2 .routing-rail-tail,
 .routing-canvas--hops-3 .routing-rail-tail,
 .routing-canvas--hops-many .routing-rail-tail {
   flex: 1 1 0;
   min-width: var(--routing-chip-gap);
+}
+
+.routing-canvas--hops-3 .routing-rail-row,
+.routing-canvas--hops-many .routing-rail-row {
+  --routing-chip-gap: 1.65rem;
+}
+
+.routing-canvas--has-acc-rent-above .routing-hop-column--has-acc-rent-above {
+  min-width: 5.75rem;
+  padding-left: 0.35rem;
+  padding-right: 0.35rem;
+}
+
+.routing-canvas--has-acc-rent-above.routing-canvas--hops-2 .routing-endpoint--out,
+.routing-canvas--has-acc-rent-above.routing-canvas--hops-3 .routing-endpoint--out {
+  padding-right: calc(var(--routing-endpoint-inset, 15px) + 0.35rem);
 }
 
 .routing-pill--hop {
@@ -2989,6 +3037,7 @@ tr:hover td {
   color: #86efac;
 }
 
+.routing-canvas--hops-2 .routing-chip-stack,
 .routing-canvas--hops-3 .routing-chip-stack,
 .routing-canvas--hops-many .routing-chip-stack {
   max-width: 6.5rem;
