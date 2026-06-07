@@ -14,8 +14,8 @@ Reference implementation and starter kit for **swap quote** and **unsigned swap 
 
 ## What This Repo Provides
 
-- **Swap quote proxy** — `GET /api/trading/swap-quote` → Vybe `GET /v4/trading/swap-quote` (Jupiter / Titan routers)
-- **Vybe quote flow** — `POST /api/trading/vybe-quote` → token spot prices + `POST /v4/trading/swap` with `router=vybe` (no swap-quote aggregator)
+- **Swap quote proxy** — `GET /api/trading/swap-quote` → Vybe `GET /v4/trading/swap-quote` (Jupiter / Titan UI: quote then immediate swap build)
+- **Vybe quote flow** — `POST /api/trading/vybe-quote` → token spot prices + `POST /v4/trading/swap` with `router=vybe`
 - **Token price resolve** — `POST /api/tokens/resolve-prices` — cache-first price stats (`price`, `price1d`, `price7d`) for pair cards; 5s TTL, first quote fetches full details
 - **Swap build proxy** — `POST /api/trading/swap` → Vybe `POST /v4/trading/swap`
 - **Token metadata** — `GET /api/token/:mint` (Vybe token details including price fields, disk cache)
@@ -85,9 +85,9 @@ The swap UI lives in `src/frontend/app.ts` and compiles to `public/app.js` via `
 ### Build flow
 
 1. **Get quote**
-   - **Vybe router** — requires wallet; resolves token prices (full details on first quote per mint, price-only refresh after 5s), builds swap via Vybe, synthesizes quote + route for the UI. Built transaction is cached for **5 seconds** for reuse on Build Swap.
-   - **Jupiter / Titan** — calls `/api/trading/swap-quote` with amount, mints, optional wallet and slippage. Pair cards still load 24h/7d change via `/api/tokens/resolve-prices`.
-2. **Build unsigned transaction** — requires wallet; POSTs to `/api/trading/swap` with quote-aligned params plus router and build options (Vybe reuses cached tx if within 5s and params unchanged)
+   - **Vybe router** — requires connected wallet; resolves token prices, builds via `POST /api/trading/vybe-quote`, synthesizes quote + route. Built transaction is cached for **45 seconds**.
+   - **Jupiter / Titan** — requires wallet address; `GET /api/trading/swap-quote` then immediately `POST /api/trading/swap` with the quote `routePlan`. UI is populated from the **swap build response** (fees, route enrichment, tx). Cached tx reused on Build Swap when params unchanged.
+2. **Build unsigned transaction** — reuses cached tx when within cache window; otherwise refetches (Vybe: `vybe-quote`, Jupiter/Titan: quote + swap again)
 3. Copy base64 from the result and sign locally
 
 ---
@@ -98,8 +98,8 @@ The Express server in `src/server.ts` exposes:
 
 | Route | Description |
 |-------|-------------|
-| `GET /api/trading/swap-quote` | Query: `amount`, `inputMintAddress`, `outputMintAddress`, optional `accountAddress`, `slippage` (Jupiter / Titan) |
-| `POST /api/trading/vybe-quote` | JSON: same fields as swap build + optional `tokenHints`, `forceFullDetailsMints`. Returns synthesized quote, `_build`, `_builtAt`, `_tokenStats` |
+| `GET /api/trading/swap-quote` | Query: `amount`, `inputMintAddress`, `outputMintAddress`, optional `accountAddress`, `slippage` (Jupiter / Titan: first step before swap build) |
+| `POST /api/trading/vybe-quote` | JSON: same fields as swap build + optional `tokenHints`, `forceFullDetailsMints`, `router=vybe`. Returns synthesized quote, `_build`, `_builtAt`, `_tokenStats` |
 | `POST /api/tokens/resolve-prices` | JSON: `mints[]`, optional `tokenHints`, `forceFullDetailsMints`. Returns `{ stats: { [mint]: { price, price1d, price7d, decimals, priceFetchedAt } } }` |
 | `POST /api/trading/swap` | JSON: `accountAddress`, `amount`, `inputMintAddress`, `outputMintAddress`, optional `slippage`, `router` (`vybe` \| `jupiter` \| `titan`), `gasless`, `autoCalculateSlippage`, `simulate`, `partner`, `poolAddress`, `protocol`, `swapFee` |
 | `GET /api/token/:mint` | Token metadata + spot price fields (`price`, `price1d`, `price7d`); cached in `data/token-meta-cache.json` |

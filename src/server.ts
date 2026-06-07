@@ -18,8 +18,8 @@ import {
 } from './token-icon-cache.js';
 import { Connection } from '@solana/web3.js';
 import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
-import { simulateSwapOutputRaw } from './api/simulate-swap-output.js';
-import { enrichRoutePlanFees } from './api/enrich-route-fees.js';
+import { simulateSwapEffects } from './api/simulate-swap-output.js';
+import { enrichRoutePlanFees, estimateWalletPayDebitRaw } from './api/enrich-route-fees.js';
 import type { VybeRoutePlanStep } from './types/swap.js';
 
 loadEnv();
@@ -342,7 +342,7 @@ app.get('/api/trading/swap-quote', async (req: Request, res: Response) => {
   }
 });
 
-/** POST /api/trading/vybe-quote — spot price + build swap (no swap-quote aggregator) */
+/** POST /api/trading/vybe-quote — spot price + build swap (Vybe router; no swap-quote aggregator) */
 app.post('/api/trading/vybe-quote', async (req: Request, res: Response) => {
   try {
     const body = req.body as Record<string, unknown>;
@@ -417,12 +417,18 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
 
     const buildTx = data.tx ?? data.transaction;
     let simulatedOutRaw: string | null = null;
+    let walletPayDebitRaw: string | null = null;
+    let pdaRentLamports = 0n;
     if (typeof buildTx === 'string' && buildTx.length > 0) {
-      simulatedOutRaw = await simulateSwapOutputRaw(
+      const sim = await simulateSwapEffects(
         buildTx,
         parsed.accountAddress,
         parsed.outputMintAddress,
+        parsed.inputMintAddress,
       );
+      simulatedOutRaw = sim.outputDeltaRaw;
+      walletPayDebitRaw = sim.walletPayDebitRaw;
+      pdaRentLamports = sim.pdaRentLamports;
     }
 
     const routePlan = parseRoutePlanFromBody(body);
@@ -431,13 +437,25 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
       data,
       simulatedOutRaw,
       parsed.outputMintAddress,
+      { pdaRentLamports, router: parsed.router ?? data.provider },
     );
+
+    if (!walletPayDebitRaw) {
+      walletPayDebitRaw =
+        estimateWalletPayDebitRaw(
+          feeEnrichment.routePlan,
+          data.details?.quote?.inAmount ?? '',
+          parsed.inputMintAddress,
+        ) ?? walletPayDebitRaw;
+    }
+    feeEnrichment.walletPayDebitRaw = walletPayDebitRaw;
 
     res.json({
       ...data,
       _feeEnrichment: feeEnrichment,
       _simulatedOutAmount: simulatedOutRaw,
       _quotedOutAmount: feeEnrichment.quotedOutRaw,
+      _walletPayDebitRaw: walletPayDebitRaw,
     });
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;

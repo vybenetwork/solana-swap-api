@@ -4,11 +4,18 @@
  */
 
 import type { VybeRoutePlanStep, VybeSwapBuildResponse } from '../types/swap.js';
+import { WSOL_MINT, isSolMint } from './sol-mints.js';
 
 export interface HopFeeItem {
   label: string;
   amountRaw: string;
   mint: string;
+  /** One-time SOL rent to open a fee PDA (Jupiter/Titan aggregators). */
+  pdaRent?: {
+    label: string;
+    amountRaw: string;
+    mint: string;
+  };
 }
 
 export interface HopFeeBreakdown {
@@ -29,10 +36,68 @@ export interface RouteFeeEnrichment {
   swapFeePct: number | null;
   swapFeeRaw: number | null;
   outputFromSimulation: boolean;
+  walletPayDebitRaw: string | null;
 }
 
-export function normalizeSwapFeePct(swapFee: number | undefined | null): number | null {
+/** Estimate total input-side wallet debit when simulation omits native preBalances. */
+export function estimateWalletPayDebitRaw(
+  routePlan: RoutePlanStepWithFees[],
+  inAmountRaw: string,
+  inputMint: string,
+): string | null {
+  if (!inAmountRaw || !/^\d+$/.test(inAmountRaw)) return null;
+  let total = 0n;
+  try {
+    total = BigInt(inAmountRaw);
+  } catch {
+    return null;
+  }
+
+  const inputIsSol = isSolMint(inputMint);
+  for (const step of routePlan) {
+    for (const item of step._hopFees?.items ?? []) {
+      if (item.amountRaw && item.amountRaw !== '0') {
+        if (inputIsSol && isSolMint(item.mint)) {
+          try {
+            total += BigInt(item.amountRaw);
+          } catch {
+            /* skip */
+          }
+        } else if (item.mint === inputMint.trim()) {
+          try {
+            total += BigInt(item.amountRaw);
+          } catch {
+            /* skip */
+          }
+        }
+      }
+      if (item.pdaRent?.amountRaw && inputIsSol && isSolMint(item.pdaRent.mint)) {
+        try {
+          total += BigInt(item.pdaRent.amountRaw);
+        } catch {
+          /* skip */
+        }
+      }
+    }
+  }
+
+  try {
+    return total > BigInt(inAmountRaw) ? total.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeSwapFeePct(
+  swapFee: number | undefined | null,
+  router?: string,
+): number | null {
   if (swapFee == null || !Number.isFinite(swapFee) || swapFee <= 0) return null;
+  const id = router?.trim().toLowerCase();
+  // Vybe uses fraction (0.01 = 1%); Jupiter/Titan use whole percent (1 = 1%).
+  if (id === 'jupiter' || id === 'titan') {
+    return swapFee <= 100 ? swapFee : null;
+  }
   if (swapFee <= 1) return swapFee * 100;
   if (swapFee <= 100) return swapFee;
   return null;
@@ -97,6 +162,22 @@ function applyHopFees(
   return enriched;
 }
 
+function attachAggregatorPdaRent(items: HopFeeItem[], pdaRentLamports: bigint, router?: string): void {
+  if (pdaRentLamports <= 0n || !router) return;
+  const id = router.trim().toLowerCase();
+  if (id !== 'jupiter' && id !== 'titan') return;
+  const target =
+    items.find((it) => it.label === 'Route fee') ??
+    items.find((it) => it.label === 'Protocol fee') ??
+    items[items.length - 1];
+  if (!target) return;
+  target.pdaRent = {
+    label: 'PDA Rent',
+    amountRaw: pdaRentLamports.toString(),
+    mint: WSOL_MINT,
+  };
+}
+
 /**
  * Enrich route-plan hops with protocol/route/pool fees using build quote + optional simulation.
  */
@@ -105,6 +186,7 @@ export function enrichRoutePlanFees(
   build: VybeSwapBuildResponse,
   simulatedOutRaw: string | null,
   outputMint: string,
+  opts?: { pdaRentLamports?: bigint; router?: string },
 ): RouteFeeEnrichment {
   const quotedOutRaw = build.details.quote.outAmount?.trim() || '0';
   let quotedOut = 0n;
@@ -125,7 +207,7 @@ export function enrichRoutePlanFees(
 
   const totalFeeRaw =
     simulatedOut != null && quotedOut > simulatedOut ? (quotedOut - simulatedOut).toString() : null;
-  const swapFeePct = normalizeSwapFeePct(build.details.swapFee);
+  const swapFeePct = normalizeSwapFeePct(build.details.swapFee, opts?.router ?? build.provider);
   const protocolFeeOnQuote = swapFeePct != null ? pctFeeRaw(quotedOut, swapFeePct) : 0n;
 
   const basePlan = routePlan.length > 0 ? cloneRoutePlan(routePlan) : cloneRoutePlan([]);
@@ -199,6 +281,17 @@ export function enrichRoutePlanFees(
         });
       }
 
+      const pdaRentLamports = opts?.pdaRentLamports ?? 0n;
+      if (items.length === 0 && pdaRentLamports > 0n) {
+        items.push({
+          label: 'Route fee',
+          amountRaw: '0',
+          mint: WSOL_MINT,
+        });
+      }
+
+      attachAggregatorPdaRent(items, pdaRentLamports, opts?.router ?? build.provider);
+
       const hopQuotedStr = hopQuotedOut.toString();
       const netStr = simulatedOut != null ? simulatedOut.toString() : undefined;
       if (isLast && si.outAmount !== hopQuotedStr) {
@@ -224,5 +317,6 @@ export function enrichRoutePlanFees(
     swapFeePct,
     swapFeeRaw: build.details.swapFee ?? null,
     outputFromSimulation: simulatedOut != null && simulatedOut !== quotedOut,
+    walletPayDebitRaw: null,
   };
 }

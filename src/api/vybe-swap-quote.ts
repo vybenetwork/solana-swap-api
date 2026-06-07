@@ -3,8 +3,7 @@
  */
 
 import type { AxiosInstance } from 'axios';
-import { buildSwapWithFallback, type BuildSwapParams } from './swap-build.js';
-import { getSwapQuote } from './swap-quote.js';
+import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type SwapProxyRouter } from './swap-build.js';
 import {
   resolveTokenPrices,
   type TokenPriceHint,
@@ -12,7 +11,7 @@ import {
 } from './resolve-token-prices.js';
 import type { VybeSwapQuote, VybeSwapBuildResponse, VybeRoutePlanStep } from '../types/swap.js';
 import { assertWalletHasSellAmount } from './wallet-balance.js';
-import { simulateSwapOutputRaw } from './simulate-swap-output.js';
+import { simulateSwapEffects } from './simulate-swap-output.js';
 import { enrichRoutePlanFees } from './enrich-route-fees.js';
 import { NATIVE_SOL_MINT, toVybeSwapMint } from './sol-mints.js';
 
@@ -72,51 +71,6 @@ function normalizeRoutePlan(raw: unknown): VybeRoutePlanStep[] {
   });
 }
 
-function quoteFromAggregatorResponse(
-  raw: Record<string, unknown>,
-  inputMint: string,
-  outputMint: string,
-  tokenStats: Record<string, TokenPriceStats>,
-  amount: number,
-): VybeSwapQuote {
-  const inputMintAddress = String(raw.inputMintAddress ?? raw.inputMint ?? inputMint);
-  const outputMintAddress = String(raw.outputMintAddress ?? raw.outputMint ?? outputMint);
-  const outAmountUi = Number(raw.outAmountUi ?? raw.outAmountUI ?? 0);
-  const otherAmountThresholdUi = Number(
-    raw.otherAmountThresholdUi ?? raw.otherAmountThresholdUI ?? 0,
-  );
-  const inputStats = tokenStats[inputMintAddress] ?? tokenStats[inputMint];
-  const swapUsdValue =
-    inputStats?.price != null && Number.isFinite(amount)
-      ? (amount * inputStats.price).toFixed(2)
-      : (raw.swapUsdValue as string | null | undefined) ?? null;
-
-  return {
-    inputMintAddress,
-    inAmount: String(raw.inAmount ?? ''),
-    outputMintAddress,
-    outAmount: String(raw.outAmount ?? ''),
-    otherAmountThreshold: String(raw.otherAmountThreshold ?? ''),
-    swapMode: String(raw.swapMode ?? 'ExactIn'),
-    priceImpactPct: String(raw.priceImpactPct ?? '0'),
-    routePlan: normalizeRoutePlan(raw.routePlan),
-    outAmountUi,
-    otherAmountThresholdUi,
-    swapRate: Number(raw.swapRate ?? 0),
-    swapUsdValue,
-    slippageBps:
-      raw.slippageBps != null
-        ? Number(raw.slippageBps)
-        : raw.slippage != null
-          ? Math.round(Number(raw.slippage) * 100)
-          : null,
-    contextSlot: raw.contextSlot != null ? Number(raw.contextSlot) : null,
-    _quoteSource: 'vybe-swap-quote-fallback',
-    _inputPriceUsd: inputStats?.price,
-    _outputPriceUsd: (tokenStats[outputMintAddress] ?? tokenStats[outputMint])?.price,
-  };
-}
-
 function synthesizeQuoteFromBuild(
   params: VybeQuoteParams,
   build: VybeSwapBuildResponse,
@@ -125,6 +79,7 @@ function synthesizeQuoteFromBuild(
   inputStats: TokenPriceStats,
   outputStats: TokenPriceStats,
   effectiveOutAmount?: string,
+  feeOpts?: { pdaRentLamports?: bigint; router?: string; walletPayDebitRaw?: string | null },
 ): VybeSwapQuote {
   const inAmount = build.details.quote.inAmount;
   const quotedOutAmount = build.details.quote.outAmount;
@@ -171,6 +126,10 @@ function synthesizeQuoteFromBuild(
     build,
     outputFromSimulation ? outAmount : null,
     outputMint,
+    {
+      pdaRentLamports: feeOpts?.pdaRentLamports ?? 0n,
+      router: feeOpts?.router ?? build.provider ?? params.router,
+    },
   );
 
   return {
@@ -198,6 +157,7 @@ function synthesizeQuoteFromBuild(
     _swapFeePct: feeEnrichment.swapFeePct,
     _totalFeeRaw: feeEnrichment.totalFeeRaw,
     _simulatedOutAmount: feeEnrichment.simulatedOutRaw,
+    _walletPayDebitRaw: feeOpts?.walletPayDebitRaw ?? null,
   };
 }
 
@@ -282,72 +242,49 @@ export async function buildVybeQuoteFromPriceAndSwap(
   }
 
   const vybeParams: VybeQuoteParams = { ...params, inputMintAddress: vybeInputMint };
-
-  try {
-    const build = await buildSwapWithFallback(http, { ...vybeParams, router: params.router ?? 'vybe' });
-    const buildTx = build.tx ?? build.transaction;
-    let simulatedOutRaw: string | null = null;
-    if (typeof buildTx === 'string' && buildTx.length > 0) {
-      simulatedOutRaw = await simulateSwapOutputRaw(
-        buildTx,
-        params.accountAddress,
-        outputMint,
-      );
-    }
-    const selected = normalizeRouterId(params.router ?? 'vybe');
-    const effective = normalizeRouterId(build.provider ?? selected);
-    const quote = attachRouterMetadata(
-      synthesizeQuoteFromBuild(
-        vybeParams,
-        build,
-        vybeInputMint,
-        outputMint,
-        inputStats,
-        outputStats,
-        simulatedOutRaw ?? undefined,
-      ),
-      selected,
-      effective,
-      effective !== selected,
+  const selected = normalizeRouterId(params.router ?? 'vybe') as SwapProxyRouter;
+  const build =
+    selected === 'vybe'
+      ? await buildSwapWithFallback(http, { ...vybeParams, router: selected })
+      : await buildSwap(http, { ...vybeParams, router: selected });
+  const buildTx = build.tx ?? build.transaction;
+  let simulatedOutRaw: string | null = null;
+  let walletPayDebitRaw: string | null = null;
+  let pdaRentLamports = 0n;
+  if (typeof buildTx === 'string' && buildTx.length > 0) {
+    const sim = await simulateSwapEffects(
+      buildTx,
+      params.accountAddress,
+      outputMint,
+      uiInputMint,
     );
-    if (uiInputMint === NATIVE_SOL_MINT) {
-      quote.inputMintAddress = NATIVE_SOL_MINT;
-    }
-    return {
-      quote,
-      build,
-      builtAt: Date.now(),
-      tokenStats,
-    };
-  } catch {
-    const rawQuote = await getSwapQuote(http, {
-      amount: params.amount,
-      inputMintAddress: vybeInputMint,
-      outputMintAddress: outputMint,
-      accountAddress: params.accountAddress,
-      slippage: params.slippage,
-    });
-    const selected = normalizeRouterId(params.router ?? 'vybe');
-    const quote = attachRouterMetadata(
-      quoteFromAggregatorResponse(
-        rawQuote as Record<string, unknown>,
-        vybeInputMint,
-        outputMint,
-        tokenStats,
-        params.amount,
-      ),
-      selected,
-      'jupiter',
-      true,
-    );
-    if (uiInputMint === NATIVE_SOL_MINT) {
-      quote.inputMintAddress = NATIVE_SOL_MINT;
-    }
-    return {
-      quote,
-      build: null,
-      builtAt: 0,
-      tokenStats,
-    };
+    simulatedOutRaw = sim.outputDeltaRaw;
+    walletPayDebitRaw = sim.walletPayDebitRaw;
+    pdaRentLamports = sim.pdaRentLamports;
   }
+  const effective = normalizeRouterId(build.provider ?? selected);
+  const quote = attachRouterMetadata(
+    synthesizeQuoteFromBuild(
+      vybeParams,
+      build,
+      vybeInputMint,
+      outputMint,
+      inputStats,
+      outputStats,
+      simulatedOutRaw ?? undefined,
+      { pdaRentLamports, router: selected, walletPayDebitRaw },
+    ),
+    selected,
+    effective,
+    effective !== selected,
+  );
+  if (uiInputMint === NATIVE_SOL_MINT) {
+    quote.inputMintAddress = NATIVE_SOL_MINT;
+  }
+  return {
+    quote,
+    build,
+    builtAt: Date.now(),
+    tokenStats,
+  };
 }

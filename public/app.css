@@ -2117,9 +2117,14 @@ tr:hover td {
 }
 
 .swap-quote-details-collapsible .swap-quote-details-route-steps {
-  max-height: 320px;
+  max-height: min(360px, 45vh);
+  overflow-x: hidden;
   overflow-y: auto;
   padding-top: 0.5rem;
+  min-height: 0;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
 }
 
 .swap-quote-nested {
@@ -2169,10 +2174,15 @@ tr:hover td {
   padding: 1rem 0.85rem;
   min-height: 92px;
   overflow-x: auto;
+  overflow-y: visible;
 }
 
 .swap-quote-details-routing .routing-canvas {
   min-width: min-content;
+}
+
+.swap-quote-details-routing:has(.routing-canvas--has-fees) {
+  min-height: 240px;
 }
 
 .routing-dialog-body {
@@ -2428,6 +2438,16 @@ tr:hover td {
   z-index: 1;
 }
 
+.routing-rail-row:has(.routing-hop-link--out) .routing-rail-tail {
+  display: none;
+}
+
+.routing-rail-row:has(.routing-hop-link--out) .routing-hop-link--in,
+.routing-rail-row:has(.routing-hop-link--out) .routing-hop-link--out {
+  flex: 1 1 0;
+  min-width: 1.5rem;
+}
+
 .routing-hop-link-line {
   display: none;
 }
@@ -2444,6 +2464,11 @@ tr:hover td {
   background: #09090b;
   line-height: 1.15;
   white-space: nowrap;
+}
+
+.routing-pct-badge--out {
+  color: #93c5fd;
+  border-color: rgba(147, 197, 253, 0.4);
 }
 
 .routing-hop-index-badge {
@@ -2525,181 +2550,250 @@ tr:hover td {
 }
 
 .routing-canvas--has-fees .routing-path {
-  min-height: 7.25rem;
-  padding-bottom: 0.35rem;
+  min-height: 4rem;
+  padding-bottom: 0.5rem;
+  overflow: visible;
 }
 
 .routing-canvas--has-fees .routing-rail-row {
-  min-height: 4.5rem;
+  min-height: 3rem;
+  overflow: visible;
 }
 
-.routing-market-node--has-fees {
-  margin-bottom: 0.15rem;
-  min-width: 5.5rem;
-  max-width: 8.75rem;
+.routing-canvas--has-fees {
+  overflow: visible;
+}
+
+.routing-hop-column {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 1;
+  overflow: visible;
 }
 
 .routing-fee-branch {
+  --routing-fee-connector-h: 4.5rem;
   display: flex;
   flex-direction: column;
   align-items: center;
   width: 100%;
-  margin-top: 0.35rem;
+  margin-top: 0.1rem;
   position: relative;
+  z-index: 2;
+}
+
+.routing-fee-connectors {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(100%, 15.5rem);
+  height: var(--routing-fee-connector-h);
+  pointer-events: none;
   z-index: 0;
 }
 
-.routing-fee-fork {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+.routing-fee-svg {
+  display: block;
   width: 100%;
-  margin-bottom: 0.3rem;
-}
-
-.routing-fee-fork-stem {
-  display: block;
-  width: 2px;
-  height: 0.65rem;
-  background: linear-gradient(180deg, #52525b 0%, #3f3f46 100%);
-  border-radius: 1px;
-}
-
-.routing-fee-fork-hub {
-  display: block;
-  width: 0.42rem;
-  height: 0.42rem;
-  margin-top: -0.08rem;
-  border-radius: 50%;
-  background: #27272a;
-  border: 2px solid #52525b;
-  box-shadow: 0 0 0 2px rgba(9, 9, 11, 0.85);
+  height: 100%;
+  overflow: visible;
 }
 
 .routing-fee-cards {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.35rem;
-  width: 100%;
-  max-width: 8.5rem;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.45rem;
+  width: min(100%, 15.5rem);
+  padding-top: var(--routing-fee-connector-h);
+  position: relative;
+  z-index: 1;
 }
 
-.routing-fee-card {
+.routing-fee-slot {
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.18rem;
-  padding: 0.38rem 0.45rem 0.42rem;
-  border-radius: 0.55rem;
-  border: 1px solid #3f3f46;
-  background: linear-gradient(165deg, rgba(39, 39, 42, 0.95) 0%, rgba(24, 24, 27, 0.98) 100%);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.03) inset,
-    0 4px 14px rgba(0, 0, 0, 0.28);
-  text-align: left;
-  border-left-width: 3px;
-}
-
-.routing-fee-card--protocol {
-  border-left-color: #f59e0b;
-}
-
-.routing-fee-card--route {
-  border-left-color: #f87171;
-}
-
-.routing-fee-card--pool {
-  border-left-color: #60a5fa;
-}
-
-.routing-fee-card--other {
-  border-left-color: #a1a1aa;
-}
-
-.routing-fee-card-head {
-  display: flex;
   align-items: center;
-  gap: 0.3rem;
+  gap: 0.35rem;
 }
 
-.routing-fee-card-dot {
-  flex: 0 0 auto;
-  width: 0.35rem;
-  height: 0.35rem;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.85;
+.swap-hop-fee-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin: 0.35rem 0 0.75rem;
+  flex-shrink: 0;
 }
 
-.routing-fee-card--protocol .routing-fee-card-dot {
-  color: #f59e0b;
+.routing-fee-slot--route-plan {
+  flex: 0 1 auto;
+  align-items: flex-start;
 }
 
-.routing-fee-card--route .routing-fee-card-dot {
-  color: #f87171;
+.routing-chip-stack--fee-pda-rent {
+  margin-top: 0.1rem;
 }
 
-.routing-fee-card--pool .routing-fee-card-dot {
-  color: #60a5fa;
+.routing-chip-stack--fee-pda-rent .routing-chip-top--fee-label {
+  color: #fbbf24;
+  white-space: normal;
+  max-width: 8rem;
 }
 
-.routing-fee-card--other .routing-fee-card-dot {
-  color: #a1a1aa;
+.routing-chip-bottom--pda-rent {
+  color: #fcd34d;
 }
 
-.routing-fee-card-type {
-  font-size: 0.625rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #a1a1aa;
-  text-transform: capitalize;
+.routing-chip-stack--fee-pda-rent .routing-chip-amt--usd {
+  color: #fde68a;
 }
 
-.routing-fee-card-amt--primary {
-  font-size: 0.6875rem;
-  font-weight: 700;
-  color: #fca5a5;
-  line-height: 1.25;
-  word-break: break-word;
-}
-
-.routing-fee-card-sym {
-  font-weight: 600;
-  color: #fda4af;
-}
-
-.routing-fee-card-equiv {
+.routing-chip-stack {
   display: flex;
   flex-direction: column;
-  gap: 0.1rem;
-  padding-top: 0.08rem;
-  border-top: 1px solid rgba(63, 63, 70, 0.65);
+  align-items: center;
+  gap: 0.18rem;
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 8.25rem;
+  text-align: center;
 }
 
-.routing-fee-card-line {
-  font-size: 0.6rem;
-  line-height: 1.3;
-  color: #71717a;
-}
-
-.routing-fee-card-line--input {
-  color: #a1a1aa;
-}
-
-.routing-fee-card-line--usd {
-  color: #86efac;
-  font-weight: 500;
-}
-
-.routing-canvas--hops-3 .routing-fee-cards,
-.routing-canvas--hops-many .routing-fee-cards {
+.routing-fee-cards .routing-chip-stack {
   max-width: 7.5rem;
 }
 
-.routing-canvas--hops-3 .routing-market-node--has-fees,
-.routing-canvas--hops-many .routing-market-node--has-fees {
-  min-width: 4.75rem;
-  max-width: 7.25rem;
+.routing-chip-top {
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: #a1a1aa;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.routing-chip-bottom {
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: #86efac;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.routing-chip-caption {
+  font-size: 0.6875rem;
+  color: #71717a;
+  line-height: 1.25;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routing-pill--chip {
+  width: 100%;
+  justify-content: center;
+  border-radius: 999px;
+  padding: 0.38rem 0.5rem;
+  min-height: 1.85rem;
+  gap: 0.3rem;
+}
+
+.routing-chip-fiat-icon {
+  flex: 0 0 auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #86efac;
+  background: rgba(20, 83, 45, 0.45);
+  border: 1px solid rgba(134, 239, 172, 0.35);
+  line-height: 1;
+}
+
+.routing-chip-amt {
+  font-weight: 600;
+  color: #fafafa;
+  font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 5.25rem;
+}
+
+.routing-chip-sym {
+  font-weight: 600;
+  color: #d4d4d8;
+  font-size: 0.6875rem;
+  flex-shrink: 0;
+}
+
+.routing-chip-stack--fee-protocol .routing-chip-amt,
+.routing-chip-stack--fee-route .routing-chip-amt,
+.routing-chip-stack--fee-pool .routing-chip-amt,
+.routing-chip-stack--fee .routing-chip-amt {
+  color: #fca5a5;
+}
+
+.routing-chip-top--fee-label {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: capitalize;
+}
+
+.routing-chip-stack--fee-protocol .routing-chip-top--fee-label {
+  color: #f59e0b;
+}
+
+.routing-chip-stack--fee-route .routing-chip-top--fee-label {
+  color: #f87171;
+}
+
+.routing-chip-stack--fee-pool .routing-chip-top--fee-label {
+  color: #60a5fa;
+}
+
+.routing-chip-stack--fee .routing-chip-top--fee-label {
+  color: #a1a1aa;
+}
+
+.routing-chip-bottom--base {
+  color: #a1a1aa;
+}
+
+.routing-chip-amt--usd {
+  color: #86efac;
+  max-width: 6.75rem;
+  font-size: 0.625rem;
+}
+
+.routing-pill--chip-fee {
+  min-width: 5.75rem;
+  padding-left: 0.45rem;
+  padding-right: 0.45rem;
+}
+
+.routing-chip-stack--fee-protocol .routing-chip-amt--usd,
+.routing-chip-stack--fee-route .routing-chip-amt--usd,
+.routing-chip-stack--fee-pool .routing-chip-amt--usd,
+.routing-chip-stack--fee .routing-chip-amt--usd {
+  color: #86efac;
+}
+
+.routing-canvas--hops-3 .routing-chip-stack,
+.routing-canvas--hops-many .routing-chip-stack {
+  max-width: 6.5rem;
 }
 
 .routing-split-board {
@@ -2817,13 +2911,14 @@ tr:hover td {
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
+  min-height: 0;
 }
 
 .swap-hop-step-details {
   border: 1px solid #2b2b33;
   border-radius: 12px;
   background: #12121a;
-  overflow: hidden;
+  flex-shrink: 0;
 }
 
 .swap-hop-step-details[open] {
@@ -2887,32 +2982,207 @@ tr:hover td {
 }
 
 .swap-hop-step-details__body {
-  padding: 0 0.75rem 0.7rem;
+  padding: 0.65rem 0.75rem 0.75rem;
   border-top: 1px solid #27272a;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.swap-hop-conversion.route-hop-conversion--card {
+  margin-top: 0;
+  justify-content: center;
+  text-align: center;
+  background: linear-gradient(180deg, #101016 0%, #0c0c10 100%);
+}
+
+.swap-hop-details-block,
+.swap-hop-fees-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.swap-hop-details-block__title,
+.swap-hop-fees-block__title {
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: #71717a;
+}
+
+.swap-hop-fees-table {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #27272a;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #0c0c10;
+}
+
+.swap-hop-fees-table__row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 0.95fr) repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid #27272a;
+  align-items: center;
+  min-width: 0;
+}
+
+.swap-hop-fees-table__row:last-child {
+  border-bottom: none;
+}
+
+.swap-hop-fees-table__row--head {
+  padding: 0.35rem 0.55rem;
+  background: #12121a;
+}
+
+.swap-hop-fees-table__row--head .swap-hop-fees-table__cell {
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #71717a;
+}
+
+.swap-hop-fees-table__row--total {
+  background: rgba(196, 242, 11, 0.04);
+  border-top: 1px solid rgba(196, 242, 11, 0.18);
+}
+
+.swap-hop-fees-table__row--pda {
+  background: rgba(251, 191, 36, 0.03);
+  border-top: 1px dashed rgba(251, 191, 36, 0.22);
+}
+
+.swap-hop-fees-table__cell {
+  min-width: 0;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.swap-hop-fees-table__cell--label {
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #a1a1aa;
+}
+
+.swap-hop-fees-table__row--fee-protocol .swap-hop-fees-table__cell--label {
+  color: #fbbf24;
+}
+
+.swap-hop-fees-table__row--fee-route .swap-hop-fees-table__cell--label {
+  color: #f87171;
+}
+
+.swap-hop-fees-table__row--fee-pool .swap-hop-fees-table__cell--label {
+  color: #60a5fa;
+}
+
+.swap-hop-fees-table__row--total .swap-hop-fees-table__cell--label {
+  color: #bef264;
+}
+
+.swap-hop-fees-table__row--pda .swap-hop-fees-table__cell--label {
+  color: #fbbf24;
+  font-size: 0.58rem;
+  padding-left: 0.35rem;
+}
+
+.swap-hop-fees-table__cell--amt {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #fafafa;
+}
+
+.swap-hop-fees-table__row--total .swap-hop-fees-table__cell--amt {
+  color: #ecfccb;
+}
+
+.swap-hop-fees-table__cell--usd {
+  color: #fde68a;
+}
+
+.swap-hop-fees-table__cell--base {
+  color: #86efac;
 }
 
 .swap-hop-detail-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  margin-top: 0.55rem;
+  margin-top: 0;
 }
 
-.swap-hop-detail-row {
+.swap-hop-detail-grid--rows {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.swap-hop-detail-grid__row {
   display: grid;
-  grid-template-columns: minmax(0, 34%) minmax(0, 66%);
-  gap: 0.5rem;
-  align-items: start;
-  font-size: 0.72rem;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.swap-hop-detail-grid__row--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.swap-hop-detail-grid__row--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.swap-hop-detail-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+  padding: 0.5rem 0.55rem;
+  background: #0c0c10;
+  border: 1px solid #27272a;
+  border-radius: 9px;
+  min-width: 0;
 }
 
 .swap-hop-detail-k {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: #71717a;
 }
 
 .swap-hop-detail-v {
-  min-width: 0;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #e4e4e7;
+  font-variant-numeric: tabular-nums;
   word-break: break-word;
+  line-height: 1.35;
+}
+
+.swap-hop-detail-v--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: #a1a1aa;
+}
+
+.swap-hop-detail-raw {
+  display: inline;
+  margin-left: 0.2rem;
+  font-size: 0.62rem;
+  font-weight: 500;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #71717a;
 }
 
 .swap-hop-detail-v code {
@@ -3135,21 +3405,6 @@ tr:hover td {
   padding: 1rem 1rem 1.05rem;
 }
 
-.swap-mode-switch--triple {
-  grid-template-columns: 1fr 1fr 1fr;
-}
-
-@media (max-width: 520px) {
-  .swap-mode-switch--triple {
-    grid-template-columns: 1fr;
-  }
-
-  .swap-mode-switch--triple .swap-mode-switch__btn {
-    white-space: normal;
-    text-align: center;
-  }
-}
-
 .swap-paste-sign {
   margin-bottom: 0.85rem;
   padding: 0.75rem 0.85rem;
@@ -3213,6 +3468,86 @@ tr:hover td {
 .swap-mode-switch__btn:focus-visible {
   outline: 2px solid rgba(193, 241, 29, 0.55);
   outline-offset: 1px;
+}
+
+.swap-mode-switch--triple {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.swap-mode-switch--triple .swap-mode-switch__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  padding: 0.46rem 0.42rem;
+  font-size: 0.72rem;
+}
+
+.swap-mode-switch--triple .swap-mode-switch__btn--active {
+  background: rgba(168, 85, 247, 0.22);
+  color: #faf5ff;
+  box-shadow: inset 0 0 0 1px rgba(168, 85, 247, 0.38);
+}
+
+.swap-mode-switch--triple .swap-mode-switch__btn:focus-visible {
+  outline-color: rgba(168, 85, 247, 0.55);
+}
+
+.swap-mode-switch__icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 0.92rem;
+  height: 0.92rem;
+}
+
+.swap-mode-switch__icon::after {
+  content: '';
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #71717a;
+}
+
+.swap-mode-switch__btn--active .swap-mode-switch__icon::after {
+  background: #a1a1aa;
+}
+
+.swap-mode-switch--triple .swap-mode-switch__btn--active .swap-mode-switch__icon::after {
+  background: #d8b4fe;
+}
+
+.swap-mode-switch__icon--build-sign::after {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 20h9'/%3E%3Cpath d='M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 20h9'/%3E%3Cpath d='M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.swap-mode-switch__icon--build::after {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6M9 13h6M9 17h6'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z'/%3E%3Cpath d='M14 2v6h6M9 13h6M9 17h6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.swap-mode-switch__icon--paste::after {
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2'/%3E%3Crect x='8' y='2' width='8' height='4' rx='1' ry='1'/%3E%3Cpath d='M9 14l2 2 4-4'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2'/%3E%3Crect x='8' y='2' width='8' height='4' rx='1' ry='1'/%3E%3Cpath d='M9 14l2 2 4-4'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.swap-mode-switch__label {
+  min-width: 0;
+  line-height: 1.15;
+}
+
+@media (max-width: 420px) {
+  .swap-mode-switch--triple .swap-mode-switch__btn {
+    flex-direction: column;
+    gap: 0.2rem;
+    padding: 0.42rem 0.28rem;
+    font-size: 0.64rem;
+  }
+
+  .swap-mode-switch--triple .swap-mode-switch__label {
+    white-space: normal;
+    text-align: center;
+  }
 }
 
 .swap-wallet-execution {
