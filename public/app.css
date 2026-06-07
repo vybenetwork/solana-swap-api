@@ -6051,6 +6051,12 @@ tr:hover td {
 }
 
 /* Token picker modal — Jupiter-style */
+html.token-picker-scroll-lock,
+body.token-picker-scroll-lock {
+  overflow: hidden !important;
+  overscroll-behavior: none;
+}
+
 .token-picker-dialog {
   padding: 0;
   border: none;
@@ -6059,6 +6065,11 @@ tr:hover td {
   width: 100%;
   color: #eceff3;
   margin: auto;
+  overflow: hidden;
+}
+
+.token-picker-dialog[open] {
+  overscroll-behavior: none;
 }
 
 .token-picker-dialog::backdrop {
@@ -6078,8 +6089,51 @@ tr:hover td {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  max-height: min(620px, calc(100vh - 1.5rem));
+  min-height: 620px;
+  max-height: 620px;
   overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.token-picker-search-wrap[hidden],
+.token-picker-shortcuts[hidden],
+.token-picker-tabs[hidden],
+.token-picker-list-wrap[hidden],
+.token-picker-wallet-balances[hidden] {
+  display: none !important;
+}
+
+.token-picker-dialog--wallet-tab .token-picker-wallet-balances {
+  flex: 1;
+  min-height: 0;
+  border-bottom: none;
+  padding-bottom: 0.15rem;
+  overflow: hidden;
+}
+
+.token-picker-dialog--wallet-tab .token-picker-wallet-balances-head {
+  display: none;
+}
+
+.token-picker-dialog--wallet-tab .token-picker-wallet-balances-list {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.token-picker-dialog--list-tab .token-picker-list-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.token-picker-dialog--list-tab .token-picker-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .token-picker-search-wrap {
@@ -6220,9 +6274,9 @@ tr:hover td {
   display: flex;
   flex-direction: column;
   gap: 0.12rem;
-  max-height: 9.5rem;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-gutter: stable;
   scrollbar-width: thin;
   scrollbar-color: #3f3f46 transparent;
@@ -6358,6 +6412,25 @@ tr:hover td {
 .token-picker-tab--active {
   background: #232830;
   color: #f3f4f6;
+}
+
+.token-picker-tab--disabled,
+.token-picker-tab:disabled {
+  opacity: 1;
+  cursor: not-allowed;
+  color: #4b5563;
+}
+
+.token-picker-tab--disabled:hover,
+.token-picker-tab:disabled:hover {
+  color: #4b5563;
+  background: transparent;
+}
+
+.token-picker-tab--disabled.token-picker-tab--active,
+.token-picker-tab:disabled.token-picker-tab--active {
+  background: transparent;
+  color: #4b5563;
 }
 
 .token-picker-list-wrap {

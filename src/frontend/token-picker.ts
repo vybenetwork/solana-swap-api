@@ -63,7 +63,7 @@ const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 let catalogTokens: TokenMeta[] = [];
 let catalogLoaded = false;
 let activeSide: TokenPickerSide = 'input';
-let activeTab: 'top' | 'recent' = 'top';
+let activeTab: 'top' | 'recent' | 'wallet' = 'top';
 let searchQuery = '';
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 let pendingMintLookup: string | null = null;
@@ -74,11 +74,59 @@ let listEl: HTMLElement | null = null;
 let shortcutsEl: HTMLElement | null = null;
 let walletBalancesEl: HTMLElement | null = null;
 let walletBalancesListEl: HTMLElement | null = null;
+let tabsEl: HTMLElement | null = null;
+let listWrapEl: HTMLElement | null = null;
+let searchWrapEl: HTMLElement | null = null;
+let walletTabEl: HTMLElement | null = null;
+let topTabEl: HTMLElement | null = null;
 let statusEl: HTMLElement | null = null;
 let onSelectCb: ((mint: string, side: TokenPickerSide) => void) | null = null;
 let getWalletAddressCb: (() => string) | null = null;
 let canOpenSellPickerCb: (() => boolean) | null = null;
 let canOpenBuyPickerCb: (() => boolean) | null = null;
+
+let bodyScrollLockActive = false;
+let savedBodyOverflow = '';
+let savedHtmlOverflow = '';
+let savedBodyPaddingRight = '';
+
+function lockPageScroll(): void {
+  if (bodyScrollLockActive) return;
+  bodyScrollLockActive = true;
+  savedBodyOverflow = document.body.style.overflow;
+  savedHtmlOverflow = document.documentElement.style.overflow;
+  savedBodyPaddingRight = document.body.style.paddingRight;
+  const scrollBarWidth = window.innerWidth - document.documentElement.clientWidth;
+  document.documentElement.classList.add('token-picker-scroll-lock');
+  document.body.classList.add('token-picker-scroll-lock');
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
+  if (scrollBarWidth > 0) {
+    document.body.style.paddingRight = `${scrollBarWidth}px`;
+  }
+}
+
+function unlockPageScroll(): void {
+  if (!bodyScrollLockActive) return;
+  bodyScrollLockActive = false;
+  document.documentElement.classList.remove('token-picker-scroll-lock');
+  document.body.classList.remove('token-picker-scroll-lock');
+  document.documentElement.style.overflow = savedHtmlOverflow;
+  document.body.style.overflow = savedBodyOverflow;
+  document.body.style.paddingRight = savedBodyPaddingRight;
+}
+
+function isInsideTokenPickerShell(target: EventTarget | null): boolean {
+  if (!dialogEl || target == null) return false;
+  const shell = dialogEl.querySelector('.token-picker-shell');
+  return Boolean(shell && target instanceof Node && shell.contains(target));
+}
+
+function preventBackgroundScroll(event: Event): void {
+  if (!dialogEl?.open) return;
+  if (isInsideTokenPickerShell(event.target)) return;
+  event.preventDefault();
+}
 
 let walletBalanceCache: { wallet: string; at: number; items: WalletBalanceListItem[] } | null = null;
 const WALLET_BALANCE_TTL_MS = 15000;
@@ -467,7 +515,34 @@ function renderWalletBalanceRow(item: WalletBalanceListItem): string {
 
 function syncWalletBalancesVisibility(): void {
   if (!walletBalancesEl) return;
-  walletBalancesEl.hidden = activeSide !== 'input' || Boolean(searchQuery.trim());
+  walletBalancesEl.hidden = activeTab !== 'wallet';
+}
+
+function syncTopTabDisabledState(): void {
+  const isSell = activeSide === 'input';
+  document.querySelectorAll('.token-picker-tab[data-tab="top"]').forEach((el) => {
+    const btn = el as HTMLButtonElement;
+    btn.disabled = isSell;
+    btn.classList.toggle('token-picker-tab--disabled', isSell);
+    btn.setAttribute('aria-disabled', isSell ? 'true' : 'false');
+  });
+}
+
+function syncPickerLayout(): void {
+  const isSell = activeSide === 'input';
+  if (dialogEl) {
+    dialogEl.classList.toggle('token-picker-dialog--sell', isSell);
+    dialogEl.classList.toggle('token-picker-dialog--buy', !isSell);
+    dialogEl.classList.toggle('token-picker-dialog--wallet-tab', activeTab === 'wallet');
+    dialogEl.classList.toggle('token-picker-dialog--list-tab', activeTab === 'top' || activeTab === 'recent');
+  }
+  if (searchWrapEl) searchWrapEl.hidden = false;
+  if (tabsEl) tabsEl.hidden = false;
+  if (shortcutsEl) shortcutsEl.hidden = false;
+  if (listWrapEl) listWrapEl.hidden = activeTab === 'wallet';
+  syncTopTabDisabledState();
+  syncWalletBalancesVisibility();
+  syncTabs();
 }
 
 async function fetchWalletBalances(wallet: string, force = false): Promise<WalletBalanceListItem[]> {
@@ -577,6 +652,16 @@ function renderWalletBalancesLoading(): string {
   </div>`;
 }
 
+function walletItemMatchesQuery(item: WalletBalanceListItem, query: string): boolean {
+  const q = query.toLowerCase();
+  const token = walletItemToTokenMeta(item);
+  return (
+    token.symbol.toLowerCase().includes(q) ||
+    token.name.toLowerCase().includes(q) ||
+    item.mintAddress.toLowerCase().includes(q)
+  );
+}
+
 async function renderWalletBalances(): Promise<void> {
   if (!walletBalancesEl || !walletBalancesListEl) return;
   syncWalletBalancesVisibility();
@@ -592,13 +677,16 @@ async function renderWalletBalances(): Promise<void> {
 
   try {
     const items = await fetchWalletBalances(wallet);
-    if (activeSide !== 'input' || searchQuery.trim()) return;
-    if (items.length === 0) {
-      walletBalancesListEl.innerHTML =
-        '<div class="token-picker-wallet-empty">Wallet does not contain any tokens</div>';
+    if (activeTab !== 'wallet') return;
+    const q = searchQuery.trim();
+    const visible = q ? items.filter((item) => walletItemMatchesQuery(item, q)) : items;
+    if (visible.length === 0) {
+      walletBalancesListEl.innerHTML = q
+        ? '<div class="token-picker-wallet-empty">No wallet tokens match your search.</div>'
+        : '<div class="token-picker-wallet-empty">Wallet does not contain any tokens</div>';
       return;
     }
-    walletBalancesListEl.innerHTML = items.map(renderWalletBalanceRow).join('');
+    walletBalancesListEl.innerHTML = visible.map(renderWalletBalanceRow).join('');
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     walletBalancesListEl.innerHTML = `<div class="token-picker-wallet-empty">${escapeHtml(message)}</div>`;
@@ -664,6 +752,10 @@ function setStatus(msg: string): void {
 
 function renderList(): void {
   if (!listEl) return;
+  if (activeTab === 'wallet') {
+    listEl.innerHTML = '';
+    return;
+  }
   const tokens = getVisibleTokens();
   if (tokens.length === 0) {
     const q = searchQuery.trim();
@@ -707,19 +799,21 @@ export function openTokenPicker(side: TokenPickerSide): void {
   if (side === 'input' && canOpenSellPickerCb && !canOpenSellPickerCb()) return;
   if (side === 'output' && canOpenBuyPickerCb && !canOpenBuyPickerCb()) return;
   activeSide = side;
-  activeTab = 'top';
+  activeTab = side === 'input' ? 'wallet' : 'top';
   searchQuery = '';
   pendingMintLookup = null;
   if (searchInputEl) searchInputEl.value = '';
-  syncTabs();
+  syncPickerLayout();
   renderShortcuts();
-  syncWalletBalancesVisibility();
-  void renderWalletBalances();
+  if (activeTab === 'wallet') void renderWalletBalances();
   renderList();
   setStatus('');
   if (typeof dialogEl.showModal === 'function') dialogEl.showModal();
   else dialogEl.setAttribute('open', '');
-  requestAnimationFrame(() => searchInputEl?.focus());
+  lockPageScroll();
+  requestAnimationFrame(() => {
+    if (!searchWrapEl?.hidden) searchInputEl?.focus();
+  });
 }
 
 export function closeTokenPicker(): void {
@@ -727,6 +821,7 @@ export function closeTokenPicker(): void {
   pendingMintLookup = null;
   if (typeof dialogEl.close === 'function') dialogEl.close();
   else dialogEl.removeAttribute('open');
+  unlockPageScroll();
 }
 
 async function onSearchInput(): Promise<void> {
@@ -750,7 +845,8 @@ async function onSearchInput(): Promise<void> {
   }
 
   renderList();
-  syncWalletBalancesVisibility();
+  if (activeTab === 'wallet') void renderWalletBalances();
+  syncPickerLayout();
 }
 
 function debouncedSearch(): void {
@@ -774,6 +870,11 @@ export function initTokenPicker(options: {
   shortcutsEl = document.getElementById('tokenPickerShortcuts');
   walletBalancesEl = document.getElementById('tokenPickerWalletBalances');
   walletBalancesListEl = document.getElementById('tokenPickerWalletBalancesList');
+  tabsEl = document.querySelector('.token-picker-tabs');
+  listWrapEl = document.querySelector('.token-picker-list-wrap');
+  searchWrapEl = document.querySelector('.token-picker-search-wrap');
+  walletTabEl = document.querySelector('.token-picker-tab[data-tab="wallet"]');
+  topTabEl = document.querySelector('.token-picker-tab[data-tab="top"]');
   statusEl = document.getElementById('tokenPickerStatus');
 
   void loadCatalog().then(() => {
@@ -795,10 +896,12 @@ export function initTokenPicker(options: {
   document.querySelectorAll('.token-picker-tab').forEach((el) => {
     el.addEventListener('click', () => {
       const tab = (el as HTMLElement).dataset.tab;
-      if (tab === 'top' || tab === 'recent') {
+      if (tab === 'top' && activeSide === 'input') return;
+      if (tab === 'top' || tab === 'recent' || tab === 'wallet') {
         activeTab = tab;
-        syncTabs();
-        renderList();
+        syncPickerLayout();
+        if (tab === 'wallet') void renderWalletBalances();
+        else renderList();
       }
     });
   });
@@ -827,7 +930,11 @@ export function initTokenPicker(options: {
 
   dialogEl?.addEventListener('close', () => {
     pendingMintLookup = null;
+    unlockPageScroll();
   });
+
+  dialogEl?.addEventListener('wheel', preventBackgroundScroll, { passive: false });
+  dialogEl?.addEventListener('touchmove', preventBackgroundScroll, { passive: false });
 }
 
 export async function ensureTokenCatalogLoaded(): Promise<void> {
