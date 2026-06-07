@@ -1942,10 +1942,38 @@ tr:hover td {
   color: #c084fc;
 }
 
+.swap-quote-summary-plus {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #71717a;
+}
+
+.swap-quote-summary-fee-part {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.15rem 0.2rem;
+}
+
+.swap-quote-summary-fee-part .swap-quote-summary-amt {
+  font-size: 0.7rem;
+}
+
+.swap-quote-summary-fee-part .swap-quote-summary-sym {
+  font-size: 0.4rem;
+}
+
+.swap-quote-summary-amt--fee {
+  color: #f87171;
+}
+
 .swap-quote-summary-sub {
   font-size: 0.7rem;
   color: #71717a;
   margin-top: 0.1rem;
+}
+
+.swap-quote-summary-tile--hero .swap-quote-summary-sub {
+  color: #86efac;
 }
 
 .swap-quote-summary-amt--placeholder {
@@ -2181,6 +2209,28 @@ tr:hover td {
   min-width: min-content;
 }
 
+.swap-quote-details-routing--scroll-fit,
+.routing-dialog-body--scroll-fit {
+  overflow-x: hidden;
+}
+
+.routing-canvas--scroll-fit {
+  zoom: 0.75;
+}
+
+@supports not (zoom: 1) {
+  .routing-canvas--scroll-fit {
+    transform: scale(0.75);
+    transform-origin: top left;
+    width: max-content;
+  }
+
+  .swap-quote-details-routing--scroll-fit,
+  .routing-dialog-body--scroll-fit {
+    overflow-x: auto;
+  }
+}
+
 .swap-quote-details-routing:has(.routing-canvas--has-fees) {
   min-height: 240px;
 }
@@ -2230,6 +2280,65 @@ tr:hover td {
   padding-left: var(--routing-endpoint-inset);
 }
 
+.routing-endpoint-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.routing-input-addon {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #f87171;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.routing-input-total {
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: #a1a1aa;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.routing-input-total__val {
+  color: #86efac;
+  font-weight: 600;
+}
+
+.routing-endpoint--out .routing-endpoint-stack {
+  align-items: center;
+}
+
+.routing-output-addon {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #f87171;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.routing-output-usd {
+  font-size: 0.625rem;
+  font-weight: 500;
+  color: #a1a1aa;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.routing-output-usd__val {
+  color: #86efac;
+  font-weight: 600;
+}
+
 .routing-endpoint--out {
   justify-content: flex-end;
   padding-right: var(--routing-endpoint-inset);
@@ -2239,6 +2348,7 @@ tr:hover td {
   position: static;
   transform: none;
   max-width: 100%;
+  max-height: 40px;
 }
 
 .routing-pill {
@@ -2280,7 +2390,7 @@ tr:hover td {
   width: 100%;
   height: var(--routing-junction-y);
   pointer-events: none;
-  z-index: 0;
+  z-index: 2;
 }
 
 .routing-corner {
@@ -2289,6 +2399,7 @@ tr:hover td {
   height: 100%;
   width: var(--routing-corner-r);
   box-sizing: border-box;
+  background: #09090b;
 }
 
 .routing-corner--in {
@@ -2297,6 +2408,7 @@ tr:hover td {
   border-left: 1px solid #3f3f46;
   border-bottom: 1px solid #3f3f46;
   border-bottom-left-radius: var(--routing-corner-r);
+  border-right: none;
 }
 
 .routing-corner--out {
@@ -2305,6 +2417,7 @@ tr:hover td {
   border-right: 1px solid #3f3f46;
   border-bottom: 1px solid #3f3f46;
   border-bottom-right-radius: var(--routing-corner-r);
+  border-left: none;
 }
 
 .routing-stem {
@@ -2333,6 +2446,7 @@ tr:hover td {
 }
 
 .routing-rail-row {
+  --routing-chip-gap: 1.35rem;
   display: flex;
   align-items: flex-start;
   width: 100%;
@@ -2353,12 +2467,13 @@ tr:hover td {
 }
 
 .routing-rail-tail {
-  flex: 1 1 2rem;
-  min-width: 1.25rem;
+  flex: 1 1 0;
+  min-width: var(--routing-chip-gap);
   height: 0;
   margin-top: var(--routing-rail-y);
   position: relative;
   z-index: 0;
+  align-self: flex-start;
 }
 
 .routing-canvas--split .routing-path {
@@ -2427,8 +2542,8 @@ tr:hover td {
 
 .routing-hop-link {
   position: relative;
-  flex: 1 1 2.5rem;
-  min-width: 2rem;
+  flex: 1 1 0;
+  min-width: calc(var(--routing-chip-gap) * 2 + 2.25rem);
   height: 1.1rem;
   margin-top: calc(var(--routing-rail-y) - 0.55rem);
   display: flex;
@@ -2445,7 +2560,7 @@ tr:hover td {
 .routing-rail-row:has(.routing-hop-link--out) .routing-hop-link--in,
 .routing-rail-row:has(.routing-hop-link--out) .routing-hop-link--out {
   flex: 1 1 0;
-  min-width: 1.5rem;
+  min-width: calc(var(--routing-chip-gap) * 2 + 2.25rem);
 }
 
 .routing-hop-link-line {
@@ -2455,6 +2570,7 @@ tr:hover td {
 .routing-pct-badge {
   position: relative;
   z-index: 2;
+  flex: 0 0 auto;
   font-size: 0.625rem;
   font-weight: 600;
   color: #86efac;
@@ -2509,14 +2625,14 @@ tr:hover td {
 
 .routing-canvas--hops-3 .routing-hop-link,
 .routing-canvas--hops-many .routing-hop-link {
-  flex: 1 1 1.15rem;
-  min-width: 0.65rem;
+  flex: 1 1 0;
+  min-width: calc(var(--routing-chip-gap) * 2 + 2.25rem);
 }
 
 .routing-canvas--hops-3 .routing-rail-tail,
 .routing-canvas--hops-many .routing-rail-tail {
-  flex: 1 1 1.15rem;
-  min-width: 0.65rem;
+  flex: 1 1 0;
+  min-width: var(--routing-chip-gap);
 }
 
 .routing-pill--hop {
@@ -2575,7 +2691,7 @@ tr:hover td {
 }
 
 .routing-fee-branch {
-  --routing-fee-connector-h: 4.5rem;
+  --routing-fee-connector-h: 2.7rem;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2625,6 +2741,21 @@ tr:hover td {
   gap: 0.35rem;
 }
 
+.routing-fee-chip-group {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.routing-fee-chip-connector {
+  width: 1px;
+  height: 0.55rem;
+  background: #3f3f46;
+  flex-shrink: 0;
+  margin: 0.12rem 0;
+}
+
 .swap-hop-fee-chips {
   display: flex;
   flex-wrap: wrap;
@@ -2638,20 +2769,24 @@ tr:hover td {
   align-items: flex-start;
 }
 
+.routing-chip-stack--fee-token-acc-rent,
 .routing-chip-stack--fee-pda-rent {
-  margin-top: 0.1rem;
+  margin-top: 0;
 }
 
+.routing-chip-stack--fee-token-acc-rent .routing-chip-top--fee-label,
 .routing-chip-stack--fee-pda-rent .routing-chip-top--fee-label {
   color: #fbbf24;
   white-space: normal;
   max-width: 8rem;
 }
 
+.routing-chip-bottom--token-acc-rent,
 .routing-chip-bottom--pda-rent {
   color: #fcd34d;
 }
 
+.routing-chip-stack--fee-token-acc-rent .routing-chip-amt--usd,
 .routing-chip-stack--fee-pda-rent .routing-chip-amt--usd {
   color: #fde68a;
 }

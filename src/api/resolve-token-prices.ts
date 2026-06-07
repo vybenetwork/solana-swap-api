@@ -141,6 +141,30 @@ function pickResolveMode(
   return 'refresh-price';
 }
 
+const STABLECOIN_MINTS = new Set([
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+]);
+const STABLECOIN_USD_PRICE = 1;
+
+function stablecoinFallbackStats(
+  mint: string,
+  hint: TokenPriceHint | undefined,
+  disk: CachedTokenMeta | null,
+): TokenPriceStats | null {
+  if (!STABLECOIN_MINTS.has(mint)) return null;
+  const decimals = hint?.decimals ?? disk?.decimals ?? 6;
+  if (typeof decimals !== 'number' || !Number.isFinite(decimals)) return null;
+  return statsFromEntry({
+    price: STABLECOIN_USD_PRICE,
+    price1d: hint?.price1d ?? disk?.price1d,
+    price7d: hint?.price7d ?? disk?.price7d,
+    decimals,
+    priceFetchedAt: Date.now(),
+    priceUpdateTime: hint?.priceUpdateTime ?? disk?.priceUpdateTime,
+  });
+}
+
 function vybeToStats(token: VybeToken, fetchedAt: number): TokenPriceStats | null {
   const decimals = vybeDecimals(token);
   const price = typeof token.price === 'number' ? token.price : undefined;
@@ -177,7 +201,10 @@ export async function resolveTokenPrices(
       const mode = pickResolveMode(mint, hint, disk, forceSet.has(mint));
 
       if (mode === 'cached') {
-        const cached = (hint ? hintToStats(hint) : null) ?? (disk ? diskToStats(disk) : null);
+        const cached =
+          (hint ? hintToStats(hint) : null) ??
+          (disk ? diskToStats(disk) : null) ??
+          stablecoinFallbackStats(mint, hint, disk);
         if (cached) stats[mint] = cached;
         return;
       }
@@ -214,9 +241,20 @@ export async function resolveTokenPrices(
         }
 
         const resolved = vybeToStats(token, fetchedAt);
-        if (resolved) stats[mint] = resolved;
+        if (resolved) {
+          stats[mint] = resolved;
+        } else {
+          const fallback =
+            hintToStats(hint ?? {}) ??
+            (disk ? diskToStats(disk) : null) ??
+            stablecoinFallbackStats(mint, hint, disk);
+          if (fallback) stats[mint] = fallback;
+        }
       } catch {
-        const fallback = hintToStats(hint ?? {}) ?? (disk ? diskToStats(disk) : null);
+        const fallback =
+          hintToStats(hint ?? {}) ??
+          (disk ? diskToStats(disk) : null) ??
+          stablecoinFallbackStats(mint, hint, disk);
         if (fallback) stats[mint] = fallback;
       }
     }),
@@ -226,6 +264,12 @@ export async function resolveTokenPrices(
     const vybeMint = toVybeSwapMint(originalMint);
     if (stats[vybeMint] && !stats[originalMint]) {
       stats[originalMint] = stats[vybeMint]!;
+    }
+    if (!stats[originalMint]) {
+      const hint = hints[originalMint];
+      const disk = getCachedTokenMetaFromDisk(originalMint);
+      const fallback = stablecoinFallbackStats(originalMint, hint, disk);
+      if (fallback) stats[originalMint] = fallback;
     }
   }
 

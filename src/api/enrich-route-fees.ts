@@ -10,7 +10,7 @@ export interface HopFeeItem {
   label: string;
   amountRaw: string;
   mint: string;
-  /** One-time SOL rent to open a fee PDA (Jupiter/Titan aggregators). */
+  /** @deprecated Token acc rent is a sibling item; kept for older enriched quotes. */
   pdaRent?: {
     label: string;
     amountRaw: string;
@@ -162,20 +162,19 @@ function applyHopFees(
   return enriched;
 }
 
-function attachAggregatorPdaRent(items: HopFeeItem[], pdaRentLamports: bigint, router?: string): void {
-  if (pdaRentLamports <= 0n || !router) return;
+function attachAggregatorTokenAccRent(
+  items: HopFeeItem[],
+  rentLamports: bigint,
+  router?: string,
+): void {
+  if (rentLamports <= 0n || !router) return;
   const id = router.trim().toLowerCase();
   if (id !== 'jupiter' && id !== 'titan') return;
-  const target =
-    items.find((it) => it.label === 'Route fee') ??
-    items.find((it) => it.label === 'Protocol fee') ??
-    items[items.length - 1];
-  if (!target) return;
-  target.pdaRent = {
-    label: 'PDA Rent',
-    amountRaw: pdaRentLamports.toString(),
+  items.push({
+    label: 'Acc Rent Fee',
+    amountRaw: rentLamports.toString(),
     mint: WSOL_MINT,
-  };
+  });
 }
 
 /**
@@ -290,7 +289,7 @@ export function enrichRoutePlanFees(
         });
       }
 
-      attachAggregatorPdaRent(items, pdaRentLamports, opts?.router ?? build.provider);
+      attachAggregatorTokenAccRent(items, pdaRentLamports, opts?.router ?? build.provider);
 
       const hopQuotedStr = hopQuotedOut.toString();
       const netStr = simulatedOut != null ? simulatedOut.toString() : undefined;
