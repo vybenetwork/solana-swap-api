@@ -2524,6 +2524,184 @@ tr:hover td {
   white-space: nowrap;
 }
 
+.routing-canvas--has-fees .routing-path {
+  min-height: 7.25rem;
+  padding-bottom: 0.35rem;
+}
+
+.routing-canvas--has-fees .routing-rail-row {
+  min-height: 4.5rem;
+}
+
+.routing-market-node--has-fees {
+  margin-bottom: 0.15rem;
+  min-width: 5.5rem;
+  max-width: 8.75rem;
+}
+
+.routing-fee-branch {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  margin-top: 0.35rem;
+  position: relative;
+  z-index: 0;
+}
+
+.routing-fee-fork {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  margin-bottom: 0.3rem;
+}
+
+.routing-fee-fork-stem {
+  display: block;
+  width: 2px;
+  height: 0.65rem;
+  background: linear-gradient(180deg, #52525b 0%, #3f3f46 100%);
+  border-radius: 1px;
+}
+
+.routing-fee-fork-hub {
+  display: block;
+  width: 0.42rem;
+  height: 0.42rem;
+  margin-top: -0.08rem;
+  border-radius: 50%;
+  background: #27272a;
+  border: 2px solid #52525b;
+  box-shadow: 0 0 0 2px rgba(9, 9, 11, 0.85);
+}
+
+.routing-fee-cards {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
+  width: 100%;
+  max-width: 8.5rem;
+}
+
+.routing-fee-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  padding: 0.38rem 0.45rem 0.42rem;
+  border-radius: 0.55rem;
+  border: 1px solid #3f3f46;
+  background: linear-gradient(165deg, rgba(39, 39, 42, 0.95) 0%, rgba(24, 24, 27, 0.98) 100%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.03) inset,
+    0 4px 14px rgba(0, 0, 0, 0.28);
+  text-align: left;
+  border-left-width: 3px;
+}
+
+.routing-fee-card--protocol {
+  border-left-color: #f59e0b;
+}
+
+.routing-fee-card--route {
+  border-left-color: #f87171;
+}
+
+.routing-fee-card--pool {
+  border-left-color: #60a5fa;
+}
+
+.routing-fee-card--other {
+  border-left-color: #a1a1aa;
+}
+
+.routing-fee-card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.routing-fee-card-dot {
+  flex: 0 0 auto;
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.85;
+}
+
+.routing-fee-card--protocol .routing-fee-card-dot {
+  color: #f59e0b;
+}
+
+.routing-fee-card--route .routing-fee-card-dot {
+  color: #f87171;
+}
+
+.routing-fee-card--pool .routing-fee-card-dot {
+  color: #60a5fa;
+}
+
+.routing-fee-card--other .routing-fee-card-dot {
+  color: #a1a1aa;
+}
+
+.routing-fee-card-type {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #a1a1aa;
+  text-transform: capitalize;
+}
+
+.routing-fee-card-amt--primary {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: #fca5a5;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.routing-fee-card-sym {
+  font-weight: 600;
+  color: #fda4af;
+}
+
+.routing-fee-card-equiv {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding-top: 0.08rem;
+  border-top: 1px solid rgba(63, 63, 70, 0.65);
+}
+
+.routing-fee-card-line {
+  font-size: 0.6rem;
+  line-height: 1.3;
+  color: #71717a;
+}
+
+.routing-fee-card-line--input {
+  color: #a1a1aa;
+}
+
+.routing-fee-card-line--usd {
+  color: #86efac;
+  font-weight: 500;
+}
+
+.routing-canvas--hops-3 .routing-fee-cards,
+.routing-canvas--hops-many .routing-fee-cards {
+  max-width: 7.5rem;
+}
+
+.routing-canvas--hops-3 .routing-market-node--has-fees,
+.routing-canvas--hops-many .routing-market-node--has-fees {
+  min-width: 4.75rem;
+  max-width: 7.25rem;
+}
+
 .routing-split-board {
   display: flex;
   flex-direction: column;

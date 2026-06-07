@@ -18,6 +18,9 @@ import {
 } from './token-icon-cache.js';
 import { Connection } from '@solana/web3.js';
 import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
+import { simulateSwapOutputRaw } from './api/simulate-swap-output.js';
+import { enrichRoutePlanFees } from './api/enrich-route-fees.js';
+import type { VybeRoutePlanStep } from './types/swap.js';
 
 loadEnv();
 const apiKey = getApiKey();
@@ -378,6 +381,28 @@ app.post('/api/trading/vybe-quote', async (req: Request, res: Response) => {
   }
 });
 
+function parseRoutePlanFromBody(body: Record<string, unknown>): VybeRoutePlanStep[] {
+  if (!Array.isArray(body.routePlan)) return [];
+  return body.routePlan.map((step) => {
+    const s = step as Record<string, unknown>;
+    const si = (s.swapInfo ?? {}) as Record<string, unknown>;
+    return {
+      percent: Number(s.percent ?? 100),
+      bps: s.bps != null ? Number(s.bps) : null,
+      swapInfo: {
+        ammKey: String(si.ammKey ?? ''),
+        label: String(si.label ?? ''),
+        inputMintAddress: String(si.inputMintAddress ?? si.inputMint ?? ''),
+        outputMintAddress: String(si.outputMintAddress ?? si.outputMint ?? ''),
+        inAmount: String(si.inAmount ?? '0'),
+        outAmount: String(si.outAmount ?? '0'),
+        feeAmount: String(si.feeAmount ?? '0'),
+        feeMintAddress: String(si.feeMintAddress ?? si.inputMintAddress ?? si.inputMint ?? ''),
+      },
+    };
+  });
+}
+
 /** POST /api/trading/swap — Vybe POST /v4/trading/swap */
 app.post('/api/trading/swap', async (req: Request, res: Response) => {
   try {
@@ -389,7 +414,31 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
       parsed.router === 'vybe'
         ? await client.buildSwapWithFallback(parsed)
         : await client.buildSwap(parsed);
-    res.json(data);
+
+    const buildTx = data.tx ?? data.transaction;
+    let simulatedOutRaw: string | null = null;
+    if (typeof buildTx === 'string' && buildTx.length > 0) {
+      simulatedOutRaw = await simulateSwapOutputRaw(
+        buildTx,
+        parsed.accountAddress,
+        parsed.outputMintAddress,
+      );
+    }
+
+    const routePlan = parseRoutePlanFromBody(body);
+    const feeEnrichment = enrichRoutePlanFees(
+      routePlan,
+      data,
+      simulatedOutRaw,
+      parsed.outputMintAddress,
+    );
+
+    res.json({
+      ...data,
+      _feeEnrichment: feeEnrichment,
+      _simulatedOutAmount: simulatedOutRaw,
+      _quotedOutAmount: feeEnrichment.quotedOutRaw,
+    });
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
     res.status(status).json({ error: toHumanReadableError(err) });

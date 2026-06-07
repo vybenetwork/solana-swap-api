@@ -12,6 +12,8 @@ import {
 } from './resolve-token-prices.js';
 import type { VybeSwapQuote, VybeSwapBuildResponse, VybeRoutePlanStep } from '../types/swap.js';
 import { assertWalletHasSellAmount } from './wallet-balance.js';
+import { simulateSwapOutputRaw } from './simulate-swap-output.js';
+import { enrichRoutePlanFees } from './enrich-route-fees.js';
 import { NATIVE_SOL_MINT, toVybeSwapMint } from './sol-mints.js';
 
 /** Wrapped SOL mint — Vybe TokenInformationCH symbol is `wSOL` for this address. */
@@ -122,10 +124,14 @@ function synthesizeQuoteFromBuild(
   outputMint: string,
   inputStats: TokenPriceStats,
   outputStats: TokenPriceStats,
+  effectiveOutAmount?: string,
 ): VybeSwapQuote {
   const inAmount = build.details.quote.inAmount;
-  const outAmount = build.details.quote.outAmount;
+  const quotedOutAmount = build.details.quote.outAmount;
+  const outAmount = effectiveOutAmount ?? quotedOutAmount;
   const slippagePct = build.slippage ?? params.slippage ?? 0.5;
+  const outputFromSimulation =
+    effectiveOutAmount != null && effectiveOutAmount !== quotedOutAmount;
 
   const outAmountUi = rawToUi(outAmount, outputStats.decimals);
   const otherAmountThreshold = applySlippageThreshold(outAmount, slippagePct);
@@ -144,6 +150,29 @@ function synthesizeQuoteFromBuild(
   const providerLabel = build.provider ?? build.details.quote.provider ?? 'Vybe';
   const poolKey = params.poolAddress?.trim() || 'vybe';
 
+  const baseRoutePlan: VybeRoutePlanStep[] = [
+    {
+      percent: 100,
+      bps: null,
+      swapInfo: {
+        ammKey: poolKey,
+        label: providerLabel,
+        inputMintAddress: inputMint,
+        outputMintAddress: outputMint,
+        inAmount,
+        outAmount: quotedOutAmount,
+        feeAmount: '0',
+        feeMintAddress: inputMint,
+      },
+    },
+  ];
+  const feeEnrichment = enrichRoutePlanFees(
+    baseRoutePlan,
+    build,
+    outputFromSimulation ? outAmount : null,
+    outputMint,
+  );
+
   return {
     inputMintAddress: inputMint,
     inAmount,
@@ -152,22 +181,7 @@ function synthesizeQuoteFromBuild(
     otherAmountThreshold,
     swapMode: 'ExactIn',
     priceImpactPct,
-    routePlan: [
-      {
-        percent: 100,
-        bps: null,
-        swapInfo: {
-          ammKey: poolKey,
-          label: providerLabel,
-          inputMintAddress: inputMint,
-          outputMintAddress: outputMint,
-          inAmount,
-          outAmount,
-          feeAmount: '0',
-          feeMintAddress: inputMint,
-        },
-      },
-    ],
+    routePlan: feeEnrichment.routePlan,
     outAmountUi,
     otherAmountThresholdUi,
     swapRate,
@@ -178,6 +192,12 @@ function synthesizeQuoteFromBuild(
     _outputPriceUsd: outputStats.price,
     _priceUpdateTime: inputStats.priceUpdateTime,
     _buildRouter: build.provider,
+    _quotedOutAmount: quotedOutAmount,
+    _outputFromSimulation: outputFromSimulation,
+    _swapFee: build.details.swapFee,
+    _swapFeePct: feeEnrichment.swapFeePct,
+    _totalFeeRaw: feeEnrichment.totalFeeRaw,
+    _simulatedOutAmount: feeEnrichment.simulatedOutRaw,
   };
 }
 
@@ -265,10 +285,27 @@ export async function buildVybeQuoteFromPriceAndSwap(
 
   try {
     const build = await buildSwapWithFallback(http, { ...vybeParams, router: params.router ?? 'vybe' });
+    const buildTx = build.tx ?? build.transaction;
+    let simulatedOutRaw: string | null = null;
+    if (typeof buildTx === 'string' && buildTx.length > 0) {
+      simulatedOutRaw = await simulateSwapOutputRaw(
+        buildTx,
+        params.accountAddress,
+        outputMint,
+      );
+    }
     const selected = normalizeRouterId(params.router ?? 'vybe');
     const effective = normalizeRouterId(build.provider ?? selected);
     const quote = attachRouterMetadata(
-      synthesizeQuoteFromBuild(vybeParams, build, vybeInputMint, outputMint, inputStats, outputStats),
+      synthesizeQuoteFromBuild(
+        vybeParams,
+        build,
+        vybeInputMint,
+        outputMint,
+        inputStats,
+        outputStats,
+        simulatedOutRaw ?? undefined,
+      ),
       selected,
       effective,
       effective !== selected,

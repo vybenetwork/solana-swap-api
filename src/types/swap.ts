@@ -53,6 +53,7 @@ export interface VybeSwapDetails {
   quote: {
     inAmount: string;
     outAmount: string;
+    minOutAmount?: string;
     provider: string;
   };
 }
