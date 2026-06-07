@@ -4,6 +4,7 @@
  */
 
 import type { VybeRoutePlanStep, VybeSwapBuildResponse } from '../types/swap.js';
+import type { TokenAccRentEntry, EmbeddedPoolFeeEntry } from './simulate-swap-output.js';
 import { WSOL_MINT, isSolMint } from './sol-mints.js';
 
 export interface HopFeeItem {
@@ -171,6 +172,164 @@ function attachAggregatorTokenAccRent(items: HopFeeItem[], rentLamports: bigint)
   });
 }
 
+function mintMatches(a: string | undefined, b: string | undefined): boolean {
+  const left = a?.trim() ?? '';
+  const right = b?.trim() ?? '';
+  if (!left || !right) return false;
+  return left === right || (isSolMint(left) && isSolMint(right));
+}
+
+function findHopIndexForRentMint(plan: VybeRoutePlanStep[], mint: string): number {
+  const target = mint.trim();
+  if (isSolMint(target)) {
+    for (let i = 0; i < plan.length; i++) {
+      if (isSolMint(plan[i]!.swapInfo?.inputMintAddress)) return i;
+    }
+    return 0;
+  }
+  for (let i = 0; i < plan.length; i++) {
+    if (mintMatches(plan[i]!.swapInfo?.outputMintAddress, target)) return i;
+  }
+  for (let i = 0; i < plan.length; i++) {
+    if (mintMatches(plan[i]!.swapInfo?.inputMintAddress, target)) return i;
+  }
+  return Math.max(0, plan.length - 1);
+}
+
+function feeAmountLooksLikeProtocolFee(
+  feeAmount: string,
+  outAmount: string,
+  swapFeePct: number | null,
+): boolean {
+  if (!feeAmount || feeAmount === '0' || swapFeePct == null) return false;
+  try {
+    const fee = BigInt(feeAmount);
+    const out = BigInt(outAmount);
+    const expected = pctFeeRaw(out, swapFeePct);
+    if (expected <= 0n || fee <= 0n) return false;
+    const diff = fee > expected ? fee - expected : expected - fee;
+    return diff <= expected / 100n + 1n;
+  } catch {
+    return false;
+  }
+}
+
+function attachFirstHopInputSideFees(
+  items: HopFeeItem[],
+  inAmountRaw: string,
+  inputMint: string,
+  walletPayDebitRaw: string | null | undefined,
+  swapFeePct: number | null,
+  rentLamports: bigint,
+): void {
+  if (!walletPayDebitRaw || !inAmountRaw || !inputMint.trim()) return;
+  let pay: bigint;
+  let swap: bigint;
+  try {
+    pay = BigInt(walletPayDebitRaw);
+    swap = BigInt(inAmountRaw);
+  } catch {
+    return;
+  }
+  if (pay <= swap) return;
+
+  let extra = pay - swap;
+  if (rentLamports > 0n && extra >= rentLamports) extra -= rentLamports;
+  if (extra <= 0n) return;
+
+  const feeMint = isSolMint(inputMint) ? WSOL_MINT : inputMint.trim();
+  const protocolOnInput = swapFeePct != null ? pctFeeRaw(swap, swapFeePct) : 0n;
+  if (protocolOnInput > 0n && protocolOnInput <= extra) {
+    items.push({
+      label: 'Protocol fee',
+      amountRaw: protocolOnInput.toString(),
+      mint: feeMint,
+    });
+    extra -= protocolOnInput;
+  }
+  if (extra > 0n) {
+    items.push({
+      label: 'Route fee',
+      amountRaw: extra.toString(),
+      mint: feeMint,
+    });
+  }
+}
+
+function buildEmbeddedPoolFeeByHopIndex(
+  entries: EmbeddedPoolFeeEntry[] | undefined,
+): Map<number, { amountRaw: bigint; mint: string }> {
+  const byHop = new Map<number, { amountRaw: bigint; mint: string }>();
+  for (const entry of entries ?? []) {
+    if (!entry.amountRaw || !/^\d+$/.test(entry.amountRaw)) continue;
+    try {
+      const amountRaw = BigInt(entry.amountRaw);
+      if (amountRaw <= 0n) continue;
+      byHop.set(entry.hopIndex, { amountRaw, mint: entry.mint.trim() });
+    } catch {
+      /* skip */
+    }
+  }
+  return byHop;
+}
+
+function inferInterHopFeeRaw(
+  step: VybeRoutePlanStep,
+  nextStep: VybeRoutePlanStep | undefined,
+): { amountRaw: bigint; mint: string } | null {
+  if (!nextStep) return null;
+  const outMint = step.swapInfo?.outputMintAddress?.trim();
+  const inMint = nextStep.swapInfo?.inputMintAddress?.trim();
+  if (!outMint || !inMint || !mintMatches(outMint, inMint)) return null;
+  try {
+    const outRaw = step.swapInfo?.outAmount?.trim();
+    const inRaw = nextStep.swapInfo?.inAmount?.trim();
+    if (!outRaw || !/^\d+$/.test(outRaw) || !inRaw || !/^\d+$/.test(inRaw)) return null;
+    const out = BigInt(outRaw);
+    const inn = BigInt(inRaw);
+    if (out > inn && inn > 0n) return { amountRaw: out - inn, mint: outMint };
+  } catch {
+    /* skip */
+  }
+  return null;
+}
+
+function sumFeesInMint(items: HopFeeItem[], mint: string): bigint {
+  return items.reduce((sum, item) => {
+    if (item.label === 'Acc Rent Fee') return sum;
+    if (!mintMatches(item.mint, mint)) return sum;
+    try {
+      return sum + BigInt(item.amountRaw);
+    } catch {
+      return sum;
+    }
+  }, 0n);
+}
+
+function buildRentByHopIndex(
+  plan: VybeRoutePlanStep[],
+  outputMint: string,
+  opts?: { pdaRentLamports?: bigint; tokenAccRentByMint?: TokenAccRentEntry[] },
+): Map<number, bigint> {
+  const byHop = new Map<number, bigint>();
+  const entries = opts?.tokenAccRentByMint ?? [];
+  if (entries.length > 0) {
+    for (const entry of entries) {
+      if (entry.lamports <= 0n) continue;
+      const hopIdx = findHopIndexForRentMint(plan, entry.mint);
+      byHop.set(hopIdx, (byHop.get(hopIdx) ?? 0n) + entry.lamports);
+    }
+    return byHop;
+  }
+
+  const aggregate = opts?.pdaRentLamports ?? 0n;
+  if (aggregate > 0n) {
+    const hopIdx = findHopIndexForRentMint(plan, outputMint);
+    byHop.set(hopIdx, aggregate);
+  }
+  return byHop;
+}
+
 /**
  * Enrich route-plan hops with protocol/route/pool fees using build quote + optional simulation.
  */
@@ -179,7 +338,14 @@ export function enrichRoutePlanFees(
   build: VybeSwapBuildResponse,
   simulatedOutRaw: string | null,
   outputMint: string,
-  opts?: { pdaRentLamports?: bigint; router?: string },
+  opts?: {
+    pdaRentLamports?: bigint;
+    tokenAccRentByMint?: TokenAccRentEntry[];
+    embeddedPoolFeesByHop?: EmbeddedPoolFeeEntry[];
+    router?: string;
+    walletPayDebitRaw?: string | null;
+    inputMint?: string;
+  },
 ): RouteFeeEnrichment {
   const quotedOutRaw = build.details.quote.outAmount?.trim() || '0';
   let quotedOut = 0n;
@@ -223,7 +389,13 @@ export function enrichRoutePlanFees(
     });
   }
 
+  const inAmountRaw = build.details.quote.inAmount?.trim() || '';
+  const inputMint = opts?.inputMint?.trim() || build.details.inputMintAddress?.trim() || '';
+  const walletPayDebitRaw = opts?.walletPayDebitRaw ?? null;
+
   const lastIdx = basePlan.length - 1;
+  const rentByHopIdx = buildRentByHopIndex(basePlan, outputMint, opts);
+  const embeddedPoolByHop = buildEmbeddedPoolFeeByHopIndex(opts?.embeddedPoolFeesByHop);
   const enrichedPlan: RoutePlanStepWithFees[] = [];
 
   for (let i = 0; i < basePlan.length; i++) {
@@ -231,33 +403,95 @@ export function enrichRoutePlanFees(
     const si = step.swapInfo;
     const items: HopFeeItem[] = [];
     const isLast = i === lastIdx;
+    const nextStep = isLast ? undefined : basePlan[i + 1];
+    const hopRent = rentByHopIdx.get(i) ?? 0n;
+    const hopQuotedOutForFee = hopQuotedOutRaw(step, isLast ? quotedOut : 0n);
+    const hopProtocolFeeEstimate =
+      swapFeePct != null && hopQuotedOutForFee > 0n
+        ? pctFeeRaw(hopQuotedOutForFee, swapFeePct)
+        : 0n;
 
     if (si.feeAmount && si.feeAmount !== '0') {
-      items.push({
-        label: 'Pool fee',
-        amountRaw: si.feeAmount,
-        mint: si.feeMintAddress || si.outputMintAddress || outputMint,
-      });
+      let skipJupiterFeeAmount = false;
+      if (isLast && hopRent > 0n && hopProtocolFeeEstimate > 0n) {
+        try {
+          const jupiterFee = BigInt(si.feeAmount);
+          // Jupiter sometimes bundles output-mint protocol fee + SOL acc rent into feeAmount (SOL mint).
+          if (jupiterFee === hopProtocolFeeEstimate + hopRent) skipJupiterFeeAmount = true;
+        } catch {
+          /* keep feeAmount */
+        }
+      }
+
+      if (!skipJupiterFeeAmount) {
+        const hopOut = si.outAmount?.trim() || (isLast ? quotedOutRaw : '');
+        const isProtocol =
+          isLast && feeAmountLooksLikeProtocolFee(si.feeAmount, hopOut, swapFeePct);
+        items.push({
+          label: isProtocol ? 'Protocol fee' : 'Pool fee',
+          amountRaw: si.feeAmount,
+          mint: si.feeMintAddress || si.outputMintAddress || outputMint,
+        });
+      }
+    }
+
+    if (i === 0 && inputMint) {
+      attachFirstHopInputSideFees(
+        items,
+        inAmountRaw,
+        inputMint,
+        walletPayDebitRaw,
+        swapFeePct,
+        rentByHopIdx.get(0) ?? 0n,
+      );
+    }
+
+    if (!isLast && (!si.feeAmount || si.feeAmount === '0')) {
+      const embedded = embeddedPoolByHop.get(i);
+      if (embedded && embedded.amountRaw > 0n) {
+        const hasPoolInMint = items.some(
+          (it) => it.label === 'Pool fee' && mintMatches(it.mint, embedded.mint),
+        );
+        if (!hasPoolInMint) {
+          items.push({
+            label: 'Pool fee',
+            amountRaw: embedded.amountRaw.toString(),
+            mint: embedded.mint,
+          });
+        }
+      }
+    }
+
+    const inferred = inferInterHopFeeRaw(step, nextStep);
+    if (inferred && inferred.amountRaw > 0n) {
+      const hasPoolInMint = items.some(
+        (it) => it.label === 'Pool fee' && mintMatches(it.mint, inferred.mint),
+      );
+      if (!hasPoolInMint) {
+        items.push({
+          label: 'Pool fee',
+          amountRaw: inferred.amountRaw.toString(),
+          mint: inferred.mint,
+        });
+      }
     }
 
     if (isLast) {
       const hopQuotedOut = hopQuotedOutRaw(step, quotedOut);
       const hopProtocolFee = swapFeePct != null ? pctFeeRaw(hopQuotedOut, swapFeePct) : 0n;
+      const hasProtocol = items.some((it) => it.label === 'Protocol fee');
 
-      if (hopProtocolFee > 0n) {
-        const hasProtocol = items.some((it) => it.label === 'Protocol fee');
-        if (!hasProtocol) {
-          items.push({
-            label: 'Protocol fee',
-            amountRaw: hopProtocolFee.toString(),
-            mint: si.outputMintAddress || outputMint,
-          });
-        }
+      if (hopProtocolFee > 0n && !hasProtocol) {
+        items.push({
+          label: 'Protocol fee',
+          amountRaw: hopProtocolFee.toString(),
+          mint: si.outputMintAddress || outputMint,
+        });
       }
 
       if (totalFeeRaw != null) {
         const totalFee = BigInt(totalFeeRaw);
-        const accounted = sumFeeItems(items);
+        const accounted = sumFeeItems(items.filter((it) => it.label !== 'Acc Rent Fee'));
         const routeExtra = totalFee > accounted ? totalFee - accounted : 0n;
         if (routeExtra > 0n) {
           items.push({
@@ -273,33 +507,39 @@ export function enrichRoutePlanFees(
           mint: si.outputMintAddress || outputMint,
         });
       }
-
-      const pdaRentLamports = opts?.pdaRentLamports ?? 0n;
-      if (items.length === 0 && pdaRentLamports > 0n) {
-        items.push({
-          label: 'Route fee',
-          amountRaw: '0',
-          mint: WSOL_MINT,
-        });
-      }
-
-      attachAggregatorTokenAccRent(items, pdaRentLamports);
-
-      const hopQuotedStr = hopQuotedOut.toString();
-      const netStr = simulatedOut != null ? simulatedOut.toString() : undefined;
-      if (isLast && si.outAmount !== hopQuotedStr) {
-        si.outAmount = hopQuotedStr;
-      }
-      enrichedPlan.push(
-        applyHopFees(step, items, {
-          quotedOutRaw: hopQuotedStr,
-          netOutRaw: netStr,
-        }),
-      );
-      continue;
     }
 
-    enrichedPlan.push(applyHopFees(step, items, {}));
+    if (items.length === 0 && hopRent > 0n) {
+      items.push({
+        label: 'Route fee',
+        amountRaw: '0',
+        mint: WSOL_MINT,
+      });
+    }
+    attachAggregatorTokenAccRent(items, hopRent);
+
+    const hopQuotedOut = hopQuotedOutRaw(step, isLast ? quotedOut : 0n);
+    const hopQuotedStr =
+      hopQuotedOut > 0n ? hopQuotedOut.toString() : si.outAmount?.trim() || undefined;
+    const outMint = si.outputMintAddress || outputMint;
+    const feeInOutMint = sumFeesInMint(items, outMint);
+    let netOutRaw: string | undefined;
+    if (isLast) {
+      netOutRaw = simulatedOut != null ? simulatedOut.toString() : undefined;
+    } else if (hopQuotedOut > feeInOutMint && feeInOutMint > 0n) {
+      netOutRaw = (hopQuotedOut - feeInOutMint).toString();
+    }
+
+    if (isLast && hopQuotedStr && si.outAmount !== hopQuotedStr) {
+      si.outAmount = hopQuotedStr;
+    }
+
+    enrichedPlan.push(
+      applyHopFees(step, items, {
+        quotedOutRaw: hopQuotedStr,
+        netOutRaw,
+      }),
+    );
   }
 
   return {
@@ -310,6 +550,6 @@ export function enrichRoutePlanFees(
     swapFeePct,
     swapFeeRaw: build.details.swapFee ?? null,
     outputFromSimulation: simulatedOut != null && simulatedOut !== quotedOut,
-    walletPayDebitRaw: null,
+    walletPayDebitRaw,
   };
 }

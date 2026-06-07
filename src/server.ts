@@ -18,7 +18,7 @@ import {
 } from './token-icon-cache.js';
 import { Connection } from '@solana/web3.js';
 import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
-import { simulateSwapEffects } from './api/simulate-swap-output.js';
+import { simulateSwapEffects, type TokenAccRentEntry, type EmbeddedPoolFeeEntry } from './api/simulate-swap-output.js';
 import { enrichRoutePlanFees, estimateWalletPayDebitRaw } from './api/enrich-route-fees.js';
 import type { VybeRoutePlanStep } from './types/swap.js';
 
@@ -415,38 +415,52 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
         ? await client.buildSwapWithFallback(parsed)
         : await client.buildSwap(parsed);
 
+    const routePlan = parseRoutePlanFromBody(body);
     const buildTx = data.tx ?? data.transaction;
     let simulatedOutRaw: string | null = null;
     let walletPayDebitRaw: string | null = null;
     let pdaRentLamports = 0n;
+    let tokenAccRentByMint: TokenAccRentEntry[] = [];
+    let embeddedPoolFeesByHop: EmbeddedPoolFeeEntry[] = [];
     if (typeof buildTx === 'string' && buildTx.length > 0) {
       const sim = await simulateSwapEffects(
         buildTx,
         parsed.accountAddress,
         parsed.outputMintAddress,
         parsed.inputMintAddress,
+        routePlan,
       );
       simulatedOutRaw = sim.outputDeltaRaw;
       walletPayDebitRaw = sim.walletPayDebitRaw;
       pdaRentLamports = sim.pdaRentLamports;
+      tokenAccRentByMint = sim.tokenAccRentByMint;
+      embeddedPoolFeesByHop = sim.embeddedPoolFeesByHop;
     }
 
-    const routePlan = parseRoutePlanFromBody(body);
     const feeEnrichment = enrichRoutePlanFees(
       routePlan,
       data,
       simulatedOutRaw,
       parsed.outputMintAddress,
-      { pdaRentLamports, router: parsed.router ?? data.provider },
+      {
+        pdaRentLamports,
+        tokenAccRentByMint,
+        embeddedPoolFeesByHop,
+        router: parsed.router ?? data.provider,
+        walletPayDebitRaw,
+        inputMint: parsed.inputMintAddress,
+      },
     );
 
     if (!walletPayDebitRaw) {
       walletPayDebitRaw =
+        feeEnrichment.walletPayDebitRaw ??
         estimateWalletPayDebitRaw(
           feeEnrichment.routePlan,
           data.details?.quote?.inAmount ?? '',
           parsed.inputMintAddress,
-        ) ?? walletPayDebitRaw;
+        ) ??
+        walletPayDebitRaw;
     }
     feeEnrichment.walletPayDebitRaw = walletPayDebitRaw;
 

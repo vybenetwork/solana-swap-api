@@ -11,7 +11,7 @@ import {
 } from './resolve-token-prices.js';
 import type { VybeSwapQuote, VybeSwapBuildResponse, VybeRoutePlanStep } from '../types/swap.js';
 import { assertWalletHasSellAmount } from './wallet-balance.js';
-import { simulateSwapEffects } from './simulate-swap-output.js';
+import { simulateSwapEffects, type TokenAccRentEntry, type EmbeddedPoolFeeEntry } from './simulate-swap-output.js';
 import { enrichRoutePlanFees } from './enrich-route-fees.js';
 import { NATIVE_SOL_MINT, toVybeSwapMint } from './sol-mints.js';
 
@@ -79,7 +79,13 @@ function synthesizeQuoteFromBuild(
   inputStats: TokenPriceStats,
   outputStats: TokenPriceStats,
   effectiveOutAmount?: string,
-  feeOpts?: { pdaRentLamports?: bigint; router?: string; walletPayDebitRaw?: string | null },
+  feeOpts?: {
+    pdaRentLamports?: bigint;
+    tokenAccRentByMint?: TokenAccRentEntry[];
+    embeddedPoolFeesByHop?: EmbeddedPoolFeeEntry[];
+    router?: string;
+    walletPayDebitRaw?: string | null;
+  },
 ): VybeSwapQuote {
   const inAmount = build.details.quote.inAmount;
   const quotedOutAmount = build.details.quote.outAmount;
@@ -128,7 +134,11 @@ function synthesizeQuoteFromBuild(
     outputMint,
     {
       pdaRentLamports: feeOpts?.pdaRentLamports ?? 0n,
+      tokenAccRentByMint: feeOpts?.tokenAccRentByMint,
+      embeddedPoolFeesByHop: feeOpts?.embeddedPoolFeesByHop,
       router: feeOpts?.router ?? build.provider ?? params.router,
+      walletPayDebitRaw: feeOpts?.walletPayDebitRaw ?? null,
+      inputMint,
     },
   );
 
@@ -260,6 +270,8 @@ export async function buildVybeQuoteFromPriceAndSwap(
   let simulatedOutRaw: string | null = null;
   let walletPayDebitRaw: string | null = null;
   let pdaRentLamports = 0n;
+  let tokenAccRentByMint: TokenAccRentEntry[] = [];
+  let embeddedPoolFeesByHop: EmbeddedPoolFeeEntry[] = [];
   if (typeof buildTx === 'string' && buildTx.length > 0) {
     const sim = await simulateSwapEffects(
       buildTx,
@@ -270,6 +282,8 @@ export async function buildVybeQuoteFromPriceAndSwap(
     simulatedOutRaw = sim.outputDeltaRaw;
     walletPayDebitRaw = sim.walletPayDebitRaw;
     pdaRentLamports = sim.pdaRentLamports;
+    tokenAccRentByMint = sim.tokenAccRentByMint;
+    embeddedPoolFeesByHop = sim.embeddedPoolFeesByHop;
   }
   const effective = normalizeRouterId(build.provider ?? selected);
   const quote = attachRouterMetadata(
@@ -281,7 +295,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
       inputStats,
       outputStats,
       simulatedOutRaw ?? undefined,
-      { pdaRentLamports, router: selected, walletPayDebitRaw },
+      { pdaRentLamports, tokenAccRentByMint, embeddedPoolFeesByHop, router: selected, walletPayDebitRaw },
     ),
     selected,
     effective,
