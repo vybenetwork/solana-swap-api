@@ -3265,16 +3265,13 @@ function renderJupiterTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<
       const leg = legs[meta.planIndex];
       if (!leg) return '';
       const isLastHop = i === metas.length - 1;
+      const inLink = i === 0 ? renderJupiterPctLink(hopPercentLabel(meta.step)) : '';
       const outPct = hopOutgoingPercentLabel(meta.step, quote, isLastHop);
       const outLink =
         outPct && outPct !== '100%'
           ? renderJupiterPctLink(outPct, 'out', quote, isLastHop ? meta.step : undefined)
           : '';
-      return (
-        renderJupiterPctLink(hopPercentLabel(meta.step)) +
-        renderJupiterMarketNode(meta, leg, quote) +
-        outLink
-      );
+      return inLink + renderJupiterMarketNode(meta, leg, quote) + outLink;
     })
     .join('');
 
