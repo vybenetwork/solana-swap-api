@@ -2285,6 +2285,34 @@ tr:hover td {
   grid-template-rows: auto auto;
   column-gap: 0;
   --routing-endpoint-inset: 15px;
+  overflow: visible;
+}
+
+.routing-frame:has(.routing-pct-badge--has-tip:hover) .routing-path,
+.routing-frame:has(.routing-pct-badge--has-tip:focus-within) .routing-path {
+  position: relative;
+  z-index: 20;
+}
+
+.routing-frame:has(.routing-pct-badge--has-tip:hover) .routing-endpoint,
+.routing-frame:has(.routing-pct-badge--has-tip:focus-within) .routing-endpoint {
+  z-index: 1;
+}
+
+.routing-path:has(.routing-pct-badge--has-tip:hover) .routing-connectors,
+.routing-path:has(.routing-pct-badge--has-tip:focus-within) .routing-connectors {
+  z-index: 0;
+}
+
+.routing-path:has(.routing-pct-badge--has-tip:hover) .routing-track-wrap,
+.routing-path:has(.routing-pct-badge--has-tip:focus-within) .routing-track-wrap {
+  position: relative;
+  z-index: 15;
+}
+
+.routing-path:has(.routing-pct-badge--has-tip:hover) .routing-rail-row::before,
+.routing-path:has(.routing-pct-badge--has-tip:focus-within) .routing-rail-row::before {
+  z-index: 0;
 }
 
 .routing-endpoint {
@@ -2397,6 +2425,7 @@ tr:hover td {
   grid-column: 1;
   grid-row: 2;
   position: relative;
+  overflow: visible;
   /* Drop connectors from approximate center of edge-aligned endpoint pills */
   --routing-side-x: calc(var(--routing-endpoint-inset, 15px) + 3.25rem);
   --routing-corner-r: 0.5rem;
@@ -2579,6 +2608,11 @@ tr:hover td {
   z-index: 1;
 }
 
+.routing-hop-link:has(.routing-pct-badge--has-tip:hover),
+.routing-hop-link:has(.routing-pct-badge--has-tip:focus-within) {
+  z-index: 30;
+}
+
 .routing-rail-row:has(.routing-hop-link--out) .routing-rail-tail {
   display: none;
 }
@@ -2611,6 +2645,132 @@ tr:hover td {
 .routing-pct-badge--out {
   color: #93c5fd;
   border-color: rgba(147, 197, 253, 0.4);
+}
+
+.routing-pct-badge--has-tip {
+  cursor: help;
+}
+
+.routing-pct-badge--has-tip:hover,
+.routing-pct-badge--has-tip:focus-within {
+  z-index: 40;
+}
+
+.routing-pct-badge--has-tip:focus-visible {
+  outline: 1px solid rgba(147, 197, 253, 0.65);
+  outline-offset: 2px;
+}
+
+.routing-pct-tip {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 0.65rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  min-width: 12.5rem;
+  max-width: 16rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  flex-direction: column;
+  gap: 0.28rem;
+  pointer-events: none;
+  text-align: left;
+  isolation: isolate;
+}
+
+.routing-pct-badge--has-tip:hover .routing-pct-tip,
+.routing-pct-badge--has-tip:focus-visible .routing-pct-tip,
+.routing-pct-badge--has-tip:focus-within .routing-pct-tip {
+  display: flex;
+}
+
+.routing-pct-tip__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.65rem;
+  font-size: 0.625rem;
+  line-height: 1.25;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.routing-pct-tip__label {
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+}
+
+.routing-pct-tip__usd {
+  color: #fde68a;
+  font-variant-numeric: tabular-nums;
+}
+
+.routing-pct-tip__row--fees-total .routing-pct-tip__label,
+.routing-pct-tip__row--fees-total .routing-pct-tip__usd {
+  color: #bef264;
+}
+
+.routing-pct-tip__row--input-total {
+  margin-top: 0.12rem;
+  padding-top: 0.28rem;
+  border-top: 1px solid #27272a;
+}
+
+.routing-pct-tip__row--input-total .routing-pct-tip__label {
+  color: #d4d4d8;
+}
+
+.routing-pct-tip__row--input-total .routing-pct-tip__usd {
+  color: #fafafa;
+  font-weight: 700;
+}
+
+.routing-pct-tip__row--drag .routing-pct-tip__label,
+.routing-pct-tip__row--drag .routing-pct-tip__usd {
+  color: #fbbf24;
+}
+
+.routing-pct-tip__section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+  margin-top: 0.12rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid #27272a;
+}
+
+.routing-pct-tip__section-title {
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #93c5fd;
+}
+
+.routing-pct-tip__amt {
+  color: #e4e4e7;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.routing-pct-tip__row--pct-total .routing-pct-tip__label,
+.routing-pct-tip__pct {
+  color: #93c5fd;
+  font-weight: 700;
+}
+
+.routing-pct-tip__formula {
+  font-size: 0.58rem;
+  line-height: 1.35;
+  color: #71717a;
+  white-space: normal;
 }
 
 .routing-hop-index-badge {
@@ -3272,7 +3432,7 @@ tr:hover td {
 
 .swap-hop-fees-table__row {
   display: grid;
-  grid-template-columns: minmax(5.5rem, 0.9fr) minmax(6rem, 2.2fr) minmax(0, 0.45fr) minmax(0, 1fr);
+  grid-template-columns: minmax(5.5rem, 0.9fr) minmax(6rem, 2.2fr) minmax(80px, 0.45fr) minmax(0, 1fr);
   gap: 0.35rem;
   padding: 0.45rem 0.55rem;
   border-bottom: 1px solid #27272a;
