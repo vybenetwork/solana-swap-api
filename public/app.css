@@ -2378,8 +2378,9 @@ tr:hover td {
   --routing-hop-label-h: 1rem;
   --routing-pill-half: 0.9rem;
   --routing-rail-y: calc(var(--routing-hop-label-h) + var(--routing-pill-half));
-  --routing-junction-y: calc(0.5rem + var(--routing-rail-y));
-  padding-top: 0.5rem;
+  --routing-path-pad-top: 0.5rem;
+  padding-top: var(--routing-path-pad-top);
+  --routing-junction-y: calc(var(--routing-path-pad-top) + var(--routing-rail-y));
   min-height: 3.75rem;
 }
 
@@ -2690,6 +2691,60 @@ tr:hover td {
   overflow: visible;
 }
 
+.routing-hop-column--has-acc-rent-above {
+  overflow: visible;
+}
+
+.routing-hop-on-rail {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.routing-acc-rent-above {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: max-content;
+  max-width: 9rem;
+  z-index: 3;
+}
+
+.routing-acc-rent-cards {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+}
+
+.routing-acc-rent-connector {
+  width: 1px;
+  min-width: 1px;
+  height: 1.1rem;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 0;
+}
+
+.routing-acc-rent-connector-svg {
+  display: block;
+  width: 1px;
+  height: 100%;
+  overflow: visible;
+}
+
+.routing-canvas--has-acc-rent-above .routing-path {
+  --routing-path-pad-top: 1.35rem;
+}
+
+.routing-canvas--has-acc-rent-above.routing-canvas--has-fees .routing-path {
+  --routing-path-pad-top: 1.5rem;
+}
+
 .routing-fee-branch {
   --routing-fee-connector-h: 2.7rem;
   display: flex;
@@ -2730,6 +2785,11 @@ tr:hover td {
   padding-top: var(--routing-fee-connector-h);
   position: relative;
   z-index: 1;
+}
+
+.routing-fee-slot--acc-rent {
+  flex: 0 0 auto;
+  max-width: 8.5rem;
 }
 
 .routing-fee-slot {
@@ -2888,7 +2948,7 @@ tr:hover td {
 }
 
 .routing-chip-stack--fee-protocol .routing-chip-top--fee-label {
-  color: #f59e0b;
+  color: #f87171;
 }
 
 .routing-chip-stack--fee-route .routing-chip-top--fee-label {
@@ -2920,7 +2980,10 @@ tr:hover td {
 }
 
 .routing-chip-stack--fee-protocol .routing-chip-amt--usd,
-.routing-chip-stack--fee-route .routing-chip-amt--usd,
+.routing-chip-stack--fee-route .routing-chip-amt--usd {
+  color: #f87171;
+}
+
 .routing-chip-stack--fee-pool .routing-chip-amt--usd,
 .routing-chip-stack--fee .routing-chip-amt--usd {
   color: #86efac;
@@ -3213,7 +3276,7 @@ tr:hover td {
 }
 
 .swap-hop-fees-table__row--fee-protocol .swap-hop-fees-table__cell--label {
-  color: #fbbf24;
+  color: #f87171;
 }
 
 .swap-hop-fees-table__row--fee-route .swap-hop-fees-table__cell--label {

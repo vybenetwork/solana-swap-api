@@ -162,14 +162,8 @@ function applyHopFees(
   return enriched;
 }
 
-function attachAggregatorTokenAccRent(
-  items: HopFeeItem[],
-  rentLamports: bigint,
-  router?: string,
-): void {
-  if (rentLamports <= 0n || !router) return;
-  const id = router.trim().toLowerCase();
-  if (id !== 'jupiter' && id !== 'titan') return;
+function attachAggregatorTokenAccRent(items: HopFeeItem[], rentLamports: bigint): void {
+  if (rentLamports <= 0n) return;
   items.push({
     label: 'Acc Rent Fee',
     amountRaw: rentLamports.toString(),
@@ -289,7 +283,7 @@ export function enrichRoutePlanFees(
         });
       }
 
-      attachAggregatorTokenAccRent(items, pdaRentLamports, opts?.router ?? build.provider);
+      attachAggregatorTokenAccRent(items, pdaRentLamports);
 
       const hopQuotedStr = hopQuotedOut.toString();
       const netStr = simulatedOut != null ? simulatedOut.toString() : undefined;

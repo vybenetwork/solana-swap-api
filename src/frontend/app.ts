@@ -1408,6 +1408,16 @@ function estimateWalletPayDebitFromQuote(quote: Record<string, unknown>): string
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   for (const step of plan) {
     for (const item of step._hopFees?.items ?? []) {
+      if (isAccRentFeeLabel(item.label)) {
+        if (item.amountRaw && isSolMint(inputMint) && isSolMint(item.mint)) {
+          try {
+            total += BigInt(item.amountRaw);
+          } catch {
+            /* skip */
+          }
+        }
+        continue;
+      }
       if (item.amountRaw && item.amountRaw !== '0') {
         try {
           if (isSolMint(inputMint) && isSolMint(item.mint)) total += BigInt(item.amountRaw);
@@ -1771,6 +1781,7 @@ function sumHopFeeDeductionInOutputRaw(
 ): bigint {
   let total = 0n;
   for (const item of hopFees.items) {
+    if (isAccRentFeeLabel(item.label)) continue;
     if (item.mint === outMint) {
       const amt = parsePositiveBigInt(item.amountRaw);
       if (amt) total += amt;
@@ -1787,19 +1798,19 @@ function sumHopFeeDeductionInOutputRaw(
   return total;
 }
 
-/** Swap leg ÷ wallet pay — % of wallet debit that enters the route after input-side fees. */
-function aggregatorInputRetainPercent(quote: Record<string, unknown>): number {
+/** Scale quoted output to total wallet pay (swap leg → full debit). */
+function scaleQuotedRawToWalletPay(quotedRaw: bigint, quote: Record<string, unknown>): bigint {
   const payRaw = quoteWalletPayRaw(quote);
   const swapRaw = quoteInAmountRaw(quote);
-  if (!payRaw || !swapRaw) return 100;
+  if (!payRaw || !swapRaw) return quotedRaw;
   try {
     const pay = BigInt(payRaw);
     const swap = BigInt(swapRaw);
-    if (pay <= 0n || swap <= 0n || swap >= pay) return 100;
-    return Number((swap * 10000n) / pay) / 100;
+    if (pay > swap && swap > 0n) return (quotedRaw * pay) / swap;
   } catch {
-    return 100;
+    /* keep quotedRaw */
   }
+  return quotedRaw;
 }
 
 /** % of hop quoted output that continues after fees (e.g. 99% net to wallet). */
@@ -1808,11 +1819,6 @@ function hopOutgoingPercentLabel(
   quote: Record<string, unknown>,
   isLastHop: boolean,
 ): string | null {
-  const router = normalizeRouterId(
-    quote._selectedRouter ?? quote._effectiveRouter ?? quote.router ?? '',
-  );
-  const isAggregatorLast = isLastHop && (router === 'jupiter' || router === 'titan');
-
   const si = step.swapInfo;
   const hopFees = getHopFeeBreakdown(step);
   const outMint = si?.outputMintAddress ?? quoteOutputMint(quote);
@@ -1827,18 +1833,6 @@ function hopOutgoingPercentLabel(
     netRaw =
       parsePositiveBigInt(String(quote._simulatedOutAmount ?? '')) ??
       parsePositiveBigInt(String(quote.outAmount ?? ''));
-  }
-
-  // Aggregator last hop: combine output-side net/quoted with input-side wallet fees (PDA rent, etc.).
-  if (isAggregatorLast) {
-    let outputNetPct = 100;
-    if (netRaw && netRaw < quotedRaw) {
-      outputNetPct = Number((netRaw * 10000n) / quotedRaw) / 100;
-    }
-    const inputRetainPct = aggregatorInputRetainPercent(quote);
-    const effectivePct = (outputNetPct * inputRetainPct) / 100;
-    if (!Number.isFinite(effectivePct) || effectivePct <= 0 || effectivePct >= 100) return null;
-    return `${Math.round(effectivePct * 100) / 100}%`;
   }
 
   const inRaw =
@@ -1863,9 +1857,10 @@ function hopOutgoingPercentLabel(
     if (impliedGross > grossRaw) grossRaw = impliedGross;
   }
 
-  if (netRaw >= grossRaw) return null;
+  const denom = isLastHop ? scaleQuotedRawToWalletPay(quotedRaw, quote) : grossRaw;
+  if (netRaw >= denom) return null;
 
-  const pct = Number((netRaw * 10000n) / grossRaw) / 100;
+  const pct = Number((netRaw * 10000n) / denom) / 100;
   if (!Number.isFinite(pct) || pct <= 0) return null;
   return `${Math.round(pct * 100) / 100}%`;
 }
@@ -2632,6 +2627,15 @@ function routePlanHasHopFees(plan: VybeRoutePlanStepLite[]): boolean {
   return plan.some((s) => (getHopFeeBreakdown(s)?.items.length ?? 0) > 0);
 }
 
+function routePlanHasAccRentFee(plan: VybeRoutePlanStepLite[]): boolean {
+  for (const step of plan) {
+    for (const item of getHopFeeDisplayItems(step)) {
+      if (isAccRentFeeLabel(item.label)) return true;
+    }
+  }
+  return false;
+}
+
 function stripFiatPrefixForChip(usd: string): string {
   return usd.replace(/^~?\$/, '').trim();
 }
@@ -2665,9 +2669,9 @@ function renderRoutingFeeConnectors(feeCount: number): string {
     }
     for (const x of dropXs) {
       if (x < cx - 0.5) {
-        segments.push(`M ${x + r} ${barY} A ${r} ${r} 0 0 1 ${x} ${barY + r} L ${x} ${endY}`);
+        segments.push(`M ${x + r} ${barY} A ${r} ${r} 0 0 0 ${x} ${barY + r} L ${x} ${endY}`);
       } else if (x > cx + 0.5) {
-        segments.push(`M ${x - r} ${barY} A ${r} ${r} 0 0 0 ${x} ${barY + r} L ${x} ${endY}`);
+        segments.push(`M ${x - r} ${barY} A ${r} ${r} 0 0 1 ${x} ${barY + r} L ${x} ${endY}`);
       } else {
         segments.push(`M ${x} ${barY} L ${x} ${endY}`);
       }
@@ -2680,16 +2684,58 @@ function renderRoutingFeeConnectors(feeCount: number): string {
   </svg>`;
 }
 
+function partitionHopFeeDisplayItems(items: HopFeeItemLite[]): {
+  accRentItems: HopFeeItemLite[];
+  routeFeeItems: HopFeeItemLite[];
+} {
+  const accRentItems: HopFeeItemLite[] = [];
+  const routeFeeItems: HopFeeItemLite[] = [];
+  for (const item of items) {
+    if (isAccRentFeeLabel(item.label)) accRentItems.push(item);
+    else routeFeeItems.push(item);
+  }
+  return { accRentItems, routeFeeItems };
+}
+
+function renderRoutingAccRentConnectorDown(): string {
+  const vbW = 48;
+  const vbH = 28;
+  const cx = vbW / 2;
+  return `<svg class="routing-acc-rent-connector-svg" viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none">
+    <path d="M ${cx} 0 L ${cx} ${vbH}" fill="none" stroke="#3f3f46" stroke-width="1" vector-effect="non-scaling-stroke" stroke-linecap="butt"/>
+  </svg>`;
+}
+
+function renderHopAccRentAboveBranch(
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+): string {
+  const { accRentItems } = partitionHopFeeDisplayItems(getHopFeeDisplayItems(step));
+  if (accRentItems.length === 0) return '';
+
+  const slots = accRentItems
+    .map((item) => {
+      const chip = renderHopFeeChip(item, quote);
+      return `<div class="routing-fee-slot routing-fee-slot--acc-rent">${chip}</div>`;
+    })
+    .join('');
+
+  return `<div class="routing-acc-rent-above" aria-label="Account rent fee at this hop">
+    <div class="routing-acc-rent-cards">${slots}</div>
+    <div class="routing-acc-rent-connector" aria-hidden="true">${renderRoutingAccRentConnectorDown()}</div>
+  </div>`;
+}
+
 function renderRoutingFeeBranch(
   step: VybeRoutePlanStepLite,
   leg: RouteHopLeg,
   quote: Record<string, unknown>,
 ): string {
-  const displayItems = getHopFeeDisplayItems(step);
-  if (displayItems.length === 0) return '';
+  const { routeFeeItems } = partitionHopFeeDisplayItems(getHopFeeDisplayItems(step));
+  if (routeFeeItems.length === 0) return '';
 
-  const feeCount = displayItems.length;
-  const slots = displayItems
+  const feeCount = routeFeeItems.length;
+  const slots = routeFeeItems
     .map((item) => {
       const chip = renderHopFeeChip(item, quote);
       return `<div class="routing-fee-slot">${chip}</div>`;
@@ -2711,7 +2757,9 @@ function renderJupiterMarketNode(
   const si = meta.step.swapInfo;
   const dexHtml = dexLoading ? renderLoadingSpinner('sm') : escapeHtml(si?.label ?? 'DEX');
   const sym = escapeHtml(leg.outSym);
-  const feeBranch = dexLoading ? '' : renderRoutingFeeBranch(meta.step, leg, quote);
+  const accRentAbove = dexLoading ? '' : renderHopAccRentAboveBranch(meta.step, quote);
+  const feeBranchBelow = dexLoading ? '' : renderRoutingFeeBranch(meta.step, leg, quote);
+  const hasFees = Boolean(accRentAbove || feeBranchBelow);
   const railNode = `<div class="routing-market-node">
     ${renderHopIndexBadge(meta.label)}
     <div class="routing-pill routing-pill--hop">
@@ -2720,9 +2768,12 @@ function renderJupiterMarketNode(
     </div>
     <div class="routing-dex-caption">${dexHtml}</div>
   </div>`;
-  return `<div class="routing-hop-column${feeBranch ? ' routing-hop-column--has-fees' : ''}">
-    ${railNode}
-    ${feeBranch}
+  const hopOnRail = accRentAbove
+    ? `<div class="routing-hop-on-rail">${accRentAbove}${railNode}</div>`
+    : railNode;
+  return `<div class="routing-hop-column${hasFees ? ' routing-hop-column--has-fees' : ''}${accRentAbove ? ' routing-hop-column--has-acc-rent-above' : ''}">
+    ${hopOnRail}
+    ${feeBranchBelow}
   </div>`;
 }
 
@@ -2804,6 +2855,7 @@ function renderRoutingFrame(
   placeholder = false,
   loading = false,
   hasFees = false,
+  hasAccRentAbove = false,
   inputAddon: string | null = null,
   inputTotalLabel: string | null = null,
   outputAddon: string | null = null,
@@ -2812,6 +2864,7 @@ function renderRoutingFrame(
   const placeholderClass = placeholder ? ' routing-canvas--placeholder' : '';
   const loadingClass = loading ? ' routing-canvas--loading' : '';
   const feesClass = hasFees ? ' routing-canvas--has-fees' : '';
+  const accRentClass = hasAccRentAbove ? ' routing-canvas--has-acc-rent-above' : '';
   const inputAddonHtml =
     inputAddon && inputAddon !== '—'
       ? `<span class="routing-input-addon">Fee: ${escapeHtml(inputAddon)} ${escapeHtml(inSym)}</span>`
@@ -2828,7 +2881,7 @@ function renderRoutingFrame(
     outputUsdSubline && outputUsdSubline !== '—'
       ? `<span class="routing-output-usd">USD Output: <span class="routing-output-usd__val">${escapeHtml(outputUsdSubline)}</span></span>`
       : '';
-  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${placeholderClass}${loadingClass}">
+  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${placeholderClass}${loadingClass}">
     <div class="routing-frame">
       <div class="routing-endpoint routing-endpoint--in">
         <div class="routing-endpoint-stack">
@@ -2881,6 +2934,7 @@ function renderRoutingDiagram(quote: Record<string, unknown>): string {
       false,
       false,
       false,
+      false,
       inputAddon,
       inputTotalLabel,
       outputAddon,
@@ -2891,6 +2945,7 @@ function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const tree = buildRouteTree(plan);
   const split = routeTreeHasFork(tree);
   const hasFees = routePlanHasHopFees(plan);
+  const hasAccRentAbove = routePlanHasAccRentFee(plan);
   const body = renderJupiterRouteBody(tree, legs, quote);
 
   return renderRoutingFrame(
@@ -2905,6 +2960,7 @@ function renderRoutingDiagram(quote: Record<string, unknown>): string {
     false,
     false,
     hasFees,
+    hasAccRentAbove,
     inputAddon,
     inputTotalLabel,
     outputAddon,
@@ -2958,6 +3014,7 @@ function renderRoutingDiagramPlaceholder(loading = false): string {
     1,
     !hasIn && !loading,
     loading,
+    false,
     false,
     inputAddon,
     inputTotalLabel,
