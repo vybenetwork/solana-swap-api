@@ -3554,6 +3554,8 @@ tr:hover td {
 .swap-hop-fees-table {
   display: flex;
   flex-direction: column;
+  width: 100%;
+  min-width: 0;
   border: 1px solid #27272a;
   border-radius: 10px;
   overflow: hidden;
@@ -3562,7 +3564,7 @@ tr:hover td {
 
 .swap-hop-fees-table__row {
   display: grid;
-  grid-template-columns: 32px minmax(5.5rem, 1.6fr) minmax(72px, 0.4fr) minmax(0, calc(0.85fr * 1.15)) minmax(0, 1.35fr);
+  grid-template-columns: minmax(4.5rem, 0.75fr) minmax(5.5rem, 1.6fr) minmax(72px, 0.4fr) minmax(0, 0.978fr) minmax(0, 1.35fr);
   gap: 0.35rem;
   padding: 0.45rem 0.55rem;
   border-bottom: 1px solid #27272a;
@@ -3607,15 +3609,12 @@ tr:hover td {
 }
 
 .swap-hop-fees-table__cell--label {
-  width: 32px;
-  max-width: 32px;
   font-size: 0.58rem;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #a1a1aa;
-  overflow-wrap: anywhere;
-  hyphens: auto;
+  white-space: nowrap;
 }
 
 .swap-hop-fees-table__row--fee-protocol .swap-hop-fees-table__cell--label {
