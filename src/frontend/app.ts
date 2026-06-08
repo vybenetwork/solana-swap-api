@@ -744,6 +744,26 @@ function syncSwapSellAmountUi(): void {
     return;
   }
 
+  if (lastSwapQuoteOk) {
+    setBuyReadoutLoading(false);
+    setBuyFiatLoading(false);
+    const outAmt = formatQuoteTokenAmount(lastSwapQuoteOk, 'out');
+    if (swapBuyAmountDisplayEl && outAmt.display !== '—') {
+      swapBuyAmountDisplayEl.textContent = outAmt.display;
+      swapBuyAmountDisplayEl.dataset.empty = 'false';
+      if (outAmt.full) swapBuyAmountDisplayEl.title = outAmt.full;
+      else swapBuyAmountDisplayEl.removeAttribute('title');
+    }
+    if (swapBuyFiatEl) {
+      swapBuyFiatEl.textContent = formatSwapReceiveFiatDisplay(getQuoteReceiveUsd(lastSwapQuoteOk));
+    }
+    if (swapSellFiatEl) {
+      swapSellFiatEl.textContent = formatSwapPayFiatDisplay(getQuotePayUsd(lastSwapQuoteOk));
+    }
+    syncSwapQuoteButtonState();
+    return;
+  }
+
   if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
   const sellMint = swapInputMintInput?.value.trim() ?? '';
   const price = lookupMintPriceUsd(sellMint, lastSwapQuoteOk ?? {});
@@ -1263,30 +1283,108 @@ function quoteOutputUiAmount(quote: Record<string, unknown>): number | null {
   return null;
 }
 
-/** USD notional of the sell/input leg (what you pay). */
-function getQuotePayUsd(quote: Record<string, unknown>): number | null {
-  const fromQuote = quote.swapUsdValue;
-  if (fromQuote != null && fromQuote !== '') {
-    const n = Number(fromQuote);
+/** `swapUsdValue` from the swap/quote response (input leg USD at quote time). */
+function getQuoteSwapUsdValue(quote: Record<string, unknown>): number | null {
+  const v = quote.swapUsdValue;
+  if (v == null || v === '') return null;
+  const n = Number(String(v).replace(/,/g, ''));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function quoteQuotedOutUiAmount(quote: Record<string, unknown>): number | null {
+  const outMint = quoteOutputMint(quote);
+  const fromQuoted = parseRawAmountDigits(quote._quotedOutAmount);
+  if (fromQuoted) {
+    const n = rawAmountToUiNumber(fromQuoted, getMintDecimals(outMint));
     if (Number.isFinite(n) && n > 0) return n;
   }
-  const amount = quoteWalletPayUi(quote) ?? quoteInAmountUi(quote) ?? Number(swapAmountInput?.value);
-  const inMint = quoteInputMint(quote);
-  const inPrice = lookupMintPriceUsd(inMint, quote);
-  if (Number.isFinite(amount) && amount > 0 && Number.isFinite(inPrice) && inPrice > 0) {
-    return amount * inPrice;
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const lastHop = plan.at(-1);
+  const hopOut = parseRawAmountDigits(lastHop?.swapInfo?.outAmount);
+  if (hopOut) {
+    const n = rawAmountToUiNumber(hopOut, getMintDecimals(outMint));
+    if (Number.isFinite(n) && n > 0) return n;
   }
   return null;
 }
 
-/** USD notional of the receive/output leg (net out amount × output price, after on-chain deductions). */
+function parseQuotePriceImpactPct(quote: Record<string, unknown>): number | null {
+  const v = quote.priceImpactPct;
+  if (v == null || v === '') return null;
+  const n = Number(String(v).replace(/%$/, '').trim());
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Scale swapUsdValue by a same-mint amount ratio (e.g. wallet pay ÷ swap leg, both SOL). */
+function scaleQuoteSwapUsdBySameMintRatio(
+  quote: Record<string, unknown>,
+  numeratorUi: number | null,
+  denominatorUi: number | null,
+): number | null {
+  const swapUsd = getQuoteSwapUsdValue(quote);
+  if (swapUsd == null || numeratorUi == null || denominatorUi == null || denominatorUi <= 0) {
+    return null;
+  }
+  return swapUsd * (numeratorUi / denominatorUi);
+}
+
+/** USD notional of the sell/swap input leg — from quote `swapUsdValue` only. */
+function getQuotePayUsd(quote: Record<string, unknown>): number | null {
+  return getQuoteSwapUsdValue(quote);
+}
+
+/** USD notional of the swap leg only (same as pay when no extra wallet debit). */
+function quoteSwapLegUsd(quote: Record<string, unknown>): number | null {
+  return getQuoteSwapUsdValue(quote);
+}
+
+/** USD notional of total wallet debit — `swapUsdValue` scaled by wallet pay ÷ swap leg (same mint). */
+function quoteWalletPayUsd(quote: Record<string, unknown>): number | null {
+  const payUi = quoteWalletPayUi(quote);
+  const inUi = quoteInAmountUi(quote);
+  return scaleQuoteSwapUsdBySameMintRatio(quote, payUi, inUi) ?? getQuoteSwapUsdValue(quote);
+}
+
+/**
+ * USD notional of receive/output — from quote fields only.
+ * Uses swapUsdValue × (net out ÷ quoted out) when both are in the output mint;
+ * otherwise falls back to swapUsdValue adjusted by priceImpactPct.
+ */
 function getQuoteReceiveUsd(quote: Record<string, unknown>): number | null {
-  const outUi = quoteOutputUiAmount(quote);
-  if (outUi == null) return null;
-  const outMint = quoteOutputMint(quote);
-  const outPrice = lookupMintPriceUsd(outMint, quote);
-  if (!Number.isFinite(outPrice) || outPrice <= 0) return null;
-  return outUi * outPrice;
+  const swapUsd = getQuoteSwapUsdValue(quote);
+  if (swapUsd == null) return null;
+
+  const netUi = quoteOutputUiAmount(quote);
+  const quotedUi = quoteQuotedOutUiAmount(quote);
+
+  if (netUi != null && quotedUi != null && quotedUi > 0 && netUi > 0) {
+    return swapUsd * (netUi / quotedUi);
+  }
+
+  const impact = parseQuotePriceImpactPct(quote);
+  if (impact != null) {
+    return swapUsd * (1 + impact / 100);
+  }
+
+  return swapUsd;
+}
+
+/** Tooltip explaining quote-response USD basis (not token-details prefetch). */
+function quoteOutputPriceSourceTitle(quote: Record<string, unknown>): string {
+  const swapUsd = getQuoteSwapUsdValue(quote);
+  const netUi = quoteOutputUiAmount(quote);
+  const quotedUi = quoteQuotedOutUiAmount(quote);
+  if (swapUsd == null) {
+    return 'USD estimate unavailable — swap quote did not include swapUsdValue';
+  }
+  if (netUi != null && quotedUi != null && quotedUi > 0) {
+    return `swapUsdValue $${formatSwapLegUsdAmount(swapUsd)} × net out ÷ quoted out (from quote response)`;
+  }
+  const impact = parseQuotePriceImpactPct(quote);
+  if (impact != null) {
+    return `swapUsdValue $${formatSwapLegUsdAmount(swapUsd)} × (1 ${impact >= 0 ? '+' : ''}${impact}%) price impact (from quote response)`;
+  }
+  return `swapUsdValue $${formatSwapLegUsdAmount(swapUsd)} (from quote response)`;
 }
 
 function getMintDecimals(mint: string): number {
@@ -2107,6 +2205,37 @@ function computeHopOutgoingPercentBreakdown(
   }
   if (!netRaw) return null;
 
+  if (isLastHop) {
+    const receiveUsd = getQuoteReceiveUsd(quote);
+    const payUsd = quoteWalletPayUsd(quote);
+    if (
+      receiveUsd != null &&
+      payUsd != null &&
+      payUsd > 0 &&
+      receiveUsd > 0 &&
+      receiveUsd < payUsd
+    ) {
+      const pct = (receiveUsd / payUsd) * 100;
+      if (Number.isFinite(pct) && pct > 0) {
+        const payRaw = quoteWalletPayRaw(quote);
+        const swapRaw = quoteInAmountRaw(quote);
+        const outUi = quoteOutputUiAmount(quote);
+        return {
+          pctLabel: `${Math.round(pct * 100) / 100}%`,
+          netDisplay:
+            outUi != null ? formatSwapAmountValue(outUi).replace(/,/g, '') : formatRawTokenAmount(String(netRaw), outMint).display,
+          quotedDisplay: formatRawTokenAmount(String(quotedRaw), outMint).display,
+          denomDisplay: getQuoteWalletPayLabelFromQuote(quote),
+          outSym: mintSymbolSync(outMint),
+          inputScaled: true,
+          payDisplay: formatQuoteRawAmountLabel(payRaw, quoteInputMint(quote)),
+          swapDisplay: formatQuoteRawAmountLabel(swapRaw, quoteInputMint(quote)),
+          inSym: getSwapInSym(),
+        };
+      }
+    }
+  }
+
   let grossRaw = quotedRaw;
   if (feeDeductionOut > 0n) {
     const impliedGross = netRaw + feeDeductionOut;
@@ -2427,21 +2556,10 @@ function renderJupiterEndpointPill(
   </div>`;
 }
 
-function renderJupiterPctLink(
-  pct: string,
-  direction: 'in' | 'out' = 'in',
-  quote?: Record<string, unknown>,
-  lastHopStep?: VybeRoutePlanStepLite,
-): string {
+function renderJupiterPctLink(pct: string, direction: 'in' | 'out' = 'in'): string {
   const outClass = direction === 'out' ? ' routing-pct-badge--out' : '';
-  const tipHtml =
-    direction === 'out' && quote
-      ? renderOutputPctBadgeTooltip(quote, lastHopStep, pct)
-      : '';
-  const tipClass = tipHtml ? ' routing-pct-badge--has-tip' : '';
-  const tabIdx = tipHtml ? ' tabindex="0"' : '';
   return `<div class="routing-hop-link routing-hop-link--${direction}" aria-hidden="true">
-    <span class="routing-pct-badge${outClass}${tipClass}"${tabIdx}>${escapeHtml(pct)}${tipHtml}</span>
+    <span class="routing-pct-badge${outClass}">${escapeHtml(pct)}</span>
   </div>`;
 }
 
@@ -2474,6 +2592,13 @@ function displayFeeItemLabel(item: Pick<HopFeeItemLite, 'label' | 'destinationKi
 function isAccRentFeeLabel(label: string): boolean {
   const l = normalizeFeeItemLabel(label).toLowerCase();
   return l === 'acc rent fee';
+}
+
+function isOutputSideFeeDisplayItem(item: HopFeeItemLite): boolean {
+  const kind = item.destinationKind;
+  if (kind === 'lp_pool' || kind === 'output_deduction') return true;
+  const label = normalizeFeeItemLabel(item.label).toLowerCase();
+  return label === 'pool fee' || label === 'slippage/spread';
 }
 
 function formatAccRentFeeSolSubline(equiv: FeeAmountEquiv): string {
@@ -2772,7 +2897,7 @@ function sumOutputSideRouteFeesUi(quote: Record<string, unknown>): number | null
 }
 
 function getQuoteDiagramOutputFeeAddon(quote: Record<string, unknown>): string | null {
-  const feeUi = getQuoteOutputFeeDeltaUi(quote) ?? sumOutputSideRouteFeesUi(quote);
+  const feeUi = sumOutputSideRouteFeesUi(quote);
   if (feeUi == null) return null;
   const formatted = formatSwapAmountValue(feeUi).replace(/,/g, '');
   return formatted === '—' ? null : `−${formatted}`;
@@ -3147,7 +3272,7 @@ function sumHopPlanFeeTableTotals(
 
   for (const { item, equiv } of rowData) {
     const usdN = computeFeeUsdNumeric(item, quote) ?? parseFeeEquivUsdNumber(equiv.usd);
-    if (usdN != null && usdN > 0) {
+    if (usdN != null && usdN > 0 && !isOutputSideFeeDisplayItem(item)) {
       totalUsd += usdN;
       foundUsd = true;
     }
@@ -3178,124 +3303,6 @@ function sumHopPlanFeeTableTotals(
     usd: foundUsd ? `~$${formatSwapPayUsdAmount(totalUsd)}` : null,
     amountDisplay,
   };
-}
-
-function formatHopFeeUsdCell(usd: number): string {
-  return `$${stripFiatPrefixForChip(formatFeeEquivUsdFiatDisplay(usd))}`;
-}
-
-function collectQuoteRouteFeeUsdLines(
-  quote: Record<string, unknown>,
-): Array<{ label: string; usd: number }> {
-  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
-  const lines: Array<{ label: string; usd: number }> = [];
-
-  for (const step of plan) {
-    const hopFees = getHopFeeBreakdown(step);
-    if (!hopFees?.items.length) continue;
-    for (const item of flattenHopFeeItems(hopFees.items)) {
-      const equiv = computeFeeEquivalents(item.amountRaw, item.mint, quote);
-      const usdN = computeFeeUsdNumeric(item, quote) ?? parseFeeEquivUsdNumber(equiv.usd);
-      if (usdN == null || usdN <= 0) continue;
-      lines.push({ label: displayFeeItemLabel(item), usd: usdN });
-    }
-  }
-  return lines;
-}
-
-function getQuoteTotalInputUsdIncludingFees(quote: Record<string, unknown>): number | null {
-  const mint = quoteInputMint(quote);
-  if (!mint) return null;
-  const price = lookupMintPriceUsd(mint, quote);
-  if (!Number.isFinite(price) || price <= 0) return null;
-
-  const walletPayUi = quoteWalletPayUi(quote);
-  if (walletPayUi != null && walletPayUi > 0) return walletPayUi * price;
-
-  const swapUi = quoteInAmountUi(quote, mint);
-  if (swapUi == null || swapUi <= 0) return null;
-  const inputFeeUi = sumInputSideWalletFeesInSellMintUi(quote) ?? 0;
-  return (swapUi + inputFeeUi) * price;
-}
-
-function renderOutputPctBreakdownSection(
-  breakdown: HopOutgoingPercentBreakdown,
-  pctLabel: string,
-): string {
-  const tok = breakdown.outSym;
-  const rows: string[] = [
-    `<span class="routing-pct-tip__section-title">Output %</span>`,
-    `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Net output</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.netDisplay)} ${escapeHtml(tok)}</span></span>`,
-  ];
-  if (
-    breakdown.inputScaled &&
-    breakdown.payDisplay &&
-    breakdown.swapDisplay &&
-    breakdown.quotedDisplay !== breakdown.denomDisplay
-  ) {
-    rows.push(
-      `<span class="routing-pct-tip__row routing-pct-tip__row--detail"><span class="routing-pct-tip__label">Hop quoted</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.quotedDisplay)} ${escapeHtml(tok)}</span></span>`,
-      `<span class="routing-pct-tip__row routing-pct-tip__row--detail"><span class="routing-pct-tip__label">Route input</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.payDisplay)} ${escapeHtml(breakdown.inSym)}</span></span>`,
-      `<span class="routing-pct-tip__row routing-pct-tip__row--detail"><span class="routing-pct-tip__label">Swap leg</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.swapDisplay)} ${escapeHtml(breakdown.inSym)}</span></span>`,
-    );
-  } else if (breakdown.quotedDisplay !== breakdown.netDisplay) {
-    rows.push(
-      `<span class="routing-pct-tip__row routing-pct-tip__row--detail"><span class="routing-pct-tip__label">Hop quoted</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.quotedDisplay)} ${escapeHtml(tok)}</span></span>`,
-    );
-  }
-  rows.push(
-    `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">Cost basis</span><span class="routing-pct-tip__amt">${escapeHtml(breakdown.denomDisplay)} ${escapeHtml(tok)}</span></span>`,
-    `<span class="routing-pct-tip__row routing-pct-tip__row--pct-total"><span class="routing-pct-tip__label">Output retain</span><span class="routing-pct-tip__pct">${escapeHtml(pctLabel)}</span></span>`,
-    `<span class="routing-pct-tip__formula">${escapeHtml(breakdown.netDisplay)} ÷ ${escapeHtml(breakdown.denomDisplay)} = ${escapeHtml(pctLabel)}</span>`,
-  );
-  if (
-    breakdown.inputScaled &&
-    breakdown.payDisplay &&
-    breakdown.swapDisplay &&
-    breakdown.quotedDisplay !== breakdown.denomDisplay
-  ) {
-    rows.push(
-      `<span class="routing-pct-tip__formula routing-pct-tip__formula--detail">${escapeHtml(breakdown.quotedDisplay)} × ${escapeHtml(breakdown.payDisplay)} ÷ ${escapeHtml(breakdown.swapDisplay)} = ${escapeHtml(breakdown.denomDisplay)} ${escapeHtml(tok)}</span>`,
-    );
-  }
-  return `<span class="routing-pct-tip__section">${rows.join('')}</span>`;
-}
-
-function renderOutputPctBadgeTooltip(
-  quote: Record<string, unknown>,
-  lastHopStep?: VybeRoutePlanStepLite,
-  pctLabel?: string,
-): string {
-  const feeLines = collectQuoteRouteFeeUsdLines(quote);
-  const totalInputUsd = getQuoteTotalInputUsdIncludingFees(quote);
-  const breakdown =
-    lastHopStep && pctLabel
-      ? computeHopOutgoingPercentBreakdown(lastHopStep, quote, true)
-      : null;
-  const outputSection =
-    breakdown && pctLabel ? renderOutputPctBreakdownSection(breakdown, pctLabel) : '';
-  if (feeLines.length === 0 && totalInputUsd == null && !outputSection) return '';
-
-  const rows: string[] = [];
-  for (const { label, usd } of feeLines) {
-    rows.push(
-      `<span class="routing-pct-tip__row"><span class="routing-pct-tip__label">${escapeHtml(label)}</span><span class="routing-pct-tip__usd">${escapeHtml(formatHopFeeUsdCell(usd))}</span></span>`,
-    );
-  }
-  if (feeLines.length > 1) {
-    const feeTotal = feeLines.reduce((sum, line) => sum + line.usd, 0);
-    rows.push(
-      `<span class="routing-pct-tip__row routing-pct-tip__row--fees-total"><span class="routing-pct-tip__label">Total fees</span><span class="routing-pct-tip__usd">${escapeHtml(`$${formatSwapPayUsdAmount(feeTotal)}`)}</span></span>`,
-    );
-  }
-  if (totalInputUsd != null) {
-    const totalLabel = formatSwapPayUsdLabel(totalInputUsd);
-    rows.push(
-      `<span class="routing-pct-tip__row routing-pct-tip__row--input-total"><span class="routing-pct-tip__label">Total input (incl. fees)</span><span class="routing-pct-tip__usd">${escapeHtml(totalLabel ?? '—')}</span></span>`,
-    );
-  }
-  const feeSection = rows.length > 0 ? `<span class="routing-pct-tip__section routing-pct-tip__section--fees">${rows.join('')}</span>` : '';
-  return `<span class="routing-pct-tip" role="tooltip">${outputSection}${feeSection}</span>`;
 }
 
 function renderRoutingFeeConnectors(feeCount: number): string {
@@ -3450,11 +3457,12 @@ function renderJupiterTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<
       const leg = legs[meta.planIndex];
       if (!leg) return '';
       const isLastHop = i === metas.length - 1;
-      const inLink = i === 0 ? renderJupiterPctLink(hopPercentLabel(meta.step)) : '';
+      const inLink =
+        i === 0 ? renderJupiterPctLink(hopPercentLabel(meta.step)) : '';
       const outPct = hopOutgoingPercentLabel(meta.step, quote, isLastHop);
       const outLink =
         outPct && outPct !== '100%'
-          ? renderJupiterPctLink(outPct, 'out', quote, isLastHop ? meta.step : undefined)
+          ? renderJupiterPctLink(outPct, 'out')
           : '';
       return inLink + renderJupiterMarketNode(meta, leg, quote) + outLink;
     })
@@ -3522,6 +3530,7 @@ function renderRoutingFrame(
   inputTotalLabel: string | null = null,
   outputAddon: string | null = null,
   outputUsdSubline: string | null = null,
+  outputUsdTitle: string | null = null,
 ): string {
   const placeholderClass = placeholder ? ' routing-canvas--placeholder' : '';
   const loadingClass = loading ? ' routing-canvas--loading' : '';
@@ -3541,7 +3550,7 @@ function renderRoutingFrame(
       : '';
   const outputUsdHtml =
     outputUsdSubline && outputUsdSubline !== '—'
-      ? `<span class="routing-output-usd">USD Output: <span class="routing-output-usd__val">${escapeHtml(outputUsdSubline)}</span></span>`
+      ? `<span class="routing-output-usd"${outputUsdTitle ? ` title="${escapeHtml(outputUsdTitle)}"` : ''}>USD Output: <span class="routing-output-usd__val">${escapeHtml(outputUsdSubline)}</span></span>`
       : '';
   return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${placeholderClass}${loadingClass}"${routingCanvasLayoutAttrs(hopCount, hasAccRentAbove)}>
     <div class="routing-frame">
@@ -3579,6 +3588,7 @@ function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const inputTotalLabel = getQuoteDiagramInputTotalLabel(quote, inputAddon);
   const outputAddon = getQuoteDiagramOutputFeeAddon(quote);
   const outputUsdSubline = getQuoteDiagramOutputUsdSubline(quote);
+  const outputUsdTitle = quoteOutputPriceSourceTitle(quote);
 
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   const legs = resolveRouteHopLegs(plan, quote);
@@ -3601,6 +3611,7 @@ function renderRoutingDiagram(quote: Record<string, unknown>): string {
       inputTotalLabel,
       outputAddon,
       outputUsdSubline,
+      outputUsdTitle,
     );
   }
 
@@ -3627,6 +3638,7 @@ function renderRoutingDiagram(quote: Record<string, unknown>): string {
     inputTotalLabel,
     outputAddon,
     outputUsdSubline,
+    outputUsdTitle,
   );
 }
 
@@ -3648,6 +3660,7 @@ function renderRoutingDiagramPlaceholder(loading = false): string {
     : null;
   const outputAddon = lastSwapQuoteOk ? getQuoteDiagramOutputFeeAddon(lastSwapQuoteOk) : null;
   const outputUsdSubline = lastSwapQuoteOk ? getQuoteDiagramOutputUsdSubline(lastSwapQuoteOk) : null;
+  const outputUsdTitle = lastSwapQuoteOk ? quoteOutputPriceSourceTitle(lastSwapQuoteOk) : null;
   const mockLeg: RouteHopLeg = {
     inMint,
     outMint,
@@ -3682,6 +3695,7 @@ function renderRoutingDiagramPlaceholder(loading = false): string {
     inputTotalLabel,
     outputAddon,
     outputUsdSubline,
+    outputUsdTitle,
   );
 }
 
@@ -4188,13 +4202,7 @@ function renderQuoteSummary(quote: Record<string, unknown>): string {
   const receiveUsdLabel = receiveUsd != null ? formatSwapReceiveUsdLabel(receiveUsd) : null;
   const paySub = buildQuotePaySubLabel(quote);
   const payValueHtml = renderQuotePayHeroValueHtml(quote, inSym, payAmt);
-  const receiveSub = quote._simulatedOutAmount
-    ? receiveUsdLabel
-      ? `≈ ${receiveUsdLabel} · wallet estimate`
-      : 'Wallet estimate (simulated)'
-    : receiveUsdLabel
-      ? `≈ ${receiveUsdLabel}`
-      : null;
+  const receiveSub = receiveUsdLabel ? `≈ ${receiveUsdLabel} · from quote` : null;
 
   return `<div class="swap-quote-summary-primary">
       ${renderQuoteSummaryHeroTile('You pay', payAmt, inSym, 'pay', paySub, false, false, payValueHtml)}
@@ -4702,6 +4710,8 @@ function clearSwapQuotePanel(): void {
 }
 
 function renderSwapQuoteUI(quote: Record<string, unknown>): void {
+  setBuyReadoutLoading(false);
+  setBuyFiatLoading(false);
   const outAmt = formatQuoteTokenAmount(quote, 'out');
   if (swapBuyAmountDisplayEl) {
     swapBuyAmountDisplayEl.textContent = outAmt.display;
@@ -4713,7 +4723,10 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
   const payUsdLabel = formatSwapPayFiatDisplay(getQuotePayUsd(quote));
   const receiveUsdLabel = formatSwapReceiveFiatDisplay(getQuoteReceiveUsd(quote));
   if (swapSellFiatEl) swapSellFiatEl.textContent = payUsdLabel;
-  if (swapBuyFiatEl) swapBuyFiatEl.textContent = receiveUsdLabel;
+  if (swapBuyFiatEl) {
+    swapBuyFiatEl.textContent = receiveUsdLabel;
+    swapBuyFiatEl.title = quoteOutputPriceSourceTitle(quote);
+  }
 
   const inS = getSwapInSym();
   const outS = getSwapOutSym();
@@ -4947,7 +4960,8 @@ function applyVybeQuoteBodyToUi(
   quotedMintSession.add(inputMint);
   quotedMintSession.add(outputMint);
   const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
-  const quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(body), selectedRouter);
+  let quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(body), selectedRouter);
+  quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
   lastSwapQuoteOk = quote;
   lastRawQuoteResponse = body;
   swapQuoteWalletSnapshot = wallet;

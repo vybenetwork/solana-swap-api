@@ -1792,6 +1792,18 @@ tr:hover td {
   box-shadow: 0 1px 0 rgba(34, 211, 238, 0.02) inset, 0 20px 48px rgba(0, 0, 0, 0.4);
 }
 
+.swap-hero-routing-row {
+  margin-bottom: 1rem;
+}
+
+.swap-hero-routing-row .swap-quote-details-subtitle {
+  margin-bottom: 0.55rem;
+}
+
+.swap-hero-routing-row .swap-quote-details-routing {
+  width: 100%;
+}
+
 .swap-hero-layout {
   display: grid;
   grid-template-columns: 420px minmax(0, 1fr);

@@ -169,26 +169,27 @@ function sumFeeItems(items: HopFeeItem[]): bigint {
 function applyHopFees(
   step: VybeRoutePlanStep,
   items: HopFeeItem[],
-  opts: { quotedOutRaw?: string; netOutRaw?: string },
+  opts: { quotedOutRaw?: string; netOutRaw?: string; outMint?: string },
 ): RoutePlanStepWithFees {
   const enriched = step as RoutePlanStepWithFees;
   if (items.length === 0) {
     delete enriched._hopFees;
     return enriched;
   }
-  const total = sumFeeItems(items);
-  const mint = items[items.length - 1]!.mint;
+  const outMint = opts.outMint?.trim() || step.swapInfo?.outputMintAddress?.trim() || '';
+  const feeMint = outMint || items[items.length - 1]!.mint;
+  const totalInOutMint = outMint ? sumFeesInMint(items, outMint) : sumFeeItems(items);
   enriched._hopFees = {
     items,
-    totalAmountRaw: total.toString(),
-    mint,
+    totalAmountRaw: totalInOutMint.toString(),
+    mint: feeMint,
     quotedOutRaw: opts.quotedOutRaw,
     netOutRaw: opts.netOutRaw,
   };
   enriched.swapInfo = {
     ...enriched.swapInfo,
-    feeAmount: total.toString(),
-    feeMintAddress: mint,
+    feeAmount: totalInOutMint.toString(),
+    feeMintAddress: feeMint,
   };
   return enriched;
 }
@@ -626,6 +627,12 @@ function sumFeesInMint(items: HopFeeItem[], mint: string): bigint {
   }, 0n);
 }
 
+function hasProtocolFeeOnMint(items: HopFeeItem[], mint: string): boolean {
+  return items.some(
+    (it) => it.label === 'Protocol fee' && mintMatches(it.mint, mint),
+  );
+}
+
 function buildRentByHopIndex(
   plan: VybeRoutePlanStep[],
   outputMint: string,
@@ -812,25 +819,38 @@ export function enrichRoutePlanFees(
     if (isLast) {
       const hopQuotedOut = hopQuotedOutRaw(step, quotedOut);
       const hopProtocolFee = swapFeePct != null ? pctFeeRaw(hopQuotedOut, swapFeePct) : 0n;
-      const hasProtocol = items.some((it) => it.label === 'Protocol fee');
+      const outMint = si.outputMintAddress || outputMint;
+      const inputProtocolMint = isSolMint(inputMint) ? WSOL_MINT : inputMint.trim();
+      const protocolAlreadyOnInput =
+        inputMint && hasProtocolFeeOnMint(items, inputProtocolMint);
 
-      if (hopProtocolFee > 0n && !hasProtocol) {
+      if (
+        hopProtocolFee > 0n &&
+        !hasProtocolFeeOnMint(items, outMint) &&
+        !protocolAlreadyOnInput
+      ) {
         items.push({
           label: 'Protocol fee',
           amountRaw: hopProtocolFee.toString(),
-          mint: si.outputMintAddress || outputMint,
+          mint: outMint,
         });
       }
 
       if (totalFeeRaw != null) {
         const totalFee = BigInt(totalFeeRaw);
-        const accounted = sumFeeItems(items.filter((it) => it.label !== 'Acc Rent Fee'));
+        const accounted = sumFeesInMint(
+          items.filter((it) => it.label !== 'Acc Rent Fee'),
+          outMint,
+        );
         const routeExtra = totalFee > accounted ? totalFee - accounted : 0n;
-        if (routeExtra > 0n) {
+        // Quote-vs-simulation gap (Vybe/Meteora) is already reflected in net vs quoted hop
+        // output — not a separate wallet-debited fee. Only emit routing remainder for
+        // aggregator quotes without simulation (Jupiter/Titan-style route fees).
+        if (routeExtra > 0n && simulatedOut == null) {
           items.push({
             label: 'Route fee',
             amountRaw: routeExtra.toString(),
-            mint: si.outputMintAddress || outputMint,
+            mint: outMint,
           });
         }
       } else if (items.length === 0 && protocolFeeOnQuote > 0n) {
@@ -889,6 +909,7 @@ export function enrichRoutePlanFees(
       applyHopFees(step, items, {
         quotedOutRaw: hopQuotedStr,
         netOutRaw,
+        outMint: si.outputMintAddress || outputMint,
       }),
     );
   }

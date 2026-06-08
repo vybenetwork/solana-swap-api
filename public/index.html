@@ -172,6 +172,11 @@
           Get a swap quote from the Vybe Trading API, review routing and price impact, then build an unsigned transaction to sign in your wallet. This demo does not broadcast.
         </div>
 
+        <section class="swap-hero-routing-row">
+          <h4 class="swap-quote-details-subtitle" id="swapQuoteRouteSubtitle">Route</h4>
+          <div id="swapQuoteDetailsRouting" class="swap-quote-details-routing"></div>
+        </section>
+
         <div class="swap-hero-layout">
           <div class="swap-hero-col swap-hero-col--widget">
         <div class="swap-widget">
@@ -517,10 +522,6 @@
               </p>
               <div id="swapQuoteDetailsBody" class="swap-quote-details-body">
                 <div id="swapQuoteSummary" class="swap-quote-summary" aria-live="polite"></div>
-                <section class="swap-quote-details-section swap-quote-details-section--route">
-                  <h4 class="swap-quote-details-subtitle" id="swapQuoteRouteSubtitle">Route</h4>
-                  <div id="swapQuoteDetailsRouting" class="swap-quote-details-routing"></div>
-                </section>
                 <details class="swap-quote-details-collapsible" id="swapQuoteRoutePlanDetails" open>
                   <summary class="swap-quote-details-collapsible__summary">Route plan steps</summary>
                   <div id="swapQuoteDetailsRouteSteps" class="swap-quote-details-route-steps"></div>
