@@ -2286,10 +2286,12 @@ function hopNetOutputUsdEstimate(
   if (!(share > 0) || !Number.isFinite(share)) return null;
 
   const nextIsLast = planIndex + 1 === plan.length - 1;
+  const nextAmounts = resolveHopOutAmounts(nextStep, quote, nextIsLast);
+  const nextNetRaw = nextAmounts?.netRaw ?? nextOutRaw;
   const nextHopOutUsd = hopNetOutputUsdEstimate(
     nextStep,
     quote,
-    nextOutRaw,
+    nextNetRaw,
     nextOutMint,
     planIndex + 1,
     nextIsLast,
@@ -2327,6 +2329,149 @@ function quoteCumulativeWalletPayUsd(
   return swapUsd + sumWalletDebitedFeesUsdThroughHop(quote, throughPlanIndex);
 }
 
+interface HopOutAmounts {
+  netRaw: bigint;
+  quotedRaw: bigint;
+  grossRaw: bigint;
+  outMint: string;
+}
+
+/** Resolve hop gross/net output raw amounts (shared by badge % and USD estimates). */
+function resolveHopOutAmounts(
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+  isLastHop: boolean,
+): HopOutAmounts | null {
+  const si = step.swapInfo;
+  const hopFees = getHopFeeBreakdown(step);
+  const outMint = si?.outputMintAddress ?? quoteOutputMint(quote);
+  const inputMint = si?.inputMintAddress ?? quoteInputMint(quote);
+
+  const quotedRaw =
+    parsePositiveBigInt(hopFees?.quotedOutRaw) ??
+    parsePositiveBigInt(si?.outAmount) ??
+    (isLastHop ? parsePositiveBigInt(String(quote._quotedOutAmount ?? '')) : null);
+  if (!quotedRaw || !outMint) return null;
+
+  const inRaw =
+    parsePositiveBigInt(si?.inAmount) ??
+    (isLastHop ? parsePositiveBigInt(String(quote.inAmount ?? '')) : null);
+
+  const feeDeductionOut =
+    hopFees?.items.length && outMint
+      ? sumHopFeeDeductionInOutputRaw(hopFees, outMint, inRaw, quotedRaw, inputMint ?? '')
+      : 0n;
+
+  const derivedNetFromFees =
+    feeDeductionOut > 0n && quotedRaw > feeDeductionOut ? quotedRaw - feeDeductionOut : null;
+
+  let netRaw = parsePositiveBigInt(hopFees?.netOutRaw);
+  if (!netRaw && isLastHop) {
+    netRaw = parsePositiveBigInt(String(quote._simulatedOutAmount ?? ''));
+  }
+  if ((!netRaw || netRaw >= quotedRaw) && derivedNetFromFees != null) {
+    netRaw = derivedNetFromFees;
+  } else if (!netRaw && isLastHop) {
+    const fromOut = parsePositiveBigInt(String(quote.outAmount ?? ''));
+    if (fromOut && fromOut < quotedRaw) netRaw = fromOut;
+  }
+  if (!netRaw) return null;
+
+  let grossRaw = quotedRaw;
+  if (feeDeductionOut > 0n) {
+    const impliedGross = netRaw + feeDeductionOut;
+    if (impliedGross > grossRaw) grossRaw = impliedGross;
+  }
+
+  return { netRaw, quotedRaw, grossRaw, outMint };
+}
+
+/** Non-wallet output-side fees on one hop, expressed in that hop's output mint UI. */
+function sumHopOutputSideFeesInHopOutMintUi(
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+): number {
+  const hopOutMint = swapInfoOutputMint(step.swapInfo);
+  if (!hopOutMint) return 0;
+
+  const sellMint = quoteInputMint(quote) ?? '';
+  let total = 0;
+  for (const item of flattenHopFeeItems(getHopFeeBreakdown(step)?.items ?? [])) {
+    if (isAccRentFeeLabel(item.label)) continue;
+    if (isWalletCostFeeItem(item, quote)) continue;
+    if (isInputSideWalletFeeItem(item, sellMint)) continue;
+
+    const feeUi = feeAmountToUi(item.amountRaw, item.mint);
+    if (feeUi == null || feeUi <= 0) continue;
+
+    let inHopOutUi = feeUi;
+    if (!routeLegMintMatches(item.mint, hopOutMint)) {
+      const feePrice = lookupMintPriceUsd(item.mint, quote);
+      const hopOutPrice = lookupMintPriceUsd(hopOutMint, quote);
+      if (
+        !(Number.isFinite(feePrice) && feePrice > 0 && Number.isFinite(hopOutPrice) && hopOutPrice > 0)
+      ) {
+        continue;
+      }
+      inHopOutUi = (feeUi * feePrice) / hopOutPrice;
+    }
+    total += inHopOutUi;
+  }
+  return total;
+}
+
+/** Per-hop retention (net ÷ gross) after that hop's output-side fees. */
+function hopLocalOutRetentionFactor(
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+  isLastHop: boolean,
+): number | null {
+  const amounts = resolveHopOutAmounts(step, quote, isLastHop);
+  if (!amounts) return null;
+  const { netRaw, grossRaw, outMint } = amounts;
+
+  if (grossRaw > 0n && netRaw < grossRaw) {
+    const f = Number(netRaw) / Number(grossRaw);
+    if (Number.isFinite(f) && f > 0 && f <= 1) return f;
+  }
+
+  const netUi = rawAmountToUiNumber(String(netRaw), getMintDecimals(outMint));
+  const hopFeeUi = sumHopOutputSideFeesInHopOutMintUi(step, quote);
+  if (netUi > 0 && hopFeeUi > 0) {
+    const f = netUi / (netUi + hopFeeUi);
+    if (Number.isFinite(f) && f > 0 && f <= 1) return f;
+  }
+
+  return 1;
+}
+
+/**
+ * Cumulative % retained through hop index: input wallet-fee factor × each hop's local retention.
+ * Intermediate hops no longer inherit final receive USD (which hid per-hop output fees).
+ */
+function computeCumulativeHopOutgoingPct(
+  quote: Record<string, unknown>,
+  throughPlanIndex: number,
+): number | null {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  if (throughPlanIndex < 0 || throughPlanIndex >= plan.length) return null;
+
+  const payUsd = quoteWalletPayUsd(quote);
+  const swapUsd = getQuoteSwapUsdValue(quote);
+  if (payUsd == null || swapUsd == null || payUsd <= 0 || swapUsd <= 0) return null;
+
+  let retention = swapUsd / payUsd;
+  for (let i = 0; i <= throughPlanIndex; i++) {
+    const isLast = i === plan.length - 1;
+    const local = hopLocalOutRetentionFactor(plan[i]!, quote, isLast);
+    if (local == null || local <= 0) return null;
+    retention *= local;
+  }
+
+  const pct = retention * 100;
+  return Number.isFinite(pct) && pct > 0 ? pct : null;
+}
+
 interface HopOutgoingPercentBreakdown {
   pctLabel: string;
   netDisplay: string;
@@ -2345,95 +2490,9 @@ function computeHopOutgoingPercentBreakdown(
   isLastHop: boolean,
   planIndex = 0,
 ): HopOutgoingPercentBreakdown | null {
-  const si = step.swapInfo;
-  const hopFees = getHopFeeBreakdown(step);
-  const outMint = si?.outputMintAddress ?? quoteOutputMint(quote);
-  const inputMint = si?.inputMintAddress ?? quoteInputMint(quote);
-
-  const quotedRaw =
-    parsePositiveBigInt(hopFees?.quotedOutRaw) ??
-    parsePositiveBigInt(si?.outAmount) ??
-    (isLastHop ? parsePositiveBigInt(String(quote._quotedOutAmount ?? '')) : null);
-  if (!quotedRaw || !outMint) return null;
-
-  const inRaw =
-    parsePositiveBigInt(si?.inAmount) ??
-    (isLastHop ? parsePositiveBigInt(String(quote.inAmount ?? '')) : null);
-
-  const feeDeductionOut =
-    hopFees?.items.length && outMint
-      ? sumHopFeeDeductionInOutputRaw(hopFees, outMint, inRaw, quotedRaw, inputMint)
-      : 0n;
-
-  const derivedNetFromFees =
-    feeDeductionOut > 0n && quotedRaw > feeDeductionOut ? quotedRaw - feeDeductionOut : null;
-
-  let netRaw = parsePositiveBigInt(hopFees?.netOutRaw);
-  if (!netRaw && isLastHop) {
-    netRaw = parsePositiveBigInt(String(quote._simulatedOutAmount ?? ''));
-  }
-  // Vybe quotes often omit simulation net while hop fees are still present — outAmount may
-  // equal quoted gross, which would hide the output % badge entirely.
-  if ((!netRaw || netRaw >= quotedRaw) && derivedNetFromFees != null) {
-    netRaw = derivedNetFromFees;
-  } else if (!netRaw && isLastHop) {
-    const fromOut = parsePositiveBigInt(String(quote.outAmount ?? ''));
-    if (fromOut && fromOut < quotedRaw) netRaw = fromOut;
-  }
-  if (!netRaw) return null;
-
-  const hopOutUsd = hopNetOutputUsdEstimate(step, quote, netRaw, outMint, planIndex, isLastHop);
-  const cumulativePayUsd = quoteCumulativeWalletPayUsd(quote, planIndex);
-  if (
-    cumulativePayUsd != null &&
-    cumulativePayUsd > 0 &&
-    hopOutUsd != null &&
-    hopOutUsd > 0 &&
-    hopOutUsd < cumulativePayUsd
-  ) {
-    const pct = (hopOutUsd / cumulativePayUsd) * 100;
-    if (Number.isFinite(pct) && pct > 0) {
-      const payRaw = quoteWalletPayRaw(quote);
-      const swapRaw = quoteInAmountRaw(quote);
-      let inputScaled = false;
-      if (isLastHop && payRaw && swapRaw) {
-        try {
-          inputScaled = BigInt(payRaw) > BigInt(swapRaw);
-        } catch {
-          inputScaled = false;
-        }
-      }
-      const outUi = isLastHop ? quoteOutputUiAmount(quote) : null;
-      return {
-        pctLabel: `${Math.round(pct * 100) / 100}%`,
-        netDisplay:
-          outUi != null
-            ? formatSwapAmountValue(outUi).replace(/,/g, '')
-            : formatRawTokenAmount(String(netRaw), outMint).display,
-        quotedDisplay: formatRawTokenAmount(String(quotedRaw), outMint).display,
-        denomDisplay: isLastHop
-          ? getQuoteWalletPayLabelFromQuote(quote)
-          : formatRawTokenAmount(String(quotedRaw), outMint).display,
-        outSym: mintSymbolSync(outMint),
-        inputScaled,
-        payDisplay: formatQuoteRawAmountLabel(payRaw, quoteInputMint(quote)),
-        swapDisplay: formatQuoteRawAmountLabel(swapRaw, quoteInputMint(quote)),
-        inSym: getSwapInSym(),
-      };
-    }
-  }
-
-  let grossRaw = quotedRaw;
-  if (feeDeductionOut > 0n) {
-    const impliedGross = netRaw + feeDeductionOut;
-    if (impliedGross > grossRaw) grossRaw = impliedGross;
-  }
-
-  const denom = isLastHop ? scaleQuotedRawToWalletPay(quotedRaw, quote) : grossRaw;
-  if (netRaw >= denom) return null;
-
-  const pct = Number((netRaw * 10000n) / denom) / 100;
-  if (!Number.isFinite(pct) || pct <= 0) return null;
+  const amounts = resolveHopOutAmounts(step, quote, isLastHop);
+  if (!amounts) return null;
+  const { netRaw, quotedRaw, grossRaw, outMint } = amounts;
 
   const payRaw = quoteWalletPayRaw(quote);
   const swapRaw = quoteInAmountRaw(quote);
@@ -2446,17 +2505,53 @@ function computeHopOutgoingPercentBreakdown(
     }
   }
 
+  const buildBreakdown = (pct: number): HopOutgoingPercentBreakdown => {
+    const outUi = isLastHop ? quoteOutputUiAmount(quote) : null;
     return {
-    pctLabel: `${Math.round(pct * 100) / 100}%`,
-    netDisplay: formatRawTokenAmount(String(netRaw), outMint).display,
-    quotedDisplay: formatRawTokenAmount(String(quotedRaw), outMint).display,
-    denomDisplay: formatRawTokenAmount(String(denom), outMint).display,
-    outSym: mintSymbolSync(outMint),
-    inputScaled,
-    payDisplay: formatQuoteRawAmountLabel(payRaw, quoteInputMint(quote)),
-    swapDisplay: formatQuoteRawAmountLabel(swapRaw, quoteInputMint(quote)),
-    inSym: getSwapInSym(),
+      pctLabel: `${Math.round(pct * 100) / 100}%`,
+      netDisplay:
+        outUi != null
+          ? formatSwapAmountValue(outUi).replace(/,/g, '')
+          : formatRawTokenAmount(String(netRaw), outMint).display,
+      quotedDisplay: formatRawTokenAmount(String(quotedRaw), outMint).display,
+      denomDisplay: isLastHop
+        ? getQuoteWalletPayLabelFromQuote(quote)
+        : formatRawTokenAmount(String(grossRaw), outMint).display,
+      outSym: mintSymbolSync(outMint),
+      inputScaled,
+      payDisplay: formatQuoteRawAmountLabel(payRaw, quoteInputMint(quote)),
+      swapDisplay: formatQuoteRawAmountLabel(swapRaw, quoteInputMint(quote)),
+      inSym: getSwapInSym(),
+    };
   };
+
+  const cumulativePct = computeCumulativeHopOutgoingPct(quote, planIndex);
+  if (cumulativePct != null && cumulativePct > 0 && cumulativePct < 100) {
+    return buildBreakdown(cumulativePct);
+  }
+
+  const hopOutUsd = hopNetOutputUsdEstimate(step, quote, netRaw, outMint, planIndex, isLastHop);
+  const cumulativePayUsd = quoteCumulativeWalletPayUsd(quote, planIndex);
+  if (
+    cumulativePayUsd != null &&
+    cumulativePayUsd > 0 &&
+    hopOutUsd != null &&
+    hopOutUsd > 0 &&
+    hopOutUsd < cumulativePayUsd
+  ) {
+    const pct = (hopOutUsd / cumulativePayUsd) * 100;
+    if (Number.isFinite(pct) && pct > 0) {
+      return buildBreakdown(pct);
+    }
+  }
+
+  const denom = isLastHop ? scaleQuotedRawToWalletPay(quotedRaw, quote) : grossRaw;
+  if (netRaw >= denom) return null;
+
+  const pct = Number((netRaw * 10000n) / denom) / 100;
+  if (!Number.isFinite(pct) || pct <= 0) return null;
+
+  return buildBreakdown(pct);
 }
 
 /** % of hop quoted output that continues after fees (e.g. 99% net to wallet). */
