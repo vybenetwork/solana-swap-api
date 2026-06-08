@@ -425,12 +425,43 @@ body {
   justify-content: flex-start;
   width: 100%;
   min-width: 0;
-  gap: 0.55rem;
+  gap: 0;
   padding: 0.58rem 0.82rem;
   white-space: normal;
   line-height: 1.25;
   border: 1px solid transparent;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
+.page-masthead__btns--related .page-masthead__btn-text {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  font-size: 17pt;
+  margin-left: 18px;
+}
+
+.page-masthead__demo-preview {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  max-height: 48px;
+  height: 48px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.page-masthead__demo-preview img {
+  display: block;
+  height: 48px;
+  max-height: 48px;
+  width: auto;
+  max-width: 91px;
+  object-fit: cover;
+  object-position: top center;
 }
 
 .page-masthead__demo-icon-wrap {
@@ -462,7 +493,7 @@ body {
   color: #bbf7d0;
 }
 
-.page-masthead__btn--demo-trades .page-masthead__demo-icon-wrap {
+.page-masthead__btn--demo-trades .page-masthead__demo-preview {
   background: rgba(34, 197, 94, 0.22);
   color: #4ade80;
 }
@@ -482,7 +513,7 @@ body {
   color: #fde68a;
 }
 
-.page-masthead__btn--demo-ohlc .page-masthead__demo-icon-wrap {
+.page-masthead__btn--demo-ohlc .page-masthead__demo-preview {
   background: rgba(245, 158, 11, 0.22);
   color: #fbbf24;
 }
@@ -502,7 +533,7 @@ body {
   color: #bfdbfe;
 }
 
-.page-masthead__btn--demo-token .page-masthead__demo-icon-wrap {
+.page-masthead__btn--demo-token .page-masthead__demo-preview {
   background: rgba(59, 130, 246, 0.22);
   color: #60a5fa;
 }
@@ -522,7 +553,7 @@ body {
   color: #99f6e4;
 }
 
-.page-masthead__btn--demo-wallet .page-masthead__demo-icon-wrap {
+.page-masthead__btn--demo-wallet .page-masthead__demo-preview {
   background: rgba(20, 184, 166, 0.22);
   color: #2dd4bf;
 }
@@ -542,7 +573,7 @@ body {
   color: #ddd6fe;
 }
 
-.page-masthead__btn--demo-holders .page-masthead__demo-icon-wrap {
+.page-masthead__btn--demo-holders .page-masthead__demo-preview {
   background: rgba(139, 92, 246, 0.22);
   color: #a78bfa;
 }
@@ -562,7 +593,7 @@ body {
   color: #fecdd3;
 }
 
-.page-masthead__btn--demo-traders .page-masthead__demo-icon-wrap {
+.page-masthead__btn--demo-traders .page-masthead__demo-preview {
   background: rgba(244, 63, 94, 0.22);
   color: #fb7185;
 }
