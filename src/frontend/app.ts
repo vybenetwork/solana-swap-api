@@ -21,7 +21,7 @@ import {
   swapSimulationFailed,
   computeSplSellAmountForRetryStep,
   shouldContinueSplSellSimRetry,
-  SPL_SELL_SIM_MAX_STEPS,
+  SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER,
   isSolMint,
   preferNativeSolMint,
   NATIVE_SOL_MINT,
@@ -1226,12 +1226,53 @@ function wireTokenPickerOpen(
   mintInput.addEventListener('click', tryOpenBuyTokenPicker);
 }
 
+function swapPairMintsMatch(a: string, b: string): boolean {
+  const left = a.trim();
+  const right = b.trim();
+  if (!left || !right) return false;
+  return preferNativeSolMint(left) === preferNativeSolMint(right);
+}
+
+function flipSellBuyTokens(): void {
+  if (!swapInputMintInput || !swapOutputMintInput) return;
+  const sellMint = swapInputMintInput.value;
+  const buyMint = swapOutputMintInput.value;
+  swapInputMintInput.value = buyMint;
+  swapOutputMintInput.value = sellMint;
+  const sellSym = swapInputSymbolEl?.textContent ?? '';
+  const buySym = swapOutputSymbolEl?.textContent ?? '';
+  if (swapInputSymbolEl) swapInputSymbolEl.textContent = buySym.trim() || '—';
+  if (swapOutputSymbolEl) swapOutputSymbolEl.textContent = sellSym.trim() || '—';
+}
+
+function afterSellBuyTokensFlipped(): void {
+  void syncSwapSideLabels();
+  updateSwapTokenIcons();
+  updateSwapPairCards();
+  syncSwapAmountMaxFromBalance();
+  const newSellMint = swapInputMintInput?.value.trim() ?? '';
+  if (newSellMint && hasValidSwapWallet()) {
+    applySellAmountPercent(getMaxSellPercentForMint(newSellMint));
+  }
+  void prefetchSwapPairPrices({ forceFullDetails: true, mints: newSellMint ? [newSellMint] : undefined });
+  void refreshLowSolTradeWarning();
+}
+
 function applySelectedToken(mint: string, side: TokenPickerSide): void {
   invalidateSwapQuoteAfterInputChange();
   const input = side === 'input' ? swapInputMintInput : swapOutputMintInput;
+  const otherInput = side === 'input' ? swapOutputMintInput : swapInputMintInput;
   const symbolEl = side === 'input' ? swapInputSymbolEl : swapOutputSymbolEl;
   if (!input) return;
-  const resolvedMint = side === 'input' ? preferNativeSolMint(mint) : mint;
+  const resolvedMint = side === 'input' ? preferNativeSolMint(mint) : mint.trim();
+  const otherMint = otherInput?.value.trim() ?? '';
+
+  if (otherMint && swapPairMintsMatch(resolvedMint, otherMint)) {
+    flipSellBuyTokens();
+    void refreshSwapSymbols().then(() => afterSellBuyTokensFlipped());
+    return;
+  }
+
   input.value = resolvedMint;
   const meta = getCachedTokenMeta(resolvedMint);
   if (meta && symbolEl) symbolEl.textContent = meta.symbol === 'WSOL' || meta.symbol === 'wSOL' ? 'SOL' : meta.symbol;
@@ -1614,6 +1655,23 @@ function maybeShowSplSellReducedWarning(amountUi: number, mint: string, original
     swapQuoteWarning,
     `Sell amount reduced to ${formatSwapInputAmountValue(amountUi, getMintDecimals(mint))} ${sym} to leave room for ${sym} fees.`,
   );
+}
+
+/** Full wallet balance (100%) when switching routers after sim retries are exhausted. */
+function getSplRouterResetSellAmountUi(mint: string): number | null {
+  if (isSolMint(mint)) return getWalletSellableAmountUi(mint);
+  const balance = getWalletBalanceAmountUi(mint);
+  if (balance == null || balance <= 0) return null;
+  return balance;
+}
+
+function resetSplSellAmountForRouterSwitch(mint: string, fallbackAmount: number): number {
+  const reset = getSplRouterResetSellAmountUi(mint);
+  if (reset != null && reset > 0) {
+    setSwapSellAmountToBalance(reset, mint, true);
+    return reset;
+  }
+  return fallbackAmount;
 }
 
 function nextSplSellRetryAmountUi(
@@ -2191,6 +2249,54 @@ function scaleQuotedRawToWalletPay(quotedRaw: bigint, quote: Record<string, unkn
   return quotedRaw;
 }
 
+/** USD value of hop net output; recurses through downstream hops when intermediate mint has no price. */
+function hopNetOutputUsdEstimate(
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+  netRaw: bigint,
+  outMint: string,
+  planIndex: number,
+  isLastHop: boolean,
+): number | null {
+  if (isLastHop) return getQuoteReceiveUsd(quote);
+
+  const netUi = rawAmountToUiNumber(String(netRaw), getMintDecimals(outMint));
+  if (!(netUi > 0)) return null;
+
+  const price = lookupMintPriceUsd(outMint, quote);
+  if (Number.isFinite(price) && price > 0) return netUi * price;
+
+  if (STABLECOIN_USD_FALLBACK_MINTS.has(outMint.trim())) {
+    return netUi * STABLECOIN_USD_FALLBACK_PRICE;
+  }
+
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const nextStep = plan[planIndex + 1];
+  const nextSi = nextStep?.swapInfo;
+  if (!nextStep || !nextSi) return null;
+
+  const nextInRaw = parsePositiveBigInt(nextSi.inAmount);
+  const nextOutRaw = parsePositiveBigInt(nextSi.outAmount);
+  const nextOutMint = (nextSi.outputMintAddress ?? '').trim();
+  if (!nextInRaw || !nextOutRaw || !nextOutMint || nextInRaw === 0n) return null;
+
+  const share = Number(netRaw) / Number(nextInRaw);
+  if (!(share > 0) || !Number.isFinite(share)) return null;
+
+  const nextIsLast = planIndex + 1 === plan.length - 1;
+  const nextHopOutUsd = hopNetOutputUsdEstimate(
+    nextStep,
+    quote,
+    nextOutRaw,
+    nextOutMint,
+    planIndex + 1,
+    nextIsLast,
+  );
+  if (nextHopOutUsd == null || !(nextHopOutUsd > 0)) return null;
+
+  return nextHopOutUsd * share;
+}
+
 interface HopOutgoingPercentBreakdown {
   pctLabel: string;
   netDisplay: string;
@@ -2207,6 +2313,7 @@ function computeHopOutgoingPercentBreakdown(
   step: VybeRoutePlanStepLite,
   quote: Record<string, unknown>,
   isLastHop: boolean,
+  planIndex = 0,
 ): HopOutgoingPercentBreakdown | null {
   const si = step.swapInfo;
   const hopFees = getHopFeeBreakdown(step);
@@ -2245,34 +2352,44 @@ function computeHopOutgoingPercentBreakdown(
   }
   if (!netRaw) return null;
 
-  if (isLastHop) {
-    const receiveUsd = getQuoteReceiveUsd(quote);
-    const payUsd = quoteWalletPayUsd(quote);
-    if (
-      receiveUsd != null &&
-      payUsd != null &&
-      payUsd > 0 &&
-      receiveUsd > 0 &&
-      receiveUsd < payUsd
-    ) {
-      const pct = (receiveUsd / payUsd) * 100;
-      if (Number.isFinite(pct) && pct > 0) {
-        const payRaw = quoteWalletPayRaw(quote);
-        const swapRaw = quoteInAmountRaw(quote);
-        const outUi = quoteOutputUiAmount(quote);
-    return {
-          pctLabel: `${Math.round(pct * 100) / 100}%`,
-          netDisplay:
-            outUi != null ? formatSwapAmountValue(outUi).replace(/,/g, '') : formatRawTokenAmount(String(netRaw), outMint).display,
-          quotedDisplay: formatRawTokenAmount(String(quotedRaw), outMint).display,
-          denomDisplay: getQuoteWalletPayLabelFromQuote(quote),
-          outSym: mintSymbolSync(outMint),
-          inputScaled: true,
-          payDisplay: formatQuoteRawAmountLabel(payRaw, quoteInputMint(quote)),
-          swapDisplay: formatQuoteRawAmountLabel(swapRaw, quoteInputMint(quote)),
-          inSym: getSwapInSym(),
-        };
+  const payUsd = quoteWalletPayUsd(quote);
+  const hopOutUsd = hopNetOutputUsdEstimate(step, quote, netRaw, outMint, planIndex, isLastHop);
+  if (
+    payUsd != null &&
+    payUsd > 0 &&
+    hopOutUsd != null &&
+    hopOutUsd > 0 &&
+    hopOutUsd < payUsd
+  ) {
+    const pct = (hopOutUsd / payUsd) * 100;
+    if (Number.isFinite(pct) && pct > 0) {
+      const payRaw = quoteWalletPayRaw(quote);
+      const swapRaw = quoteInAmountRaw(quote);
+      let inputScaled = false;
+      if (isLastHop && payRaw && swapRaw) {
+        try {
+          inputScaled = BigInt(payRaw) > BigInt(swapRaw);
+        } catch {
+          inputScaled = false;
+        }
       }
+      const outUi = isLastHop ? quoteOutputUiAmount(quote) : null;
+      return {
+        pctLabel: `${Math.round(pct * 100) / 100}%`,
+        netDisplay:
+          outUi != null
+            ? formatSwapAmountValue(outUi).replace(/,/g, '')
+            : formatRawTokenAmount(String(netRaw), outMint).display,
+        quotedDisplay: formatRawTokenAmount(String(quotedRaw), outMint).display,
+        denomDisplay: isLastHop
+          ? getQuoteWalletPayLabelFromQuote(quote)
+          : formatRawTokenAmount(String(quotedRaw), outMint).display,
+        outSym: mintSymbolSync(outMint),
+        inputScaled,
+        payDisplay: formatQuoteRawAmountLabel(payRaw, quoteInputMint(quote)),
+        swapDisplay: formatQuoteRawAmountLabel(swapRaw, quoteInputMint(quote)),
+        inSym: getSwapInSym(),
+      };
     }
   }
 
@@ -2317,8 +2434,9 @@ function hopOutgoingPercentLabel(
   step: VybeRoutePlanStepLite,
   quote: Record<string, unknown>,
   isLastHop: boolean,
+  planIndex = 0,
 ): string | null {
-  return computeHopOutgoingPercentBreakdown(step, quote, isLastHop)?.pctLabel ?? null;
+  return computeHopOutgoingPercentBreakdown(step, quote, isLastHop, planIndex)?.pctLabel ?? null;
 }
 
 /** Best total wallet debit: simulation first, then input-side fee estimate. */
@@ -3499,7 +3617,7 @@ function renderJupiterTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<
       const isLastHop = i === metas.length - 1;
       const inLink =
         i === 0 ? renderJupiterPctLink(hopPercentLabel(meta.step)) : '';
-      const outPct = hopOutgoingPercentLabel(meta.step, quote, isLastHop);
+      const outPct = hopOutgoingPercentLabel(meta.step, quote, isLastHop, meta.planIndex);
       const outLink =
         outPct && outPct !== '100%'
           ? renderJupiterPctLink(outPct, 'out')
@@ -5058,7 +5176,8 @@ async function requestAggregatorQuoteAndBuild(
   } catch (err) {
     if (router !== 'jupiter' || !isRouterFallbackEnabled()) throw err;
     setSwapRouter('titan', { invalidateQuote: false });
-    return executeAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, {
+    const resetAmount = resetSplSellAmountForRouterSwitch(inputMint, amount);
+    return executeAggregatorQuoteAndBuild(wallet, inputMint, outputMint, resetAmount, {
       ...buildOpts,
       router: 'titan',
     });
@@ -5158,7 +5277,7 @@ async function executeAggregatorQuoteAndBuild(
     | Awaited<ReturnType<typeof fetchAggregatorQuoteAndBuildOnce>>
     | null = null;
 
-  while (splSimStep <= SPL_SELL_SIM_MAX_STEPS) {
+  while (splSimStep < SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER) {
     last = await fetchAggregatorQuoteAndBuildOnce(
       wallet,
       inputMint,
@@ -5173,7 +5292,8 @@ async function executeAggregatorQuoteAndBuild(
         throw jupiterRouteUnavailableError(false);
       }
       setSwapRouter('titan', { invalidateQuote: false });
-      return executeAggregatorQuoteAndBuild(wallet, inputMint, outputMint, attemptAmount, {
+      const resetAmount = resetSplSellAmountForRouterSwitch(inputMint, attemptAmount);
+      return executeAggregatorQuoteAndBuild(wallet, inputMint, outputMint, resetAmount, {
         ...buildOpts,
         router: 'titan',
       });
@@ -5226,6 +5346,14 @@ async function executeAggregatorQuoteAndBuild(
       last.buildAmount,
       buildOpts,
     );
+  }
+  if (router === 'jupiter' && isRouterFallbackEnabled()) {
+    const resetAmount = resetSplSellAmountForRouterSwitch(inputMint, originalAmount);
+    setSwapRouter('titan', { invalidateQuote: false });
+    return executeAggregatorQuoteAndBuild(wallet, inputMint, outputMint, resetAmount, {
+      ...buildOpts,
+      router: 'titan',
+    });
   }
   throw new Error(
     'Swap simulation failed after reducing sell amount for fees. Try a lower amount.',
@@ -5328,7 +5456,7 @@ async function requestVybeQuote(
   let lastBody: VybeQuoteApiBody | null = null;
   const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
 
-  while (splSimStep <= SPL_SELL_SIM_MAX_STEPS) {
+  while (splSimStep < SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER) {
     const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
     const res = await fetchWithRetry('/api/trading/vybe-quote', {
       method: 'POST',
@@ -5361,8 +5489,9 @@ async function requestVybeQuote(
       if (!isRouterFallbackEnabled()) {
         throw vybeRouteUnavailableError(fallbackRouter);
       }
+      const resetAmount = resetSplSellAmountForRouterSwitch(inputMint, attemptAmount);
       setSwapRouter(fallbackRouter, { invalidateQuote: false });
-      return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, attemptAmount, {
+      return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, resetAmount, {
         ...buildOpts,
         router: fallbackRouter,
       });
@@ -5394,6 +5523,14 @@ async function requestVybeQuote(
 
   if (lastBody) {
     applyVybeQuoteBodyToUi(lastBody, wallet, inputMint, outputMint, originalAmount, buildOpts);
+  }
+  if (selectedRouter === 'vybe' && isRouterFallbackEnabled()) {
+    const resetAmount = resetSplSellAmountForRouterSwitch(inputMint, originalAmount);
+    setSwapRouter('jupiter', { invalidateQuote: false });
+    return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, resetAmount, {
+      ...buildOpts,
+      router: 'jupiter',
+    });
   }
   if (swapQuoteWarning && splSimStep > 0) {
     const sym =
@@ -6191,23 +6328,8 @@ if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
   swapFlipBtnEl.addEventListener('click', () => {
     if (!hasValidSwapWallet()) return;
     invalidateSwapQuoteAfterInputChange();
-    const a = swapInputMintInput.value;
-    const b = swapOutputMintInput.value;
-    swapInputMintInput.value = b;
-    swapOutputMintInput.value = a;
-    const sa = swapInputSymbolEl?.textContent ?? '';
-    const sb = swapOutputSymbolEl?.textContent ?? '';
-    if (swapInputSymbolEl) swapInputSymbolEl.textContent = sb.trim() || '—';
-    if (swapOutputSymbolEl) swapOutputSymbolEl.textContent = sa.trim() || '—';
-    void syncSwapSideLabels();
-    updateSwapTokenIcons();
-    updateSwapPairCards();
-    syncSwapAmountMaxFromBalance();
-    const newSellMint = swapInputMintInput.value.trim();
-    if (newSellMint && hasValidSwapWallet()) {
-      applySellAmountPercent(getMaxSellPercentForMint(newSellMint));
-    }
-    void prefetchSwapPairPrices({ forceFullDetails: true, mints: [newSellMint] });
+    flipSellBuyTokens();
+    afterSellBuyTokensFlipped();
   });
 }
 
@@ -6218,13 +6340,7 @@ if (swapPasteOutputBtnEl && swapOutputMintInput) {
       const t = (await navigator.clipboard.readText()).trim();
       if (!t) return;
       invalidateSwapQuoteAfterInputChange();
-      swapOutputMintInput.value = t;
-      void ensureTokenMetaForMint(t).then(() => {
-        updateSwapTokenIcons();
-        void refreshSwapSymbols();
-      updateSwapPairCards();
-        void prefetchSwapPairPrices({ forceFullDetails: true });
-      });
+      void ensureTokenMetaForMint(t).then(() => applySelectedToken(t, 'output'));
     } catch {
       if (swapQuoteError) showInlineError(swapQuoteError, 'Could not read clipboard (permission denied).');
     }

@@ -8,8 +8,10 @@ import { isSolMint } from './wallet-balance.js';
 
 /** Each retry step lowers sell amount by this many percent of wallet balance. */
 export const SPL_SELL_SIM_RETRY_STEP_PCT = 2;
-/** Max retry steps (98%, 96%, 94%, … down to 50% of balance). */
-export const SPL_SELL_SIM_MAX_STEPS = 25;
+/** Max sell-amount attempts per router before switching (100%, 98%, 96%). */
+export const SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER = 3;
+/** @deprecated Use SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER. */
+export const SPL_SELL_SIM_MAX_STEPS = SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER;
 /** Stop retrying once sell amount falls below this fraction of wallet balance. */
 export const SPL_SELL_SIM_MIN_BALANCE_FRACTION = 0.5;
 
@@ -60,7 +62,7 @@ export function shouldContinueSplSellSimRetry(
   step: number,
 ): boolean {
   if (isSolMint(inputMint)) return false;
-  if (step >= SPL_SELL_SIM_MAX_STEPS) return false;
+  if (step >= SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER - 1) return false;
   if (!Number.isFinite(balanceUi) || balanceUi <= 0) return false;
   if (amountUi < balanceUi * SPL_SELL_SIM_MIN_BALANCE_FRACTION) return false;
   return true;

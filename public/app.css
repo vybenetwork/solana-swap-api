@@ -1792,15 +1792,15 @@ tr:hover td {
   box-shadow: 0 1px 0 rgba(34, 211, 238, 0.02) inset, 0 20px 48px rgba(0, 0, 0, 0.4);
 }
 
-.swap-hero-routing-row {
-  margin-bottom: 1rem;
+.swap-quote-details-routing-section {
+  margin-bottom: 0;
 }
 
-.swap-hero-routing-row .swap-quote-details-subtitle {
+.swap-quote-details-routing-section .swap-quote-details-subtitle {
   margin-bottom: 0.55rem;
 }
 
-.swap-hero-routing-row .swap-quote-details-routing {
+.swap-quote-details-routing-section .swap-quote-details-routing {
   width: 100%;
 }
 
