@@ -17,6 +17,11 @@ import {
   getTokenDecimalsFromCache,
   getWalletSellableAmountUi,
   getWalletBalanceAmountUi,
+  noteSplMaxSellFraction,
+  swapSimulationFailed,
+  computeSplSellAmountForRetryStep,
+  shouldContinueSplSellSimRetry,
+  SPL_SELL_SIM_MAX_STEPS,
   isSolMint,
   preferNativeSolMint,
   NATIVE_SOL_MINT,
@@ -822,6 +827,8 @@ function hasStaleSwapQuoteState(): boolean {
 }
 
 function invalidateSwapQuoteAfterInputChange(): void {
+  // Programmatic sell updates during an in-flight quote must not abort the fetch/retry loop.
+  if (swapQuoteFetching) return;
   if (!hasStaleSwapQuoteState()) return;
   resetSwapQuoteToMock();
 }
@@ -1061,12 +1068,14 @@ function flashSellPct100Button(): void {
   btn.addEventListener('animationend', onEnd);
 }
 
-function setSwapSellAmountToBalance(amountUi: number, mint: string): void {
+function setSwapSellAmountToBalance(amountUi: number, mint: string, silent = false): void {
   if (!swapAmountInput) return;
   const formatted = formatSwapInputAmountValue(amountUi, getMintDecimals(mint));
   swapAmountInput.value = formatted;
   syncSwapAmountMaxFromBalance();
-  swapAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
+  if (!silent) {
+    swapAmountInput.dispatchEvent(new Event('input', { bubbles: true }));
+  }
 }
 
 function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: boolean): void {
@@ -1589,6 +1598,37 @@ function syncSellAmountInputFromInAmountRaw(raw: string, mint: string): number |
   const n = Number(display.replace(/,/g, ''));
   if (!Number.isFinite(n) || n <= 0) return null;
   return n;
+}
+
+function maybeShowSplSellReducedWarning(amountUi: number, mint: string, originalAmountUi?: number): void {
+  if (!swapQuoteWarning) return;
+  const balance = getWalletBalanceAmountUi(mint);
+  if (balance == null) return;
+  if (originalAmountUi != null && amountUi >= originalAmountUi * 0.999) return;
+  if (originalAmountUi == null && amountUi >= balance * 0.995) return;
+  const sym =
+    getCachedTokenMeta(mint)?.symbol ??
+    HARDCODED_MINT_SYMBOLS[mint] ??
+    mint.slice(0, 4).toUpperCase();
+  showInlineWarning(
+    swapQuoteWarning,
+    `Sell amount reduced to ${formatSwapInputAmountValue(amountUi, getMintDecimals(mint))} ${sym} to leave room for ${sym} fees.`,
+  );
+}
+
+function nextSplSellRetryAmountUi(
+  inputMint: string,
+  currentAmountUi: number,
+  step: number,
+): number | null {
+  const balance = getWalletBalanceAmountUi(inputMint);
+  if (balance == null) return null;
+  if (!shouldContinueSplSellSimRetry(inputMint, currentAmountUi, balance, step)) return null;
+
+  const nextStep = step + 1;
+  const nextAmount = computeSplSellAmountForRetryStep(balance, nextStep);
+  if (!(nextAmount > 0) || nextAmount >= currentAmountUi * 0.999) return null;
+  return nextAmount;
 }
 
 function quoteInputMint(quote: Record<string, unknown>): string {
@@ -2220,7 +2260,7 @@ function computeHopOutgoingPercentBreakdown(
         const payRaw = quoteWalletPayRaw(quote);
         const swapRaw = quoteInAmountRaw(quote);
         const outUi = quoteOutputUiAmount(quote);
-        return {
+    return {
           pctLabel: `${Math.round(pct * 100) / 100}%`,
           netDisplay:
             outUi != null ? formatSwapAmountValue(outUi).replace(/,/g, '') : formatRawTokenAmount(String(netRaw), outMint).display,
@@ -4962,10 +5002,17 @@ function applyVybeQuoteBodyToUi(
   const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   let quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(body), selectedRouter);
   quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
+  let effectiveAmount = amount;
+  const inRaw = parseRawAmountDigits(body.inAmount ?? quote.inAmount);
+  if (inRaw) {
+    quote = { ...quote, inAmount: inRaw };
+    const synced = syncSellAmountInputFromInAmountRaw(inRaw, inputMint);
+    if (synced != null) effectiveAmount = synced;
+  }
   lastSwapQuoteOk = quote;
   lastRawQuoteResponse = body;
   swapQuoteWalletSnapshot = wallet;
-  cacheVybeQuoteBuild(body, wallet, inputMint, outputMint, amount, buildOpts);
+  cacheVybeQuoteBuild(body, wallet, inputMint, outputMint, effectiveAmount, buildOpts);
   renderRawResponsePanels();
   renderSwapQuoteUI(quote);
   void enrichRouteLabels(quote);
@@ -5018,14 +5065,19 @@ async function requestAggregatorQuoteAndBuild(
   }
 }
 
-async function executeAggregatorQuoteAndBuild(
+async function fetchAggregatorQuoteAndBuildOnce(
   wallet: string,
   inputMint: string,
   outputMint: string,
   amount: number,
   buildOpts: Record<string, unknown>,
-): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
-  const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  router: string,
+): Promise<{
+  quoteBody: Record<string, unknown>;
+  swapBody: Record<string, unknown>;
+  buildAmount: number;
+  buildProvider: string;
+}> {
   const slippage = buildOpts.slippage;
   const slippageNum = typeof slippage === 'number' && Number.isFinite(slippage) ? slippage : undefined;
 
@@ -5068,18 +5120,18 @@ async function executeAggregatorQuoteAndBuild(
 
   const routePlan = Array.isArray(quoteBody.routePlan) ? quoteBody.routePlan : undefined;
   const swapRes = await fetchWithRetry('/api/trading/swap', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        accountAddress: wallet,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      accountAddress: wallet,
       amount: buildAmount,
-        inputMintAddress: inputMint,
-        outputMintAddress: outputMint,
+      inputMintAddress: inputMint,
+      outputMintAddress: outputMint,
       ...(routePlan ? { routePlan } : {}),
       ...buildOpts,
-        router,
-      }),
-    });
+      router,
+    }),
+  });
   const swapBody = (await swapRes.json().catch(() => ({}))) as Record<string, unknown> & {
     error?: string;
   };
@@ -5088,33 +5140,96 @@ async function executeAggregatorQuoteAndBuild(
   }
 
   const buildProvider = normalizeRouterId(swapBody.provider ?? router);
-  if (router === 'jupiter' && buildProvider === 'titan') {
-    if (!isRouterFallbackEnabled()) {
-      throw jupiterRouteUnavailableError(false);
+  return { quoteBody, swapBody, buildAmount, buildProvider };
+}
+
+async function executeAggregatorQuoteAndBuild(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
+  const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  const originalAmount = amount;
+  let attemptAmount = amount;
+  let splSimStep = 0;
+  let last:
+    | Awaited<ReturnType<typeof fetchAggregatorQuoteAndBuildOnce>>
+    | null = null;
+
+  while (splSimStep <= SPL_SELL_SIM_MAX_STEPS) {
+    last = await fetchAggregatorQuoteAndBuildOnce(
+      wallet,
+      inputMint,
+      outputMint,
+      attemptAmount,
+      buildOpts,
+      router,
+    );
+
+    if (router === 'jupiter' && last.buildProvider === 'titan') {
+      if (!isRouterFallbackEnabled()) {
+        throw jupiterRouteUnavailableError(false);
+      }
+      setSwapRouter('titan', { invalidateQuote: false });
+      return executeAggregatorQuoteAndBuild(wallet, inputMint, outputMint, attemptAmount, {
+        ...buildOpts,
+        router: 'titan',
+      });
     }
-    setSwapRouter('titan', { invalidateQuote: false });
-    return executeAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, {
-      ...buildOpts,
-      router: 'titan',
-    });
+
+    const buildTx = extractSwapBuildTransaction(last.swapBody);
+    const simFailed = swapSimulationFailed(
+      last.swapBody._simulatedOutAmount as string | null | undefined,
+      buildTx,
+    );
+    if (!simFailed) {
+      if (attemptAmount < originalAmount * 0.999) {
+        noteSplMaxSellFraction(inputMint, attemptAmount, getWalletBalanceAmountUi(inputMint) ?? attemptAmount);
+        syncSwapAmountMaxFromBalance();
+        maybeShowSplSellReducedWarning(attemptAmount, inputMint, originalAmount);
+      }
+      applyAggregatorBuildToUi(
+        last.quoteBody,
+        last.swapBody,
+        router,
+        wallet,
+        inputMint,
+        outputMint,
+        last.buildAmount,
+        buildOpts,
+      );
+      if (!buildTx) {
+        throw new Error('Swap build did not return a transaction.');
+      }
+      return { tx: buildTx, buildPayload: last.swapBody };
+    }
+
+    const nextAmount = nextSplSellRetryAmountUi(inputMint, last.buildAmount, splSimStep);
+    if (nextAmount == null) break;
+
+    splSimStep++;
+    attemptAmount = nextAmount;
+    setSwapSellAmountToBalance(attemptAmount, inputMint, true);
+    maybeShowSplSellReducedWarning(attemptAmount, inputMint, originalAmount);
   }
 
-  applyAggregatorBuildToUi(
-    quoteBody,
-    swapBody,
-    router,
-    wallet,
-    inputMint,
-    outputMint,
-    buildAmount,
-    buildOpts,
+  if (last) {
+    applyAggregatorBuildToUi(
+      last.quoteBody,
+      last.swapBody,
+      router,
+      wallet,
+      inputMint,
+      outputMint,
+      last.buildAmount,
+      buildOpts,
+    );
+  }
+  throw new Error(
+    'Swap simulation failed after reducing sell amount for fees. Try a lower amount.',
   );
-
-  const buildTx = extractSwapBuildTransaction(swapBody);
-  if (!buildTx) {
-    throw new Error('Swap build did not return a transaction.');
-  }
-  return { tx: buildTx, buildPayload: swapBody };
 }
 
 function applyAggregatorBuildToUi(
@@ -5207,45 +5322,92 @@ async function requestVybeQuote(
   amount: number,
   buildOpts: Record<string, unknown>,
 ): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
-  const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
+  const originalAmount = amount;
+  let attemptAmount = amount;
+  let splSimStep = 0;
+  let lastBody: VybeQuoteApiBody | null = null;
   const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
-  const res = await fetchWithRetry('/api/trading/vybe-quote', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      accountAddress: wallet,
-      amount,
-      inputMintAddress: inputMint,
-      outputMintAddress: outputMint,
-      ...buildOpts,
-      router: selectedRouter,
-      tokenHints: buildTokenHintsForMints([inputMint, outputMint]),
-      forceFullDetailsMints,
-    }),
-  });
-  const body = (await res.json().catch(() => ({}))) as VybeQuoteApiBody;
-  if (!res.ok) {
-    throw new Error(body.error || `Quote failed (${res.status})`);
-  }
 
-  const fallbackRouter = detectVybeAggregatorFallbackRouter(body, selectedRouter);
-  if (fallbackRouter) {
-    if (!isRouterFallbackEnabled()) {
-      throw vybeRouteUnavailableError(fallbackRouter);
-    }
-    setSwapRouter(fallbackRouter, { invalidateQuote: false });
-    return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, {
-      ...buildOpts,
-      router: fallbackRouter,
+  while (splSimStep <= SPL_SELL_SIM_MAX_STEPS) {
+    const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
+    const res = await fetchWithRetry('/api/trading/vybe-quote', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accountAddress: wallet,
+        amount: attemptAmount,
+        inputMintAddress: inputMint,
+        outputMintAddress: outputMint,
+        ...buildOpts,
+        router: selectedRouter,
+        tokenHints: buildTokenHintsForMints([inputMint, outputMint]),
+        forceFullDetailsMints,
+      }),
     });
+    const body = (await res.json().catch(() => ({}))) as VybeQuoteApiBody;
+    if (!res.ok) {
+      throw new Error(body.error || `Quote failed (${res.status})`);
+    }
+    lastBody = body;
+
+    const inRaw = parseRawAmountDigits(body.inAmount);
+    if (inRaw) {
+      const synced = syncSellAmountInputFromInAmountRaw(inRaw, inputMint);
+      if (synced != null) attemptAmount = synced;
+    }
+
+    const fallbackRouter = detectVybeAggregatorFallbackRouter(body, selectedRouter);
+    if (fallbackRouter) {
+      if (!isRouterFallbackEnabled()) {
+        throw vybeRouteUnavailableError(fallbackRouter);
+      }
+      setSwapRouter(fallbackRouter, { invalidateQuote: false });
+      return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, attemptAmount, {
+        ...buildOpts,
+        router: fallbackRouter,
+      });
+    }
+
+    const buildTx = extractSwapBuildTransaction(body._build);
+    const simFailed = swapSimulationFailed(body._simulatedOutAmount as string | null | undefined, buildTx);
+    if (!simFailed) {
+      if (attemptAmount < originalAmount * 0.999) {
+        noteSplMaxSellFraction(inputMint, attemptAmount, getWalletBalanceAmountUi(inputMint) ?? attemptAmount);
+        syncSwapAmountMaxFromBalance();
+        maybeShowSplSellReducedWarning(attemptAmount, inputMint, originalAmount);
+      }
+      applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, originalAmount, buildOpts);
+      if (!buildTx) {
+        throw new Error('Vybe quote did not return a transaction.');
+      }
+      return { tx: buildTx, buildPayload: body._build as Record<string, unknown> };
+    }
+
+    const nextAmount = nextSplSellRetryAmountUi(inputMint, attemptAmount, splSimStep);
+    if (nextAmount == null) break;
+
+    splSimStep++;
+    attemptAmount = nextAmount;
+    setSwapSellAmountToBalance(attemptAmount, inputMint, true);
+    maybeShowSplSellReducedWarning(attemptAmount, inputMint, originalAmount);
   }
 
-  applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, buildOpts);
-  const buildTx = extractSwapBuildTransaction(body._build);
-  if (!buildTx) {
-    throw new Error('Vybe quote did not return a transaction.');
+  if (lastBody) {
+    applyVybeQuoteBodyToUi(lastBody, wallet, inputMint, outputMint, originalAmount, buildOpts);
   }
-  return { tx: buildTx, buildPayload: body._build as Record<string, unknown> };
+  if (swapQuoteWarning && splSimStep > 0) {
+    const sym =
+      getCachedTokenMeta(inputMint)?.symbol ??
+      HARDCODED_MINT_SYMBOLS[inputMint] ??
+      inputMint.slice(0, 4).toUpperCase();
+    showInlineWarning(
+      swapQuoteWarning,
+      `Could not simulate max ${sym} sell — reduce amount manually or try again.`,
+    );
+  }
+  throw new Error(
+    'Swap simulation failed after reducing sell amount for fees. Try a lower amount.',
+  );
 }
 
 async function resolveVybeBuildTx(

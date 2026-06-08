@@ -52,6 +52,8 @@ export interface TokenFeeCreditEntry {
 
 export interface SwapSimulationResult {
   outputDeltaRaw: string | null;
+  /** Set when RPC simulation returns an error (e.g. insufficient input token for fees). */
+  simulationErr: unknown | null;
   /** SOL lamports deposited into newly created accounts (e.g. aggregator fee PDAs). */
   pdaRentLamports: bigint;
   /** Rent split by mint for newly created wallet token accounts. */
@@ -609,6 +611,7 @@ export async function simulateSwapEffects(
 ): Promise<SwapSimulationResult> {
   const empty: SwapSimulationResult = {
     outputDeltaRaw: null,
+    simulationErr: null,
     pdaRentLamports: 0n,
     tokenAccRentByMint: [],
     embeddedPoolFeesByHop: [],
@@ -646,7 +649,7 @@ export async function simulateSwapEffects(
     preBalances?: number[];
     postBalances?: number[];
   };
-  if (value.err) return empty;
+  if (value.err) return { ...empty, simulationErr: value.err };
 
   const altAccounts = await loadAltAccounts(connection, prepared);
   const accountKeyStrings = listAccountKeyStrings(prepared, altAccounts);
@@ -698,6 +701,7 @@ export async function simulateSwapEffects(
   );
 
   return {
+    simulationErr: null,
     outputDeltaRaw: extractWalletOutputDeltaRaw(
       value.preTokenBalances,
       value.postTokenBalances,

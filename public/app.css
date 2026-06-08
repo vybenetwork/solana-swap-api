@@ -2157,13 +2157,13 @@ tr:hover td {
 }
 
 .swap-quote-details-collapsible .swap-quote-details-route-steps {
-  max-height: min(360px, 45vh);
+  max-height: 520px;
   overflow-x: hidden;
   overflow-y: auto;
   padding-top: 0.5rem;
   min-height: 0;
-  overscroll-behavior: contain;
   scrollbar-gutter: stable;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
 

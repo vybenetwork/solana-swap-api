@@ -177,6 +177,27 @@ export async function getWalletSolBalanceUi(
   return rawToUiAmount(totalRaw.toString(), 9);
 }
 
+export async function getWalletSplTokenBalanceUi(
+  http: AxiosInstance,
+  ownerAddress: string,
+  mint: string,
+): Promise<{ amountUi: number; decimals: number } | null> {
+  const m = mint.trim();
+  if (!m || isSolMint(m)) return null;
+  const balance = await getWalletTokenBalance(http, {
+    ownerAddress,
+    mintAddresses: [m],
+    includeNoPriceBalance: true,
+  });
+  const row = balance.data.find((t) => t.mintAddress === m);
+  if (!row) return null;
+  const decimals = Number(row.decimals);
+  if (!Number.isFinite(decimals) || decimals < 0) return null;
+  const amountUi = balanceAmountToUi(row.amount, decimals);
+  if (!(amountUi > 0)) return null;
+  return { amountUi, decimals };
+}
+
 /**
  * Throws InsufficientBalanceError when the wallet does not hold enough of inputMint (UI amount).
  */

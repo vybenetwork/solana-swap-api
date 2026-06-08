@@ -294,6 +294,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
     walletSolTransfers = sim.walletSolTransfers;
     tokenFeeCredits = sim.tokenFeeCredits;
   }
+
   const effective = normalizeRouterId(build.provider ?? selected);
   const quote = attachRouterMetadata(
     synthesizeQuoteFromBuild(

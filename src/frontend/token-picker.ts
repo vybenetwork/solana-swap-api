@@ -585,6 +585,86 @@ export const SOL_WALLET_MIN_RESERVE_UI = 0.006;
 export const SOL_MIN_AUTO_PICK_TOTAL_UI = 0.0065;
 /** Total SOL below this is not tradable (max sell would be ≤ 0.0001 SOL). */
 export const SOL_MIN_TRADABLE_TOTAL_UI = 0.0061;
+/** Each retry step lowers sell amount by this many percent of wallet balance. */
+export const SPL_SELL_SIM_RETRY_STEP_PCT = 2;
+export const SPL_SELL_SIM_MAX_STEPS = 25;
+export const SPL_SELL_SIM_MIN_BALANCE_FRACTION = 0.5;
+/** @deprecated Use computeSplSellAmountForRetryStep(balance, 1). */
+export const SPL_SELL_SIM_RETRY_FRACTION = 1 - SPL_SELL_SIM_RETRY_STEP_PCT / 100;
+
+const splMaxSellFractionByMint = new Map<string, number>();
+
+export function getSplMaxSellFraction(mint: string): number | null {
+  const key = mint.trim();
+  return splMaxSellFractionByMint.has(key) ? splMaxSellFractionByMint.get(key)! : null;
+}
+
+/** Remember a conservative max sell fraction after sim failure or successful capped quote. */
+export function noteSplMaxSellFraction(mint: string, amountUi: number, balanceUi: number): void {
+  const key = mint.trim();
+  if (!key || !Number.isFinite(amountUi) || !Number.isFinite(balanceUi) || balanceUi <= 0) return;
+  const fraction = amountUi / balanceUi;
+  if (fraction <= 0 || fraction > 1) return;
+  const prev = splMaxSellFractionByMint.get(key);
+  if (prev == null || fraction < prev) {
+    splMaxSellFractionByMint.set(key, fraction);
+  }
+}
+
+export function isNearMaxSellAmountUi(amountUi: number, balanceUi: number): boolean {
+  if (!Number.isFinite(amountUi) || !Number.isFinite(balanceUi) || balanceUi <= 0) return false;
+  if (amountUi >= balanceUi * 0.995) return true;
+  return amountUi >= balanceUi * 0.9;
+}
+
+export function swapSimulationFailed(
+  simulatedOutRaw: string | null | undefined,
+  buildTx: unknown,
+): boolean {
+  if (!buildTx || typeof buildTx !== 'string' || buildTx.length === 0) return false;
+  return simulatedOutRaw == null || simulatedOutRaw === '';
+}
+
+/** step 1 → 98% of balance, step 2 → 96%, etc. */
+export function computeSplSellAmountForRetryStep(balanceUi: number, step: number): number {
+  if (!Number.isFinite(balanceUi) || balanceUi <= 0 || step <= 0) return 0;
+  const fraction = Math.max(
+    SPL_SELL_SIM_MIN_BALANCE_FRACTION,
+    1 - (SPL_SELL_SIM_RETRY_STEP_PCT / 100) * step,
+  );
+  return balanceUi * fraction;
+}
+
+export function shouldContinueSplSellSimRetry(
+  inputMint: string,
+  amountUi: number,
+  balanceUi: number,
+  step: number,
+): boolean {
+  if (isSolMint(inputMint)) return false;
+  if (step >= SPL_SELL_SIM_MAX_STEPS) return false;
+  if (!Number.isFinite(balanceUi) || balanceUi <= 0) return false;
+  if (amountUi < balanceUi * SPL_SELL_SIM_MIN_BALANCE_FRACTION) return false;
+  return true;
+}
+
+/** Compute a lower sell amount when max balance simulation fails (input-side fee reserve). */
+export function computeSplSellRetryAmountUi(
+  balanceUi: number,
+  swapFeePct: number | null,
+  learnedFraction?: number | null,
+): number {
+  if (!Number.isFinite(balanceUi) || balanceUi <= 0) return 0;
+  let amount = computeSplSellAmountForRetryStep(balanceUi, 1);
+  if (swapFeePct != null && swapFeePct > 0) {
+    const feeAdjusted = balanceUi / (1 + swapFeePct / 100) * 0.99;
+    amount = Math.min(amount, feeAdjusted);
+  }
+  if (learnedFraction != null && learnedFraction > 0 && learnedFraction < 1) {
+    amount = Math.min(amount, balanceUi * learnedFraction);
+  }
+  return amount;
+}
 
 export function isSolMint(mint: string): boolean {
   const m = mint.trim();
@@ -619,6 +699,11 @@ export function computeWalletSellableAmountUi(total: number, mint: string): numb
   if (isSolMint(mint)) {
     if (total < SOL_MIN_TRADABLE_TOTAL_UI) return null;
     const sellable = total - SOL_WALLET_MIN_RESERVE_UI;
+    return sellable > 0 ? sellable : null;
+  }
+  const learned = getSplMaxSellFraction(mint);
+  if (learned != null && learned > 0 && learned < 1) {
+    const sellable = total * learned;
     return sellable > 0 ? sellable : null;
   }
   return total;
