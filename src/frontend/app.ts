@@ -1777,9 +1777,16 @@ function formatPriceImpactPct(value: unknown): string {
 }
 
 /** Fees that belong in the hop table SOL/wallet column total (excludes output-side deductions). */
-function isHopFeeTableWalletColumnItem(item: HopFeeItemLite, inputMint: string): boolean {
-  if (isAccRentFeeLabel(item.label)) {
-    return isSolMint(inputMint) && isSolMint(item.mint);
+function isHopFeeTableWalletColumnItem(
+  item: HopFeeItemLite,
+  inputMint: string,
+  quote?: Record<string, unknown>,
+): boolean {
+  if (isAccRentWalletFeeItem(item)) {
+    return isSolMint(item.mint);
+  }
+  if (quote && isWalletCostFeeItem(item, quote) && isForeignFeeMint(item.mint, quote)) {
+    return true;
   }
   const kind = item.destinationKind;
   if (kind === 'lp_pool' || kind === 'output_deduction') return false;
@@ -1802,24 +1809,7 @@ function isHopFeeTableWalletColumnItem(item: HopFeeItemLite, inputMint: string):
 }
 
 function isWalletDebitedFeeItem(item: HopFeeItemLite, inputMint: string): boolean {
-  if (isAccRentFeeLabel(item.label)) {
-    return isSolMint(inputMint) && isSolMint(item.mint);
-  }
-  const kind = item.destinationKind;
-  if (kind === 'lp_pool' || kind === 'output_deduction' || kind === 'network_priority') {
-    return false;
-  }
-  if (kind === 'fee_recipient' || kind === 'input_wallet' || kind === 'new_token_account') {
-    if (isSolMint(inputMint)) return isSolMint(item.mint);
-    return item.mint === inputMint;
-  }
-  const label = normalizeFeeItemLabel(item.label).toLowerCase();
-  if (label === 'pool fee') return false;
-  if (label === 'protocol fee') {
-    if (isSolMint(inputMint)) return isSolMint(item.mint);
-    return item.mint === inputMint;
-  }
-  return false;
+  return isWalletCostFeeItem(item, { inputMintAddress: inputMint } as Record<string, unknown>);
 }
 
 /** Hop fees actually debited from the wallet (matches Phantom), not output-side pool/route cuts. */
@@ -1832,11 +1822,21 @@ function sumInputSideWalletFeesInSellMintUi(quote: Record<string, unknown>): num
   for (const step of plan) {
     const fees = getHopFeeBreakdown(step);
     for (const item of fees?.items ?? []) {
-      if (!isWalletDebitedFeeItem(item, sellMint)) continue;
+      if (!isWalletCostFeeItem(item, quote)) continue;
       const feeUi = feeAmountToUi(item.amountRaw, item.mint);
       if (feeUi == null || feeUi <= 0) continue;
-      const sellUi =
-        item.mint === sellMint ? feeUi : convertFeeUiToSellLeg(feeUi, item.mint, quote);
+      let sellUi: number | null = null;
+      if (routeLegMintMatches(item.mint, sellMint)) {
+        sellUi = feeUi;
+      } else if (isForeignFeeMint(item.mint, quote)) {
+        const usd = computeFeeUsdNumeric(item, quote);
+        const sellPrice = lookupMintPriceUsd(sellMint, quote);
+        if (usd != null && Number.isFinite(sellPrice) && sellPrice > 0) {
+          sellUi = usd / sellPrice;
+        }
+      } else {
+        sellUi = convertFeeUiToSellLeg(feeUi, item.mint, quote);
+      }
       if (sellUi != null && sellUi > 0) {
         total += sellUi;
         found = true;
@@ -1864,7 +1864,9 @@ function estimateInputSideWalletPayDebitFromQuote(quote: Record<string, unknown>
       if (!isWalletDebitedFeeItem(item, inputMint)) continue;
       if (!item.amountRaw || item.amountRaw === '0') continue;
       try {
-        if (isSolMint(inputMint) && isSolMint(item.mint)) total += BigInt(item.amountRaw);
+        if (isAccRentWalletFeeItem(item) && isSolMint(item.mint)) {
+          /* Acc rent is SOL — tracked in USD for badges, not added to SPL sell raw debit. */
+        } else if (isSolMint(inputMint) && isSolMint(item.mint)) total += BigInt(item.amountRaw);
         else if (item.mint === inputMint) total += BigInt(item.amountRaw);
       } catch {
         /* skip */
@@ -2297,6 +2299,34 @@ function hopNetOutputUsdEstimate(
   return nextHopOutUsd * share;
 }
 
+/** Sum wallet-debited fee USD on hops 0..throughPlanIndex (protocol, route, acc rent). */
+function sumWalletDebitedFeesUsdThroughHop(
+  quote: Record<string, unknown>,
+  throughPlanIndex: number,
+): number {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+
+  let total = 0;
+  for (let i = 0; i <= throughPlanIndex && i < plan.length; i++) {
+    for (const item of getHopFeeDisplayItems(plan[i]!)) {
+      if (!isWalletCostFeeItem(item, quote)) continue;
+      const usd = computeFeeUsdNumeric(item, quote);
+      if (usd != null && usd > 0) total += usd;
+    }
+  }
+  return total;
+}
+
+/** Swap leg USD plus wallet-debited fees charged through the given hop index. */
+function quoteCumulativeWalletPayUsd(
+  quote: Record<string, unknown>,
+  throughPlanIndex: number,
+): number | null {
+  const swapUsd = getQuoteSwapUsdValue(quote);
+  if (swapUsd == null) return null;
+  return swapUsd + sumWalletDebitedFeesUsdThroughHop(quote, throughPlanIndex);
+}
+
 interface HopOutgoingPercentBreakdown {
   pctLabel: string;
   netDisplay: string;
@@ -2352,16 +2382,16 @@ function computeHopOutgoingPercentBreakdown(
   }
   if (!netRaw) return null;
 
-  const payUsd = quoteWalletPayUsd(quote);
   const hopOutUsd = hopNetOutputUsdEstimate(step, quote, netRaw, outMint, planIndex, isLastHop);
+  const cumulativePayUsd = quoteCumulativeWalletPayUsd(quote, planIndex);
   if (
-    payUsd != null &&
-    payUsd > 0 &&
+    cumulativePayUsd != null &&
+    cumulativePayUsd > 0 &&
     hopOutUsd != null &&
     hopOutUsd > 0 &&
-    hopOutUsd < payUsd
+    hopOutUsd < cumulativePayUsd
   ) {
-    const pct = (hopOutUsd / payUsd) * 100;
+    const pct = (hopOutUsd / cumulativePayUsd) * 100;
     if (Number.isFinite(pct) && pct > 0) {
       const payRaw = quoteWalletPayRaw(quote);
       const swapRaw = quoteInAmountRaw(quote);
@@ -2752,11 +2782,25 @@ function isAccRentFeeLabel(label: string): boolean {
   return l === 'acc rent fee';
 }
 
+/** SOL/token-account rent — always debited from the wallet, even when selling a non-SOL token. */
+function isAccRentWalletFeeItem(item: HopFeeItemLite): boolean {
+  if (isAccRentFeeLabel(item.label)) return true;
+  return item.destinationKind === 'new_token_account';
+}
+
 function isOutputSideFeeDisplayItem(item: HopFeeItemLite): boolean {
   const kind = item.destinationKind;
   if (kind === 'lp_pool' || kind === 'output_deduction') return true;
   const label = normalizeFeeItemLabel(item.label).toLowerCase();
   return label === 'pool fee' || label === 'slippage/spread';
+}
+
+/** Wallet-debited protocol/route on the sell mint (even if destination enrichment tagged lp_pool). */
+function isInputSideWalletFeeItem(item: HopFeeItemLite, inputMint: string): boolean {
+  const label = normalizeFeeItemLabel(item.label).toLowerCase();
+  if (label !== 'protocol fee' && label !== 'route fee') return false;
+  if (isSolMint(inputMint)) return isSolMint(item.mint);
+  return item.mint === inputMint;
 }
 
 function formatAccRentFeeSolSubline(equiv: FeeAmountEquiv): string {
@@ -2824,6 +2868,7 @@ function feeAmountToUi(amountRaw: string, feeMint: string): number | null {
 
 function collectRoutePriceMints(quote: Record<string, unknown>): string[] {
   const mints = new Set<string>();
+  mints.add(NATIVE_SOL_MINT);
   const inputMint = quoteInputMint(quote);
   const outputMint = quoteOutputMint(quote);
   if (inputMint) mints.add(inputMint);
@@ -2920,6 +2965,65 @@ function routeLegMintMatches(a: string, b: string): boolean {
   if (!x || !y) return false;
   if (x === y) return true;
   return isSolMint(x) && isSolMint(y);
+}
+
+function isSwapEndpointMint(mint: string, quote: Record<string, unknown>): boolean {
+  const m = mint.trim();
+  if (!m) return false;
+  const sell = quoteInputMint(quote);
+  const buy = quoteOutputMint(quote);
+  return routeLegMintMatches(m, sell) || routeLegMintMatches(m, buy);
+}
+
+/** Fee mint is neither the sell nor buy token (e.g. SOL rent on a BONK → ZEC swap). */
+function isForeignFeeMint(feeMint: string, quote: Record<string, unknown>): boolean {
+  return !isSwapEndpointMint(feeMint, quote);
+}
+
+function lookupSolPriceUsd(quote: Record<string, unknown>): number {
+  return lookupMintPriceUsd(NATIVE_SOL_MINT, quote);
+}
+
+/** Convert a USD notional to SOL using cached token-details / resolve-prices SOL spot. */
+function convertFeeUsdToSolUi(usd: number, quote: Record<string, unknown>): number | null {
+  if (!Number.isFinite(usd) || usd <= 0) return null;
+  const solPrice = lookupSolPriceUsd(quote);
+  if (!Number.isFinite(solPrice) || solPrice <= 0) return null;
+  const solUi = usd / solPrice;
+  return Number.isFinite(solUi) && solUi > 0 ? solUi : null;
+}
+
+function solEquivSublineFromUsd(usd: number, quote: Record<string, unknown>): string | null {
+  const solUi = convertFeeUsdToSolUi(usd, quote);
+  if (solUi == null) return null;
+  return `≈ ${formatFeeEquivSmallAmount(solUi)} SOL`;
+}
+
+/**
+ * Fees debited from the wallet for badge/total math — includes cross-mint costs
+ * (SOL acc rent on SPL sells, etc.) priced via token-details USD.
+ */
+function isWalletCostFeeItem(item: HopFeeItemLite, quote: Record<string, unknown>): boolean {
+  if (isAccRentWalletFeeItem(item)) return true;
+  if (isOutputSideFeeDisplayItem(item)) return false;
+  const kind = item.destinationKind;
+  if (kind === 'lp_pool' || kind === 'output_deduction') return false;
+  if (
+    kind === 'fee_recipient' ||
+    kind === 'input_wallet' ||
+    kind === 'new_token_account' ||
+    kind === 'network_priority'
+  ) {
+    return true;
+  }
+  const label = normalizeFeeItemLabel(item.label).toLowerCase();
+  if (label === 'pool fee' || label === 'slippage/spread') return false;
+  if (label === 'protocol fee' || label === 'route fee' || label === 'priority fee') {
+    if (isSolMint(item.mint)) return true;
+    const sellMint = quoteInputMint(quote);
+    return Boolean(sellMint && routeLegMintMatches(item.mint, sellMint));
+  }
+  return false;
 }
 
 function convertFeeUiToSellLeg(
@@ -3078,6 +3182,7 @@ function computeFeeEquivalents(
   const feeSym = mintSymbolSync(feeMint);
   const primary = formatRawTokenAmount(amountRaw, feeMint).display;
   const feeUi = feeAmountToUi(amountRaw, feeMint);
+  const foreign = isForeignFeeMint(feeMint, quote);
 
   let inputEquiv: string | null = null;
   let usd: string | null = null;
@@ -3088,12 +3193,20 @@ function computeFeeEquivalents(
       usd = formatFeeEquivUsdFiatDisplay(feeUi * feePrice);
     }
 
-    const sellLegUi = convertFeeUiToSellLeg(feeUi, feeMint, quote);
-    const sellPrice = lookupMintPriceUsd(sellMint, quote);
-    if (sellLegUi != null && Number.isFinite(sellPrice) && sellPrice > 0) {
-      inputEquiv = `≈ ${formatFeeEquivSmallAmount(sellLegUi)} ${inputSym}`;
-      if (!usd) {
-        usd = formatFeeEquivUsdFiatDisplay(sellLegUi * sellPrice);
+    const usdNum = usd ? parseFeeEquivUsdNumber(usd) : null;
+    if (foreign && usdNum != null) {
+      inputEquiv = solEquivSublineFromUsd(usdNum, quote);
+    } else {
+      const sellLegUi = convertFeeUiToSellLeg(feeUi, feeMint, quote);
+      const sellPrice = sellMint ? lookupMintPriceUsd(sellMint, quote) : NaN;
+      if (sellLegUi != null && Number.isFinite(sellPrice) && sellPrice > 0) {
+        inputEquiv = `≈ ${formatFeeEquivSmallAmount(sellLegUi)} ${inputSym}`;
+        if (!usd) {
+          usd = formatFeeEquivUsdFiatDisplay(sellLegUi * sellPrice);
+        }
+      } else if (usdNum != null && !foreign) {
+        const solLine = solEquivSublineFromUsd(usdNum, quote);
+        if (solLine) inputEquiv = solLine;
       }
     }
   }
@@ -3111,6 +3224,11 @@ function computeFeeUsdNumeric(
   const feePrice = lookupMintPriceUsd(item.mint, quote);
   if (Number.isFinite(feePrice) && feePrice > 0) {
     return feeUi * feePrice;
+  }
+
+  if (isForeignFeeMint(item.mint, quote) && isSolMint(item.mint)) {
+    const solPrice = lookupSolPriceUsd(quote);
+    if (Number.isFinite(solPrice) && solPrice > 0) return feeUi * solPrice;
   }
 
   const sellMint = quoteInputMint(quote);
@@ -3376,7 +3494,7 @@ function parseInputEquivUi(inputEquiv: string | null | undefined): number | null
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-/** Base-column UI amount for one fee row (input/sell leg, or SOL for acc rent). */
+/** Base-column UI amount for one fee row (sell leg, or SOL via USD for foreign-mint fees). */
 function feeTableBaseLegUi(
   item: HopFeeItemLite,
   equiv: FeeAmountEquiv,
@@ -3387,6 +3505,11 @@ function feeTableBaseLegUi(
   }
   const fromEquiv = parseInputEquivUi(equiv.inputEquiv);
   if (fromEquiv != null) return fromEquiv;
+  const usdNum = parseFeeEquivUsdNumber(equiv.usd);
+  if (usdNum != null && isForeignFeeMint(item.mint, quote)) {
+    const solUi = convertFeeUsdToSolUi(usdNum, quote);
+    if (solUi != null) return solUi;
+  }
   const feeUi = feeAmountToUi(item.amountRaw, item.mint);
   if (feeUi == null) return null;
   return convertFeeUiToSellLeg(feeUi, item.mint, quote);
@@ -3430,11 +3553,24 @@ function sumHopPlanFeeTableTotals(
 
   for (const { item, equiv } of rowData) {
     const usdN = computeFeeUsdNumeric(item, quote) ?? parseFeeEquivUsdNumber(equiv.usd);
-    if (usdN != null && usdN > 0 && !isOutputSideFeeDisplayItem(item)) {
+    const includeUsd =
+      usdN != null &&
+      usdN > 0 &&
+      (isWalletCostFeeItem(item, quote) ||
+        isAccRentWalletFeeItem(item) ||
+        !isOutputSideFeeDisplayItem(item) ||
+        isInputSideWalletFeeItem(item, sellMint));
+    if (includeUsd) {
       totalUsd += usdN;
       foundUsd = true;
     }
-    if (!sellMint || !isHopFeeTableWalletColumnItem(item, sellMint)) continue;
+    if (
+      !sellMint ||
+      (!isHopFeeTableWalletColumnItem(item, sellMint, quote) &&
+        !isInputSideWalletFeeItem(item, sellMint))
+    ) {
+      continue;
+    }
     const baseUi = feeTableBaseLegUi(item, equiv, quote);
     if (baseUi != null && baseUi > 0) {
       walletBaseUi += baseUi;
@@ -3605,11 +3741,18 @@ const ROUTING_CONNECTORS = `<div class="routing-connectors" aria-hidden="true">
   <div class="routing-corner routing-corner--out"></div>
 </div>`;
 
+function parseHopPctLabel(label: string | null): number | null {
+  if (!label) return null;
+  const n = Number(label.replace(/%/g, '').trim());
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function renderJupiterTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<string, unknown>): string {
   const metas: RouteHopMeta[] = [];
   collectRouteHopMetas(node, metas);
   if (metas.length === 0) return '';
 
+  let prevOutPct: number | null = null;
   const inner = metas
     .map((meta, i) => {
       const leg = legs[meta.planIndex];
@@ -3617,7 +3760,13 @@ function renderJupiterTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<
       const isLastHop = i === metas.length - 1;
       const inLink =
         i === 0 ? renderJupiterPctLink(hopPercentLabel(meta.step)) : '';
-      const outPct = hopOutgoingPercentLabel(meta.step, quote, isLastHop, meta.planIndex);
+      let outPct = hopOutgoingPercentLabel(meta.step, quote, isLastHop, meta.planIndex);
+      const pctNum = parseHopPctLabel(outPct);
+      if (pctNum != null && prevOutPct != null && pctNum >= prevOutPct - 0.001) {
+        outPct = null;
+      } else if (pctNum != null) {
+        prevOutPct = pctNum;
+      }
       const outLink =
         outPct && outPct !== '100%'
           ? renderJupiterPctLink(outPct, 'out')

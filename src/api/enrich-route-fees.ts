@@ -377,6 +377,16 @@ function enrichHopFeeItemDestinations(
         amount = 0n;
       }
 
+      if (
+        ctx.hopIndex === 0 &&
+        ctx.inputMint &&
+        mintMatches(item.mint, ctx.inputMint) &&
+        item.destinationKind === 'input_wallet'
+      ) {
+        if (walletAddr) item.destinationAddress = walletAddr;
+        continue;
+      }
+
       if (isSolMint(item.mint) && amount > 0n) {
         const recipient = takeMatchingSolTransfer(
           amount,
@@ -561,6 +571,8 @@ function attachFirstHopInputSideFees(
       label: 'Protocol fee',
       amountRaw: protocolOnInput.toString(),
       mint: feeMint,
+      destinationKind: 'input_wallet',
+      destinationNote: 'Debited from your wallet with the swap input',
     });
     extra -= protocolOnInput;
   }
@@ -569,6 +581,8 @@ function attachFirstHopInputSideFees(
       label: 'Route fee',
       amountRaw: extra.toString(),
       mint: feeMint,
+      destinationKind: 'input_wallet',
+      destinationNote: 'Debited from your wallet with the swap input',
     });
   }
 }
@@ -769,13 +783,15 @@ export function enrichRoutePlanFees(
     }
 
     if (i === 0 && inputMint) {
+      let totalRentLamports = 0n;
+      for (const rent of rentByHopIdx.values()) totalRentLamports += rent;
       attachFirstHopInputSideFees(
         items,
         inAmountRaw,
         inputMint,
         walletPayDebitRaw,
         swapFeePct,
-        rentByHopIdx.get(0) ?? 0n,
+        totalRentLamports,
       );
     }
 
