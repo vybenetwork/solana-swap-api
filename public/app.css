@@ -3471,8 +3471,8 @@ tr:hover td {
 }
 
 .swap-hop-fee-dest__kind {
-  font-size: 0.58rem;
-  font-weight: 700;
+  font-size: 0.55rem;
+  font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #71717a;
@@ -3480,13 +3480,25 @@ tr:hover td {
 
 .swap-hop-fee-dest__addr {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.62rem;
+  font-size: 0.58rem;
+  font-weight: 400;
   color: #d4d4d8;
   word-break: break-all;
 }
 
+.swap-hop-fee-dest__addr-link {
+  text-decoration: none;
+  color: #93c5fd;
+}
+
+.swap-hop-fee-dest__addr-link:hover {
+  text-decoration: underline;
+  color: #bfdbfe;
+}
+
 .swap-hop-fee-dest__note {
-  font-size: 0.58rem;
+  font-size: 0.55rem;
+  font-weight: 400;
   color: #71717a;
 }
 
@@ -3568,8 +3580,8 @@ tr:hover td {
 }
 
 .swap-hop-fees-table__row--head .swap-hop-fees-table__cell {
-  font-size: 0.58rem;
-  font-weight: 700;
+  font-size: 0.55rem;
+  font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #71717a;
@@ -3587,16 +3599,16 @@ tr:hover td {
 
 .swap-hop-fees-table__cell {
   min-width: 0;
-  font-size: 0.72rem;
-  font-weight: 600;
+  font-size: 0.65rem;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
   line-height: 1.3;
   word-break: break-word;
 }
 
 .swap-hop-fees-table__cell--label {
-  font-size: 0.62rem;
-  font-weight: 700;
+  font-size: 0.58rem;
+  font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #a1a1aa;
@@ -3642,8 +3654,8 @@ tr:hover td {
 
 .swap-hop-fees-table__cell--dest {
   color: #a1a1aa;
-  font-weight: 500;
-  font-size: 0.65rem;
+  font-weight: 400;
+  font-size: 0.58rem;
   line-height: 1.3;
 }
 

@@ -3330,10 +3330,16 @@ interface FeeDestinationRenderCtx {
   ammKey?: string;
 }
 
+function solscanAccountUrl(address: string): string {
+  return `https://solscan.io/account/${encodeURIComponent(address.trim())}`;
+}
+
 function renderFeeDestinationAddrLine(addr: string): string {
   const trimmed = addr.trim();
   if (!isLikelySolanaPubkey(trimmed)) return '';
-  return `<code class="swap-hop-fee-dest__addr" title="${escapeHtml(trimmed)}">${escapeHtml(truncate(trimmed, 8, 8))}</code>`;
+  const display = escapeHtml(truncate(trimmed, 8, 8));
+  const url = escapeHtml(solscanAccountUrl(trimmed));
+  return `<a class="swap-hop-fee-dest__addr swap-hop-fee-dest__addr-link" href="${url}" target="_blank" rel="noopener noreferrer" title="${escapeHtml(trimmed)}">${display}</a>`;
 }
 
 function resolveFeeDestinationAddress(
