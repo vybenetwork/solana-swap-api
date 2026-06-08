@@ -31,6 +31,23 @@ const RENT_UPPER_SLACK = 100_000n;
 export interface TokenAccRentEntry {
   mint: string;
   lamports: bigint;
+  /** SPL token account that received rent (from createIdempotent). */
+  accountAddress?: string;
+  /** True when the account did not exist pre-simulation. */
+  createdNew?: boolean;
+}
+
+export interface WalletFeeTransferEntry {
+  recipientAddress: string;
+  amountLamports: bigint;
+}
+
+/** Non-wallet token account that received tokens during simulation (fee / LP retention). */
+export interface TokenFeeCreditEntry {
+  mint: string;
+  amountRaw: string;
+  ownerAddress: string;
+  tokenAccountAddress?: string;
 }
 
 export interface SwapSimulationResult {
@@ -41,9 +58,15 @@ export interface SwapSimulationResult {
   tokenAccRentByMint: TokenAccRentEntry[];
   /** LP pool fees embedded in non-last hops when Jupiter omits feeAmount. */
   embeddedPoolFeesByHop: EmbeddedPoolFeeEntry[];
+  /** SOL system transfers debited from the wallet (protocol / route fees). */
+  walletSolTransfers: WalletFeeTransferEntry[];
+  /** Token inflows to non-wallet accounts (fee recipients, pool vaults). */
+  tokenFeeCredits: TokenFeeCreditEntry[];
   /** Total wallet debit for the input leg (swap + input-side fees), in input mint raw units. */
   walletPayDebitRaw: string | null;
 }
+
+const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
 
 function isNativeSolInputMint(mint: string): boolean {
   return isSolMint(mint);
@@ -216,6 +239,8 @@ export interface EmbeddedPoolFeeEntry {
   hopIndex: number;
   amountRaw: string;
   mint: string;
+  /** SPL token account that retained the pool fee (from simulation). */
+  vaultAddress?: string;
 }
 
 function mintMatchesPoolFee(a: string | undefined, b: string | undefined): boolean {
@@ -235,9 +260,12 @@ function sumPoolTokenDelta(
   preTokenBalances: TokenBalanceEntry[],
   postTokenBalances: TokenBalanceEntry[],
   ownerAddress: string,
+  accountKeyStrings: string[],
   opts: { ammKey?: string; outflow: boolean },
-): bigint {
+): { total: bigint; vaultAddress?: string } {
   let total = 0n;
+  let bestDelta = 0n;
+  let vaultAddress: string | undefined;
   for (const post of postTokenBalances) {
     const idx = post.accountIndex;
     const postMint = post.mint?.trim();
@@ -249,10 +277,15 @@ function sumPoolTokenDelta(
     const postAmt = BigInt(post.uiTokenAmount?.amount ?? '0');
     const preAmt = BigInt(pre?.uiTokenAmount?.amount ?? '0');
     const delta = postAmt - preAmt;
-    if (opts.outflow && delta < 0n) total += -delta;
-    if (!opts.outflow && delta > 0n) total += delta;
+    const magnitude = opts.outflow ? (delta < 0n ? -delta : 0n) : delta > 0n ? delta : 0n;
+    if (magnitude <= 0n) continue;
+    total += magnitude;
+    if (magnitude > bestDelta) {
+      bestDelta = magnitude;
+      vaultAddress = accountKeyStrings[idx]?.trim() || post.owner?.trim() || undefined;
+    }
   }
-  return total;
+  return { total, vaultAddress: bestDelta > 0n ? vaultAddress : undefined };
 }
 
 function inferEmbeddedPoolFeeRaw(
@@ -273,7 +306,8 @@ function detectEmbeddedPoolFeeForHop(
   preTokenBalances: TokenBalanceEntry[],
   postTokenBalances: TokenBalanceEntry[],
   ownerAddress: string,
-): { amountRaw: bigint; mint: string } | null {
+  accountKeyStrings: string[],
+): { amountRaw: bigint; mint: string; vaultAddress?: string } | null {
   if (hop.swapInfo?.feeAmount && hop.swapInfo.feeAmount !== '0') return null;
 
   const outMint = hop.swapInfo?.outputMintAddress?.trim();
@@ -295,15 +329,16 @@ function detectEmbeddedPoolFeeForHop(
   }
 
   for (const scoped of ammKey ? [true, false] : [false]) {
-    const poolPaidOut = sumPoolTokenDelta(outMint, preTokenBalances, postTokenBalances, ownerAddress, {
+    const poolPaidOut = sumPoolTokenDelta(outMint, preTokenBalances, postTokenBalances, ownerAddress, accountKeyStrings, {
       ammKey: scoped ? ammKey : undefined,
       outflow: true,
     });
-    const feeRaw = inferEmbeddedPoolFeeRaw(poolPaidOut, hopOut, nextIn);
+    const feeRaw = inferEmbeddedPoolFeeRaw(poolPaidOut.total, hopOut, nextIn);
     if (feeRaw > 0n) {
       return {
         amountRaw: feeRaw,
         mint: isSolMint(outMint) ? WSOL_MINT : outMint,
+        vaultAddress: poolPaidOut.vaultAddress,
       };
     }
   }
@@ -315,10 +350,15 @@ function detectEmbeddedPoolFeeForHop(
       preTokenBalances,
       postTokenBalances,
       ownerAddress,
+      accountKeyStrings,
       { ammKey, outflow: false },
     );
-    if (poolReceivedIn > hopIn) {
-      return { amountRaw: poolReceivedIn - hopIn, mint: inMint };
+    if (poolReceivedIn.total > hopIn) {
+      return {
+        amountRaw: poolReceivedIn.total - hopIn,
+        mint: inMint,
+        vaultAddress: poolReceivedIn.vaultAddress,
+      };
     }
   }
 
@@ -330,6 +370,7 @@ function detectEmbeddedPoolFeesByHop(
   preTokenBalances: TokenBalanceEntry[] | null | undefined,
   postTokenBalances: TokenBalanceEntry[] | null | undefined,
   ownerAddress: string,
+  accountKeyStrings: string[],
 ): EmbeddedPoolFeeEntry[] {
   if (!routePlan.length || !preTokenBalances?.length || !postTokenBalances?.length) return [];
   const owner = ownerAddress.trim();
@@ -343,12 +384,14 @@ function detectEmbeddedPoolFeesByHop(
       preTokenBalances,
       postTokenBalances,
       owner,
+      accountKeyStrings,
     );
     if (detected && detected.amountRaw > 0n) {
       entries.push({
         hopIndex: i,
         amountRaw: detected.amountRaw.toString(),
         mint: detected.mint,
+        vaultAddress: detected.vaultAddress,
       });
     }
   }
@@ -437,7 +480,76 @@ function detectAtaCreationRentByMint(
     const post = BigInt(postBalances[ataIdx] ?? 0);
     if (!isRentSizedDeposit(pre, post)) continue;
 
-    entries.push({ mint, lamports: post - pre });
+    const ataAddress = accountKeyStrings[ataIdx]?.trim();
+    entries.push({
+      mint,
+      lamports: post - pre,
+      accountAddress: ataAddress || undefined,
+      createdNew: pre === 0n,
+    });
+  }
+
+  return entries;
+}
+
+function detectTokenFeeCredits(
+  preTokenBalances: TokenBalanceEntry[] | null | undefined,
+  postTokenBalances: TokenBalanceEntry[] | null | undefined,
+  ownerAddress: string,
+  accountKeyStrings: string[],
+): TokenFeeCreditEntry[] {
+  if (!preTokenBalances?.length || !postTokenBalances?.length) return [];
+  const owner = ownerAddress.trim();
+  const entries: TokenFeeCreditEntry[] = [];
+
+  for (const post of postTokenBalances) {
+    const mint = post.mint?.trim();
+    const idx = post.accountIndex;
+    if (!mint || idx == null || post.owner === owner) continue;
+
+    const pre = preTokenBalances.find((b) => b.accountIndex === idx);
+    const postAmt = BigInt(post.uiTokenAmount?.amount ?? '0');
+    const preAmt = BigInt(pre?.uiTokenAmount?.amount ?? '0');
+    const delta = postAmt - preAmt;
+    if (delta <= 0n) continue;
+
+    entries.push({
+      mint,
+      amountRaw: delta.toString(),
+      ownerAddress: post.owner?.trim() ?? '',
+      tokenAccountAddress: accountKeyStrings[idx],
+    });
+  }
+
+  return entries;
+}
+
+function detectWalletSolTransfersFromWallet(
+  prepared: VersionedTransaction,
+  accountKeyStrings: string[],
+  ownerAddress: string,
+): WalletFeeTransferEntry[] {
+  const owner = ownerAddress.trim();
+  const entries: WalletFeeTransferEntry[] = [];
+
+  for (const ix of prepared.message.compiledInstructions) {
+    const programId = accountKeyStrings[ix.programIdIndex];
+    if (programId !== SYSTEM_PROGRAM_ID) continue;
+    if (ix.data.length < 12 || ix.data[0] !== 2) continue;
+
+    const fromIdx = ix.accountKeyIndexes[0];
+    const toIdx = ix.accountKeyIndexes[1];
+    if (fromIdx == null || toIdx == null) continue;
+
+    const from = accountKeyStrings[fromIdx]?.trim();
+    const to = accountKeyStrings[toIdx]?.trim();
+    if (from !== owner || !to) continue;
+
+    const lamports = Buffer.from(ix.data).readBigUInt64LE(4);
+    if (lamports <= 0n) continue;
+    if (isRentSizedDeposit(0n, lamports)) continue;
+
+    entries.push({ recipientAddress: to, amountLamports: lamports });
   }
 
   return entries;
@@ -500,6 +612,8 @@ export async function simulateSwapEffects(
     pdaRentLamports: 0n,
     tokenAccRentByMint: [],
     embeddedPoolFeesByHop: [],
+    walletSolTransfers: [],
+    tokenFeeCredits: [],
     walletPayDebitRaw: null,
   };
   const trimmed = base64Tx.trim();
@@ -566,8 +680,22 @@ export async function simulateSwapEffects(
           value.preTokenBalances,
           value.postTokenBalances,
           ownerAddress.trim(),
+          accountKeyStrings,
         )
       : [];
+
+  const walletSolTransfers = detectWalletSolTransfersFromWallet(
+    prepared,
+    accountKeyStrings,
+    ownerAddress.trim(),
+  );
+
+  const tokenFeeCredits = detectTokenFeeCredits(
+    value.preTokenBalances,
+    value.postTokenBalances,
+    ownerAddress.trim(),
+    accountKeyStrings,
+  );
 
   return {
     outputDeltaRaw: extractWalletOutputDeltaRaw(
@@ -582,6 +710,8 @@ export async function simulateSwapEffects(
     pdaRentLamports: detectPdaRentLamports(value.preBalances, value.postBalances),
     tokenAccRentByMint,
     embeddedPoolFeesByHop,
+    walletSolTransfers,
+    tokenFeeCredits,
     walletPayDebitRaw,
   };
 }

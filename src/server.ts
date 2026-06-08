@@ -18,7 +18,7 @@ import {
 } from './token-icon-cache.js';
 import { Connection } from '@solana/web3.js';
 import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
-import { simulateSwapEffects, type TokenAccRentEntry, type EmbeddedPoolFeeEntry } from './api/simulate-swap-output.js';
+import { simulateSwapEffects, type TokenAccRentEntry, type EmbeddedPoolFeeEntry, type WalletFeeTransferEntry, type TokenFeeCreditEntry } from './api/simulate-swap-output.js';
 import { enrichRoutePlanFees, estimateWalletPayDebitRaw } from './api/enrich-route-fees.js';
 import type { VybeRoutePlanStep } from './types/swap.js';
 
@@ -311,7 +311,8 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
     poolAddress: typeof body.poolAddress === 'string' ? body.poolAddress : undefined,
     protocol,
     simulate: typeof body.simulate === 'boolean' ? body.simulate : undefined,
-    swapFee: body.swapFee != null ? Number(body.swapFee) : undefined,
+    swapFee:
+      body.swapFee != null && Number.isFinite(Number(body.swapFee)) ? Number(body.swapFee) : 0,
   };
 }
 
@@ -422,6 +423,8 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
     let pdaRentLamports = 0n;
     let tokenAccRentByMint: TokenAccRentEntry[] = [];
     let embeddedPoolFeesByHop: EmbeddedPoolFeeEntry[] = [];
+    let walletSolTransfers: WalletFeeTransferEntry[] = [];
+    let tokenFeeCredits: TokenFeeCreditEntry[] = [];
     if (typeof buildTx === 'string' && buildTx.length > 0) {
       const sim = await simulateSwapEffects(
         buildTx,
@@ -435,6 +438,8 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
       pdaRentLamports = sim.pdaRentLamports;
       tokenAccRentByMint = sim.tokenAccRentByMint;
       embeddedPoolFeesByHop = sim.embeddedPoolFeesByHop;
+      walletSolTransfers = sim.walletSolTransfers;
+      tokenFeeCredits = sim.tokenFeeCredits;
     }
 
     const feeEnrichment = enrichRoutePlanFees(
@@ -446,8 +451,11 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
         pdaRentLamports,
         tokenAccRentByMint,
         embeddedPoolFeesByHop,
+        walletSolTransfers,
+        tokenFeeCredits,
         router: parsed.router ?? data.provider,
         walletPayDebitRaw,
+        walletAddress: parsed.accountAddress,
         inputMint: parsed.inputMintAddress,
       },
     );

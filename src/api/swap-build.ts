@@ -64,7 +64,7 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
   if (body.poolAddress?.trim()) payload.poolAddress = body.poolAddress.trim();
   if (body.protocol) payload.protocol = body.protocol;
   if (body.simulate != null) payload.simulate = body.simulate;
-  if (body.swapFee != null) payload.swapFee = body.swapFee;
+  payload.swapFee = body.swapFee != null && Number.isFinite(body.swapFee) ? body.swapFee : 0;
   return payload;
 }
 

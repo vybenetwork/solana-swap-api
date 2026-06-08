@@ -59,6 +59,9 @@ interface HopFeeItemLite {
   label: string;
   amountRaw: string;
   mint: string;
+  destinationAddress?: string;
+  destinationKind?: 'lp_pool' | 'new_token_account' | 'fee_recipient' | 'output_deduction' | 'input_wallet' | 'network_priority';
+  destinationNote?: string;
   pdaRent?: {
     label: string;
     amountRaw: string;
@@ -1526,10 +1529,81 @@ function formatPriceImpactPct(value: unknown): string {
   return `${n.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 0 })}%`;
 }
 
-function estimateWalletPayDebitFromQuote(quote: Record<string, unknown>): string | null {
+/** Fees that belong in the hop table SOL/wallet column total (excludes output-side deductions). */
+function isHopFeeTableWalletColumnItem(item: HopFeeItemLite, inputMint: string): boolean {
+  if (isAccRentFeeLabel(item.label)) {
+    return isSolMint(inputMint) && isSolMint(item.mint);
+  }
+  const kind = item.destinationKind;
+  if (kind === 'lp_pool' || kind === 'output_deduction') return false;
+  if (
+    kind === 'fee_recipient' ||
+    kind === 'input_wallet' ||
+    kind === 'new_token_account' ||
+    kind === 'network_priority'
+  ) {
+    if (isSolMint(inputMint)) return isSolMint(item.mint);
+    return item.mint === inputMint;
+  }
+  const label = normalizeFeeItemLabel(item.label).toLowerCase();
+  if (label === 'pool fee') return false;
+  if (label === 'protocol fee' || label === 'route fee' || label === 'priority fee') {
+    if (isSolMint(inputMint)) return isSolMint(item.mint);
+    return item.mint === inputMint;
+  }
+  return false;
+}
+
+function isWalletDebitedFeeItem(item: HopFeeItemLite, inputMint: string): boolean {
+  if (isAccRentFeeLabel(item.label)) {
+    return isSolMint(inputMint) && isSolMint(item.mint);
+  }
+  const kind = item.destinationKind;
+  if (kind === 'lp_pool' || kind === 'output_deduction' || kind === 'network_priority') {
+    return false;
+  }
+  if (kind === 'fee_recipient' || kind === 'input_wallet' || kind === 'new_token_account') {
+    if (isSolMint(inputMint)) return isSolMint(item.mint);
+    return item.mint === inputMint;
+  }
+  const label = normalizeFeeItemLabel(item.label).toLowerCase();
+  if (label === 'pool fee') return false;
+  if (label === 'protocol fee') {
+    if (isSolMint(inputMint)) return isSolMint(item.mint);
+    return item.mint === inputMint;
+  }
+  return false;
+}
+
+/** Hop fees actually debited from the wallet (matches Phantom), not output-side pool/route cuts. */
+function sumInputSideWalletFeesInSellMintUi(quote: Record<string, unknown>): number | null {
+  const sellMint = quoteInputMint(quote);
+  if (!sellMint) return null;
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  let total = 0;
+  let found = false;
+  for (const step of plan) {
+    const fees = getHopFeeBreakdown(step);
+    for (const item of fees?.items ?? []) {
+      if (!isWalletDebitedFeeItem(item, sellMint)) continue;
+      const feeUi = feeAmountToUi(item.amountRaw, item.mint);
+      if (feeUi == null || feeUi <= 0) continue;
+      const sellUi =
+        item.mint === sellMint ? feeUi : convertFeeUiToSellLeg(feeUi, item.mint, quote);
+      if (sellUi != null && sellUi > 0) {
+        total += sellUi;
+        found = true;
+      }
+    }
+  }
+  return found && total > 0 ? total : null;
+}
+
+function estimateInputSideWalletPayDebitFromQuote(quote: Record<string, unknown>): string | null {
   const inRaw = quoteInAmountRaw(quote);
   if (!inRaw) return null;
   const inputMint = quoteInputMint(quote);
+  if (!inputMint) return null;
   let total: bigint;
   try {
     total = BigInt(inRaw);
@@ -1540,30 +1614,13 @@ function estimateWalletPayDebitFromQuote(quote: Record<string, unknown>): string
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   for (const step of plan) {
     for (const item of step._hopFees?.items ?? []) {
-      if (isAccRentFeeLabel(item.label)) {
-        if (item.amountRaw && isSolMint(inputMint) && isSolMint(item.mint)) {
-          try {
-            total += BigInt(item.amountRaw);
-          } catch {
-            /* skip */
-          }
-        }
-        continue;
-      }
-      if (item.amountRaw && item.amountRaw !== '0') {
-        try {
-          if (isSolMint(inputMint) && isSolMint(item.mint)) total += BigInt(item.amountRaw);
-          else if (item.mint === inputMint) total += BigInt(item.amountRaw);
-        } catch {
-          /* skip */
-        }
-      }
-      if (item.pdaRent?.amountRaw && isSolMint(inputMint) && isSolMint(item.pdaRent.mint)) {
-        try {
-          total += BigInt(item.pdaRent.amountRaw);
-        } catch {
-          /* skip */
-        }
+      if (!isWalletDebitedFeeItem(item, inputMint)) continue;
+      if (!item.amountRaw || item.amountRaw === '0') continue;
+      try {
+        if (isSolMint(inputMint) && isSolMint(item.mint)) total += BigInt(item.amountRaw);
+        else if (item.mint === inputMint) total += BigInt(item.amountRaw);
+      } catch {
+        /* skip */
       }
     }
   }
@@ -2044,92 +2101,35 @@ function hopOutgoingPercentLabel(
   return computeHopOutgoingPercentBreakdown(step, quote, isLastHop)?.pctLabel ?? null;
 }
 
-/** Sum hop fees converted to the sell/input mint (protocol, pool, route). */
-function sumRouteFeesInSellMintUi(quote: Record<string, unknown>): number | null {
-  const sellMint = quoteInputMint(quote);
-  if (!sellMint) return null;
-  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
-  let total = 0;
-  let found = false;
-  for (const step of plan) {
-    const fees = getHopFeeBreakdown(step);
-    for (const item of fees?.items ?? []) {
-      const feeUi = feeAmountToUi(item.amountRaw, item.mint);
-      if (feeUi == null || feeUi <= 0) continue;
-      const sellUi =
-        item.mint === sellMint ? feeUi : convertFeeUiToSellLeg(feeUi, item.mint, quote);
-      if (sellUi != null && sellUi > 0) {
-        total += sellUi;
-        found = true;
-      }
-      if (item.pdaRent) {
-        const rentUi = feeAmountToUi(item.pdaRent.amountRaw, item.pdaRent.mint);
-        if (rentUi != null && rentUi > 0) {
-          const rentSellUi =
-            item.pdaRent.mint === sellMint
-              ? rentUi
-              : convertFeeUiToSellLeg(rentUi, item.pdaRent.mint, quote);
-          if (rentSellUi != null && rentSellUi > 0) {
-            total += rentSellUi;
-            found = true;
-          }
-        }
-      }
-    }
-  }
-  return found && total > 0 ? total : null;
-}
-
-/** Swap leg + hop fees converted to sell mint (matches diagram input total fallback). */
-function estimateWalletPayDebitFromRouteFeesRaw(quote: Record<string, unknown>): string | null {
-  const swapRaw = quoteInAmountRaw(quote);
-  const mint = quoteInputMint(quote);
-  if (!swapRaw || !mint) return null;
-  const routeFeeUi = sumRouteFeesInSellMintUi(quote);
-  if (routeFeeUi == null || routeFeeUi <= 0) return null;
-  try {
-    const swap = BigInt(swapRaw);
-    const feeRaw = uiAmountToRawBigInt(routeFeeUi, mint);
-    const total = swap + feeRaw;
-    return total > swap ? total.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Best total wallet debit: simulation, hop-fee sum, or route-fee conversion in sell mint. */
+/** Best total wallet debit: simulation first, then input-side fee estimate. */
 function resolveWalletPayDebitRaw(quote: Record<string, unknown>): string | null {
   const swapRaw = quoteInAmountRaw(quote);
   if (!swapRaw) return null;
-  let best: bigint | null = null;
-  for (const candidate of [
-    parseRawAmountDigits(quote._walletPayDebitRaw),
-    estimateWalletPayDebitFromQuote(quote),
-    estimateWalletPayDebitFromRouteFeesRaw(quote),
-  ]) {
-    if (!candidate) continue;
-    try {
-      const n = BigInt(candidate);
-      if (!best || n > best) best = n;
-    } catch {
-      /* skip */
-    }
-  }
   try {
     const swap = BigInt(swapRaw);
-    return best && best > swap ? best.toString() : null;
+    const simulated = parseRawAmountDigits(quote._walletPayDebitRaw);
+    if (simulated) {
+      const sim = BigInt(simulated);
+      if (sim > swap) return simulated;
+    }
+    const estimated = estimateInputSideWalletPayDebitFromQuote(quote);
+    if (estimated) {
+      const est = BigInt(estimated);
+      if (est > swap) return estimated;
+    }
   } catch {
     return null;
   }
+  return null;
 }
 
-/** Diagram input endpoint: wallet debit addon or route fees in sell token. */
+/** Diagram input endpoint: wallet debit addon (input-side fees only). */
 function getQuoteDiagramInputFeeAddon(quote: Record<string, unknown>): string | null {
   const walletAddon = getQuoteInputSideAddonLabel(quote);
   if (walletAddon) return walletAddon;
-  const routeFeeUi = sumRouteFeesInSellMintUi(quote);
-  if (routeFeeUi == null) return null;
-  const formatted = formatSwapAmountValue(routeFeeUi).replace(/,/g, '');
+  const inputFeeUi = sumInputSideWalletFeesInSellMintUi(quote);
+  if (inputFeeUi == null) return null;
+  const formatted = formatSwapAmountValue(inputFeeUi).replace(/,/g, '');
   return formatted === '—' ? null : `+${formatted}`;
 }
 
@@ -2138,15 +2138,6 @@ function getQuoteDiagramInputTotalLabel(
   feeAddon: string | null,
 ): string | null {
   if (!feeAddon || feeAddon === '—') return null;
-  if (getQuoteInputSideAddonLabel(quote)) {
-    const walletTotal = getQuoteWalletPayLabelFromQuote(quote);
-    return walletTotal !== '—' ? walletTotal : null;
-  }
-  const swapUi = quoteInAmountUi(quote);
-  const routeFeeUi = sumRouteFeesInSellMintUi(quote);
-  if (swapUi != null && routeFeeUi != null) {
-    return formatSwapAmountValue(swapUi + routeFeeUi).replace(/,/g, '');
-  }
   const walletTotal = getQuoteWalletPayLabelFromQuote(quote);
   return walletTotal !== '—' ? walletTotal : null;
 }
@@ -2413,6 +2404,22 @@ function normalizeFeeItemLabel(label: string): string {
   return label;
 }
 
+const PRIORITY_FEE_LABEL = 'Priority fee';
+const SLIPPAGE_SPREAD_LABEL = 'Slippage/Spread';
+
+/** User-facing fee name; renames generic route fees by destination kind. */
+function displayFeeItemLabel(item: Pick<HopFeeItemLite, 'label' | 'destinationKind'>): string {
+  const base = normalizeFeeItemLabel(item.label);
+  const l = base.toLowerCase();
+  if (l === 'route fee' || l === 'priority fee' || l === 'slippage/spread') {
+    if (item.destinationKind === 'network_priority') return PRIORITY_FEE_LABEL;
+    if (item.destinationKind === 'output_deduction') return SLIPPAGE_SPREAD_LABEL;
+  }
+  if (l === 'priority fee') return PRIORITY_FEE_LABEL;
+  if (l === 'slippage/spread') return SLIPPAGE_SPREAD_LABEL;
+  return base;
+}
+
 function isAccRentFeeLabel(label: string): boolean {
   const l = normalizeFeeItemLabel(label).toLowerCase();
   return l === 'acc rent fee';
@@ -2431,6 +2438,9 @@ function flattenHopFeeItems(items: HopFeeItemLite[]): HopFeeItemLite[] {
       label: normalizeFeeItemLabel(item.label),
       amountRaw: item.amountRaw,
       mint: item.mint,
+      destinationAddress: item.destinationAddress,
+      destinationKind: item.destinationKind,
+      destinationNote: item.destinationNote,
     });
     if (item.pdaRent) {
       flat.push({
@@ -2788,6 +2798,8 @@ function formatFeeEquivDetailText(equiv: FeeAmountEquiv): string {
 function feeChipVariant(label: string): string {
   const l = label.toLowerCase();
   if (l.includes('protocol')) return 'fee-protocol';
+  if (l.includes('priority')) return 'fee-route';
+  if (l.includes('slippage') || l.includes('spread')) return 'fee-pool';
   if (l.includes('route')) return 'fee-route';
   if (l.includes('pool')) return 'fee-pool';
   if (l.includes('acc rent') || l.includes('token acc rent') || l.includes('pda rent')) {
@@ -2824,7 +2836,7 @@ function renderRoutingFeeChip(
 }
 
 function renderHopFeeChip(item: HopFeeItemLite, quote: Record<string, unknown>): string {
-  const label = normalizeFeeItemLabel(item.label);
+  const label = displayFeeItemLabel(item);
   const equiv = computeFeeEquivalents(item.amountRaw, item.mint, quote);
   const title = formatFeeEquivDetailText(equiv);
   return renderRoutingFeeChip(label, equiv, feeChipVariant(label), title);
@@ -2833,35 +2845,118 @@ function renderHopFeeChip(item: HopFeeItemLite, quote: Record<string, unknown>):
 function renderHopPlanFeeTableRowFromItem(
   item: HopFeeItemLite,
   quote: Record<string, unknown>,
+  destCtx?: FeeDestinationRenderCtx,
 ): string {
   return flattenHopFeeItems([item])
     .map((flatItem) => {
       const equiv = computeFeeEquivalents(flatItem.amountRaw, flatItem.mint, quote);
-      const label = normalizeFeeItemLabel(flatItem.label);
-      return renderHopPlanFeeTableRow(label, equiv, feeChipVariant(label));
+      const label = displayFeeItemLabel(flatItem);
+      return renderHopPlanFeeTableRow(label, equiv, feeChipVariant(label), flatItem, destCtx);
     })
     .join('');
+}
+
+function isLikelySolanaPubkey(value: string | undefined): boolean {
+  const s = value?.trim() ?? '';
+  if (s.length < 32 || s.length > 44) return false;
+  return /^[1-9A-HJ-NP-Za-km-z]+$/.test(s);
+}
+
+function quoteWalletAddress(quote: Record<string, unknown>): string {
+  const fromQuote =
+    typeof quote._walletAddress === 'string'
+      ? quote._walletAddress.trim()
+      : typeof quote.accountAddress === 'string'
+        ? quote.accountAddress.trim()
+        : '';
+  if (fromQuote) return fromQuote;
+  return swapQuoteWalletSnapshot?.trim() || swapWalletAddressInput?.value.trim() || '';
+}
+
+interface FeeDestinationRenderCtx {
+  walletAddress?: string;
+  ammKey?: string;
+}
+
+function renderFeeDestinationAddrLine(addr: string): string {
+  const trimmed = addr.trim();
+  if (!isLikelySolanaPubkey(trimmed)) return '';
+  return `<code class="swap-hop-fee-dest__addr" title="${escapeHtml(trimmed)}">${escapeHtml(truncate(trimmed, 8, 8))}</code>`;
+}
+
+function resolveFeeDestinationAddress(
+  item: HopFeeItemLite,
+  ctx?: FeeDestinationRenderCtx,
+): string {
+  const direct = item.destinationAddress?.trim() ?? '';
+  if (isLikelySolanaPubkey(direct)) return direct;
+  const ammKey = ctx?.ammKey?.trim() ?? '';
+  if (item.destinationKind === 'lp_pool' && isLikelySolanaPubkey(ammKey)) return ammKey;
+  const wallet = ctx?.walletAddress?.trim() ?? '';
+  if (
+    (item.destinationKind === 'input_wallet' || item.destinationKind === 'network_priority') &&
+    isLikelySolanaPubkey(wallet)
+  ) {
+    return wallet;
+  }
+  return '';
 }
 
 function renderHopPlanFeeTableRow(
   label: string,
   equiv: FeeAmountEquiv,
   variant: string,
+  item?: HopFeeItemLite,
+  destCtx?: FeeDestinationRenderCtx,
+  opts?: { amountDisplay?: string },
 ): string {
   const title = formatFeeEquivDetailText(equiv);
-  const primary = `−${equiv.primary} ${equiv.feeSym}`;
+  const primary =
+    opts?.amountDisplay ??
+    `−${equiv.primary} ${equiv.feeSym}`;
   const usd = equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : '—';
   const base = isAccRentFeeLabel(label)
     ? formatAccRentFeeSolSubline(equiv)
     : equiv.inputEquiv
       ? stripApproxPrefix(equiv.inputEquiv)
       : '—';
+  const dest = item ? renderFeeDestinationCell(item, destCtx) : '—';
   return `<div class="swap-hop-fees-table__row swap-hop-fees-table__row--${variant}" title="${escapeHtml(title)}">
     <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--label">${escapeHtml(label)}</span>
     <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--amt">${escapeHtml(primary)}</span>
     <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--usd">${escapeHtml(usd)}</span>
     <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--base">${escapeHtml(base)}</span>
+    <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--dest">${dest}</span>
   </div>`;
+}
+
+function renderFeeDestinationCell(item: HopFeeItemLite, ctx?: FeeDestinationRenderCtx): string {
+  const kind = item.destinationKind;
+  const note = item.destinationNote?.trim();
+  const addr = resolveFeeDestinationAddress(item, ctx);
+  const addrHtml = addr ? renderFeeDestinationAddrLine(addr) : '';
+
+  if (kind === 'lp_pool') {
+    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--pool"${addr ? ` title="${escapeHtml(addr)}"` : ''}><span class="swap-hop-fee-dest__kind">Pool vault</span>${addrHtml || `<span class="swap-hop-fee-dest__note">${escapeHtml(note ?? 'Pool account')}</span>`}</span>`;
+  }
+  if (kind === 'new_token_account') {
+    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--ata"${addr ? ` title="${escapeHtml(addr)}"` : ''}><span class="swap-hop-fee-dest__kind">New token account</span>${addrHtml}<span class="swap-hop-fee-dest__note">Rent-exempt deposit</span></span>`;
+  }
+  if (kind === 'fee_recipient') {
+    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--recipient"${addr ? ` title="${escapeHtml(addr)}"` : ''}><span class="swap-hop-fee-dest__kind">Fee recipient</span>${addrHtml || `<span class="swap-hop-fee-dest__note">${escapeHtml(note ?? '—')}</span>`}</span>`;
+  }
+  if (kind === 'input_wallet') {
+    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--input-wallet"${addr ? ` title="${escapeHtml(addr)}"` : ''}><span class="swap-hop-fee-dest__kind">Your wallet</span>${addrHtml}<span class="swap-hop-fee-dest__note">${escapeHtml(note ?? 'Debited with swap input')}</span></span>`;
+  }
+  if (kind === 'network_priority') {
+    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--priority"${addr ? ` title="${escapeHtml(addr)}"` : ''}><span class="swap-hop-fee-dest__kind">Priority fee</span>${addrHtml}<span class="swap-hop-fee-dest__note">${escapeHtml(note ?? 'Solana validators')}</span></span>`;
+  }
+  if (kind === 'output_deduction') {
+    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--deduct">${addrHtml}<span class="swap-hop-fee-dest__note">${escapeHtml(note ?? 'Reduces quoted output')}</span></span>`;
+  }
+  if (addrHtml) return `<span class="swap-hop-fee-dest">${addrHtml}</span>`;
+  if (note) return `<span class="swap-hop-fee-dest"><span class="swap-hop-fee-dest__note">${escapeHtml(note)}</span></span>`;
+  return '—';
 }
 
 function renderHopPlanFeesSection(
@@ -2870,13 +2965,19 @@ function renderHopPlanFeesSection(
   quote: Record<string, unknown>,
   feeMint: string,
   feeAmt: string | null,
+  ammKey?: string,
 ): string {
   const inputSym = getSwapInSym();
+  const destCtx: FeeDestinationRenderCtx = {
+    walletAddress: quoteWalletAddress(quote),
+    ammKey: ammKey?.trim() || undefined,
+  };
   const head = `<div class="swap-hop-fees-table__row swap-hop-fees-table__row--head">
     <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--label">Fee</span>
     <span class="swap-hop-fees-table__cell">Amount</span>
     <span class="swap-hop-fees-table__cell">USD</span>
     <span class="swap-hop-fees-table__cell">${escapeHtml(inputSym)}</span>
+    <span class="swap-hop-fees-table__cell">Destination</span>
   </div>`;
   const rowData = flattenHopFeeItems(hopFees.items).map((item) => ({
     item,
@@ -2884,8 +2985,8 @@ function renderHopPlanFeesSection(
   }));
   const bodyRows = rowData
     .map(({ item, equiv }) => {
-      const label = normalizeFeeItemLabel(item.label);
-      return renderHopPlanFeeTableRow(label, equiv, feeChipVariant(label));
+      const label = displayFeeItemLabel(item);
+      return renderHopPlanFeeTableRow(label, equiv, feeChipVariant(label), item, destCtx);
     })
     .join('');
 
@@ -2893,12 +2994,14 @@ function renderHopPlanFeesSection(
   if (rowData.length > 1) {
     const totalEquiv = sumHopPlanFeeTableTotals(rowData, quote);
     if (totalEquiv) {
-      totalRow = renderHopPlanFeeTableRow('Total fees', totalEquiv, 'total');
+      totalRow = renderHopPlanFeeTableRow('Total fees', totalEquiv, 'total', undefined, destCtx, {
+        amountDisplay: totalEquiv.amountDisplay,
+      });
     }
   }
 
-  return `<section class="swap-hop-fees-block" aria-label="Hop fees">
-    <h5 class="swap-hop-fees-block__title">Fees</h5>
+  return `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
+    <h5 class="swap-hop-panel__title">Fee breakdown</h5>
     <div class="swap-hop-fees-table">${head}${bodyRows}${totalRow}</div>
   </section>`;
 }
@@ -2955,17 +3058,39 @@ function feeTableBaseLegUi(
   return convertFeeUiToSellLeg(feeUi, item.mint, quote);
 }
 
-/** Sum per-row USD + input-leg equivalents — never add raw amounts across mints. */
+/** Native amount total when every row shares one mint; otherwise mixed-mint fees cannot be summed. */
+function sumHopPlanFeeTableNativeAmount(
+  rowData: Array<{ item: HopFeeItemLite; equiv: FeeAmountEquiv }>,
+): { display: string; sym: string } | null {
+  const mints = new Set(rowData.map(({ item }) => item.mint.trim()).filter(Boolean));
+  if (mints.size !== 1) return null;
+  const mint = [...mints][0]!;
+  let total = 0n;
+  for (const { item } of rowData) {
+    if (!item.amountRaw || !/^\d+$/.test(item.amountRaw)) continue;
+    try {
+      total += BigInt(item.amountRaw);
+    } catch {
+      return null;
+    }
+  }
+  if (total <= 0n) return null;
+  const formatted = formatRawTokenAmount(total.toString(), mint).display;
+  if (formatted === '—') return null;
+  return { display: formatted, sym: mintSymbolSync(mint) };
+}
+
+/** Sum per-row USD + wallet-debited input-leg fees (excludes output-side pool/route cuts). */
 function sumHopPlanFeeTableTotals(
   rowData: Array<{ item: HopFeeItemLite; equiv: FeeAmountEquiv }>,
   quote: Record<string, unknown>,
-): FeeAmountEquiv | null {
+): (FeeAmountEquiv & { amountDisplay: string }) | null {
   if (rowData.length <= 1) return null;
 
   let totalUsd = 0;
-  let totalBaseUi = 0;
+  let walletBaseUi = 0;
   let foundUsd = false;
-  let foundBase = false;
+  let foundWalletBase = false;
   const inputSym = getSwapInSym();
   const sellMint = quoteInputMint(quote) ?? '';
 
@@ -2975,23 +3100,32 @@ function sumHopPlanFeeTableTotals(
       totalUsd += usdN;
       foundUsd = true;
     }
+    if (!sellMint || !isHopFeeTableWalletColumnItem(item, sellMint)) continue;
     const baseUi = feeTableBaseLegUi(item, equiv, quote);
     if (baseUi != null && baseUi > 0) {
-      totalBaseUi += baseUi;
-      foundBase = true;
+      walletBaseUi += baseUi;
+      foundWalletBase = true;
     }
   }
 
-  if (!foundUsd && !foundBase) return null;
+  if (!foundUsd && !foundWalletBase) return null;
 
-  const primaryFmt = foundBase ? formatSwapAmountValue(totalBaseUi).replace(/,/g, '') : '—';
+  const nativeTotal = sumHopPlanFeeTableNativeAmount(rowData);
+  const walletFmt = foundWalletBase
+    ? formatSwapAmountValue(walletBaseUi).replace(/,/g, '')
+    : '—';
+  const amountDisplay = nativeTotal
+    ? `−${nativeTotal.display} ${nativeTotal.sym}`
+    : '—';
+
   return {
     feeMint: sellMint,
     feeSym: inputSym,
-    primary: primaryFmt,
-    inputEquiv: foundBase ? `≈ ${primaryFmt} ${inputSym}` : null,
+    primary: walletFmt,
+    inputEquiv: foundWalletBase ? `${walletFmt} ${inputSym}` : null,
     inputSym,
     usd: foundUsd ? `~$${formatSwapPayUsdAmount(totalUsd)}` : null,
+    amountDisplay,
   };
 }
 
@@ -3012,7 +3146,7 @@ function collectQuoteRouteFeeUsdLines(
       const equiv = computeFeeEquivalents(item.amountRaw, item.mint, quote);
       const usdN = computeFeeUsdNumeric(item, quote) ?? parseFeeEquivUsdNumber(equiv.usd);
       if (usdN == null || usdN <= 0) continue;
-      lines.push({ label: normalizeFeeItemLabel(item.label), usd: usdN });
+      lines.push({ label: displayFeeItemLabel(item), usd: usdN });
     }
   }
   return lines;
@@ -3029,8 +3163,8 @@ function getQuoteTotalInputUsdIncludingFees(quote: Record<string, unknown>): num
 
   const swapUi = quoteInAmountUi(quote, mint);
   if (swapUi == null || swapUi <= 0) return null;
-  const feeUsd = collectQuoteRouteFeeUsdLines(quote).reduce((sum, line) => sum + line.usd, 0);
-  return swapUi * price + feeUsd;
+  const inputFeeUi = sumInputSideWalletFeesInSellMintUi(quote) ?? 0;
+  return (swapUi + inputFeeUi) * price;
 }
 
 function renderOutputPctBreakdownSection(
@@ -3860,7 +3994,7 @@ function getQuotePayFeeUsd(quote: Record<string, unknown>): number | null {
       /* fall through to route fees */
     }
   }
-  const routeFeeUi = sumRouteFeesInSellMintUi(quote);
+  const routeFeeUi = sumInputSideWalletFeesInSellMintUi(quote);
   if (routeFeeUi == null || !mint) return null;
   const price = lookupMintPriceUsd(mint, quote);
   if (!Number.isFinite(price) || price <= 0) return null;
@@ -3904,9 +4038,9 @@ function buildQuotePaySubLabel(quote: Record<string, unknown> | null): string | 
 function getQuotePayFeeAmountLabel(quote: Record<string, unknown>): string | null {
   const addon = getQuoteInputSideAddonLabel(quote);
   if (addon) return addon.replace(/^\+/, '').replace(/,/g, '');
-  const routeFeeUi = sumRouteFeesInSellMintUi(quote);
-  if (routeFeeUi == null) return null;
-  return formatSwapAmountValue(routeFeeUi).replace(/,/g, '');
+  const inputFeeUi = sumInputSideWalletFeesInSellMintUi(quote);
+  if (inputFeeUi == null) return null;
+  return formatSwapAmountValue(inputFeeUi).replace(/,/g, '');
 }
 
 function renderQuotePayHeroValueHtml(
@@ -4097,17 +4231,20 @@ function renderRoutePlanStepDetail(
   placeholder = false,
   loading = false,
   quote: Record<string, unknown> = {},
+  isFirstHopInRoute = false,
 ): string {
   const si = step.swapInfo;
   const dex = si?.label ?? 'Unknown DEX';
   const pct = hopPercentLabel(step);
+  const showRouteShare = isFirstHopInRoute || (pct !== '100%' && pct !== '—');
   const pendingHop = placeholder || loading;
   const hasInAmt = leg.inAmt !== '—' && leg.inAmt !== '';
   const hasOutAmt = leg.outAmt !== '—' && leg.outAmt !== '';
   const previewInAmt =
     loading && !hasInAmt ? renderLoadingSpinner('sm') : escapeHtml(leg.inAmt);
   const previewOutAmt = loading && !hasOutAmt ? renderLoadingSpinner('sm') : escapeHtml(leg.outAmt);
-  const preview = `${previewInAmt} ${escapeHtml(leg.inSym)} → ${previewOutAmt} ${escapeHtml(leg.outSym)} · ${escapeHtml(pct)}`;
+  const preview = `${previewInAmt} ${escapeHtml(leg.inSym)} → ${previewOutAmt} ${escapeHtml(leg.outSym)}`;
+  const previewShare = showRouteShare ? ` · ${escapeHtml(pct)} route share` : '';
   const hopFees = getHopFeeBreakdown(step);
   const feeSym = hopFees?.mint
     ? mintSymbolSync(hopFees.mint)
@@ -4214,22 +4351,24 @@ function renderRoutePlanStepDetail(
 
   let feesHtml = '';
   if (hopFees?.items.length) {
-    feesHtml = renderHopPlanFeesSection(hopFees, leg, quote, feeMint, feeAmt);
+    feesHtml = renderHopPlanFeesSection(hopFees, leg, quote, feeMint, feeAmt, si?.ammKey);
   } else if (feeAmt) {
-    feesHtml = `<section class="swap-hop-fees-block" aria-label="Hop fees">
-      <h5 class="swap-hop-fees-block__title">Fees</h5>
+    feesHtml = `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
+      <h5 class="swap-hop-panel__title">Fee breakdown</h5>
       <div class="swap-hop-fees-table">
         <div class="swap-hop-fees-table__row swap-hop-fees-table__row--head">
           <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--label">Fee</span>
           <span class="swap-hop-fees-table__cell">Amount</span>
           <span class="swap-hop-fees-table__cell">USD</span>
           <span class="swap-hop-fees-table__cell">${escapeHtml(feeSym)}</span>
+          <span class="swap-hop-fees-table__cell">Destination</span>
         </div>
         <div class="swap-hop-fees-table__row swap-hop-fees-table__row--fee">
           <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--label">Fee</span>
           <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--amt">−${escapeHtml(feeAmt)} ${escapeHtml(feeSym)}</span>
           <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--usd">—</span>
           <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--base">—</span>
+          <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--dest">—</span>
         </div>
       </div>
     </section>`;
@@ -4270,34 +4409,41 @@ function renderRoutePlanStepDetail(
   }
 
   const detailRowsHtml = [
-    detailRow(
-      [detailCell('Route share', escapeHtml(pct)), detailCell('Venue', venueHtml), marketHtml],
-      3,
-    ),
-    detailRow([inputMintHtml, detailCell('Input', inputHtml), inAmountHtml], 3),
-    detailRow([outputMintHtml, detailCell('Output', outputHtml), outAmountHtml], 3),
+    detailRow([detailCell('Venue', venueHtml), marketHtml], 2),
+    detailRow([inputMintHtml, outputMintHtml], 2),
+    detailRow([detailCell('Input', inputHtml), inAmountHtml], 2),
+    detailRow([detailCell('Output', outputHtml), outAmountHtml], 2),
     detailRow([quotedOutputHtml, netToWalletHtml], 2),
   ].join('');
 
+  const feesPanelHtml = feesHtml;
+
+  const shareBadgeHtml = showRouteShare
+    ? `<span class="swap-hop-card__pct">${escapeHtml(pct)}</span>`
+    : '';
+
   const placeholderClass = placeholder ? ' swap-hop-step-details--placeholder' : '';
   const loadingClass = loading ? ' swap-hop-step-details--loading' : '';
-  return `<details class="swap-hop-step-details${placeholderClass}${loadingClass}"${expanded ? ' open' : ''}>
+  return `<details class="swap-hop-step-card swap-hop-step-details${placeholderClass}${loadingClass}"${expanded ? ' open' : ''}>
     <summary class="swap-hop-step-details__summary">
       <span class="swap-hop-card__index">Hop #${escapeHtml(hopLabel)}</span>
       <span class="swap-hop-step-details__main">
         <span class="swap-hop-card__dex">${dexSummaryHtml}</span>
-        <span class="swap-hop-step-details__preview">${preview}</span>
+        <span class="swap-hop-step-details__preview">${preview}${previewShare}</span>
       </span>
-      <span class="swap-hop-card__pct">${escapeHtml(pct)}</span>
+      ${shareBadgeHtml}
     </summary>
     <div class="swap-hop-step-details__body">
-      ${renderHopConversionLeg(leg, 'route-hop-conversion route-hop-conversion--card swap-hop-conversion', {
-        in: loading && !hasInAmt,
-        out: loading && !hasOutAmt,
-      })}
-      ${feesHtml}
-      <section class="swap-hop-details-block">
-        <h5 class="swap-hop-details-block__title">Details</h5>
+      <section class="swap-hop-panel swap-hop-panel--swap">
+        <h5 class="swap-hop-panel__title">Swap leg</h5>
+        ${renderHopConversionLeg(leg, 'route-hop-conversion route-hop-conversion--card swap-hop-conversion', {
+          in: loading && !hasInAmt,
+          out: loading && !hasOutAmt,
+        })}
+      </section>
+      ${feesPanelHtml}
+      <section class="swap-hop-panel swap-hop-panel--details">
+        <h5 class="swap-hop-panel__title">Technical details</h5>
         <div class="swap-hop-detail-grid swap-hop-detail-grid--rows">${detailRowsHtml}</div>
       </section>
     </div>
@@ -4323,7 +4469,7 @@ function renderQuoteRoutePlanStepsPlaceholder(loading = false): string {
     percent: 100,
     swapInfo: { label: '—' },
   };
-  return renderRoutePlanStepDetail(mockStep, '1', mockLeg, true, true, loading);
+  return renderRoutePlanStepDetail(mockStep, '1', mockLeg, true, true, loading, {}, true);
 }
 
 function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): string {
@@ -4335,12 +4481,23 @@ function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): string {
   collectRouteHopMetas(tree, metas);
   if (metas.length === 0) {
     return plan
-      .map((s, i) => renderRoutePlanStepDetail(s, String(i + 1), legs[i]!, i === 0, false, false, quote))
+      .map((s, i) =>
+        renderRoutePlanStepDetail(s, String(i + 1), legs[i]!, i === 0, false, false, quote, i === 0),
+      )
       .join('');
   }
   return metas
     .map((meta, i) =>
-      renderRoutePlanStepDetail(meta.step, meta.label, legs[meta.planIndex]!, i === 0, false, false, quote),
+      renderRoutePlanStepDetail(
+        meta.step,
+        meta.label,
+        legs[meta.planIndex]!,
+        i === 0,
+        false,
+        false,
+        quote,
+        i === 0,
+      ),
     )
     .join('');
 }
@@ -4668,7 +4825,7 @@ function collectSwapBuildOptions(): Record<string, unknown> {
       Number.isFinite(serviceFeeN) &&
       serviceFeeN >= 0
         ? serviceFeeN
-        : undefined,
+        : 0,
   };
 }
 
@@ -4932,7 +5089,7 @@ function applyAggregatorBuildToUi(
   }
 
   if (!quote._walletPayDebitRaw) {
-    const estimatedPay = resolveWalletPayDebitRaw(quote);
+    const estimatedPay = estimateInputSideWalletPayDebitFromQuote(quote);
     if (estimatedPay) {
       quote = { ...quote, _walletPayDebitRaw: estimatedPay };
     }

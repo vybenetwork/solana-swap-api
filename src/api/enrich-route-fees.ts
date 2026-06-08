@@ -4,13 +4,29 @@
  */
 
 import type { VybeRoutePlanStep, VybeSwapBuildResponse } from '../types/swap.js';
-import type { TokenAccRentEntry, EmbeddedPoolFeeEntry } from './simulate-swap-output.js';
+import type { TokenAccRentEntry, EmbeddedPoolFeeEntry, WalletFeeTransferEntry, TokenFeeCreditEntry } from './simulate-swap-output.js';
 import { WSOL_MINT, isSolMint } from './sol-mints.js';
+
+function isLikelySolanaPubkey(value: string | undefined): boolean {
+  const s = value?.trim() ?? '';
+  if (s.length < 32 || s.length > 44) return false;
+  return /^[1-9A-HJ-NP-Za-km-z]+$/.test(s);
+}
+
+function pickPubkey(...candidates: (string | undefined)[]): string | undefined {
+  for (const candidate of candidates) {
+    if (isLikelySolanaPubkey(candidate)) return candidate!.trim();
+  }
+  return undefined;
+}
 
 export interface HopFeeItem {
   label: string;
   amountRaw: string;
   mint: string;
+  destinationAddress?: string;
+  destinationKind?: 'lp_pool' | 'new_token_account' | 'fee_recipient' | 'output_deduction' | 'input_wallet' | 'network_priority';
+  destinationNote?: string;
   /** @deprecated Token acc rent is a sibling item; kept for older enriched quotes. */
   pdaRent?: {
     label: string;
@@ -57,24 +73,17 @@ export function estimateWalletPayDebitRaw(
   const inputIsSol = isSolMint(inputMint);
   for (const step of routePlan) {
     for (const item of step._hopFees?.items ?? []) {
-      if (item.amountRaw && item.amountRaw !== '0') {
-        if (inputIsSol && isSolMint(item.mint)) {
-          try {
-            total += BigInt(item.amountRaw);
-          } catch {
-            /* skip */
-          }
-        } else if (item.mint === inputMint.trim()) {
-          try {
-            total += BigInt(item.amountRaw);
-          } catch {
-            /* skip */
-          }
-        }
-      }
-      if (item.pdaRent?.amountRaw && inputIsSol && isSolMint(item.pdaRent.mint)) {
+      if (!isWalletDebitedFeeItem(item, inputMint.trim())) continue;
+      if (!item.amountRaw || item.amountRaw === '0') continue;
+      if (inputIsSol && isSolMint(item.mint)) {
         try {
-          total += BigInt(item.pdaRent.amountRaw);
+          total += BigInt(item.amountRaw);
+        } catch {
+          /* skip */
+        }
+      } else if (item.mint === inputMint.trim()) {
+        try {
+          total += BigInt(item.amountRaw);
         } catch {
           /* skip */
         }
@@ -87,6 +96,27 @@ export function estimateWalletPayDebitRaw(
   } catch {
     return null;
   }
+}
+
+function isWalletDebitedFeeItem(item: HopFeeItem, inputMint: string): boolean {
+  const label = item.label.trim().toLowerCase();
+  if (label === 'acc rent fee' || label === 'pda rent' || label === 'token acc rent') {
+    return isSolMint(inputMint) && isSolMint(item.mint);
+  }
+  const kind = item.destinationKind;
+  if (kind === 'lp_pool' || kind === 'output_deduction' || kind === 'network_priority') {
+    return false;
+  }
+  if (kind === 'fee_recipient' || kind === 'input_wallet' || kind === 'new_token_account') {
+    if (isSolMint(inputMint)) return isSolMint(item.mint);
+    return item.mint === inputMint.trim();
+  }
+  if (label === 'pool fee') return false;
+  if (label === 'protocol fee') {
+    if (isSolMint(inputMint)) return isSolMint(item.mint);
+    return item.mint === inputMint.trim();
+  }
+  return false;
 }
 
 export function normalizeSwapFeePct(
@@ -169,7 +199,293 @@ function attachAggregatorTokenAccRent(items: HopFeeItem[], rentLamports: bigint)
     label: 'Acc Rent Fee',
     amountRaw: rentLamports.toString(),
     mint: WSOL_MINT,
+    destinationKind: 'new_token_account',
+    destinationNote: 'New SPL token account (rent-exempt deposit)',
   });
+}
+
+function attachHopAccRentEntries(items: HopFeeItem[], entries: TokenAccRentEntry[]): void {
+  for (const rent of entries) {
+    if (rent.lamports <= 0n) continue;
+    items.push({
+      label: 'Acc Rent Fee',
+      amountRaw: rent.lamports.toString(),
+      mint: WSOL_MINT,
+      destinationAddress: rent.accountAddress,
+      destinationKind: 'new_token_account',
+      destinationNote:
+        rent.createdNew !== false
+          ? 'New SPL token account (rent-exempt deposit)'
+          : 'Token account deposit',
+    });
+  }
+}
+
+function takeMatchingSolTransfer(
+  amount: bigint,
+  transfers: WalletFeeTransferEntry[] | undefined,
+  used: Set<number>,
+): string | undefined {
+  if (!transfers?.length || amount <= 0n) return undefined;
+  const slack = amount / 100n + 1n;
+  for (let i = 0; i < transfers.length; i++) {
+    if (used.has(i)) continue;
+    const t = transfers[i]!;
+    const diff = t.amountLamports > amount ? t.amountLamports - amount : amount - t.amountLamports;
+    if (diff <= slack) {
+      used.add(i);
+      return t.recipientAddress;
+    }
+  }
+  return undefined;
+}
+
+function takeMatchingTokenCredit(
+  amount: bigint,
+  mint: string,
+  credits: TokenFeeCreditEntry[] | undefined,
+  used: Set<number>,
+  preferOwner?: string,
+): TokenFeeCreditEntry | undefined {
+  if (!credits?.length || amount <= 0n) return undefined;
+  const slack = amount / 100n + 1n;
+
+  const tryMatch = (requireOwner: boolean) => {
+    for (let i = 0; i < credits.length; i++) {
+      if (used.has(i)) continue;
+      const credit = credits[i]!;
+      if (!mintMatches(credit.mint, mint)) continue;
+      if (requireOwner && preferOwner && credit.ownerAddress !== preferOwner) continue;
+      try {
+        const credited = BigInt(credit.amountRaw);
+        const diff = credited > amount ? credited - amount : amount - credited;
+        if (diff <= slack || credited >= amount) {
+          used.add(i);
+          return credit;
+        }
+      } catch {
+        /* skip */
+      }
+    }
+    return undefined;
+  };
+
+  if (preferOwner && isLikelySolanaPubkey(preferOwner)) {
+    const owned = tryMatch(true);
+    if (owned) return owned;
+  }
+  return tryMatch(false);
+}
+
+function creditDestinationAddress(credit: TokenFeeCreditEntry): string | undefined {
+  return pickPubkey(credit.tokenAccountAddress) ?? pickPubkey(credit.ownerAddress);
+}
+
+function assignPoolVaultDestination(item: HopFeeItem, vaultAddr: string | undefined): boolean {
+  const addr = pickPubkey(vaultAddr);
+  if (!addr) return false;
+  item.destinationAddress = addr;
+  item.destinationKind = 'lp_pool';
+  item.destinationNote = 'Retained by LP pool vault';
+  return true;
+}
+
+function assignFeeRecipientDestination(item: HopFeeItem, recipientAddr: string | undefined): boolean {
+  const addr = pickPubkey(recipientAddr);
+  if (!addr) return false;
+  item.destinationAddress = addr;
+  item.destinationKind = 'fee_recipient';
+  item.destinationNote = 'Fee recipient account';
+  return true;
+}
+
+function tryAssignPoolVaultFromCredit(
+  item: HopFeeItem,
+  amount: bigint,
+  mint: string,
+  ctx: {
+    tokenFeeCredits?: TokenFeeCreditEntry[];
+    usedTokenCredits: Set<number>;
+    preferOwner?: string;
+  },
+): boolean {
+  const credit = takeMatchingTokenCredit(
+    amount,
+    mint,
+    ctx.tokenFeeCredits,
+    ctx.usedTokenCredits,
+    ctx.preferOwner,
+  );
+  if (!credit) return false;
+  return assignPoolVaultDestination(item, creditDestinationAddress(credit));
+}
+
+function enrichHopFeeItemDestinations(
+  items: HopFeeItem[],
+  ctx: {
+    ammKey?: string;
+    hopIndex: number;
+    inputMint?: string;
+    outputMint?: string;
+    walletSolTransfers?: WalletFeeTransferEntry[];
+    tokenFeeCredits?: TokenFeeCreditEntry[];
+    walletAddress?: string;
+    usedSolTransfers: Set<number>;
+    usedTokenCredits: Set<number>;
+  },
+): void {
+  const poolKey = pickPubkey(ctx.ammKey);
+  const walletAddr = pickPubkey(ctx.walletAddress);
+  for (const item of items) {
+    if (item.destinationAddress?.trim() && item.destinationKind) continue;
+
+    if (item.label === 'Pool fee') {
+      let amount = 0n;
+      try {
+        amount = BigInt(item.amountRaw);
+      } catch {
+        amount = 0n;
+      }
+      if (assignPoolVaultDestination(item, poolKey)) continue;
+      if (
+        amount > 0n &&
+        tryAssignPoolVaultFromCredit(item, amount, item.mint, {
+          tokenFeeCredits: ctx.tokenFeeCredits,
+          usedTokenCredits: ctx.usedTokenCredits,
+          preferOwner: poolKey,
+        })
+      ) {
+        continue;
+      }
+      continue;
+    }
+
+    if (item.label === 'Acc Rent Fee') {
+      if (!item.destinationKind) item.destinationKind = 'new_token_account';
+      if (!item.destinationNote) {
+        item.destinationNote = 'New SPL token account (rent-exempt deposit)';
+      }
+      continue;
+    }
+
+    if (item.label === 'Protocol fee' || item.label === 'Route fee') {
+      let amount = 0n;
+      try {
+        amount = BigInt(item.amountRaw);
+      } catch {
+        amount = 0n;
+      }
+
+      if (isSolMint(item.mint) && amount > 0n) {
+        const recipient = takeMatchingSolTransfer(
+          amount,
+          ctx.walletSolTransfers,
+          ctx.usedSolTransfers,
+        );
+        if (recipient && isLikelySolanaPubkey(recipient)) {
+          item.destinationAddress = recipient.trim();
+          item.destinationKind = 'fee_recipient';
+          item.destinationNote = 'Fee recipient account';
+          continue;
+        }
+        if (amount <= 10_000n && item.label === 'Route fee') {
+          item.destinationKind = 'network_priority';
+          item.destinationNote = 'Solana priority fee (validators)';
+          if (walletAddr) item.destinationAddress = walletAddr;
+          continue;
+        }
+      }
+
+      if (amount > 0n) {
+        const credit = takeMatchingTokenCredit(
+          amount,
+          item.mint,
+          ctx.tokenFeeCredits,
+          ctx.usedTokenCredits,
+          poolKey,
+        );
+        if (credit) {
+          const creditOwner = pickPubkey(credit.ownerAddress);
+          const creditAddr = creditDestinationAddress(credit);
+          if (poolKey && creditOwner === poolKey) {
+            assignPoolVaultDestination(item, poolKey);
+          } else if (item.label === 'Route fee' && creditAddr) {
+            assignPoolVaultDestination(item, creditAddr);
+          } else if (creditAddr) {
+            assignFeeRecipientDestination(item, creditAddr);
+          }
+          if (item.destinationKind) continue;
+        }
+      }
+
+      if (
+        ctx.hopIndex === 0 &&
+        ctx.inputMint &&
+        mintMatches(item.mint, ctx.inputMint)
+      ) {
+        item.destinationKind = 'input_wallet';
+        item.destinationNote = 'Debited from your wallet with the swap input';
+        if (walletAddr) item.destinationAddress = walletAddr;
+        continue;
+      }
+
+      if (ctx.outputMint && mintMatches(item.mint, ctx.outputMint)) {
+        if (poolKey && assignPoolVaultDestination(item, poolKey)) continue;
+        if (
+          amount > 0n &&
+          tryAssignPoolVaultFromCredit(item, amount, item.mint, {
+            tokenFeeCredits: ctx.tokenFeeCredits,
+            usedTokenCredits: ctx.usedTokenCredits,
+            preferOwner: poolKey,
+          })
+        ) {
+          continue;
+        }
+      }
+
+      item.destinationKind = 'output_deduction';
+      item.destinationNote = 'Reduces quoted output; recipient not isolated in simulation';
+    }
+  }
+
+  applyRouteFeeDisplayLabels(items);
+}
+
+function applyRouteFeeDisplayLabels(items: HopFeeItem[]): void {
+  for (const item of items) {
+    if (item.label !== 'Route fee') continue;
+    if (item.destinationKind === 'network_priority') {
+      item.label = 'Priority fee';
+    } else if (item.destinationKind === 'output_deduction') {
+      item.label = 'Slippage/Spread';
+    }
+  }
+}
+
+function buildRentEntriesByHopIndex(
+  plan: VybeRoutePlanStep[],
+  outputMint: string,
+  opts?: { pdaRentLamports?: bigint; tokenAccRentByMint?: TokenAccRentEntry[] },
+): Map<number, TokenAccRentEntry[]> {
+  const byHop = new Map<number, TokenAccRentEntry[]>();
+  const entries = opts?.tokenAccRentByMint ?? [];
+  if (entries.length > 0) {
+    for (const entry of entries) {
+      if (entry.lamports <= 0n) continue;
+      const hopIdx = findHopIndexForRentMint(plan, entry.mint);
+      const list = byHop.get(hopIdx) ?? [];
+      list.push(entry);
+      byHop.set(hopIdx, list);
+    }
+    return byHop;
+  }
+
+  const aggregate = opts?.pdaRentLamports ?? 0n;
+  if (aggregate > 0n) {
+    const hopIdx = findHopIndexForRentMint(plan, outputMint);
+    byHop.set(hopIdx, [{ mint: outputMint, lamports: aggregate }]);
+  }
+  return byHop;
 }
 
 function mintMatches(a: string | undefined, b: string | undefined): boolean {
@@ -258,14 +574,18 @@ function attachFirstHopInputSideFees(
 
 function buildEmbeddedPoolFeeByHopIndex(
   entries: EmbeddedPoolFeeEntry[] | undefined,
-): Map<number, { amountRaw: bigint; mint: string }> {
-  const byHop = new Map<number, { amountRaw: bigint; mint: string }>();
+): Map<number, { amountRaw: bigint; mint: string; vaultAddress?: string }> {
+  const byHop = new Map<number, { amountRaw: bigint; mint: string; vaultAddress?: string }>();
   for (const entry of entries ?? []) {
     if (!entry.amountRaw || !/^\d+$/.test(entry.amountRaw)) continue;
     try {
       const amountRaw = BigInt(entry.amountRaw);
       if (amountRaw <= 0n) continue;
-      byHop.set(entry.hopIndex, { amountRaw, mint: entry.mint.trim() });
+      byHop.set(entry.hopIndex, {
+        amountRaw,
+        mint: entry.mint.trim(),
+        vaultAddress: pickPubkey(entry.vaultAddress),
+      });
     } catch {
       /* skip */
     }
@@ -342,8 +662,11 @@ export function enrichRoutePlanFees(
     pdaRentLamports?: bigint;
     tokenAccRentByMint?: TokenAccRentEntry[];
     embeddedPoolFeesByHop?: EmbeddedPoolFeeEntry[];
+    walletSolTransfers?: WalletFeeTransferEntry[];
+    tokenFeeCredits?: TokenFeeCreditEntry[];
     router?: string;
     walletPayDebitRaw?: string | null;
+    walletAddress?: string;
     inputMint?: string;
   },
 ): RouteFeeEnrichment {
@@ -395,7 +718,10 @@ export function enrichRoutePlanFees(
 
   const lastIdx = basePlan.length - 1;
   const rentByHopIdx = buildRentByHopIndex(basePlan, outputMint, opts);
+  const rentEntriesByHop = buildRentEntriesByHopIndex(basePlan, outputMint, opts);
   const embeddedPoolByHop = buildEmbeddedPoolFeeByHopIndex(opts?.embeddedPoolFeesByHop);
+  const usedSolTransfers = new Set<number>();
+  const usedTokenCredits = new Set<number>();
   const enrichedPlan: RoutePlanStepWithFees[] = [];
 
   for (let i = 0; i < basePlan.length; i++) {
@@ -457,6 +783,13 @@ export function enrichRoutePlanFees(
             label: 'Pool fee',
             amountRaw: embedded.amountRaw.toString(),
             mint: embedded.mint,
+            ...(embedded.vaultAddress
+              ? {
+                  destinationAddress: embedded.vaultAddress,
+                  destinationKind: 'lp_pool' as const,
+                  destinationNote: 'Retained by LP pool vault',
+                }
+              : {}),
           });
         }
       }
@@ -516,7 +849,25 @@ export function enrichRoutePlanFees(
         mint: WSOL_MINT,
       });
     }
-    attachAggregatorTokenAccRent(items, hopRent);
+
+    const hopRentEntries = rentEntriesByHop.get(i) ?? [];
+    if (hopRentEntries.length > 0) {
+      attachHopAccRentEntries(items, hopRentEntries);
+    } else {
+      attachAggregatorTokenAccRent(items, hopRent);
+    }
+
+    enrichHopFeeItemDestinations(items, {
+      ammKey: si.ammKey,
+      hopIndex: i,
+      inputMint,
+      outputMint: si.outputMintAddress || outputMint,
+      walletSolTransfers: opts?.walletSolTransfers,
+      tokenFeeCredits: opts?.tokenFeeCredits,
+      walletAddress: opts?.walletAddress,
+      usedSolTransfers,
+      usedTokenCredits,
+    });
 
     const hopQuotedOut = hopQuotedOutRaw(step, isLast ? quotedOut : 0n);
     const hopQuotedStr =
