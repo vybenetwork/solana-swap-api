@@ -446,6 +446,8 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  min-width: 91px;
+  max-width: 91px;
   max-height: 48px;
   height: 48px;
   border-radius: 8px;
