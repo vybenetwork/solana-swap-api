@@ -127,6 +127,8 @@ const SELL_TOKEN_PRIORITY_MINTS: readonly string[] = [
 
 let walletBalanceFetchGen = 0;
 let walletBalanceRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let walletBalancesFetching = false;
+let walletBalancesReadyFor = '';
 let lastWalletBalanceFetchAddress = '';
 let lastAutoAppliedWalletAddress = '';
 
@@ -270,15 +272,40 @@ function renderLoadingSpinner(size: 'sm' | 'md' | 'lg' = 'sm'): string {
   return `<span class="inline-loading-spinner inline-loading-spinner--${size}" aria-hidden="true"></span>`;
 }
 
+function isSwapQuoteInputReady(): boolean {
+  if (swapQuoteFetching || swapBuildMode === 'paste-sign') return false;
+
+  const wallet = swapWalletAddressInput?.value.trim() ?? '';
+  if (!hasValidSwapWallet()) return false;
+  if (walletBalancesFetching || walletBalancesReadyFor !== wallet) return false;
+
+  const sellMint = swapInputMintInput?.value.trim() ?? '';
+  const amount = Number(swapAmountInput?.value);
+  if (!sellMint || !Number.isFinite(amount) || amount <= 0) return false;
+
+  const price = lookupMintPriceUsd(sellMint, lastSwapQuoteOk ?? {});
+  return Number.isFinite(price) && price > 0;
+}
+
+function syncSwapQuoteButtonState(): void {
+  if (!swapQuoteBtn || swapQuoteBtn.hidden) return;
+  if (swapQuoteFetching) return;
+  swapQuoteBtn.disabled = !isSwapQuoteInputReady();
+}
+
 function setSwapQuoteButtonLoading(loading: boolean): void {
   if (!swapQuoteBtn) return;
-  swapQuoteBtn.disabled = loading;
   swapQuoteBtn.classList.toggle('swap-action-btn--loading', loading);
   swapQuoteBtn.setAttribute('aria-busy', loading ? 'true' : 'false');
   const labelEl = swapQuoteBtn.querySelector('.swap-action-btn__label');
   const hintEl = swapQuoteBtn.querySelector('.swap-action-btn__hint');
   if (labelEl) labelEl.textContent = loading ? 'Loading…' : 'Get quote';
   if (hintEl) hintEl.textContent = loading ? 'Fetching route & pricing' : 'Fetch route & pricing';
+  if (loading) {
+    swapQuoteBtn.disabled = true;
+  } else {
+    syncSwapQuoteButtonState();
+  }
 }
 
 function setFooterStatsLoading(loading: boolean): void {
@@ -700,6 +727,7 @@ function syncSwapSellAmountUi(): void {
     if (swapFooterMaxSlippageEl) swapFooterMaxSlippageEl.textContent = '—';
     setRouteChipLabel('—', true);
     if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = '';
+    syncSwapQuoteButtonState();
     return;
   }
 
@@ -722,10 +750,12 @@ function syncSwapSellAmountUi(): void {
   if (!sellMint || !Number.isFinite(price) || price <= 0) {
     if (swapSellFiatEl) swapSellFiatEl.textContent = '~$0.00';
     refreshSwapQuoteDetailsPlaceholders();
+    syncSwapQuoteButtonState();
     return;
   }
   if (swapSellFiatEl) swapSellFiatEl.textContent = formatSwapPayFiatDisplay(amount * price);
   refreshSwapQuoteDetailsPlaceholders();
+  syncSwapQuoteButtonState();
 }
 
 function resetSwapQuoteToMock(): void {
@@ -1045,6 +1075,8 @@ function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: bo
 
 async function refreshWalletBalancesForSwap(wallet: string, applyDefaults: boolean): Promise<void> {
   const gen = ++walletBalanceFetchGen;
+  walletBalancesFetching = true;
+  syncSwapQuoteButtonState();
   const force = wallet !== lastWalletBalanceFetchAddress;
   try {
     const items = await prefetchWalletBalances(wallet, force);
@@ -1058,14 +1090,26 @@ async function refreshWalletBalancesForSwap(wallet: string, applyDefaults: boole
       const pick = pickDefaultSellBalance(items);
       if (pick) {
         applySellTokenFromBalance(pick, true);
+        await prefetchSwapPairPrices({
+          forceFullDetails: true,
+          mints: [preferNativeSolMint(pick.mintAddress)],
+        });
+        walletBalancesReadyFor = wallet;
         return;
       }
     }
 
     syncSwapAmountMaxFromBalance();
+    await prefetchSwapPairPrices({ forceFullDetails: true });
+    walletBalancesReadyFor = wallet;
   } catch {
     if (gen !== walletBalanceFetchGen) return;
     refreshWalletBalancesPanel();
+  } finally {
+    if (gen === walletBalanceFetchGen) {
+      walletBalancesFetching = false;
+      syncSwapQuoteButtonState();
+    }
   }
 }
 
@@ -1086,9 +1130,12 @@ function onWalletAddressReady(immediate = false): void {
 
   if (!isValidSolanaWalletAddress(wallet)) {
     walletBalanceFetchGen++;
+    walletBalancesFetching = false;
+    walletBalancesReadyFor = '';
     lastWalletBalanceFetchAddress = '';
     lastAutoAppliedWalletAddress = '';
     if (swapAmountInput) swapAmountInput.removeAttribute('max');
+    syncSwapQuoteButtonState();
     return;
   }
 
@@ -1170,8 +1217,12 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
     if (sellable != null && sellable > 0) {
       setSwapSellAmountToBalance(sellable, resolvedMint);
     }
+    void prefetchSwapPairPrices({ forceFullDetails: true, mints: [resolvedMint] }).then(() => {
+      syncSwapQuoteButtonState();
+    });
+  } else {
+    void prefetchSwapPairPrices({ forceFullDetails: true });
   }
-  void prefetchSwapPairPrices({ forceFullDetails: true });
   void refreshLowSolTradeWarning();
 }
 
@@ -2079,7 +2130,7 @@ function computeHopOutgoingPercentBreakdown(
     }
   }
 
-  return {
+    return {
     pctLabel: `${Math.round(pct * 100) / 100}%`,
     netDisplay: formatRawTokenAmount(String(netRaw), outMint).display,
     quotedDisplay: formatRawTokenAmount(String(quotedRaw), outMint).display,
@@ -3369,10 +3420,10 @@ function renderJupiterMarketNode(
   const hasFees = Boolean(accRentAbove || feeBranchBelow);
   const railNode = `<div class="routing-market-node">
     ${renderHopIndexBadge(meta.label)}
-    <div class="routing-pill routing-pill--hop">
+      <div class="routing-pill routing-pill--hop">
       ${renderRoutingTokenIcon(leg.outMint, leg.outSym)}
       <span class="routing-token-sym">${sym}</span>
-    </div>
+      </div>
     <div class="routing-dex-caption">${dexHtml}</div>
   </div>`;
   const hopOnRail = accRentAbove
@@ -3381,7 +3432,7 @@ function renderJupiterMarketNode(
   return `<div class="routing-hop-column${hasFees ? ' routing-hop-column--has-fees' : ''}${accRentAbove ? ' routing-hop-column--has-acc-rent-above' : ''}">
     ${hopOnRail}
     ${feeBranchBelow}
-  </div>`;
+    </div>`;
 }
 
 const ROUTING_CONNECTORS = `<div class="routing-connectors" aria-hidden="true">
@@ -4162,9 +4213,9 @@ function renderQuoteFieldCellHtml(key: string, v: unknown): string {
       const preview =
         flat.length > SWAP_QUOTE_LONG_STRING_MIN ? truncate(flat, 24, 12) : flat;
       return `<details class="swap-quote-nested"><summary><code>${escapeHtml(preview)}</code></summary><pre class="swap-quote-pre">${escapeHtml(json)}</pre></details>`;
-    } catch {
-      return `<code>${escapeHtml(String(v))}</code>`;
-    }
+  } catch {
+    return `<code>${escapeHtml(String(v))}</code>`;
+  }
   }
 
   if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') {
@@ -4268,7 +4319,7 @@ function renderRoutePlanStepDetail(
     return `<div class="swap-hop-detail-cell">
       <span class="swap-hop-detail-k">${escapeHtml(label)}</span>
       <span class="swap-hop-detail-v${valClass}"${opts?.full ? ` title="${escapeHtml(opts.full)}"` : ''}>${valueHtml}</span>
-    </div>`;
+  </div>`;
   };
 
   const venueHtml =
@@ -4632,6 +4683,7 @@ async function prefetchSwapPairPrices(options?: {
     }
     updateSwapPairCards(stats);
     syncSwapSellAmountUi();
+    syncSwapQuoteButtonState();
   } catch {
     // Prefetch is best-effort; pair cards keep last known stats or em dashes.
   }
@@ -4778,7 +4830,7 @@ async function enrichRouteLabels(quote: Record<string, unknown>): Promise<void> 
     lastSwapQuoteOk = activeQuote;
     renderSwapQuoteUI(activeQuote);
     updateSwapTokenIcons();
-    updateSwapPairCards();
+  updateSwapPairCards();
     scheduleRoutingDiagramZoom();
   } catch {
     /* keep initial render on symbol fetch failure */
@@ -5002,18 +5054,18 @@ async function executeAggregatorQuoteAndBuild(
 
   const routePlan = Array.isArray(quoteBody.routePlan) ? quoteBody.routePlan : undefined;
   const swapRes = await fetchWithRetry('/api/trading/swap', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      accountAddress: wallet,
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accountAddress: wallet,
       amount: buildAmount,
-      inputMintAddress: inputMint,
-      outputMintAddress: outputMint,
+        inputMintAddress: inputMint,
+        outputMintAddress: outputMint,
       ...(routePlan ? { routePlan } : {}),
       ...buildOpts,
-      router,
-    }),
-  });
+        router,
+      }),
+    });
   const swapBody = (await swapRes.json().catch(() => ({}))) as Record<string, unknown> & {
     error?: string;
   };
@@ -5287,6 +5339,7 @@ function validateVybeQuoteWallet(): string | null {
 
 async function fetchSwapQuote(): Promise<void> {
   if (!swapInputMintInput || !swapOutputMintInput || !swapAmountInput) return;
+  if (!isSwapQuoteInputReady()) return;
   const inputMint = swapInputMintInput.value.trim();
   const outputMint = swapOutputMintInput.value.trim();
   const amount = Number(swapAmountInput.value);
@@ -5732,8 +5785,8 @@ function updateConnectWalletButtonUi(address: string, hasWallet: boolean): void 
     if (iconEl) iconEl.className = 'swap-wallet-field-connect__icon swap-wallet-field-connect__icon--spinner';
     textEl.textContent = 'Connecting…';
     if (disconnectBtn) disconnectBtn.hidden = true;
-    return;
-  }
+      return;
+    }
 
   if (hasWallet) {
     btn.disabled = true;
@@ -5801,6 +5854,7 @@ function syncSwapBuildModeUi(): void {
 
   syncWalletFieldForMode();
   syncBuildButtonState();
+  syncSwapQuoteButtonState();
 
   const buildLabelEl = swapBuildBtn?.querySelector('.swap-action-btn__label');
   const buildHintEl = swapBuildBtn?.querySelector('.swap-action-btn__hint');
@@ -5992,7 +6046,7 @@ if (swapPasteOutputBtnEl && swapOutputMintInput) {
       void ensureTokenMetaForMint(t).then(() => {
         updateSwapTokenIcons();
         void refreshSwapSymbols();
-        updateSwapPairCards();
+      updateSwapPairCards();
         void prefetchSwapPairPrices({ forceFullDetails: true });
       });
     } catch {
@@ -6091,3 +6145,4 @@ const initialSellMint = swapInputMintInput?.value.trim() ?? '';
 if (initialSellMint) {
   void prefetchSwapPairPrices({ forceFullDetails: true, mints: [initialSellMint] });
 }
+syncSwapQuoteButtonState();

@@ -5454,6 +5454,13 @@ tr:hover td {
   outline-offset: 2px;
 }
 
+.swap-action-btn--primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  filter: none;
+  box-shadow: none;
+}
+
 .swap-action-btn--loading {
   cursor: wait;
   filter: saturate(0.92);
