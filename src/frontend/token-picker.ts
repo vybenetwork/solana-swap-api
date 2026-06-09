@@ -470,11 +470,22 @@ function formatBalanceAmount(amount: number): string {
   return amount.toFixed(6).replace(/\.?0+$/, '') || '0';
 }
 
+/** ≥ $0.01 → two decimals; sub-cent → one digit at first non-zero decimal (0.000x). */
 function formatWalletBalanceUsd(valueUsd: number): string {
   if (!Number.isFinite(valueUsd) || valueUsd <= 0) return '~$0.00';
   const abs = Math.abs(valueUsd);
-  const maxFrac = abs >= 9.99 ? 0 : abs >= 1 ? 2 : 4;
-  return `~$${valueUsd.toLocaleString(undefined, { maximumFractionDigits: maxFrac, minimumFractionDigits: 2 })}`;
+
+  if (abs >= SPL_MIN_TRADABLE_VALUE_USD) {
+    return `~$${abs.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  }
+
+  const frac = abs.toFixed(20).split('.')[1] ?? '';
+  for (let i = 0; i < frac.length; i++) {
+    if (frac[i] !== '0') {
+      return `~$0.${frac.slice(0, i + 1)}`;
+    }
+  }
+  return '~$0.00';
 }
 
 function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
