@@ -35,7 +35,7 @@ import {
   prefetchWalletBalances,
   refreshWalletBalancesPanel,
   renderChipTokenIcon,
-  resolveLogoUrl,
+  effectiveTokenIconSrc,
   saveTokenPriceStats,
   saveWalletBalanceItemsToCache,
   type TokenPickerSide,
@@ -2033,7 +2033,7 @@ function renderPairCard(
 
 function renderPairCardIcon(mint: string, symbol: string): string {
   const meta = getCachedTokenMeta(mint);
-  const src = resolveLogoUrl(meta?.logoUrl);
+  const src = effectiveTokenIconSrc(meta?.logoUrl);
   if (src) {
     return `<img class="swap-pair-icon-img" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
   }
@@ -2813,7 +2813,7 @@ function renderHopConversionLeg(
 
 function renderRoutingTokenIcon(mint: string, sym: string): string {
   const meta = getCachedTokenMeta(mint);
-  const src = resolveLogoUrl(meta?.logoUrl);
+  const src = effectiveTokenIconSrc(meta?.logoUrl);
   if (src) {
     return `<img class="routing-token-img" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
   }

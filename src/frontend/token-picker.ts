@@ -253,6 +253,61 @@ export function resolveLogoUrl(logoUrl: string | undefined): string {
   return u;
 }
 
+/** Replace with your own asset at this path (SVG or PNG — update extension here if needed). */
+export const TOKEN_ICON_PLACEHOLDER_PATH = '/images/token-icon-placeholder.svg';
+
+const failedTokenIconUrls = new Set<string>();
+let tokenIconErrorHandlingWired = false;
+
+const TOKEN_ICON_IMG_SELECTOR =
+  '.token-picker-row-logo-img, .token-picker-shortcut img, .swap-token-chip-icon img, .routing-token-img, .swap-pair-icon-img';
+
+export function markTokenIconUrlFailed(url: string): void {
+  const u = url.trim();
+  if (u && u !== TOKEN_ICON_PLACEHOLDER_PATH && !u.endsWith(TOKEN_ICON_PLACEHOLDER_PATH)) {
+    failedTokenIconUrls.add(u);
+  }
+}
+
+function isTokenIconUrlFailed(url: string): boolean {
+  return failedTokenIconUrls.has(url.trim());
+}
+
+/** Icon src for display; uses placeholder when URL is missing or already failed this session. */
+export function effectiveTokenIconSrc(logoUrl: string | undefined): string {
+  const src = resolveLogoUrl(logoUrl);
+  if (!src) return '';
+  if (isTokenIconUrlFailed(src)) return TOKEN_ICON_PLACEHOLDER_PATH;
+  return src;
+}
+
+export function handleTokenIconImgError(img: HTMLImageElement): void {
+  markTokenIconUrlFailed(img.currentSrc || img.src);
+  img.onerror = null;
+  img.src = TOKEN_ICON_PLACEHOLDER_PATH;
+  img.classList.add('token-icon-img--placeholder');
+}
+
+export function bindTokenIconImg(img: HTMLImageElement): void {
+  img.addEventListener('error', () => handleTokenIconImgError(img), { once: true });
+}
+
+/** Capture-phase listener: img error events do not bubble. */
+export function ensureTokenIconErrorHandling(): void {
+  if (tokenIconErrorHandlingWired) return;
+  tokenIconErrorHandlingWired = true;
+  document.addEventListener(
+    'error',
+    (e) => {
+      const t = e.target;
+      if (!(t instanceof HTMLImageElement)) return;
+      if (!t.matches(TOKEN_ICON_IMG_SELECTOR)) return;
+      handleTokenIconImgError(t);
+    },
+    true,
+  );
+}
+
 function needsRemoteLogoResolve(meta: TokenMeta | null | undefined): boolean {
   if (!meta) return true;
   const u = meta.logoUrl.trim();
@@ -456,7 +511,7 @@ async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
 }
 
 function renderTokenIcon(token: TokenMeta): string {
-  const src = resolveLogoUrl(token.logoUrl);
+  const src = effectiveTokenIconSrc(token.logoUrl);
   if (src) {
     return `<img class="token-picker-row-logo-img" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
   }
@@ -904,8 +959,12 @@ function renderShortcuts(): void {
       const lead = t.mint === leadMint ? ' token-picker-shortcut--lead' : '';
       const untradableClass = untradable ? ' token-picker-shortcut--untradable' : '';
       const disabled = untradable ? ' disabled aria-disabled="true"' : '';
+      const iconSrc = effectiveTokenIconSrc(t.logoUrl);
+      const iconHtml = iconSrc
+        ? `<img src="${escapeHtml(iconSrc)}" alt="" loading="lazy" decoding="async" />`
+        : `<span>${escapeHtml(t.symbol.slice(0, 1))}</span>`;
       return `<button type="button" class="token-picker-shortcut${lead}${untradableClass}" data-mint="${escapeHtml(t.mint)}" title="${escapeHtml(t.symbol)}"${disabled}>
-          ${resolveLogoUrl(t.logoUrl) ? `<img src="${escapeHtml(resolveLogoUrl(t.logoUrl))}" alt="" loading="lazy" decoding="async" />` : `<span>${escapeHtml(t.symbol.slice(0, 1))}</span>`}
+          ${iconHtml}
         </button>`;
     })
     .join('');
@@ -1036,6 +1095,7 @@ export function initTokenPicker(options: {
   canOpenSellPicker?: () => boolean;
   canOpenBuyPicker?: () => boolean;
 }): void {
+  ensureTokenIconErrorHandling();
   onSelectCb = options.onSelect;
   getWalletAddressCb = options.getWalletAddress ?? null;
   canOpenSellPickerCb = options.canOpenSellPicker ?? null;
@@ -1139,10 +1199,12 @@ export async function prefetchTokenMetas(mints: string[]): Promise<void> {
 export function renderChipTokenIcon(el: HTMLElement | null, mint: string | undefined, fallbackDotClass: string): void {
   if (!el) return;
   const meta = getCachedTokenMeta(mint?.trim() ?? '');
-  const src = resolveLogoUrl(meta?.logoUrl);
+  const src = effectiveTokenIconSrc(meta?.logoUrl);
   if (src) {
     el.className = 'swap-token-chip-icon swap-token-chip-icon--logo';
     el.innerHTML = `<img src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
+    const img = el.querySelector('img');
+    if (img) bindTokenIconImg(img);
     return;
   }
   el.innerHTML = '';

@@ -6662,6 +6662,12 @@ body.token-picker-scroll-lock {
   object-fit: cover;
 }
 
+.token-icon-img--placeholder {
+  object-fit: contain;
+  padding: 15%;
+  opacity: 0.85;
+}
+
 .token-picker-row-logo-fallback {
   font-size: 0.9rem;
   font-weight: 700;
