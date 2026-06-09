@@ -2363,24 +2363,6 @@ tr:hover td {
   text-align: center;
 }
 
-.routing-input-fee-usd {
-  font-size: 0.625rem;
-  font-weight: 600;
-  color: #f87171;
-  line-height: 1.1;
-  white-space: nowrap;
-  text-align: center;
-}
-
-.routing-input-total-usd {
-  font-size: 0.625rem;
-  font-weight: 600;
-  color: #86efac;
-  line-height: 1.1;
-  white-space: nowrap;
-  text-align: center;
-}
-
 .routing-input-total {
   font-size: 0.625rem;
   font-weight: 500;
@@ -2400,15 +2382,6 @@ tr:hover td {
 }
 
 .routing-output-addon {
-  font-size: 0.625rem;
-  font-weight: 600;
-  color: #f87171;
-  line-height: 1.1;
-  white-space: nowrap;
-  text-align: center;
-}
-
-.routing-output-fee-usd {
   font-size: 0.625rem;
   font-weight: 600;
   color: #f87171;
@@ -3123,22 +3096,6 @@ tr:hover td {
   white-space: nowrap;
 }
 
-.routing-chip-usd--debit {
-  font-size: 0.625rem;
-  font-weight: 600;
-  color: #f87171;
-  line-height: 1.1;
-  white-space: nowrap;
-}
-
-.routing-chip-usd--credit {
-  font-size: 0.625rem;
-  font-weight: 600;
-  color: #86efac;
-  line-height: 1.1;
-  white-space: nowrap;
-}
-
 .routing-chip-bottom {
   font-size: 0.625rem;
   font-weight: 500;
@@ -3199,8 +3156,11 @@ tr:hover td {
   flex-shrink: 0;
 }
 
-.routing-chip-amt--token {
-  color: #fafafa;
+.routing-chip-stack--fee-protocol .routing-chip-amt,
+.routing-chip-stack--fee-route .routing-chip-amt,
+.routing-chip-stack--fee-pool .routing-chip-amt,
+.routing-chip-stack--fee .routing-chip-amt {
+  color: #fca5a5;
 }
 
 .routing-chip-top--fee-label {

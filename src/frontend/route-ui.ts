@@ -1619,31 +1619,6 @@ export function getQuoteDiagramOutputFeeAddon(quote: Record<string, unknown>): s
   return formatted === '—' ? null : `−${formatted}`;
 }
 
-function getQuoteDiagramWalletCostUsd(quote: Record<string, unknown>): number | null {
-  const buckets = getQuoteWalletCostBucketsUsd(quote);
-  const total = (buckets.feeUsd ?? 0) + (buckets.rentUsd ?? 0);
-  return total > 0 ? total : null;
-}
-
-function getQuoteDiagramInputFeeUsdLabel(quote: Record<string, unknown>): string | null {
-  const usd = getQuoteDiagramWalletCostUsd(quote);
-  if (usd == null) return null;
-  return `−$${deps.formatSwapPayUsdAmount(usd)}`;
-}
-
-function getQuoteDiagramInputTotalUsdLabel(quote: Record<string, unknown>): string | null {
-  const swapUsd = deps.getQuoteSwapUsdValue(quote);
-  if (swapUsd == null || swapUsd <= 0) return null;
-  const cost = getQuoteDiagramWalletCostUsd(quote) ?? 0;
-  return `+$${deps.formatSwapPayUsdAmount(swapUsd + cost)}`;
-}
-
-function getQuoteDiagramOutputFeeUsdLabel(quote: Record<string, unknown>): string | null {
-  const usd = getQuoteDiagramWalletCostUsd(quote);
-  if (usd == null) return null;
-  return `Fee USD: −$${deps.formatSwapPayUsdAmount(usd)}`;
-}
-
 function getQuoteDiagramOutputUsdSubline(quote: Record<string, unknown>): string | null {
   const usd = deps.getQuoteReceiveUsd(quote);
   if (usd == null) return null;
@@ -1745,9 +1720,9 @@ function renderRoutingFeeChip(
   variant: string,
   title: string,
 ): string {
-  const usdDebit =
-    equiv.usd != null ? `−$${stripFiatPrefixForChip(equiv.usd)}` : null;
-  const tokenInChip = `${equiv.primary} ${equiv.feeSym}`;
+  const usdInChip = equiv.usd
+    ? `$${stripFiatPrefixForChip(equiv.usd)} USD`
+    : '—';
   const baseBelow = isAccRentFeeLabel(label)
     ? formatAccRentFeeSolSubline(equiv)
     : equiv.inputEquiv
@@ -1755,13 +1730,8 @@ function renderRoutingFeeChip(
       : null;
   return `<div class="routing-chip-stack routing-chip-stack--${variant}" title="${deps.escapeHtml(title)}">
     <span class="routing-chip-top routing-chip-top--fee-label">${deps.escapeHtml(label)}</span>
-    ${
-      usdDebit
-        ? `<span class="routing-chip-usd routing-chip-usd--debit">${deps.escapeHtml(usdDebit)}</span>`
-        : ''
-    }
     <div class="routing-pill routing-pill--chip routing-pill--chip-fee">
-      <span class="routing-chip-amt routing-chip-amt--token">${deps.escapeHtml(tokenInChip)}</span>
+      <span class="routing-chip-amt routing-chip-amt--usd">${deps.escapeHtml(usdInChip)}</span>
     </div>
     ${
       baseBelow
@@ -1831,9 +1801,9 @@ function resolveFeeDestinationAddress(
 const FEE_DEST_KIND_META: Record<string, { label: string; mod: string }> = {
   lp_pool: { label: 'Pool vault', mod: 'pool' },
   new_token_account: { label: 'Token account', mod: 'ata' },
-  fee_recipient: { label: 'Fee Recipient', mod: 'recipient' },
+  fee_recipient: { label: 'Fee recipient', mod: 'recipient' },
   input_wallet: { label: 'Your wallet', mod: 'input-wallet' },
-  network_priority: { label: 'Validator', mod: 'priority' },
+  network_priority: { label: 'Validators', mod: 'priority' },
   output_deduction: { label: 'Output deduction', mod: 'deduct' },
 };
 
@@ -1843,16 +1813,15 @@ function renderFeeDestinationInline(item: HopFeeItemLite, ctx?: FeeDestinationRe
   const addr = resolveFeeDestinationAddress(item, ctx);
   const addrHtml = addr ? renderFeeDestinationAddrLine(addr) : '';
   const note = item.destinationNote?.trim();
-  const showNote = note && item.destinationKind !== 'network_priority';
 
   if (!meta && !addrHtml) {
-    if (!showNote) return '';
-    return `<span class="hop-fee-dest"><span class="hop-fee-dest__note">${deps.escapeHtml(note!)}</span></span>`;
+    if (!note) return '';
+    return `<span class="hop-fee-dest"><span class="hop-fee-dest__note">${deps.escapeHtml(note)}</span></span>`;
   }
   const kindHtml = meta
     ? `<span class="hop-fee-dest__kind">${deps.escapeHtml(meta.label)}</span>`
     : '';
-  const tail = addrHtml || (showNote ? `<span class="hop-fee-dest__note">${deps.escapeHtml(note!)}</span>` : '');
+  const tail = addrHtml || (note ? `<span class="hop-fee-dest__note">${deps.escapeHtml(note)}</span>` : '');
   const sep = kindHtml && tail ? '<span class="hop-fee-dest__sep" aria-hidden="true">·</span>' : '';
   return `<span class="hop-fee-dest hop-fee-dest--${meta?.mod ?? 'generic'}">${kindHtml}${sep}${tail}</span>`;
 }
@@ -2317,9 +2286,9 @@ function renderRoutingFrame(
   loading = false,
   hasFees = false,
   hasAccRentAbove = false,
-  inputFeeUsdLabel: string | null = null,
-  inputTotalUsdLabel: string | null = null,
-  outputFeeUsdLabel: string | null = null,
+  inputAddon: string | null = null,
+  inputTotalLabel: string | null = null,
+  outputAddon: string | null = null,
   outputUsdSubline: string | null = null,
   outputUsdTitle: string | null = null,
 ): string {
@@ -2327,17 +2296,17 @@ function renderRoutingFrame(
   const loadingClass = loading ? ' routing-canvas--loading' : '';
   const feesClass = hasFees ? ' routing-canvas--has-fees' : '';
   const accRentClass = hasAccRentAbove ? ' routing-canvas--has-acc-rent-above' : '';
-  const inputFeeUsdHtml =
-    inputFeeUsdLabel && inputFeeUsdLabel !== '—'
-      ? `<span class="routing-input-fee-usd">${deps.escapeHtml(inputFeeUsdLabel)}</span>`
+  const inputAddonHtml =
+    inputAddon && inputAddon !== '—'
+      ? `<span class="routing-input-addon">Fee: ${deps.escapeHtml(inputAddon)} ${deps.escapeHtml(inSym)}</span>`
       : '';
-  const inputTotalUsdHtml =
-    inputTotalUsdLabel && inputTotalUsdLabel !== '—'
-      ? `<span class="routing-input-total-usd">${deps.escapeHtml(inputTotalUsdLabel)}</span>`
+  const inputTotalHtml =
+    inputTotalLabel && inputTotalLabel !== '—' && inputAddon
+      ? `<span class="routing-input-total">Total: <span class="routing-input-total__val">${deps.escapeHtml(inputTotalLabel)} ${deps.escapeHtml(inSym)}</span></span>`
       : '';
-  const outputFeeUsdHtml =
-    outputFeeUsdLabel && outputFeeUsdLabel !== '—'
-      ? `<span class="routing-output-fee-usd">${deps.escapeHtml(outputFeeUsdLabel)}</span>`
+  const outputAddonHtml =
+    outputAddon && outputAddon !== '—'
+      ? `<span class="routing-output-addon">Fee: ${deps.escapeHtml(outputAddon)} ${deps.escapeHtml(outSym)}</span>`
       : '';
   const outputUsdHtml =
     outputUsdSubline && outputUsdSubline !== '—'
@@ -2347,14 +2316,14 @@ function renderRoutingFrame(
     <div class="routing-frame">
       <div class="routing-endpoint routing-endpoint--in">
         <div class="routing-endpoint-stack">
-          ${inputFeeUsdHtml}
+          ${inputAddonHtml}
           ${renderRouteEndpointPill(inDisplay, inSym, undefined, loading && inDisplay === '—')}
-          ${inputTotalUsdHtml}
+          ${inputTotalHtml}
         </div>
       </div>
       <div class="routing-endpoint routing-endpoint--out">
         <div class="routing-endpoint-stack">
-          ${outputFeeUsdHtml}
+          ${outputAddonHtml}
           ${renderRouteEndpointPill(outDisplay, outSym, outTitle, loading)}
           ${outputUsdHtml}
         </div>
@@ -2372,11 +2341,12 @@ function renderRoutingFrame(
 export function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const inSym = deps.getSwapInSym();
   const outSym = deps.getSwapOutSym();
+  const inTotalDisplay = getQuoteWalletPayLabelFromQuote(quote);
   const inDisplay = getQuoteSwapLegLabelFromQuote(quote);
   const outAmt = formatQuoteTokenAmount(quote, 'out');
-  const inputFeeUsdLabel = getQuoteDiagramInputFeeUsdLabel(quote);
-  const inputTotalUsdLabel = getQuoteDiagramInputTotalUsdLabel(quote);
-  const outputFeeUsdLabel = getQuoteDiagramOutputFeeUsdLabel(quote);
+  const inputAddon = getQuoteDiagramInputFeeAddon(quote);
+  const inputTotalLabel = getQuoteDiagramInputTotalLabel(quote, inputAddon);
+  const outputAddon = getQuoteDiagramOutputFeeAddon(quote);
   const outputUsdSubline = getQuoteDiagramOutputUsdSubline(quote);
   const outputUsdTitle = deps.quoteOutputPriceSourceTitle(quote);
 
@@ -2397,9 +2367,9 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
       false,
       false,
       false,
-      inputFeeUsdLabel,
-      inputTotalUsdLabel,
-      outputFeeUsdLabel,
+      inputAddon,
+      inputTotalLabel,
+      outputAddon,
       outputUsdSubline,
       outputUsdTitle,
     );
@@ -2424,9 +2394,9 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
     false,
     hasFees,
     hasAccRentAbove,
-    inputFeeUsdLabel,
-    inputTotalUsdLabel,
-    outputFeeUsdLabel,
+    inputAddon,
+    inputTotalLabel,
+    outputAddon,
     outputUsdSubline,
     outputUsdTitle,
   );
@@ -2445,9 +2415,11 @@ export function renderRoutingDiagramPlaceholder(loading = false): string {
     ? getQuoteSwapLegLabelFromQuote(lastQuote)
     : inTotalDisplay;
   const hasIn = inChipDisplay !== '—';
-  const inputFeeUsdLabel = lastQuote ? getQuoteDiagramInputFeeUsdLabel(lastQuote) : null;
-  const inputTotalUsdLabel = lastQuote ? getQuoteDiagramInputTotalUsdLabel(lastQuote) : null;
-  const outputFeeUsdLabel = lastQuote ? getQuoteDiagramOutputFeeUsdLabel(lastQuote) : null;
+  const inputAddon = lastQuote ? getQuoteDiagramInputFeeAddon(lastQuote) : null;
+  const inputTotalLabel = lastQuote
+    ? getQuoteDiagramInputTotalLabel(lastQuote, inputAddon)
+    : null;
+  const outputAddon = lastQuote ? getQuoteDiagramOutputFeeAddon(lastQuote) : null;
   const outputUsdSubline = lastQuote ? getQuoteDiagramOutputUsdSubline(lastQuote) : null;
   const outputUsdTitle = lastQuote ? deps.quoteOutputPriceSourceTitle(lastQuote) : null;
   const mockLeg: RouteHopLeg = {
@@ -2480,9 +2452,9 @@ export function renderRoutingDiagramPlaceholder(loading = false): string {
     loading,
     false,
     false,
-    inputFeeUsdLabel,
-    inputTotalUsdLabel,
-    outputFeeUsdLabel,
+    inputAddon,
+    inputTotalLabel,
+    outputAddon,
     outputUsdSubline,
     outputUsdTitle,
   );
