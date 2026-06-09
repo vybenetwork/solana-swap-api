@@ -705,6 +705,90 @@ export function computeFinalReceivePctBreakdown(
   return { pct, pctLabel, title };
 }
 
+/** Wallet-cost fee/rent USD debited on hops 0..throughPlanIndex only. */
+function getQuoteWalletCostBucketsUsdThroughHop(
+  quote: Record<string, unknown>,
+  throughPlanIndex: number,
+): QuoteWalletCostBucketsUsd {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  let feeUsd = 0;
+  let rentUsd = 0;
+  let foundFee = false;
+  let foundRent = false;
+  for (let i = 0; i <= throughPlanIndex && i < plan.length; i++) {
+    for (const item of getHopFeeDisplayItems(plan[i]!)) {
+      if (!isWalletCostFeeItem(item, quote)) continue;
+      const usd = computeFeeUsdNumeric(item, quote);
+      if (usd == null || usd <= 0) continue;
+      if (isAccRentWalletFeeItem(item)) {
+        rentUsd += usd;
+        foundRent = true;
+      } else {
+        feeUsd += usd;
+        foundFee = true;
+      }
+    }
+  }
+  return {
+    feeUsd: foundFee ? feeUsd : null,
+    rentUsd: foundRent ? rentUsd : null,
+  };
+}
+
+/** USD value of this hop's net output mint — not downstream final receive. */
+function hopImmediateNetOutputUsd(
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+  isLastHop: boolean,
+): number | null {
+  const amounts = resolveHopOutAmounts(step, quote, isLastHop);
+  if (!amounts) return null;
+  const { netRaw, outMint } = amounts;
+  const netUi = deps.rawAmountToUiNumber(String(netRaw), deps.getMintDecimals(outMint));
+  if (!(netUi > 0)) return null;
+
+  const price = lookupMintPriceUsd(outMint, quote);
+  if (Number.isFinite(price) && price > 0) return netUi * price;
+  if (STABLECOIN_USD_FALLBACK_MINTS.has(outMint.trim())) {
+    return netUi * STABLECOIN_USD_FALLBACK_PRICE;
+  }
+  return null;
+}
+
+/**
+ * Intermediate hop badge: this hop's net output USD ÷ wallet pay USD through
+ * this hop only (swap + fees/rent charged so far — not later-hop rent).
+ */
+function computeIntermediateHopReceivePctBreakdown(
+  quote: Record<string, unknown>,
+  planIndex: number,
+  step: VybeRoutePlanStepLite,
+): FinalReceivePctBreakdown | null {
+  const outUsd = hopImmediateNetOutputUsd(step, quote, false);
+  if (outUsd == null || outUsd <= 0) return null;
+
+  const swapUsd = deps.getQuoteSwapUsdValue(quote);
+  if (swapUsd == null || swapUsd <= 0) return null;
+
+  const buckets = getQuoteWalletCostBucketsUsdThroughHop(quote, planIndex);
+  const payUsd = swapUsd + (buckets.feeUsd ?? 0) + (buckets.rentUsd ?? 0);
+  if (payUsd <= 0 || outUsd >= payUsd) return null;
+
+  const pct = (outUsd / payUsd) * 100;
+  if (!Number.isFinite(pct) || pct <= 0) return null;
+
+  const pctLabel = `${Math.round(pct * 100) / 100}%`;
+  const payParts = [`$${deps.formatSwapPayUsdAmount(swapUsd)} swap`];
+  if (buckets.feeUsd != null) payParts.push(`$${deps.formatSwapPayUsdAmount(buckets.feeUsd)} fee`);
+  if (buckets.rentUsd != null) payParts.push(`$${deps.formatSwapPayUsdAmount(buckets.rentUsd)} rent`);
+  const breakdown = payParts.length > 1 ? ` (${payParts.join(' + ')})` : '';
+  const title =
+    `After hop ${planIndex + 1}: ≈ $${deps.formatSwapPayUsdAmount(outUsd)} ÷ ` +
+    `you pay ≈ $${deps.formatSwapPayUsdAmount(payUsd)}${breakdown} = ${pctLabel}`;
+
+  return { pct, pctLabel, title };
+}
+
 interface HopOutAmounts {
   netRaw: bigint;
   quotedRaw: bigint;
@@ -2210,19 +2294,19 @@ function renderRouteTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<st
       const isLastHop = i === metas.length - 1;
       const inLink =
         i === 0 ? renderRoutePctBadge(hopPercentLabel(meta.step)) : '';
-      const finalBreakdown = isLastHop ? computeFinalReceivePctBreakdown(quote) : null;
-      let outPct =
-        finalBreakdown?.pctLabel ??
-        hopOutgoingPercentLabel(meta.step, quote, isLastHop, meta.planIndex);
+      const pctBreakdown = isLastHop
+        ? computeFinalReceivePctBreakdown(quote)
+        : computeIntermediateHopReceivePctBreakdown(quote, meta.planIndex, meta.step);
+      let outPct = pctBreakdown?.pctLabel ?? hopOutgoingPercentLabel(meta.step, quote, isLastHop, meta.planIndex);
       const pctNum = parseHopPctLabel(outPct);
-      if (!finalBreakdown && pctNum != null && prevOutPct != null && pctNum >= prevOutPct - 0.001) {
+      if (!pctBreakdown && pctNum != null && prevOutPct != null && pctNum >= prevOutPct - 0.001) {
         outPct = null;
       } else if (pctNum != null) {
         prevOutPct = pctNum;
       }
       const outLink =
         outPct && outPct !== '100%'
-          ? renderRoutePctBadge(outPct, 'out', finalBreakdown?.title ?? null)
+          ? renderRoutePctBadge(outPct, 'out', pctBreakdown?.title ?? null)
           : '';
       return inLink + renderRouteMarketNode(meta, leg, quote) + outLink;
     })
