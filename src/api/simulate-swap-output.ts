@@ -66,9 +66,40 @@ export interface SwapSimulationResult {
   tokenFeeCredits: TokenFeeCreditEntry[];
   /** Total wallet debit for the input leg (swap + input-side fees), in input mint raw units. */
   walletPayDebitRaw: string | null;
+  /** Network tx fee (base signature fee + compute-budget priority fee), lamports. */
+  networkFeeLamports: bigint;
 }
 
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
+const COMPUTE_BUDGET_PROGRAM_ID = 'ComputeBudget111111111111111111111111111111';
+const BASE_SIGNATURE_FEE_LAMPORTS = 5_000n;
+const DEFAULT_COMPUTE_UNIT_LIMIT = 200_000n;
+
+/** Decodes the tx network fee: signatures × 5000 + ceil(unitLimit × µLamports/CU ÷ 1e6). */
+function computeNetworkFeeLamports(
+  prepared: VersionedTransaction,
+  accountKeyStrings: string[],
+): bigint {
+  const numSigs = BigInt(Math.max(prepared.message.header?.numRequiredSignatures ?? 1, 1));
+  let fee = numSigs * BASE_SIGNATURE_FEE_LAMPORTS;
+
+  let unitLimit: bigint | null = null;
+  let microLamportsPerCu: bigint | null = null;
+  for (const ix of prepared.message.compiledInstructions) {
+    if (accountKeyStrings[ix.programIdIndex] !== COMPUTE_BUDGET_PROGRAM_ID) continue;
+    const data = Buffer.from(ix.data);
+    if (data[0] === 2 && data.length >= 5) {
+      unitLimit = BigInt(data.readUInt32LE(1));
+    } else if (data[0] === 3 && data.length >= 9) {
+      microLamportsPerCu = data.readBigUInt64LE(1);
+    }
+  }
+  if (microLamportsPerCu != null && microLamportsPerCu > 0n) {
+    const limit = unitLimit ?? DEFAULT_COMPUTE_UNIT_LIMIT;
+    fee += (limit * microLamportsPerCu + 999_999n) / 1_000_000n;
+  }
+  return fee;
+}
 
 function isNativeSolInputMint(mint: string): boolean {
   return isSolMint(mint);
@@ -618,6 +649,7 @@ export async function simulateSwapEffects(
     walletSolTransfers: [],
     tokenFeeCredits: [],
     walletPayDebitRaw: null,
+    networkFeeLamports: 0n,
   };
   const trimmed = base64Tx.trim();
   if (!trimmed || !ownerAddress.trim() || !outputMint.trim()) {
@@ -717,6 +749,7 @@ export async function simulateSwapEffects(
     walletSolTransfers,
     tokenFeeCredits,
     walletPayDebitRaw,
+    networkFeeLamports: computeNetworkFeeLamports(prepared, accountKeyStrings),
   };
 }
 

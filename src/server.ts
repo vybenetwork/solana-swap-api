@@ -425,6 +425,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
     let embeddedPoolFeesByHop: EmbeddedPoolFeeEntry[] = [];
     let walletSolTransfers: WalletFeeTransferEntry[] = [];
     let tokenFeeCredits: TokenFeeCreditEntry[] = [];
+    let networkFeeLamports = 0n;
     if (typeof buildTx === 'string' && buildTx.length > 0) {
       const sim = await simulateSwapEffects(
         buildTx,
@@ -440,6 +441,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
       embeddedPoolFeesByHop = sim.embeddedPoolFeesByHop;
       walletSolTransfers = sim.walletSolTransfers;
       tokenFeeCredits = sim.tokenFeeCredits;
+      networkFeeLamports = sim.networkFeeLamports;
     }
 
     const feeEnrichment = enrichRoutePlanFees(
@@ -457,6 +459,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
         walletPayDebitRaw,
         walletAddress: parsed.accountAddress,
         inputMint: parsed.inputMintAddress,
+        networkFeeLamports,
       },
     );
 

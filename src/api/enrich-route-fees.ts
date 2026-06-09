@@ -377,16 +377,14 @@ function enrichHopFeeItemDestinations(
         amount = 0n;
       }
 
-      if (
+      const isInputWalletDebit =
         ctx.hopIndex === 0 &&
-        ctx.inputMint &&
-        mintMatches(item.mint, ctx.inputMint) &&
-        item.destinationKind === 'input_wallet'
-      ) {
-        if (walletAddr) item.destinationAddress = walletAddr;
-        continue;
-      }
+        Boolean(ctx.inputMint) &&
+        mintMatches(item.mint, ctx.inputMint ?? '') &&
+        item.destinationKind === 'input_wallet';
 
+      /* Resolve the actual fee recipient from simulation (SOL transfers / token credits)
+       * even for wallet-debited fees, so plan steps show the fee account, not the wallet. */
       if (isSolMint(item.mint) && amount > 0n) {
         const recipient = takeMatchingSolTransfer(
           amount,
@@ -399,7 +397,7 @@ function enrichHopFeeItemDestinations(
           item.destinationNote = 'Fee recipient account';
           continue;
         }
-        if (amount <= 10_000n && item.label === 'Route fee') {
+        if (!isInputWalletDebit && amount <= 10_000n && item.label === 'Route fee') {
           item.destinationKind = 'network_priority';
           item.destinationNote = 'Solana priority fee (validators)';
           if (walletAddr) item.destinationAddress = walletAddr;
@@ -418,15 +416,23 @@ function enrichHopFeeItemDestinations(
         if (credit) {
           const creditOwner = pickPubkey(credit.ownerAddress);
           const creditAddr = creditDestinationAddress(credit);
-          if (poolKey && creditOwner === poolKey) {
+          if (isInputWalletDebit) {
+            /* Wallet-debited fee landing in a non-wallet token account: show that account. */
+            if (creditAddr) assignFeeRecipientDestination(item, creditAddr);
+          } else if (poolKey && creditOwner === poolKey) {
             assignPoolVaultDestination(item, poolKey);
           } else if (item.label === 'Route fee' && creditAddr) {
             assignPoolVaultDestination(item, creditAddr);
           } else if (creditAddr) {
             assignFeeRecipientDestination(item, creditAddr);
           }
-          if (item.destinationKind) continue;
+          if (item.destinationKind && item.destinationAddress) continue;
         }
+      }
+
+      if (isInputWalletDebit) {
+        if (walletAddr) item.destinationAddress = walletAddr;
+        continue;
       }
 
       if (
@@ -548,6 +554,7 @@ function attachFirstHopInputSideFees(
   walletPayDebitRaw: string | null | undefined,
   swapFeePct: number | null,
   rentLamports: bigint,
+  networkFeeLamports: bigint,
 ): void {
   if (!walletPayDebitRaw || !inAmountRaw || !inputMint.trim()) return;
   let pay: bigint;
@@ -562,6 +569,19 @@ function attachFirstHopInputSideFees(
 
   let extra = pay - swap;
   if (rentLamports > 0n && extra >= rentLamports) extra -= rentLamports;
+
+  /* SOL sells: the simulated debit includes the tx network fee (signature + priority).
+   * Carve it out so it isn't mislabeled as a route fee. */
+  if (isSolMint(inputMint) && networkFeeLamports > 0n && extra >= networkFeeLamports) {
+    items.push({
+      label: 'Priority fee',
+      amountRaw: networkFeeLamports.toString(),
+      mint: WSOL_MINT,
+      destinationKind: 'network_priority',
+      destinationNote: 'Network fee: base signature + priority fee (validators)',
+    });
+    extra -= networkFeeLamports;
+  }
   if (extra <= 0n) return;
 
   const feeMint = isSolMint(inputMint) ? WSOL_MINT : inputMint.trim();
@@ -689,6 +709,7 @@ export function enrichRoutePlanFees(
     walletPayDebitRaw?: string | null;
     walletAddress?: string;
     inputMint?: string;
+    networkFeeLamports?: bigint;
   },
 ): RouteFeeEnrichment {
   const quotedOutRaw = build.details.quote.outAmount?.trim() || '0';
@@ -792,6 +813,7 @@ export function enrichRoutePlanFees(
         walletPayDebitRaw,
         swapFeePct,
         totalRentLamports,
+        opts?.networkFeeLamports ?? 0n,
       );
     }
 

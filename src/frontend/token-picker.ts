@@ -276,9 +276,13 @@ function isTokenIconUrlFailed(url: string): boolean {
 /** Icon src for display; uses placeholder when URL is missing or already failed this session. */
 export function effectiveTokenIconSrc(logoUrl: string | undefined): string {
   const src = resolveLogoUrl(logoUrl);
-  if (!src) return '';
-  if (isTokenIconUrlFailed(src)) return TOKEN_ICON_PLACEHOLDER_PATH;
+  if (!src || isTokenIconUrlFailed(src)) return TOKEN_ICON_PLACEHOLDER_PATH;
   return src;
+}
+
+export function renderTokenIconImgHtml(src: string, className: string): string {
+  const placeholderClass = src === TOKEN_ICON_PLACEHOLDER_PATH ? ' token-icon-img--placeholder' : '';
+  return `<img class="${className}${placeholderClass}" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
 }
 
 export function handleTokenIconImgError(img: HTMLImageElement): void {
@@ -511,11 +515,7 @@ async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
 }
 
 function renderTokenIcon(token: TokenMeta): string {
-  const src = effectiveTokenIconSrc(token.logoUrl);
-  if (src) {
-    return `<img class="token-picker-row-logo-img" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
-  }
-  return `<span class="token-picker-row-logo-fallback" aria-hidden="true">${escapeHtml(token.symbol.slice(0, 1))}</span>`;
+  return renderTokenIconImgHtml(effectiveTokenIconSrc(token.logoUrl), 'token-picker-row-logo-img');
 }
 
 function formatBalanceAmount(amount: number): string {
@@ -872,21 +872,46 @@ async function renderWalletBalances(): Promise<void> {
 }
 
 /** Sell picker: token has ≥ $0.01 wallet balance (or SOL reserve rules). Buy picker: always true. */
-function isSellPickerMintTradable(mint: string): boolean {
-  if (activeSide !== 'input') return true;
+type SellPickerWalletState = 'tradable' | 'too_small' | 'not_in_wallet' | 'unknown';
+
+function getSellPickerWalletState(mint: string): SellPickerWalletState {
+  if (activeSide !== 'input') return 'tradable';
   const wallet = getWalletAddressCb?.().trim() ?? '';
-  if (!wallet || !walletBalanceCache) return true;
-  return isWalletTokenTradable(preferNativeSolMint(mint));
+  if (!wallet || !walletBalanceCache) return 'unknown';
+
+  const swapMint = preferNativeSolMint(mint);
+  const item = getWalletBalanceListItem(swapMint);
+  if (!item || !(item.amountUi > 0)) return 'not_in_wallet';
+  if (isWalletTokenTradable(swapMint)) return 'tradable';
+  return 'too_small';
+}
+
+function isSellPickerMintTradable(mint: string): boolean {
+  const state = getSellPickerWalletState(mint);
+  return state === 'tradable' || state === 'unknown';
+}
+
+function sellPickerWalletStateTag(state: SellPickerWalletState): string {
+  if (state === 'too_small') {
+    return '<span class="token-picker-row-tag token-picker-row-tag--muted">Too small</span>';
+  }
+  if (state === 'not_in_wallet') {
+    return '<span class="token-picker-row-tag token-picker-row-tag--muted">Not in wallet</span>';
+  }
+  return '';
 }
 
 function sortTokensForSellPicker(tokens: TokenMeta[]): TokenMeta[] {
   const tradable: TokenMeta[] = [];
-  const untradable: TokenMeta[] = [];
+  const tooSmall: TokenMeta[] = [];
+  const notInWallet: TokenMeta[] = [];
   for (const token of tokens) {
-    if (isSellPickerMintTradable(token.mint)) tradable.push(token);
-    else untradable.push(token);
+    const state = getSellPickerWalletState(token.mint);
+    if (state === 'tradable' || state === 'unknown') tradable.push(token);
+    else if (state === 'too_small') tooSmall.push(token);
+    else notInWallet.push(token);
   }
-  return [...tradable, ...untradable];
+  return [...tradable, ...tooSmall, ...notInWallet];
 }
 
 function sortWalletBalancesForSellPicker(items: WalletBalanceListItem[]): WalletBalanceListItem[] {
@@ -899,14 +924,14 @@ function sortWalletBalancesForSellPicker(items: WalletBalanceListItem[]): Wallet
 }
 
 function renderTokenRow(token: TokenMeta): string {
-  const untradable = activeSide === 'input' && !isSellPickerMintTradable(token.mint);
+  const walletState = activeSide === 'input' ? getSellPickerWalletState(token.mint) : 'tradable';
+  const untradable =
+    activeSide === 'input' && walletState !== 'tradable' && walletState !== 'unknown';
   const tagHtml =
     token.tags?.includes('Token2022')
       ? '<span class="token-picker-row-tag">Token2022</span>'
       : '';
-  const tooSmall = untradable
-    ? '<span class="token-picker-row-tag token-picker-row-tag--muted">Too small</span>'
-    : '';
+  const statusTag = activeSide === 'input' ? sellPickerWalletStateTag(walletState) : '';
   const score =
     token.organicScore != null && Number.isFinite(token.organicScore)
       ? `<span class="token-picker-row-score"><span class="token-picker-row-score-leaf" aria-hidden="true"></span>${Math.round(token.organicScore)}</span>`
@@ -922,7 +947,7 @@ function renderTokenRow(token: TokenMeta): string {
     <span class="token-picker-row-main">
       <span class="token-picker-row-title">
         <span class="token-picker-row-symbol">${escapeHtml(token.symbol)}</span>
-        ${tooSmall}
+        ${statusTag}
         ${verified}
         ${score}
       </span>
@@ -960,9 +985,7 @@ function renderShortcuts(): void {
       const untradableClass = untradable ? ' token-picker-shortcut--untradable' : '';
       const disabled = untradable ? ' disabled aria-disabled="true"' : '';
       const iconSrc = effectiveTokenIconSrc(t.logoUrl);
-      const iconHtml = iconSrc
-        ? `<img src="${escapeHtml(iconSrc)}" alt="" loading="lazy" decoding="async" />`
-        : `<span>${escapeHtml(t.symbol.slice(0, 1))}</span>`;
+      const iconHtml = renderTokenIconImgHtml(iconSrc, '');
       return `<button type="button" class="token-picker-shortcut${lead}${untradableClass}" data-mint="${escapeHtml(t.mint)}" title="${escapeHtml(t.symbol)}"${disabled}>
           ${iconHtml}
         </button>`;
@@ -1200,13 +1223,8 @@ export function renderChipTokenIcon(el: HTMLElement | null, mint: string | undef
   if (!el) return;
   const meta = getCachedTokenMeta(mint?.trim() ?? '');
   const src = effectiveTokenIconSrc(meta?.logoUrl);
-  if (src) {
-    el.className = 'swap-token-chip-icon swap-token-chip-icon--logo';
-    el.innerHTML = `<img src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
-    const img = el.querySelector('img');
-    if (img) bindTokenIconImg(img);
-    return;
-  }
-  el.innerHTML = '';
-  el.className = `swap-token-chip-icon routing-token-dot ${fallbackDotClass}`;
+  el.className = 'swap-token-chip-icon swap-token-chip-icon--logo';
+  el.innerHTML = renderTokenIconImgHtml(src, '');
+  const img = el.querySelector('img');
+  if (img) bindTokenIconImg(img);
 }

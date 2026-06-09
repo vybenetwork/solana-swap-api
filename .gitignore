@@ -11,6 +11,7 @@ dist/
 
 # Frontend is built from src/frontend/*.ts
 public/app.js
+public/app.js.map
 public/token-picker.js
 
 # Stray file

@@ -87,6 +87,7 @@ function synthesizeQuoteFromBuild(
     tokenFeeCredits?: TokenFeeCreditEntry[];
     router?: string;
     walletPayDebitRaw?: string | null;
+    networkFeeLamports?: bigint;
   },
 ): VybeSwapQuote {
   const inAmount = build.details.quote.inAmount;
@@ -144,6 +145,7 @@ function synthesizeQuoteFromBuild(
       walletPayDebitRaw: feeOpts?.walletPayDebitRaw ?? null,
       walletAddress: params.accountAddress,
       inputMint,
+      networkFeeLamports: feeOpts?.networkFeeLamports ?? 0n,
     },
   );
 
@@ -279,6 +281,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
   let embeddedPoolFeesByHop: EmbeddedPoolFeeEntry[] = [];
   let walletSolTransfers: WalletFeeTransferEntry[] = [];
   let tokenFeeCredits: TokenFeeCreditEntry[] = [];
+  let networkFeeLamports = 0n;
   if (typeof buildTx === 'string' && buildTx.length > 0) {
     const sim = await simulateSwapEffects(
       buildTx,
@@ -293,6 +296,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
     embeddedPoolFeesByHop = sim.embeddedPoolFeesByHop;
     walletSolTransfers = sim.walletSolTransfers;
     tokenFeeCredits = sim.tokenFeeCredits;
+    networkFeeLamports = sim.networkFeeLamports;
   }
 
   const effective = normalizeRouterId(build.provider ?? selected);
@@ -305,7 +309,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
       inputStats,
       outputStats,
       simulatedOutRaw ?? undefined,
-      { pdaRentLamports, tokenAccRentByMint, embeddedPoolFeesByHop, walletSolTransfers, tokenFeeCredits, router: selected, walletPayDebitRaw },
+      { pdaRentLamports, tokenAccRentByMint, embeddedPoolFeesByHop, walletSolTransfers, tokenFeeCredits, router: selected, walletPayDebitRaw, networkFeeLamports },
     ),
     selected,
     effective,
