@@ -595,6 +595,37 @@ function quoteCumulativeWalletPayUsd(
   return swapUsd + sumWalletDebitedFeesUsdThroughHop(quote, throughPlanIndex);
 }
 
+/**
+ * Total wallet pay USD — Phantom-style sum across all debited mints:
+ * input-mint wallet debit (swap + same-mint fees via `_walletPayDebitRaw`) plus
+ * every foreign-mint wallet cost (SOL acc rent, SOL priority, etc.) in USD.
+ * Matches Jupiter/Titan badge math; `swapUsd + hop fees` alone misses input-mint
+ * debits already captured in wallet pay raw and can double-count on aggregators.
+ */
+function getQuoteTotalWalletPayUsd(
+  quote: Record<string, unknown>,
+  throughPlanIndex?: number,
+): number | null {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const lastIdx = Math.max(0, plan.length - 1);
+  const throughIdx = throughPlanIndex ?? lastIdx;
+  const throughFinalScope = throughIdx >= lastIdx;
+
+  if (throughFinalScope) {
+    const inputPayUsd = deps.quoteWalletPayUsd(quote);
+    const foreignFeesUsd = sumWalletFeesUsdMissingFromRawDebit(quote);
+    const fromAllDebitedMints =
+      inputPayUsd != null ? inputPayUsd + foreignFeesUsd : null;
+    const fromSwapPlusHopFees = quoteCumulativeWalletPayUsd(quote, throughIdx);
+    if (fromAllDebitedMints != null && fromSwapPlusHopFees != null) {
+      return Math.max(fromAllDebitedMints, fromSwapPlusHopFees);
+    }
+    return fromAllDebitedMints ?? fromSwapPlusHopFees;
+  }
+
+  return quoteCumulativeWalletPayUsd(quote, throughIdx);
+}
+
 /** USD of wallet-cost fees the estimated raw debit cannot capture (foreign-mint fees, SPL-sell SOL rent). */
 function sumWalletFeesUsdMissingFromRawDebit(quote: Record<string, unknown>): number {
   const inputMint = quoteInputMint(quote);
@@ -613,15 +644,14 @@ function sumWalletFeesUsdMissingFromRawDebit(quote: Record<string, unknown>): nu
 }
 
 /**
- * Wallet pay USD for badge math — one consistent definition:
- * raw-based pay USD plus wallet-cost fee USD the raw debit cannot capture.
- * The raw debit is in the input mint, so foreign-mint debits (e.g. SOL rent
- * on a USDC sell) are always missing from it — Phantom shows them separately.
+ * Wallet pay USD for badge math — swap leg USD plus every wallet-cost hop fee
+ * (protocol, route, priority, acc rent, etc.) priced from the same hop items
+ * as the route diagram. Prefer this over raw-debit scaling alone: Vybe and
+ * aggregator quotes often omit foreign-mint debits (e.g. SOL rent on a USDC
+ * sell) from `_walletPayDebitRaw`.
  */
 function quoteWalletPayUsdForBadges(quote: Record<string, unknown>): number | null {
-  const base = deps.quoteWalletPayUsd(quote);
-  if (base == null) return null;
-  return base + sumWalletFeesUsdMissingFromRawDebit(quote);
+  return getQuoteTotalWalletPayUsd(quote);
 }
 
 export interface QuoteWalletCostBucketsUsd {
@@ -660,6 +690,73 @@ export function getQuoteWalletCostBucketsUsd(
   };
 }
 
+export interface QuoteYouPayUsdBreakdown {
+  swapUsd: number;
+  feeUsd: number | null;
+  rentUsd: number | null;
+  totalUsd: number;
+}
+
+function resolveQuoteYouPayFeeUsd(
+  quote: Record<string, unknown>,
+  buckets: QuoteWalletCostBucketsUsd,
+): number | null {
+  if (buckets.feeUsd != null && buckets.feeUsd > 0) return buckets.feeUsd;
+
+  const mint = quoteInputMint(quote);
+  const payRaw = quoteWalletPayRaw(quote);
+  const swapRaw = quoteInAmountRaw(quote);
+  if (payRaw && swapRaw && mint) {
+    try {
+      const pay = BigInt(payRaw);
+      const swap = BigInt(swapRaw);
+      if (pay > swap) {
+        const feeUi = deps.rawAmountToUiNumber((pay - swap).toString(), deps.getMintDecimals(mint));
+        const price = lookupMintPriceUsd(mint, quote);
+        if (Number.isFinite(feeUi) && feeUi > 0 && Number.isFinite(price) && price > 0) {
+          return feeUi * price;
+        }
+      }
+    } catch {
+      /* fall through */
+    }
+  }
+
+  const routeFeeUi = sumInputSideWalletFeesInSellMintUi(quote);
+  if (routeFeeUi != null && mint) {
+    const price = lookupMintPriceUsd(mint, quote);
+    if (Number.isFinite(price) && price > 0) return routeFeeUi * price;
+  }
+  return null;
+}
+
+/** Phantom-style total pay: swap leg USD + wallet fee USD + acc rent USD (matches You pay sub-label). */
+export function resolveQuoteYouPayUsd(quote: Record<string, unknown>): QuoteYouPayUsdBreakdown | null {
+  const swapUsd = deps.getQuoteSwapUsdValue(quote);
+  if (swapUsd == null || swapUsd <= 0) return null;
+
+  const buckets = getQuoteWalletCostBucketsUsd(quote);
+  const feeUsd = resolveQuoteYouPayFeeUsd(quote, buckets);
+  const rentUsd = buckets.rentUsd ?? null;
+  const totalUsd = swapUsd + (feeUsd ?? 0) + (rentUsd ?? 0);
+  return { swapUsd, feeUsd, rentUsd, totalUsd };
+}
+
+/** Same string as the You pay hero sub-label, e.g. `≈ $1.24 + $0.01 (fee) + $0.13 (rent)`. */
+export function getQuoteYouPaySubLabel(quote: Record<string, unknown>): string | null {
+  const breakdown = resolveQuoteYouPayUsd(quote);
+  if (!breakdown) return null;
+
+  const parts: string[] = [`≈ $${deps.formatSwapPayUsdAmount(breakdown.swapUsd)}`];
+  if (breakdown.feeUsd != null && breakdown.feeUsd > 0) {
+    parts.push(`+ $${deps.formatSwapPayUsdAmount(breakdown.feeUsd)} (fee)`);
+  }
+  if (breakdown.rentUsd != null && breakdown.rentUsd > 0) {
+    parts.push(`+ $${deps.formatSwapPayUsdAmount(breakdown.rentUsd)} (rent)`);
+  }
+  return parts.join(' ');
+}
+
 export interface FinalReceivePctBreakdown {
   pct: number;
   pctLabel: string;
@@ -676,24 +773,21 @@ export function computeFinalReceivePctBreakdown(
   const outUsd = deps.getQuoteReceiveUsd(quote);
   if (outUsd == null || outUsd <= 0) return null;
 
-  const swapUsd = deps.getQuoteSwapUsdValue(quote);
-  const buckets = getQuoteWalletCostBucketsUsd(quote);
+  const youPay = resolveQuoteYouPayUsd(quote);
+  if (youPay == null || youPay.totalUsd <= 0) return null;
 
-  let payUsd: number | null = null;
-  const payParts: string[] = [];
-  if (swapUsd != null && swapUsd > 0) {
-    payUsd = swapUsd + (buckets.feeUsd ?? 0) + (buckets.rentUsd ?? 0);
-    payParts.push(`$${deps.formatSwapPayUsdAmount(swapUsd)} swap`);
-    if (buckets.feeUsd != null) payParts.push(`$${deps.formatSwapPayUsdAmount(buckets.feeUsd)} fee`);
-    if (buckets.rentUsd != null) payParts.push(`$${deps.formatSwapPayUsdAmount(buckets.rentUsd)} rent`);
+  const payUsd = youPay.totalUsd;
+  const payParts = [`$${deps.formatSwapPayUsdAmount(youPay.swapUsd)} swap`];
+  if (youPay.feeUsd != null && youPay.feeUsd > 0) {
+    payParts.push(`$${deps.formatSwapPayUsdAmount(youPay.feeUsd)} fee`);
   }
-  if (payUsd == null || payUsd <= 0) {
-    payUsd = quoteWalletPayUsdForBadges(quote);
+  if (youPay.rentUsd != null && youPay.rentUsd > 0) {
+    payParts.push(`$${deps.formatSwapPayUsdAmount(youPay.rentUsd)} rent`);
   }
-  if (payUsd == null || payUsd <= 0 || outUsd >= payUsd) return null;
 
-  const pct = (outUsd / payUsd) * 100;
-  if (!Number.isFinite(pct) || pct <= 0) return null;
+  const pctRaw = (outUsd / payUsd) * 100;
+  if (!Number.isFinite(pctRaw) || pctRaw <= 0) return null;
+  const pct = Math.min(pctRaw, 100);
 
   const pctLabel = `${Math.round(pct * 100) / 100}%`;
   const breakdown =
@@ -771,8 +865,8 @@ function computeIntermediateHopReceivePctBreakdown(
   if (swapUsd == null || swapUsd <= 0) return null;
 
   const buckets = getQuoteWalletCostBucketsUsdThroughHop(quote, planIndex);
-  const payUsd = swapUsd + (buckets.feeUsd ?? 0) + (buckets.rentUsd ?? 0);
-  if (payUsd <= 0 || outUsd >= payUsd) return null;
+  const payUsd = getQuoteTotalWalletPayUsd(quote, planIndex);
+  if (payUsd == null || payUsd <= 0 || outUsd >= payUsd) return null;
 
   const pct = (outUsd / payUsd) * 100;
   if (!Number.isFinite(pct) || pct <= 0) return null;
@@ -916,7 +1010,7 @@ function computeCumulativeHopOutgoingPct(
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   if (throughPlanIndex < 0 || throughPlanIndex >= plan.length) return null;
 
-  const payUsd = quoteWalletPayUsdForBadges(quote);
+  const payUsd = getQuoteTotalWalletPayUsd(quote, throughPlanIndex);
   const swapUsd = deps.getQuoteSwapUsdValue(quote);
   if (payUsd == null || swapUsd == null || payUsd <= 0 || swapUsd <= 0) return null;
 
@@ -991,7 +1085,7 @@ function computeHopOutgoingPercentBreakdown(
   }
 
   const hopOutUsd = hopNetOutputUsdEstimate(step, quote, netRaw, outMint, planIndex, isLastHop);
-  const cumulativePayUsd = quoteCumulativeWalletPayUsd(quote, planIndex);
+  const cumulativePayUsd = getQuoteTotalWalletPayUsd(quote, planIndex);
   if (
     cumulativePayUsd != null &&
     cumulativePayUsd > 0 &&
@@ -1046,7 +1140,195 @@ export function resolveWalletPayDebitRaw(quote: Record<string, unknown>): string
   return null;
 }
 
-/** Diagram input endpoint: wallet debit addon (input-side fees only). */
+/** Stacked wallet-cost rows for the You pay hero (fee, same-mint rent, foreign SOL rent). */
+export interface QuotePayHeroCostStackItem {
+  ui: number;
+  sym: string;
+}
+
+export function getQuotePayHeroCostStack(
+  quote: Record<string, unknown>,
+  sellSym: string,
+): QuotePayHeroCostStackItem[] {
+  const mint = quoteInputMint(quote);
+  if (!mint) return [];
+
+  let feeUi = 0;
+  let sameMintRentUi = 0;
+  let foreignRentUi = 0;
+  let foundFee = false;
+  let foundSameMintRent = false;
+  let foundForeignRent = false;
+
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  for (const step of plan) {
+    for (const item of getHopFeeDisplayItems(step)) {
+      if (!isWalletCostFeeItem(item, quote)) continue;
+      const ui = feeAmountToUi(item.amountRaw, item.mint);
+      if (ui == null || ui <= 0) continue;
+
+      const sameMint = routeLegMintMatches(item.mint, mint);
+      if (isAccRentWalletFeeItem(item)) {
+        if (sameMint) {
+          sameMintRentUi += ui;
+          foundSameMintRent = true;
+        } else if (isSolMint(item.mint)) {
+          foreignRentUi += ui;
+          foundForeignRent = true;
+        }
+        continue;
+      }
+
+      if (sameMint) {
+        feeUi += ui;
+        foundFee = true;
+      }
+    }
+  }
+
+  if (!foundFee) {
+    const payRaw = quoteWalletPayRaw(quote);
+    const swapRaw = quoteInAmountRaw(quote);
+    if (payRaw && swapRaw) {
+      try {
+        const pay = BigInt(String(payRaw).replace(/,/g, ''));
+        const swap = BigInt(String(swapRaw).replace(/,/g, ''));
+        if (pay > swap) {
+          const deltaUi = deps.rawAmountToUiNumber(
+            (pay - swap).toString(),
+            deps.getMintDecimals(mint),
+          );
+          if (Number.isFinite(deltaUi) && deltaUi > 0) {
+            const rentTotal = (foundSameMintRent ? sameMintRentUi : 0) + (foundForeignRent ? foreignRentUi : 0);
+            const impliedFee = deltaUi - rentTotal;
+            if (impliedFee > 0) {
+              feeUi = impliedFee;
+              foundFee = true;
+            } else if (!foundSameMintRent && !foundForeignRent) {
+              feeUi = deltaUi;
+              foundFee = true;
+            }
+          }
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+
+  if (!foundFee) {
+    const inputFeeUi = sumInputSideWalletFeesInSellMintUi(quote);
+    if (inputFeeUi != null && inputFeeUi > 0) {
+      feeUi = inputFeeUi;
+      foundFee = true;
+    }
+  }
+
+  const stack: QuotePayHeroCostStackItem[] = [];
+  if (foundFee && feeUi > 0) stack.push({ ui: feeUi, sym: sellSym });
+  if (foundSameMintRent && sameMintRentUi > 0) stack.push({ ui: sameMintRentUi, sym: sellSym });
+  if (foundForeignRent && foreignRentUi > 0) {
+    stack.push({ ui: foreignRentUi, sym: mintSymbolSync(NATIVE_SOL_MINT) });
+  }
+  return stack;
+}
+
+function formatPayHeroCostDisplay(ui: number): string {
+  return deps.formatSwapAmountValue(ui).replace(/,/g, '');
+}
+
+function renderPayHeroCostRow(sym: string, ui: number, amtCls: string): string {
+  return `<span class="swap-quote-summary-fee-part">
+        <span class="swap-quote-summary-amt swap-quote-summary-amt--fee${amtCls}">${deps.escapeHtml(formatPayHeroCostDisplay(ui))}</span>
+        <span class="swap-quote-summary-sym">${deps.escapeHtml(sym)}</span>
+      </span>`;
+}
+
+/** You pay hero value HTML — swap leg plus stacked fee / rent after +. */
+export function renderQuotePayHeroValueHtml(
+  quote: Record<string, unknown> | null,
+  inSym: string,
+  fallbackAmt: string,
+  placeholder = false,
+  loading = false,
+): string {
+  const amtCls = placeholder ? ' swap-quote-summary-amt--placeholder' : '';
+  if (loading && placeholder) {
+    return `<span class="swap-quote-summary-amt${amtCls}">${deps.renderLoadingSpinner('md')}</span>`;
+  }
+
+  const swapAmt = quote ? getQuoteSwapLegLabelFromQuote(quote) : fallbackAmt;
+  if (swapAmt === '—') {
+    return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(fallbackAmt)}</span>
+        <span class="swap-quote-summary-sym">${deps.escapeHtml(inSym)}</span>`;
+  }
+
+  const stack = quote ? getQuotePayHeroCostStack(quote, inSym) : [];
+  if (stack.length === 0) {
+    return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(swapAmt)}</span>
+        <span class="swap-quote-summary-sym">${deps.escapeHtml(inSym)}</span>`;
+  }
+
+  const stackRows = stack.map((row) => renderPayHeroCostRow(row.sym, row.ui, amtCls));
+
+  return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(swapAmt)}</span>
+      <span class="swap-quote-summary-sym">${deps.escapeHtml(inSym)}</span>
+      <span class="swap-quote-summary-plus">+</span>
+      <span class="swap-quote-summary-fee-stack">${stackRows.join('')}</span>`;
+}
+
+/** Input-mint wallet debit for the route diagram chip: swap leg + same-mint fee/rent. */
+function getQuoteDiagramInputChipAmountRaw(quote: Record<string, unknown>): string | null {
+  const mint = quoteInputMint(quote);
+  const swapRawStr = quoteInAmountRaw(quote);
+  if (!mint || !swapRawStr) return null;
+
+  let total: bigint;
+  try {
+    total = BigInt(String(swapRawStr).replace(/,/g, ''));
+  } catch {
+    return null;
+  }
+
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  for (const step of plan) {
+    for (const item of getHopFeeDisplayItems(step)) {
+      if (!isWalletCostFeeItem(item, quote)) continue;
+      if (!routeLegMintMatches(item.mint, mint)) continue;
+      if (!item.amountRaw || item.amountRaw === '0') continue;
+      try {
+        total += BigInt(String(item.amountRaw).replace(/,/g, ''));
+      } catch {
+        /* skip malformed fee raw */
+      }
+    }
+  }
+
+  const payRawStr = quoteWalletPayRaw(quote);
+  if (payRawStr) {
+    try {
+      const pay = BigInt(String(payRawStr).replace(/,/g, ''));
+      if (pay > total) total = pay;
+    } catch {
+      /* keep computed total */
+    }
+  }
+
+  return total > 0n ? total.toString() : null;
+}
+
+/** Route diagram input chip — total debited in the sell mint (swap + same-mint fees/rent). */
+function getQuoteDiagramInputChipLabel(quote: Record<string, unknown>): string {
+  const mint = quoteInputMint(quote);
+  const totalRaw = getQuoteDiagramInputChipAmountRaw(quote);
+  if (totalRaw && mint) {
+    const label = formatQuoteRawAmountLabel(totalRaw, mint);
+    if (label) return label;
+  }
+  return getQuoteSwapLegLabelFromQuote(quote);
+}
+
+/** Diagram input endpoint: same-mint wallet fee/rent only (shown above chip; chip shows swap + this). */
 export function getQuoteDiagramInputFeeAddon(quote: Record<string, unknown>): string | null {
   const walletAddon = getQuoteInputSideAddonLabel(quote);
   if (walletAddon) return walletAddon;
@@ -1056,13 +1338,19 @@ export function getQuoteDiagramInputFeeAddon(quote: Record<string, unknown>): st
   return formatted === '—' ? null : `+${formatted}`;
 }
 
-function getQuoteDiagramInputTotalLabel(
-  quote: Record<string, unknown>,
-  feeAddon: string | null,
-): string | null {
-  if (!feeAddon || feeAddon === '—') return null;
-  const walletTotal = getQuoteWalletPayLabelFromQuote(quote);
-  return walletTotal !== '—' ? walletTotal : null;
+function getQuoteDiagramInputTotalLabel(quote: Record<string, unknown>): string | null {
+  const breakdown = resolveQuoteYouPayUsd(quote);
+  if (!breakdown) return null;
+
+  const hasFee = breakdown.feeUsd != null && breakdown.feeUsd > 0;
+  const hasRent = breakdown.rentUsd != null && breakdown.rentUsd > 0;
+
+  let suffix = '';
+  if (hasFee && hasRent) suffix = ' (fees + rent)';
+  else if (hasFee) suffix = ' (fees)';
+  else if (hasRent) suffix = ' (rent)';
+
+  return `≈ $${deps.formatSwapPayUsdAmount(breakdown.totalUsd)}${suffix}`;
 }
 
 /** Extra wallet debit above swap leg (fees/rent on input side), e.g. +0.002181 SOL. */
@@ -1449,6 +1737,16 @@ export function lookupMintPriceUsd(mint: string, quote: Record<string, unknown>)
 
   if (STABLECOIN_USD_FALLBACK_MINTS.has(m)) return STABLECOIN_USD_FALLBACK_PRICE;
 
+  if (isSolMint(m)) {
+    for (const alt of [NATIVE_SOL_MINT, WSOL_MINT]) {
+      if (alt === m) continue;
+      const altCached = deps.getPairTokenStats()[alt]?.price;
+      if (altCached != null && Number.isFinite(altCached) && altCached > 0) return altCached;
+      const altQuote = quoteStats?.[alt]?.price;
+      if (altQuote != null && Number.isFinite(altQuote) && altQuote > 0) return altQuote;
+    }
+  }
+
   return NaN;
 }
 
@@ -1747,7 +2045,9 @@ function computeFeeUsdNumeric(
   if (sellLegUi != null && sellLegUi > 0 && Number.isFinite(sellPrice) && sellPrice > 0) {
     return sellLegUi * sellPrice;
   }
-  return null;
+
+  const equiv = computeFeeEquivalents(item.amountRaw, item.mint, quote);
+  return equiv.usd ? parseFeeEquivUsdNumber(equiv.usd) : null;
 }
 
 function formatFeeEquivDetailText(equiv: FeeAmountEquiv): string {
@@ -1795,6 +2095,63 @@ function renderRoutingFeeChip(
         : ''
     }
   </div>`;
+}
+
+const ROUTING_PLACEHOLDER_DASH = '—';
+
+function placeholderRoutingFeeEquiv(tokenSubline = `${ROUTING_PLACEHOLDER_DASH} SOL`): FeeAmountEquiv {
+  return {
+    feeMint: '',
+    feeSym: ROUTING_PLACEHOLDER_DASH,
+    primary: ROUTING_PLACEHOLDER_DASH,
+    inputEquiv: tokenSubline,
+    inputSym: 'SOL',
+    usd: ROUTING_PLACEHOLDER_DASH,
+  };
+}
+
+function renderMockRoutingFeeBranch(): string {
+  const labels = [PRIORITY_FEE_LABEL, 'Protocol fee'];
+  const feeCount = labels.length;
+  const slots = labels
+    .map((label) => {
+      const chip = renderRoutingFeeChip(
+        label,
+        placeholderRoutingFeeEquiv(),
+        feeChipVariant(label),
+        label,
+      );
+      return `<div class="routing-fee-slot">${chip}</div>`;
+    })
+    .join('');
+
+  return `<div class="routing-fee-branch routing-fee-branch--${feeCount} routing-fee-branch--placeholder" aria-label="Fees deducted at this hop">
+    <div class="routing-fee-connectors" aria-hidden="true">${renderRoutingFeeConnectors(feeCount)}</div>
+    <div class="routing-fee-cards">${slots}</div>
+  </div>`;
+}
+
+function renderMockRouteMarketNode(
+  meta: RouteHopMeta,
+  leg: RouteHopLeg,
+  loading = false,
+): string {
+  const si = meta.step.swapInfo;
+  const dexHtml = loading ? deps.renderLoadingSpinner('sm') : deps.escapeHtml(si?.label ?? ROUTING_PLACEHOLDER_DASH);
+  const sym = deps.escapeHtml(leg.outSym);
+  const feeBranchBelow = renderMockRoutingFeeBranch();
+  const railNode = `<div class="routing-market-node">
+    ${renderHopIndexBadge(meta.label)}
+      <div class="routing-pill routing-pill--hop">
+      ${renderRoutingTokenIcon(leg.outMint, leg.outSym)}
+      <span class="routing-token-sym">${sym}</span>
+      </div>
+    <div class="routing-dex-caption">${dexHtml}</div>
+  </div>`;
+  return `<div class="routing-hop-column routing-hop-column--has-fees">
+    ${railNode}
+    ${feeBranchBelow}
+    </div>`;
 }
 
 function renderHopFeeChip(item: HopFeeItemLite, quote: Record<string, unknown>): string {
@@ -2347,26 +2704,40 @@ function renderRoutingFrame(
   outputFeesUsdLabel: string | null = null,
   outputUsdSubline: string | null = null,
   outputUsdTitle: string | null = null,
+  showAllEndpointLabels = false,
 ): string {
   const placeholderClass = placeholder ? ' routing-canvas--placeholder' : '';
   const loadingClass = loading ? ' routing-canvas--loading' : '';
   const feesClass = hasFees ? ' routing-canvas--has-fees' : '';
   const accRentClass = hasAccRentAbove ? ' routing-canvas--has-acc-rent-above' : '';
+  const inputAddonVal =
+    inputAddon && inputAddon !== '—' ? inputAddon : ROUTING_PLACEHOLDER_DASH;
+  const inputTotalVal =
+    inputTotalLabel && inputTotalLabel !== '—' ? inputTotalLabel : ROUTING_PLACEHOLDER_DASH;
+  const outputFeesVal =
+    outputFeesUsdLabel && outputFeesUsdLabel !== '—'
+      ? outputFeesUsdLabel
+      : `-${ROUTING_PLACEHOLDER_DASH}`;
+  const outputUsdVal =
+    outputUsdSubline && outputUsdSubline !== '—'
+      ? outputUsdSubline
+      : `≈ ${ROUTING_PLACEHOLDER_DASH}`;
+
   const inputAddonHtml =
-    inputAddon && inputAddon !== '—'
-      ? `<span class="routing-input-addon">Fee: ${deps.escapeHtml(inputAddon)} ${deps.escapeHtml(inSym)}</span>`
+    showAllEndpointLabels || (inputAddon && inputAddon !== '—')
+      ? `<span class="routing-input-addon">Fee: <span class="routing-input-addon__val">${deps.escapeHtml(inputAddonVal)} ${deps.escapeHtml(inSym)}</span></span>`
       : '';
   const inputTotalHtml =
-    inputTotalLabel && inputTotalLabel !== '—' && inputAddon
-      ? `<span class="routing-input-total">Total: <span class="routing-input-total__val">${deps.escapeHtml(inputTotalLabel)} ${deps.escapeHtml(inSym)}</span></span>`
+    showAllEndpointLabels || (inputTotalLabel && inputTotalLabel !== '—')
+      ? `<span class="routing-input-total">Total: <span class="routing-input-total__val">${deps.escapeHtml(inputTotalVal)}</span></span>`
       : '';
   const outputFeesUsdHtml =
-    outputFeesUsdLabel && outputFeesUsdLabel !== '—'
-      ? `<span class="routing-output-fees-usd">USD Fees: <span class="routing-output-fees-usd__val">${deps.escapeHtml(outputFeesUsdLabel)}</span></span>`
+    showAllEndpointLabels || (outputFeesUsdLabel && outputFeesUsdLabel !== '—')
+      ? `<span class="routing-output-fees-usd">USD Fees: <span class="routing-output-fees-usd__val">${deps.escapeHtml(outputFeesVal)}</span></span>`
       : '';
   const outputUsdHtml =
-    outputUsdSubline && outputUsdSubline !== '—'
-      ? `<span class="routing-output-usd"${outputUsdTitle ? ` title="${deps.escapeHtml(outputUsdTitle)}"` : ''}>USD Output: <span class="routing-output-usd__val">${deps.escapeHtml(outputUsdSubline)}</span></span>`
+    showAllEndpointLabels || (outputUsdSubline && outputUsdSubline !== '—')
+      ? `<span class="routing-output-usd"${outputUsdTitle ? ` title="${deps.escapeHtml(outputUsdTitle)}"` : ''}>USD Output: <span class="routing-output-usd__val">${deps.escapeHtml(outputUsdVal)}</span></span>`
       : '';
   return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${placeholderClass}${loadingClass}"${routingCanvasLayoutAttrs(hopCount, hasAccRentAbove)}>
     <div class="routing-frame">
@@ -2398,10 +2769,10 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const inSym = deps.getSwapInSym();
   const outSym = deps.getSwapOutSym();
   const inTotalDisplay = getQuoteWalletPayLabelFromQuote(quote);
-  const inDisplay = getQuoteSwapLegLabelFromQuote(quote);
+  const inDisplay = getQuoteDiagramInputChipLabel(quote);
   const outAmt = formatQuoteTokenAmount(quote, 'out');
   const inputAddon = getQuoteDiagramInputFeeAddon(quote);
-  const inputTotalLabel = getQuoteDiagramInputTotalLabel(quote, inputAddon);
+  const inputTotalLabel = getQuoteDiagramInputTotalLabel(quote);
   const outputFeesUsdLabel = getQuoteDiagramWalletFeesUsdLabel(quote);
   const outputUsdSubline = getQuoteDiagramOutputUsdSubline(quote);
   const outputUsdTitle = deps.quoteOutputPriceSourceTitle(quote);
@@ -2464,55 +2835,58 @@ export function renderRoutingDiagramPlaceholder(loading = false): string {
   const inMint = deps.getFormInputMint();
   const outMint = deps.getFormOutputMint();
   const lastQuote = deps.getLastQuote();
-  const inTotalDisplay = lastQuote
-    ? getQuoteWalletPayLabelFromQuote(lastQuote)
-    : deps.getQuoteWalletPayLabel();
   const inChipDisplay = lastQuote
-    ? getQuoteSwapLegLabelFromQuote(lastQuote)
-    : inTotalDisplay;
+    ? getQuoteDiagramInputChipLabel(lastQuote)
+    : deps.getQuoteWalletPayLabel();
   const hasIn = inChipDisplay !== '—';
   const inputAddon = lastQuote ? getQuoteDiagramInputFeeAddon(lastQuote) : null;
-  const inputTotalLabel = lastQuote
-    ? getQuoteDiagramInputTotalLabel(lastQuote, inputAddon)
-    : null;
+  const inputTotalLabel = lastQuote ? getQuoteDiagramInputTotalLabel(lastQuote) : null;
   const outputFeesUsdLabel = lastQuote ? getQuoteDiagramWalletFeesUsdLabel(lastQuote) : null;
   const outputUsdSubline = lastQuote ? getQuoteDiagramOutputUsdSubline(lastQuote) : null;
   const outputUsdTitle = lastQuote ? deps.quoteOutputPriceSourceTitle(lastQuote) : null;
+  const outPctLabel =
+    lastQuote != null
+      ? computeFinalReceivePctBreakdown(lastQuote)?.pctLabel ?? `${ROUTING_PLACEHOLDER_DASH}%`
+      : `${ROUTING_PLACEHOLDER_DASH}%`;
+  const outAmtDisplay =
+    lastQuote != null ? formatQuoteTokenAmount(lastQuote, 'out').display : ROUTING_PLACEHOLDER_DASH;
   const mockLeg: RouteHopLeg = {
     inMint,
     outMint,
     inSym,
     outSym,
-    inAmt: hasIn ? inChipDisplay : '—',
-    outAmt: '—',
+    inAmt: hasIn ? inChipDisplay : ROUTING_PLACEHOLDER_DASH,
+    outAmt: ROUTING_PLACEHOLDER_DASH,
   };
   const mockMeta: RouteHopMeta = {
     label: '1',
     planIndex: 0,
-    step: { percent: 100, swapInfo: { label: '—' } },
+    step: { percent: 100, swapInfo: { label: ROUTING_PLACEHOLDER_DASH } },
   };
   const body =
     renderRoutePctBadge('100%') +
-    renderRouteMarketNode(mockMeta, mockLeg, {}, loading);
+    renderMockRouteMarketNode(mockMeta, mockLeg, loading) +
+    renderRoutePctBadge(outPctLabel, 'out');
   const trackBody = `<div class="routing-rail-row">${body}<div class="routing-rail-tail" aria-hidden="true"></div></div>`;
   return renderRoutingFrame(
-    hasIn ? inChipDisplay : '—',
+    hasIn ? inChipDisplay : ROUTING_PLACEHOLDER_DASH,
     inSym,
-    '—',
+    outAmtDisplay,
     outSym,
     undefined,
     trackBody,
     false,
     1,
-    !hasIn && !loading,
+    true,
     loading,
-    false,
+    true,
     false,
     inputAddon,
     inputTotalLabel,
     outputFeesUsdLabel,
     outputUsdSubline,
     outputUsdTitle,
+    true,
   );
 }
 export function normalizeRouterId(value: unknown): string {

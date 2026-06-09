@@ -65,7 +65,6 @@ import {
   formatQuoteRawAmountLabel,
   getQuoteWalletPayLabelFromQuote,
   getQuoteSwapLegLabelFromQuote,
-  getQuoteInputSideAddonLabel,
   sumInputSideWalletFeesInSellMintUi,
   estimateInputSideWalletPayDebitFromQuote,
   lookupMintPriceUsd,
@@ -82,6 +81,8 @@ import {
   normalizeRouterId,
   routerDisplayLabel,
   getQuoteWalletCostBucketsUsd,
+  getQuoteYouPaySubLabel,
+  renderQuotePayHeroValueHtml,
 } from './route-ui.js';
 
 interface TokenSymbolResponse {
@@ -1255,6 +1256,40 @@ function swapPairMintsMatch(a: string, b: string): boolean {
   return preferNativeSolMint(left) === preferNativeSolMint(right);
 }
 
+function parseFlipOutputAmountUi(): number | null {
+  if (lastSwapQuoteOk) {
+    const fromQuote = quoteOutputUiAmount(lastSwapQuoteOk);
+    if (fromQuote != null && fromQuote > 0) return fromQuote;
+  }
+  if (!swapBuyAmountDisplayEl) return null;
+  if (swapBuyAmountDisplayEl.dataset.empty === 'true') return null;
+  if (swapBuyAmountDisplayEl.dataset.loading === 'true') return null;
+  const fromTitle = swapBuyAmountDisplayEl.getAttribute('title')?.replace(/,/g, '').trim();
+  if (fromTitle) {
+    const t = Number(fromTitle);
+    if (Number.isFinite(t) && t > 0) return t;
+  }
+  const raw = swapBuyAmountDisplayEl.textContent?.replace(/,/g, '').trim() ?? '';
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function applyFlippedOutputAsSellAmount(outputAmountUi: number): void {
+  if (!swapInputMintInput || !swapAmountInput) return;
+  const mint = swapInputMintInput.value.trim();
+  if (!mint || !hasValidSwapWallet()) return;
+
+  syncSwapAmountMaxFromBalance();
+  let amount = outputAmountUi;
+  const max = getSwapAmountMaxUi();
+  if (max != null && amount > max) {
+    amount = max;
+    flashSellPct100Button();
+  }
+  if (swapQuoteError) clearInlineError(swapQuoteError);
+  setSwapSellAmountToBalance(amount, mint);
+}
+
 function flipSellBuyTokens(): void {
   if (!swapInputMintInput || !swapOutputMintInput) return;
   const sellMint = swapInputMintInput.value;
@@ -1267,14 +1302,18 @@ function flipSellBuyTokens(): void {
   if (swapOutputSymbolEl) swapOutputSymbolEl.textContent = sellSym.trim() || '—';
 }
 
-function afterSellBuyTokensFlipped(): void {
+function afterSellBuyTokensFlipped(flippedOutputAmountUi: number | null = null): void {
   void syncSwapSideLabels();
   updateSwapTokenIcons();
   updateSwapPairCards();
   syncSwapAmountMaxFromBalance();
   const newSellMint = swapInputMintInput?.value.trim() ?? '';
   if (newSellMint && hasValidSwapWallet()) {
-    applySellAmountPercent(getMaxSellPercentForMint(newSellMint));
+    if (flippedOutputAmountUi != null) {
+      applyFlippedOutputAsSellAmount(flippedOutputAmountUi);
+    } else {
+      applySellAmountPercent(getMaxSellPercentForMint(newSellMint));
+    }
   }
   void prefetchSwapPairPrices({ forceFullDetails: true, mints: newSellMint ? [newSellMint] : undefined });
   void refreshLowSolTradeWarning();
@@ -1290,8 +1329,9 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
   const otherMint = otherInput?.value.trim() ?? '';
 
   if (otherMint && swapPairMintsMatch(resolvedMint, otherMint)) {
+    const flippedOutputAmountUi = parseFlipOutputAmountUi();
     flipSellBuyTokens();
-    void refreshSwapSymbols().then(() => afterSellBuyTokensFlipped());
+    void refreshSwapSymbols().then(() => afterSellBuyTokensFlipped(flippedOutputAmountUi));
     return;
   }
 
@@ -1430,7 +1470,17 @@ function getQuoteReceiveUsd(quote: Record<string, unknown>): number | null {
   const quotedUi = quoteQuotedOutUiAmount(quote);
 
   if (netUi != null && quotedUi != null && quotedUi > 0 && netUi > 0) {
-    return swapUsd * (netUi / quotedUi);
+    if (netUi <= quotedUi) {
+      return swapUsd * (netUi / quotedUi);
+    }
+    /* Vybe synthesized routes can report simulated net out above hop quoted out.
+       Do not inflate receive USD past swap pay — use output mint spot instead. */
+    const outMint = quoteOutputMint(quote);
+    const outPrice = lookupMintPriceUsd(outMint ?? '', quote);
+    if (Number.isFinite(outPrice) && outPrice > 0) {
+      return netUi * outPrice;
+    }
+    return swapUsd;
   }
 
   const impact = parseQuotePriceImpactPct(quote);
@@ -1450,7 +1500,10 @@ function quoteOutputPriceSourceTitle(quote: Record<string, unknown>): string {
     return 'USD estimate unavailable — swap quote did not include swapUsdValue';
   }
   if (netUi != null && quotedUi != null && quotedUi > 0) {
-    return `swapUsdValue $${formatSwapLegUsdAmount(swapUsd)} × net out ÷ quoted out (from quote response)`;
+    if (netUi <= quotedUi) {
+      return `swapUsdValue $${formatSwapLegUsdAmount(swapUsd)} × net out ÷ quoted out (from quote response)`;
+    }
+    return `net out × output mint USD price (simulated out exceeds hop quoted out on this route)`;
   }
   const impact = parseQuotePriceImpactPct(quote);
   if (impact != null) {
@@ -2185,63 +2238,13 @@ function estimateSwapPayUsdFromInput(): number | null {
 
 function buildQuotePaySubLabel(quote: Record<string, unknown> | null): string | null {
   const q = quote ?? lastSwapQuoteOk;
-  const payUsd = quote != null ? getQuotePayUsd(quote) : estimateSwapPayUsdFromInput();
+  if (q) {
+    const label = getQuoteYouPaySubLabel(q);
+    if (label) return label;
+  }
+  const payUsd = estimateSwapPayUsdFromInput();
   const payUsdLabel = payUsd != null ? formatSwapPayUsdLabel(payUsd) : null;
-
-  /* Same per-hop wallet-cost items as the route plan fee breakdown:
-     protocol/route/pool/priority → "fee", token account rent → "rent". */
-  const buckets = q != null ? getQuoteWalletCostBucketsUsd(q) : { feeUsd: null, rentUsd: null };
-  let feeUsd = buckets.feeUsd;
-  if (feeUsd == null && q != null && getQuotePayFeeAmountLabel(q) != null) {
-    feeUsd = getQuotePayFeeUsd(q);
-  }
-
-  const parts: string[] = [];
-  if (payUsdLabel) parts.push(`≈ ${payUsdLabel}`);
-  if (feeUsd != null && feeUsd > 0) {
-    const feeLabel = formatSwapPayUsdLabel(feeUsd);
-    if (feeLabel) parts.push(`+ ${feeLabel} (fee)`);
-  }
-  if (buckets.rentUsd != null && buckets.rentUsd > 0) {
-    const rentLabel = formatSwapPayUsdLabel(buckets.rentUsd);
-    if (rentLabel) parts.push(`+ ${rentLabel} (rent)`);
-  }
-  return parts.length ? parts.join(' ') : null;
-}
-
-function getQuotePayFeeAmountLabel(quote: Record<string, unknown>): string | null {
-  const addon = getQuoteInputSideAddonLabel(quote);
-  if (addon) return addon.replace(/^\+/, '').replace(/,/g, '');
-  const inputFeeUi = sumInputSideWalletFeesInSellMintUi(quote);
-  if (inputFeeUi == null) return null;
-  return formatSwapAmountValue(inputFeeUi).replace(/,/g, '');
-}
-
-function renderQuotePayHeroValueHtml(
-  quote: Record<string, unknown> | null,
-  inSym: string,
-  fallbackAmt: string,
-  placeholder = false,
-  loading = false,
-): string {
-  const amtCls = placeholder ? ' swap-quote-summary-amt--placeholder' : '';
-  if (loading && placeholder) {
-    return `<span class="swap-quote-summary-amt${amtCls}">${renderLoadingSpinner('md')}</span>`;
-  }
-  const swapAmt = quote ? getQuoteSwapLegLabelFromQuote(quote) : fallbackAmt;
-  const feeAmt = quote ? getQuotePayFeeAmountLabel(quote) : null;
-  if (!feeAmt || swapAmt === '—') {
-    const amt = swapAmt !== '—' ? swapAmt : fallbackAmt;
-    return `<span class="swap-quote-summary-amt${amtCls}">${escapeHtml(amt)}</span>
-        <span class="swap-quote-summary-sym">${escapeHtml(inSym)}</span>`;
-  }
-  return `<span class="swap-quote-summary-amt${amtCls}">${escapeHtml(swapAmt)}</span>
-      <span class="swap-quote-summary-sym">${escapeHtml(inSym)}</span>
-      <span class="swap-quote-summary-plus">+</span>
-      <span class="swap-quote-summary-fee-part">
-        <span class="swap-quote-summary-amt swap-quote-summary-amt--fee${amtCls}">${escapeHtml(feeAmt)}</span>
-        <span class="swap-quote-summary-sym">${escapeHtml(inSym)}</span>
-      </span>`;
+  return payUsdLabel ? `≈ ${payUsdLabel}` : null;
 }
 
 function renderQuoteSummaryHeroTile(
@@ -2785,6 +2788,13 @@ function applyVybeQuoteBodyToUi(
   lastSwapQuoteOk = quote;
   lastRawQuoteResponse = body;
   swapQuoteWalletSnapshot = wallet;
+  if (!quote._walletPayDebitRaw) {
+    const estimatedPay = estimateInputSideWalletPayDebitFromQuote(quote);
+    if (estimatedPay) {
+      quote = { ...quote, _walletPayDebitRaw: estimatedPay };
+      lastSwapQuoteOk = quote;
+    }
+  }
   cacheVybeQuoteBuild(body, wallet, inputMint, outputMint, effectiveAmount, buildOpts);
   renderRawResponsePanels();
   renderSwapQuoteUI(quote);
@@ -4027,9 +4037,10 @@ wireTokenPickerOpen(swapOutputTokenBtn, swapOutputMintInput, 'output');
 if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
   swapFlipBtnEl.addEventListener('click', () => {
     if (!hasValidSwapWallet()) return;
+    const flippedOutputAmountUi = parseFlipOutputAmountUi();
     invalidateSwapQuoteAfterInputChange();
     flipSellBuyTokens();
-    afterSellBuyTokensFlipped();
+    afterSellBuyTokensFlipped(flippedOutputAmountUi);
   });
 }
 

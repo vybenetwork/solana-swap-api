@@ -1960,6 +1960,17 @@ tr:hover td {
   color: #71717a;
 }
 
+.swap-quote-summary-fee-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05rem;
+}
+
+.swap-quote-summary-tile--pay .swap-quote-summary-value:has(.swap-quote-summary-fee-stack) {
+  align-items: center;
+}
+
 .swap-quote-summary-fee-part {
   display: inline-flex;
   align-items: baseline;
@@ -2356,11 +2367,16 @@ tr:hover td {
 
 .routing-input-addon {
   font-size: 0.625rem;
-  font-weight: 600;
-  color: #f87171;
+  font-weight: 500;
+  color: #a1a1aa;
   line-height: 1.1;
   white-space: nowrap;
   text-align: center;
+}
+
+.routing-input-addon__val {
+  color: #f87171;
+  font-weight: 500;
 }
 
 .routing-input-total {
@@ -3282,8 +3298,17 @@ tr:hover td {
 
 .routing-canvas--placeholder .routing-amt,
 .routing-canvas--placeholder .routing-dex-caption,
-.routing-canvas--placeholder .routing-hop-index-badge {
+.routing-canvas--placeholder .routing-hop-index-badge,
+.routing-canvas--placeholder .routing-chip-amt,
+.routing-canvas--placeholder .routing-chip-bottom {
   color: #52525b;
+}
+
+.routing-canvas--placeholder .routing-input-addon,
+.routing-canvas--placeholder .routing-input-total,
+.routing-canvas--placeholder .routing-output-fees-usd,
+.routing-canvas--placeholder .routing-output-usd {
+  opacity: 0.85;
 }
 
 .route-hop-conversion {
