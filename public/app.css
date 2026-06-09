@@ -2363,6 +2363,24 @@ tr:hover td {
   text-align: center;
 }
 
+.routing-input-fee-usd {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #f87171;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.routing-input-total-usd {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #86efac;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-align: center;
+}
+
 .routing-input-total {
   font-size: 0.625rem;
   font-weight: 500;
@@ -2382,6 +2400,15 @@ tr:hover td {
 }
 
 .routing-output-addon {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #f87171;
+  line-height: 1.1;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.routing-output-fee-usd {
   font-size: 0.625rem;
   font-weight: 600;
   color: #f87171;
@@ -3046,14 +3073,6 @@ tr:hover td {
   margin: 0.12rem 0;
 }
 
-.swap-hop-fee-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.65rem;
-  margin: 0.35rem 0 0.75rem;
-  flex-shrink: 0;
-}
-
 .routing-fee-slot--route-plan {
   flex: 0 1 auto;
   align-items: flex-start;
@@ -3101,6 +3120,22 @@ tr:hover td {
   font-weight: 500;
   color: #a1a1aa;
   line-height: 1.2;
+  white-space: nowrap;
+}
+
+.routing-chip-usd--debit {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #f87171;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.routing-chip-usd--credit {
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #86efac;
+  line-height: 1.1;
   white-space: nowrap;
 }
 
@@ -3164,11 +3199,8 @@ tr:hover td {
   flex-shrink: 0;
 }
 
-.routing-chip-stack--fee-protocol .routing-chip-amt,
-.routing-chip-stack--fee-route .routing-chip-amt,
-.routing-chip-stack--fee-pool .routing-chip-amt,
-.routing-chip-stack--fee .routing-chip-amt {
-  color: #fca5a5;
+.routing-chip-amt--token {
+  color: #fafafa;
 }
 
 .routing-chip-top--fee-label {
@@ -3451,31 +3483,27 @@ tr:hover td {
   background: rgba(96, 165, 250, 0.03);
 }
 
-.swap-hop-panel--swap {
-  border-color: #27272a;
-}
-
 .swap-hop-panel--details {
   border-color: #1f1f27;
   background: #09090c;
 }
 
-.swap-hop-fee-dest {
+.swap-hop-panel__head {
   display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
   min-width: 0;
-  font-size: 0.65rem;
-  line-height: 1.25;
-  color: #a1a1aa;
 }
 
-.swap-hop-fee-dest__kind {
-  font-size: 0.55rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #71717a;
+.hop-fees-total {
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: #ecfccb;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .swap-hop-fee-dest__addr {
@@ -3483,7 +3511,6 @@ tr:hover td {
   font-size: 0.58rem;
   font-weight: 400;
   color: #d4d4d8;
-  word-break: break-all;
 }
 
 .swap-hop-fee-dest__addr-link {
@@ -3496,201 +3523,172 @@ tr:hover td {
   color: #bfdbfe;
 }
 
-.swap-hop-fee-dest__note {
-  font-size: 0.55rem;
-  font-weight: 400;
-  color: #71717a;
-}
-
-.swap-hop-fee-dest--pool .swap-hop-fee-dest__kind {
-  color: #60a5fa;
-}
-
-.swap-hop-fee-dest--ata .swap-hop-fee-dest__kind {
-  color: #fbbf24;
-}
-
-.swap-hop-fee-dest--recipient .swap-hop-fee-dest__kind {
-  color: #f87171;
-}
-
-.swap-hop-fee-dest--deduct {
-  color: #71717a;
-  font-size: 0.62rem;
-}
-
-.swap-hop-fee-dest--input-wallet .swap-hop-fee-dest__kind {
-  color: #a78bfa;
-}
-
-.swap-hop-fee-dest--priority .swap-hop-fee-dest__kind {
-  color: #94a3b8;
-}
-
-.swap-hop-conversion.route-hop-conversion--card {
-  margin-top: 0;
-  justify-content: center;
-  text-align: center;
-  background: linear-gradient(180deg, #101016 0%, #0c0c10 100%);
-}
-
-.swap-hop-details-block,
-.swap-hop-fees-block {
+/* Hop fee rows — compact: label · destination · amount · USD */
+.hop-fee-group {
   display: flex;
   flex-direction: column;
-  gap: 0.45rem;
-}
-
-.swap-hop-details-block__title,
-.swap-hop-fees-block__title {
-  margin: 0;
-  font-size: 0.62rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: #71717a;
-}
-
-.swap-hop-fees-table {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
   min-width: 0;
   border: 1px solid #27272a;
-  border-radius: 10px;
+  border-radius: 9px;
   overflow: hidden;
   background: #0c0c10;
 }
 
-.swap-hop-fees-table__row {
+.hop-fee-group + .hop-fee-group {
+  margin-top: 0.4rem;
+}
+
+.hop-fee-group__title {
+  padding: 0.28rem 0.55rem 0.24rem;
+  font-size: 0.54rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #71717a;
+  background: #12121a;
+  border-bottom: 1px solid #1f1f27;
+}
+
+.hop-fee-row {
   display: grid;
-  grid-template-columns: minmax(4.5rem, 0.75fr) minmax(5.5rem, 1.6fr) minmax(72px, 0.4fr) minmax(0, 0.978fr) minmax(0, 1.35fr);
-  gap: 0.35rem;
-  padding: 0.45rem 0.55rem;
-  border-bottom: 1px solid #27272a;
-  align-items: start;
+  grid-template-columns: minmax(4.6rem, auto) minmax(0, 1fr) auto minmax(3rem, auto);
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.38rem 0.55rem;
+  border-bottom: 1px solid #1f1f27;
   min-width: 0;
 }
 
-.swap-hop-fees-table__row:last-child {
+.hop-fee-row:last-child {
   border-bottom: none;
 }
 
-.swap-hop-fees-table__row--head {
-  padding: 0.35rem 0.55rem;
-  background: #12121a;
-}
-
-.swap-hop-fees-table__row--head .swap-hop-fees-table__cell {
-  font-size: 0.55rem;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #71717a;
-}
-
-.swap-hop-fees-table__row--total {
-  background: rgba(196, 242, 11, 0.04);
-  border-top: 1px solid rgba(196, 242, 11, 0.18);
-}
-
-.swap-hop-fees-table__row--pda {
-  background: rgba(251, 191, 36, 0.03);
-  border-top: 1px dashed rgba(251, 191, 36, 0.22);
-}
-
-.swap-hop-fees-table__cell {
-  min-width: 0;
-  font-size: 0.65rem;
-  font-weight: 400;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.3;
-  word-break: break-word;
-}
-
-.swap-hop-fees-table__cell--label {
+.hop-fee-row__label {
   font-size: 0.58rem;
-  font-weight: 500;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: #a1a1aa;
   white-space: nowrap;
 }
 
-.swap-hop-fees-table__row--fee-protocol .swap-hop-fees-table__cell--label {
+.hop-fee-row--fee-protocol .hop-fee-row__label,
+.hop-fee-row--fee-route .hop-fee-row__label {
   color: #f87171;
 }
 
-.swap-hop-fees-table__row--fee-route .swap-hop-fees-table__cell--label {
-  color: #f87171;
-}
-
-.swap-hop-fees-table__row--fee-pool .swap-hop-fees-table__cell--label {
+.hop-fee-row--fee-pool .hop-fee-row__label {
   color: #60a5fa;
 }
 
-.swap-hop-fees-table__row--total .swap-hop-fees-table__cell--label {
-  color: #bef264;
-}
-
-.swap-hop-fees-table__row--pda .swap-hop-fees-table__cell--label {
+.hop-fee-row--fee-token-acc-rent .hop-fee-row__label {
   color: #fbbf24;
-  font-size: 0.58rem;
-  padding-left: 0.35rem;
 }
 
-.swap-hop-fees-table__cell--amt {
+.hop-fee-row__dest {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.hop-fee-dest {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.hop-fee-dest__kind {
+  font-size: 0.55rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #71717a;
+  flex-shrink: 0;
+}
+
+.hop-fee-dest__sep {
+  color: #3f3f46;
+  flex-shrink: 0;
+}
+
+.hop-fee-dest__note {
+  font-size: 0.56rem;
+  color: #71717a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hop-fee-dest--pool .hop-fee-dest__kind {
+  color: #60a5fa;
+}
+
+.hop-fee-dest--ata .hop-fee-dest__kind {
+  color: #fbbf24;
+}
+
+.hop-fee-dest--recipient .hop-fee-dest__kind {
+  color: #f87171;
+}
+
+.hop-fee-dest--input-wallet .hop-fee-dest__kind {
+  color: #a78bfa;
+}
+
+.hop-fee-dest--priority .hop-fee-dest__kind {
+  color: #94a3b8;
+}
+
+.hop-fee-dest--deduct .hop-fee-dest__kind {
+  color: #71717a;
+}
+
+.hop-fee-row__amt {
+  font-size: 0.64rem;
   color: #fafafa;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
 }
 
-.swap-hop-fees-table__row--total .swap-hop-fees-table__cell--amt {
-  color: #ecfccb;
-}
-
-.swap-hop-fees-table__cell--usd {
+.hop-fee-row__usd {
+  font-size: 0.62rem;
   color: #fde68a;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-align: right;
 }
 
-.swap-hop-fees-table__cell--base {
-  color: #86efac;
-}
-
-.swap-hop-fees-table__cell--dest {
-  color: #a1a1aa;
-  font-weight: 400;
-  font-size: 0.58rem;
-  line-height: 1.3;
-}
-
-.swap-hop-detail-grid {
-  margin-top: 0;
-}
-
-.swap-hop-detail-grid--rows {
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-}
-
-.swap-hop-detail-grid__row {
+/* Hop technical details — 3 cells per row */
+.swap-hop-grid3 {
   display: grid;
-  gap: 0.45rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.4rem;
   min-width: 0;
 }
 
-.swap-hop-detail-grid__row--3 {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
+@media (max-width: 560px) {
+  .swap-hop-grid3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 
-.swap-hop-detail-grid__row--2 {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  .hop-fee-row {
+    grid-template-columns: minmax(4.6rem, auto) minmax(0, 1fr) auto;
+  }
+
+  .hop-fee-row__usd {
+    display: none;
+  }
 }
 
 .swap-hop-detail-cell {
   display: flex;
   flex-direction: column;
-  gap: 0.22rem;
-  padding: 0.5rem 0.55rem;
+  gap: 0.16rem;
+  padding: 0.42rem 0.5rem;
   background: #0c0c10;
   border: 1px solid #27272a;
   border-radius: 9px;
@@ -3698,19 +3696,24 @@ tr:hover td {
 }
 
 .swap-hop-detail-k {
-  font-size: 0.6rem;
+  font-size: 0.56rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: #71717a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .swap-hop-detail-v {
-  font-size: 0.75rem;
+  font-size: 0.72rem;
   font-weight: 600;
   color: #e4e4e7;
   font-variant-numeric: tabular-nums;
-  word-break: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   line-height: 1.35;
 }
 
@@ -3719,15 +3722,6 @@ tr:hover td {
   font-size: 0.68rem;
   font-weight: 500;
   color: #a1a1aa;
-}
-
-.swap-hop-detail-raw {
-  display: inline;
-  margin-left: 0.2rem;
-  font-size: 0.62rem;
-  font-weight: 500;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: #71717a;
 }
 
 .swap-hop-detail-v code {
@@ -3780,46 +3774,6 @@ tr:hover td {
   background: rgba(74, 222, 128, 0.12);
   padding: 0.15rem 0.4rem;
   border-radius: 999px;
-}
-
-.swap-hop-card__tech {
-  margin-top: 0.5rem;
-  padding-top: 0.45rem;
-  border-top: 1px solid #27272a;
-}
-
-.swap-hop-card__tech > summary {
-  cursor: pointer;
-  font-size: 0.68rem;
-  color: #71717a;
-  list-style: none;
-}
-
-.swap-hop-card__tech > summary::-webkit-details-marker {
-  display: none;
-}
-
-.swap-hop-card__tech-dl {
-  margin: 0.4rem 0 0;
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.2rem 0.65rem;
-  font-size: 0.68rem;
-}
-
-.swap-hop-card__tech-dl dt {
-  margin: 0;
-  color: #52525b;
-}
-
-.swap-hop-card__tech-dl dd {
-  margin: 0;
-  min-width: 0;
-}
-
-.swap-hop-card__tech-dl code {
-  font-size: 0.65rem;
-  color: #a1a1aa;
 }
 
 .swap-quote-fields-grid {

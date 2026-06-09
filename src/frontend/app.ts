@@ -81,6 +81,7 @@ import {
   scheduleRoutingDiagramZoom,
   normalizeRouterId,
   routerDisplayLabel,
+  getQuoteWalletCostBucketsUsd,
 } from './route-ui.js';
 
 interface TokenSymbolResponse {
@@ -2183,23 +2184,27 @@ function estimateSwapPayUsdFromInput(): number | null {
 }
 
 function buildQuotePaySubLabel(quote: Record<string, unknown> | null): string | null {
+  const q = quote ?? lastSwapQuoteOk;
   const payUsd = quote != null ? getQuotePayUsd(quote) : estimateSwapPayUsdFromInput();
   const payUsdLabel = payUsd != null ? formatSwapPayUsdLabel(payUsd) : null;
-  const feeUsd =
-    quote != null
-      ? getQuotePayFeeUsd(quote)
-      : lastSwapQuoteOk
-        ? getQuotePayFeeUsd(lastSwapQuoteOk)
-        : null;
-  const hasBreakdown =
-    quote != null
-      ? getQuotePayFeeAmountLabel(quote) != null
-      : lastSwapQuoteOk != null && getQuotePayFeeAmountLabel(lastSwapQuoteOk) != null;
+
+  /* Same per-hop wallet-cost items as the route plan fee breakdown:
+     protocol/route/pool/priority → "fee", token account rent → "rent". */
+  const buckets = q != null ? getQuoteWalletCostBucketsUsd(q) : { feeUsd: null, rentUsd: null };
+  let feeUsd = buckets.feeUsd;
+  if (feeUsd == null && q != null && getQuotePayFeeAmountLabel(q) != null) {
+    feeUsd = getQuotePayFeeUsd(q);
+  }
+
   const parts: string[] = [];
   if (payUsdLabel) parts.push(`≈ ${payUsdLabel}`);
-  if (hasBreakdown && feeUsd != null) {
+  if (feeUsd != null && feeUsd > 0) {
     const feeLabel = formatSwapPayUsdLabel(feeUsd);
-    if (feeLabel) parts.push(`+ ${feeLabel} (fees)`);
+    if (feeLabel) parts.push(`+ ${feeLabel} (fee)`);
+  }
+  if (buckets.rentUsd != null && buckets.rentUsd > 0) {
+    const rentLabel = formatSwapPayUsdLabel(buckets.rentUsd);
+    if (rentLabel) parts.push(`+ ${rentLabel} (rent)`);
   }
   return parts.length ? parts.join(' ') : null;
 }
@@ -3290,12 +3295,16 @@ function validateVybeQuoteWallet(): string | null {
   if (!hasValidSwapWallet()) {
     return 'Enter a valid Solana wallet address.';
   }
-  const connected = getBrowserWalletAddress();
-  if (!connected) {
-    return 'Connect your wallet to get a quote.';
-  }
-  if (connected !== wallet) {
-    return 'Connected wallet does not match the address field.';
+  /* A connected wallet is only needed when we will also sign; build-only
+     quotes work from the typed address, same as Jupiter/Titan. */
+  if (swapBuildMode === 'build-sign') {
+    const connected = getBrowserWalletAddress();
+    if (!connected) {
+      return 'Connect your wallet to get a quote.';
+    }
+    if (connected !== wallet) {
+      return 'Connected wallet does not match the address field.';
+    }
   }
   return null;
 }

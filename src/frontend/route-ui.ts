@@ -614,14 +614,95 @@ function sumWalletFeesUsdMissingFromRawDebit(quote: Record<string, unknown>): nu
 
 /**
  * Wallet pay USD for badge math — one consistent definition:
- * raw-based pay USD plus wallet-cost fee USD the raw estimate misses.
- * Simulation (`_walletPayDebitRaw`) already captures all debits in the raw number.
+ * raw-based pay USD plus wallet-cost fee USD the raw debit cannot capture.
+ * The raw debit is in the input mint, so foreign-mint debits (e.g. SOL rent
+ * on a USDC sell) are always missing from it — Phantom shows them separately.
  */
 function quoteWalletPayUsdForBadges(quote: Record<string, unknown>): number | null {
   const base = deps.quoteWalletPayUsd(quote);
   if (base == null) return null;
-  if (parseRawAmountDigits(quote._walletPayDebitRaw)) return base;
   return base + sumWalletFeesUsdMissingFromRawDebit(quote);
+}
+
+export interface QuoteWalletCostBucketsUsd {
+  /** Wallet-paid fees excluding rent (protocol / route / pool / priority). */
+  feeUsd: number | null;
+  /** Token account rent deposits paid from the wallet. */
+  rentUsd: number | null;
+}
+
+/** Phantom-style wallet cost buckets, from the same per-hop items as the fee breakdown. */
+export function getQuoteWalletCostBucketsUsd(
+  quote: Record<string, unknown>,
+): QuoteWalletCostBucketsUsd {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  let feeUsd = 0;
+  let rentUsd = 0;
+  let foundFee = false;
+  let foundRent = false;
+  for (const step of plan) {
+    for (const item of getHopFeeDisplayItems(step)) {
+      if (!isWalletCostFeeItem(item, quote)) continue;
+      const usd = computeFeeUsdNumeric(item, quote);
+      if (usd == null || usd <= 0) continue;
+      if (isAccRentWalletFeeItem(item)) {
+        rentUsd += usd;
+        foundRent = true;
+      } else {
+        feeUsd += usd;
+        foundFee = true;
+      }
+    }
+  }
+  return {
+    feeUsd: foundFee ? feeUsd : null,
+    rentUsd: foundRent ? rentUsd : null,
+  };
+}
+
+export interface FinalReceivePctBreakdown {
+  pct: number;
+  pctLabel: string;
+  title: string;
+}
+
+/**
+ * Final output badge: USD received ÷ total USD paid (swap + fee + rent — the
+ * same debits Phantom lists), with a hover tooltip showing the division.
+ */
+export function computeFinalReceivePctBreakdown(
+  quote: Record<string, unknown>,
+): FinalReceivePctBreakdown | null {
+  const outUsd = deps.getQuoteReceiveUsd(quote);
+  if (outUsd == null || outUsd <= 0) return null;
+
+  const swapUsd = deps.getQuoteSwapUsdValue(quote);
+  const buckets = getQuoteWalletCostBucketsUsd(quote);
+
+  let payUsd: number | null = null;
+  const payParts: string[] = [];
+  if (swapUsd != null && swapUsd > 0) {
+    payUsd = swapUsd + (buckets.feeUsd ?? 0) + (buckets.rentUsd ?? 0);
+    payParts.push(`$${deps.formatSwapPayUsdAmount(swapUsd)} swap`);
+    if (buckets.feeUsd != null) payParts.push(`$${deps.formatSwapPayUsdAmount(buckets.feeUsd)} fee`);
+    if (buckets.rentUsd != null) payParts.push(`$${deps.formatSwapPayUsdAmount(buckets.rentUsd)} rent`);
+  }
+  if (payUsd == null || payUsd <= 0) {
+    payUsd = quoteWalletPayUsdForBadges(quote);
+  }
+  if (payUsd == null || payUsd <= 0 || outUsd >= payUsd) return null;
+
+  const pct = (outUsd / payUsd) * 100;
+  if (!Number.isFinite(pct) || pct <= 0) return null;
+
+  const pctLabel = `${Math.round(pct * 100) / 100}%`;
+  const breakdown =
+    payParts.length > 1 ? ` (${payParts.join(' + ')})` : '';
+  const title =
+    `You receive ≈ $${deps.formatSwapPayUsdAmount(outUsd)} ÷ ` +
+    `you pay ≈ $${deps.formatSwapPayUsdAmount(payUsd)}${breakdown} = ${pctLabel}`;
+
+  return { pct, pctLabel, title };
 }
 
 interface HopOutAmounts {
@@ -1077,32 +1158,12 @@ export function formatRouteChipLabel(plan: VybeRoutePlanStepLite[]): string {
   }
   return hopCount === 1 ? '1 Hop' : `${hopCount} Hops`;
 }
-function renderHopConversionLeg(
-  leg: RouteHopLeg,
-  className = 'route-hop-conversion',
-  loading?: { in?: boolean; out?: boolean },
-): string {
-  const inAmtHtml = loading?.in ? deps.renderLoadingSpinner('sm') : deps.escapeHtml(leg.inAmt);
-  const outAmtHtml = loading?.out ? deps.renderLoadingSpinner('sm') : deps.escapeHtml(leg.outAmt);
-  return `<div class="${className}">
-    <span class="route-hop-leg">
-      <span class="route-hop-amt">${inAmtHtml}</span>
-      <span class="route-hop-sym">${deps.escapeHtml(leg.inSym)}</span>
-    </span>
-    <span class="route-hop-arrow" aria-hidden="true">→</span>
-    <span class="route-hop-leg">
-      <span class="route-hop-amt">${outAmtHtml}</span>
-      <span class="route-hop-sym">${deps.escapeHtml(leg.outSym)}</span>
-    </span>
-  </div>`;
-}
-
 function renderRoutingTokenIcon(mint: string, _sym: string): string {
   const meta = getCachedTokenMeta(mint);
   return renderTokenIconImgHtml(effectiveTokenIconSrc(meta?.logoUrl), 'routing-token-img');
 }
 
-function renderJupiterEndpointPill(
+function renderRouteEndpointPill(
   amt: string,
   sym: string,
   title?: string,
@@ -1123,10 +1184,16 @@ function renderJupiterEndpointPill(
   </div>`;
 }
 
-function renderJupiterPctLink(pct: string, direction: 'in' | 'out' = 'in'): string {
+function renderRoutePctBadge(
+  pct: string,
+  direction: 'in' | 'out' = 'in',
+  title: string | null = null,
+): string {
   const outClass = direction === 'out' ? ' routing-pct-badge--out' : '';
-  return `<div class="routing-hop-link routing-hop-link--${direction}" aria-hidden="true">
-    <span class="routing-pct-badge${outClass}">${deps.escapeHtml(pct)}</span>
+  const titleAttr = title ? ` title="${deps.escapeHtml(title)}"` : '';
+  const ariaHidden = title ? '' : ' aria-hidden="true"';
+  return `<div class="routing-hop-link routing-hop-link--${direction}"${ariaHidden}>
+    <span class="routing-pct-badge${outClass}"${titleAttr}>${deps.escapeHtml(pct)}</span>
   </div>`;
 }
 
@@ -1552,6 +1619,31 @@ export function getQuoteDiagramOutputFeeAddon(quote: Record<string, unknown>): s
   return formatted === '—' ? null : `−${formatted}`;
 }
 
+function getQuoteDiagramWalletCostUsd(quote: Record<string, unknown>): number | null {
+  const buckets = getQuoteWalletCostBucketsUsd(quote);
+  const total = (buckets.feeUsd ?? 0) + (buckets.rentUsd ?? 0);
+  return total > 0 ? total : null;
+}
+
+function getQuoteDiagramInputFeeUsdLabel(quote: Record<string, unknown>): string | null {
+  const usd = getQuoteDiagramWalletCostUsd(quote);
+  if (usd == null) return null;
+  return `−$${deps.formatSwapPayUsdAmount(usd)}`;
+}
+
+function getQuoteDiagramInputTotalUsdLabel(quote: Record<string, unknown>): string | null {
+  const swapUsd = deps.getQuoteSwapUsdValue(quote);
+  if (swapUsd == null || swapUsd <= 0) return null;
+  const cost = getQuoteDiagramWalletCostUsd(quote) ?? 0;
+  return `+$${deps.formatSwapPayUsdAmount(swapUsd + cost)}`;
+}
+
+function getQuoteDiagramOutputFeeUsdLabel(quote: Record<string, unknown>): string | null {
+  const usd = getQuoteDiagramWalletCostUsd(quote);
+  if (usd == null) return null;
+  return `Fee USD: −$${deps.formatSwapPayUsdAmount(usd)}`;
+}
+
 function getQuoteDiagramOutputUsdSubline(quote: Record<string, unknown>): string | null {
   const usd = deps.getQuoteReceiveUsd(quote);
   if (usd == null) return null;
@@ -1653,9 +1745,9 @@ function renderRoutingFeeChip(
   variant: string,
   title: string,
 ): string {
-  const usdInChip = equiv.usd
-    ? `$${stripFiatPrefixForChip(equiv.usd)} USD`
-    : '—';
+  const usdDebit =
+    equiv.usd != null ? `−$${stripFiatPrefixForChip(equiv.usd)}` : null;
+  const tokenInChip = `${equiv.primary} ${equiv.feeSym}`;
   const baseBelow = isAccRentFeeLabel(label)
     ? formatAccRentFeeSolSubline(equiv)
     : equiv.inputEquiv
@@ -1663,8 +1755,13 @@ function renderRoutingFeeChip(
       : null;
   return `<div class="routing-chip-stack routing-chip-stack--${variant}" title="${deps.escapeHtml(title)}">
     <span class="routing-chip-top routing-chip-top--fee-label">${deps.escapeHtml(label)}</span>
+    ${
+      usdDebit
+        ? `<span class="routing-chip-usd routing-chip-usd--debit">${deps.escapeHtml(usdDebit)}</span>`
+        : ''
+    }
     <div class="routing-pill routing-pill--chip routing-pill--chip-fee">
-      <span class="routing-chip-amt routing-chip-amt--usd">${deps.escapeHtml(usdInChip)}</span>
+      <span class="routing-chip-amt routing-chip-amt--token">${deps.escapeHtml(tokenInChip)}</span>
     </div>
     ${
       baseBelow
@@ -1679,20 +1776,6 @@ function renderHopFeeChip(item: HopFeeItemLite, quote: Record<string, unknown>):
   const equiv = computeFeeEquivalents(item.amountRaw, item.mint, quote);
   const title = formatFeeEquivDetailText(equiv);
   return renderRoutingFeeChip(label, equiv, feeChipVariant(label), title);
-}
-
-function renderHopPlanFeeTableRowFromItem(
-  item: HopFeeItemLite,
-  quote: Record<string, unknown>,
-  destCtx?: FeeDestinationRenderCtx,
-): string {
-  return flattenHopFeeItems([item])
-    .map((flatItem) => {
-      const equiv = computeFeeEquivalents(flatItem.amountRaw, flatItem.mint, quote);
-      const label = displayFeeItemLabel(flatItem);
-      return renderHopPlanFeeTableRow(label, equiv, feeChipVariant(label), flatItem, destCtx);
-    })
-    .join('');
 }
 
 function isLikelySolanaPubkey(value: string | undefined): boolean {
@@ -1745,61 +1828,54 @@ function resolveFeeDestinationAddress(
   return '';
 }
 
-function renderHopPlanFeeTableRow(
-  label: string,
-  equiv: FeeAmountEquiv,
-  variant: string,
-  item?: HopFeeItemLite,
-  destCtx?: FeeDestinationRenderCtx,
-  opts?: { amountDisplay?: string },
-): string {
-  const title = formatFeeEquivDetailText(equiv);
-  const primary =
-    opts?.amountDisplay ??
-    `−${equiv.primary} ${equiv.feeSym}`;
-  const usd = equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : '—';
-  const base = isAccRentFeeLabel(label)
-    ? formatAccRentFeeSolSubline(equiv)
-    : equiv.inputEquiv
-      ? stripApproxPrefix(equiv.inputEquiv)
-      : '—';
-  const dest = item ? renderFeeDestinationCell(item, destCtx) : '—';
-  return `<div class="swap-hop-fees-table__row swap-hop-fees-table__row--${variant}" title="${deps.escapeHtml(title)}">
-    <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--label">${deps.escapeHtml(label)}</span>
-    <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--amt">${deps.escapeHtml(primary)}</span>
-    <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--usd">${deps.escapeHtml(usd)}</span>
-    <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--base">${deps.escapeHtml(base)}</span>
-    <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--dest">${dest}</span>
-  </div>`;
-}
+const FEE_DEST_KIND_META: Record<string, { label: string; mod: string }> = {
+  lp_pool: { label: 'Pool vault', mod: 'pool' },
+  new_token_account: { label: 'Token account', mod: 'ata' },
+  fee_recipient: { label: 'Fee Recipient', mod: 'recipient' },
+  input_wallet: { label: 'Your wallet', mod: 'input-wallet' },
+  network_priority: { label: 'Validator', mod: 'priority' },
+  output_deduction: { label: 'Output deduction', mod: 'deduct' },
+};
 
-function renderFeeDestinationCell(item: HopFeeItemLite, ctx?: FeeDestinationRenderCtx): string {
-  const kind = item.destinationKind;
-  const note = item.destinationNote?.trim();
+/** One-line destination: colored kind tag + Solscan address link (or note fallback). */
+function renderFeeDestinationInline(item: HopFeeItemLite, ctx?: FeeDestinationRenderCtx): string {
+  const meta = item.destinationKind ? FEE_DEST_KIND_META[item.destinationKind] : undefined;
   const addr = resolveFeeDestinationAddress(item, ctx);
   const addrHtml = addr ? renderFeeDestinationAddrLine(addr) : '';
+  const note = item.destinationNote?.trim();
+  const showNote = note && item.destinationKind !== 'network_priority';
 
-  if (kind === 'lp_pool') {
-    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--pool"${addr ? ` title="${deps.escapeHtml(addr)}"` : ''}><span class="swap-hop-fee-dest__kind">Pool vault</span>${addrHtml || `<span class="swap-hop-fee-dest__note">${deps.escapeHtml(note ?? 'Pool account')}</span>`}</span>`;
+  if (!meta && !addrHtml) {
+    if (!showNote) return '';
+    return `<span class="hop-fee-dest"><span class="hop-fee-dest__note">${deps.escapeHtml(note!)}</span></span>`;
   }
-  if (kind === 'new_token_account') {
-    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--ata"${addr ? ` title="${deps.escapeHtml(addr)}"` : ''}><span class="swap-hop-fee-dest__kind">New token account</span>${addrHtml}<span class="swap-hop-fee-dest__note">Rent-exempt deposit</span></span>`;
-  }
-  if (kind === 'fee_recipient') {
-    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--recipient"${addr ? ` title="${deps.escapeHtml(addr)}"` : ''}><span class="swap-hop-fee-dest__kind">Fee recipient</span>${addrHtml || `<span class="swap-hop-fee-dest__note">${deps.escapeHtml(note ?? '—')}</span>`}</span>`;
-  }
-  if (kind === 'input_wallet') {
-    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--input-wallet"${addr ? ` title="${deps.escapeHtml(addr)}"` : ''}><span class="swap-hop-fee-dest__kind">Your wallet</span>${addrHtml}<span class="swap-hop-fee-dest__note">${deps.escapeHtml(note ?? 'Debited with swap input')}</span></span>`;
-  }
-  if (kind === 'network_priority') {
-    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--priority"${addr ? ` title="${deps.escapeHtml(addr)}"` : ''}><span class="swap-hop-fee-dest__kind">Priority fee</span>${addrHtml}<span class="swap-hop-fee-dest__note">${deps.escapeHtml(note ?? 'Solana validators')}</span></span>`;
-  }
-  if (kind === 'output_deduction') {
-    return `<span class="swap-hop-fee-dest swap-hop-fee-dest--deduct">${addrHtml}<span class="swap-hop-fee-dest__note">${deps.escapeHtml(note ?? 'Reduces quoted output')}</span></span>`;
-  }
-  if (addrHtml) return `<span class="swap-hop-fee-dest">${addrHtml}</span>`;
-  if (note) return `<span class="swap-hop-fee-dest"><span class="swap-hop-fee-dest__note">${deps.escapeHtml(note)}</span></span>`;
-  return '—';
+  const kindHtml = meta
+    ? `<span class="hop-fee-dest__kind">${deps.escapeHtml(meta.label)}</span>`
+    : '';
+  const tail = addrHtml || (showNote ? `<span class="hop-fee-dest__note">${deps.escapeHtml(note!)}</span>` : '');
+  const sep = kindHtml && tail ? '<span class="hop-fee-dest__sep" aria-hidden="true">·</span>' : '';
+  return `<span class="hop-fee-dest hop-fee-dest--${meta?.mod ?? 'generic'}">${kindHtml}${sep}${tail}</span>`;
+}
+
+/** Compact fee row: label · destination · token amount · USD. */
+function renderHopFeeRow(
+  item: HopFeeItemLite,
+  equiv: FeeAmountEquiv,
+  destCtx?: FeeDestinationRenderCtx,
+): string {
+  const label = displayFeeItemLabel(item);
+  const variant = feeChipVariant(label);
+  const titleParts = [formatFeeEquivDetailText(equiv)];
+  const note = item.destinationNote?.trim();
+  if (note) titleParts.push(note);
+  const amt = `−${equiv.primary} ${equiv.feeSym}`;
+  const usd = equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : '—';
+  return `<div class="hop-fee-row hop-fee-row--${variant}" title="${deps.escapeHtml(titleParts.join(' — '))}">
+    <span class="hop-fee-row__label">${deps.escapeHtml(label)}</span>
+    <span class="hop-fee-row__dest">${renderFeeDestinationInline(item, destCtx)}</span>
+    <span class="hop-fee-row__amt">${deps.escapeHtml(amt)}</span>
+    <span class="hop-fee-row__usd">${deps.escapeHtml(usd)}</span>
+  </div>`;
 }
 
 function renderHopPlanFeesSection(
@@ -1810,42 +1886,56 @@ function renderHopPlanFeesSection(
   feeAmt: string | null,
   ammKey?: string,
 ): string {
-  const inputSym = deps.getSwapInSym();
   const destCtx: FeeDestinationRenderCtx = {
     walletAddress: quoteWalletAddress(quote),
     ammKey: ammKey?.trim() || undefined,
   };
-  const head = `<div class="swap-hop-fees-table__row swap-hop-fees-table__row--head">
-    <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--label">Fee</span>
-    <span class="swap-hop-fees-table__cell">Amount</span>
-    <span class="swap-hop-fees-table__cell">USD</span>
-    <span class="swap-hop-fees-table__cell">${deps.escapeHtml(inputSym)}</span>
-    <span class="swap-hop-fees-table__cell">Destination</span>
-  </div>`;
   const rowData = flattenHopFeeItems(hopFees.items).map((item) => ({
     item,
     equiv: computeFeeEquivalents(item.amountRaw, item.mint, quote),
   }));
-  const bodyRows = rowData
-    .map(({ item, equiv }) => {
-      const label = displayFeeItemLabel(item);
-      return renderHopPlanFeeTableRow(label, equiv, feeChipVariant(label), item, destCtx);
-    })
-    .join('');
 
-  let totalRow = '';
-  if (rowData.length > 1) {
-    const totalEquiv = sumHopPlanFeeTableTotals(rowData, quote);
-    if (totalEquiv) {
-      totalRow = renderHopPlanFeeTableRow('Total fees', totalEquiv, 'total', undefined, destCtx, {
-        amountDisplay: totalEquiv.amountDisplay,
-      });
+  const walletRows: string[] = [];
+  const outputRows: string[] = [];
+  for (const { item, equiv } of rowData) {
+    const row = renderHopFeeRow(item, equiv, destCtx);
+    if (isOutputSideFeeDisplayItem(item) && !isWalletCostFeeItem(item, quote)) {
+      outputRows.push(row);
+    } else {
+      walletRows.push(row);
+    }
+  }
+
+  const group = (title: string | null, rows: string[]) =>
+    rows.length
+      ? `<div class="hop-fee-group">${
+          title ? `<div class="hop-fee-group__title">${deps.escapeHtml(title)}</div>` : ''
+        }${rows.join('')}</div>`
+      : '';
+  const splitGroups = walletRows.length > 0 && outputRows.length > 0;
+  const groupsHtml = splitGroups
+    ? group('Paid from wallet', walletRows) + group('Deducted from output', outputRows)
+    : group(null, [...walletRows, ...outputRows]);
+
+  let totalHtml = '';
+  const totalEquiv = sumHopPlanFeeTableTotals(rowData, quote);
+  if (totalEquiv) {
+    const parts: string[] = [];
+    if (totalEquiv.amountDisplay && totalEquiv.amountDisplay !== '—') {
+      parts.push(totalEquiv.amountDisplay);
+    }
+    if (totalEquiv.usd) parts.push(totalEquiv.usd);
+    if (parts.length > 0) {
+      totalHtml = `<span class="hop-fees-total" title="Total fees for this hop">${deps.escapeHtml(parts.join(' · '))}</span>`;
     }
   }
 
   return `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
-    <h5 class="swap-hop-panel__title">Fee breakdown</h5>
-    <div class="swap-hop-fees-table">${head}${bodyRows}${totalRow}</div>
+    <div class="swap-hop-panel__head">
+      <h5 class="swap-hop-panel__title">Fees</h5>
+      ${totalHtml}
+    </div>
+    ${groupsHtml}
   </section>`;
 }
 
@@ -2098,7 +2188,7 @@ function renderRoutingFeeBranch(
   </div>`;
 }
 
-function renderJupiterMarketNode(
+function renderRouteMarketNode(
   meta: RouteHopMeta,
   leg: RouteHopLeg,
   quote: Record<string, unknown>,
@@ -2138,7 +2228,7 @@ function parseHopPctLabel(label: string | null): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
-function renderJupiterTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<string, unknown>): string {
+function renderRouteTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<string, unknown>): string {
   const metas: RouteHopMeta[] = [];
   collectRouteHopMetas(node, metas);
   if (metas.length === 0) return '';
@@ -2150,26 +2240,29 @@ function renderJupiterTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<
       if (!leg) return '';
       const isLastHop = i === metas.length - 1;
       const inLink =
-        i === 0 ? renderJupiterPctLink(hopPercentLabel(meta.step)) : '';
-      let outPct = hopOutgoingPercentLabel(meta.step, quote, isLastHop, meta.planIndex);
+        i === 0 ? renderRoutePctBadge(hopPercentLabel(meta.step)) : '';
+      const finalBreakdown = isLastHop ? computeFinalReceivePctBreakdown(quote) : null;
+      let outPct =
+        finalBreakdown?.pctLabel ??
+        hopOutgoingPercentLabel(meta.step, quote, isLastHop, meta.planIndex);
       const pctNum = parseHopPctLabel(outPct);
-      if (pctNum != null && prevOutPct != null && pctNum >= prevOutPct - 0.001) {
+      if (!finalBreakdown && pctNum != null && prevOutPct != null && pctNum >= prevOutPct - 0.001) {
         outPct = null;
       } else if (pctNum != null) {
         prevOutPct = pctNum;
       }
       const outLink =
         outPct && outPct !== '100%'
-          ? renderJupiterPctLink(outPct, 'out')
+          ? renderRoutePctBadge(outPct, 'out', finalBreakdown?.title ?? null)
           : '';
-      return inLink + renderJupiterMarketNode(meta, leg, quote) + outLink;
+      return inLink + renderRouteMarketNode(meta, leg, quote) + outLink;
     })
     .join('');
 
   return `<div class="routing-rail-row">${inner}<div class="routing-rail-tail" aria-hidden="true"></div></div>`;
 }
 
-function renderJupiterFork(
+function renderRouteFork(
   node: Extract<RouteNode, { kind: 'fork' }>,
   legs: RouteHopLeg[],
   quote: Record<string, unknown>,
@@ -2177,27 +2270,27 @@ function renderJupiterFork(
   const n = node.branches.length;
   const boardClass =
     n === 1 ? 'routing-split-board--1' : n === 2 ? 'routing-split-board--2' : 'routing-split-board--multi';
-  const tracks = node.branches.map((b) => renderJupiterTrack(b, legs, quote)).join('');
+  const tracks = node.branches.map((b) => renderRouteTrack(b, legs, quote)).join('');
   return `<div class="routing-split-board ${boardClass}">${tracks}</div>`;
 }
 
-function renderJupiterRouteBody(
+function renderRouteBody(
   node: RouteNode,
   legs: RouteHopLeg[],
   quote: Record<string, unknown>,
 ): string {
   if (node.kind === 'empty') return '';
   if (node.kind === 'fork') {
-    return renderJupiterFork(node, legs, quote);
+    return renderRouteFork(node, legs, quote);
   }
   if (node.kind === 'hop') {
-    return renderJupiterTrack(node, legs, quote);
+    return renderRouteTrack(node, legs, quote);
   }
   const hasFork = node.nodes.some((n) => n.kind === 'fork');
   if (hasFork) {
-    return node.nodes.map((n) => renderJupiterRouteBody(n, legs, quote)).join('');
+    return node.nodes.map((n) => renderRouteBody(n, legs, quote)).join('');
   }
-  return renderJupiterTrack(node, legs, quote);
+  return renderRouteTrack(node, legs, quote);
 }
 
 function routingCanvasHopClass(hopCount: number): string {
@@ -2224,9 +2317,9 @@ function renderRoutingFrame(
   loading = false,
   hasFees = false,
   hasAccRentAbove = false,
-  inputAddon: string | null = null,
-  inputTotalLabel: string | null = null,
-  outputAddon: string | null = null,
+  inputFeeUsdLabel: string | null = null,
+  inputTotalUsdLabel: string | null = null,
+  outputFeeUsdLabel: string | null = null,
   outputUsdSubline: string | null = null,
   outputUsdTitle: string | null = null,
 ): string {
@@ -2234,17 +2327,17 @@ function renderRoutingFrame(
   const loadingClass = loading ? ' routing-canvas--loading' : '';
   const feesClass = hasFees ? ' routing-canvas--has-fees' : '';
   const accRentClass = hasAccRentAbove ? ' routing-canvas--has-acc-rent-above' : '';
-  const inputAddonHtml =
-    inputAddon && inputAddon !== '—'
-      ? `<span class="routing-input-addon">Fee: ${deps.escapeHtml(inputAddon)} ${deps.escapeHtml(inSym)}</span>`
+  const inputFeeUsdHtml =
+    inputFeeUsdLabel && inputFeeUsdLabel !== '—'
+      ? `<span class="routing-input-fee-usd">${deps.escapeHtml(inputFeeUsdLabel)}</span>`
       : '';
-  const inputTotalHtml =
-    inputTotalLabel && inputTotalLabel !== '—' && inputAddon
-      ? `<span class="routing-input-total">Total: <span class="routing-input-total__val">${deps.escapeHtml(inputTotalLabel)} ${deps.escapeHtml(inSym)}</span></span>`
+  const inputTotalUsdHtml =
+    inputTotalUsdLabel && inputTotalUsdLabel !== '—'
+      ? `<span class="routing-input-total-usd">${deps.escapeHtml(inputTotalUsdLabel)}</span>`
       : '';
-  const outputAddonHtml =
-    outputAddon && outputAddon !== '—'
-      ? `<span class="routing-output-addon">Fee: ${deps.escapeHtml(outputAddon)} ${deps.escapeHtml(outSym)}</span>`
+  const outputFeeUsdHtml =
+    outputFeeUsdLabel && outputFeeUsdLabel !== '—'
+      ? `<span class="routing-output-fee-usd">${deps.escapeHtml(outputFeeUsdLabel)}</span>`
       : '';
   const outputUsdHtml =
     outputUsdSubline && outputUsdSubline !== '—'
@@ -2254,15 +2347,15 @@ function renderRoutingFrame(
     <div class="routing-frame">
       <div class="routing-endpoint routing-endpoint--in">
         <div class="routing-endpoint-stack">
-          ${inputAddonHtml}
-          ${renderJupiterEndpointPill(inDisplay, inSym, undefined, loading && inDisplay === '—')}
-          ${inputTotalHtml}
+          ${inputFeeUsdHtml}
+          ${renderRouteEndpointPill(inDisplay, inSym, undefined, loading && inDisplay === '—')}
+          ${inputTotalUsdHtml}
         </div>
       </div>
       <div class="routing-endpoint routing-endpoint--out">
         <div class="routing-endpoint-stack">
-          ${outputAddonHtml}
-          ${renderJupiterEndpointPill(outDisplay, outSym, outTitle, loading)}
+          ${outputFeeUsdHtml}
+          ${renderRouteEndpointPill(outDisplay, outSym, outTitle, loading)}
           ${outputUsdHtml}
         </div>
       </div>
@@ -2279,12 +2372,11 @@ function renderRoutingFrame(
 export function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const inSym = deps.getSwapInSym();
   const outSym = deps.getSwapOutSym();
-  const inTotalDisplay = getQuoteWalletPayLabelFromQuote(quote);
   const inDisplay = getQuoteSwapLegLabelFromQuote(quote);
   const outAmt = formatQuoteTokenAmount(quote, 'out');
-  const inputAddon = getQuoteDiagramInputFeeAddon(quote);
-  const inputTotalLabel = getQuoteDiagramInputTotalLabel(quote, inputAddon);
-  const outputAddon = getQuoteDiagramOutputFeeAddon(quote);
+  const inputFeeUsdLabel = getQuoteDiagramInputFeeUsdLabel(quote);
+  const inputTotalUsdLabel = getQuoteDiagramInputTotalUsdLabel(quote);
+  const outputFeeUsdLabel = getQuoteDiagramOutputFeeUsdLabel(quote);
   const outputUsdSubline = getQuoteDiagramOutputUsdSubline(quote);
   const outputUsdTitle = deps.quoteOutputPriceSourceTitle(quote);
 
@@ -2305,9 +2397,9 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
       false,
       false,
       false,
-      inputAddon,
-      inputTotalLabel,
-      outputAddon,
+      inputFeeUsdLabel,
+      inputTotalUsdLabel,
+      outputFeeUsdLabel,
       outputUsdSubline,
       outputUsdTitle,
     );
@@ -2317,7 +2409,7 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const split = routeTreeHasFork(tree);
   const hasFees = routePlanHasHopFees(plan);
   const hasAccRentAbove = routePlanHasAccRentFee(plan);
-  const body = renderJupiterRouteBody(tree, legs, quote);
+  const body = renderRouteBody(tree, legs, quote);
 
   return renderRoutingFrame(
     inDisplay,
@@ -2332,9 +2424,9 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
     false,
     hasFees,
     hasAccRentAbove,
-    inputAddon,
-    inputTotalLabel,
-    outputAddon,
+    inputFeeUsdLabel,
+    inputTotalUsdLabel,
+    outputFeeUsdLabel,
     outputUsdSubline,
     outputUsdTitle,
   );
@@ -2353,11 +2445,9 @@ export function renderRoutingDiagramPlaceholder(loading = false): string {
     ? getQuoteSwapLegLabelFromQuote(lastQuote)
     : inTotalDisplay;
   const hasIn = inChipDisplay !== '—';
-  const inputAddon = lastQuote ? getQuoteDiagramInputFeeAddon(lastQuote) : null;
-  const inputTotalLabel = lastQuote
-    ? getQuoteDiagramInputTotalLabel(lastQuote, inputAddon)
-    : null;
-  const outputAddon = lastQuote ? getQuoteDiagramOutputFeeAddon(lastQuote) : null;
+  const inputFeeUsdLabel = lastQuote ? getQuoteDiagramInputFeeUsdLabel(lastQuote) : null;
+  const inputTotalUsdLabel = lastQuote ? getQuoteDiagramInputTotalUsdLabel(lastQuote) : null;
+  const outputFeeUsdLabel = lastQuote ? getQuoteDiagramOutputFeeUsdLabel(lastQuote) : null;
   const outputUsdSubline = lastQuote ? getQuoteDiagramOutputUsdSubline(lastQuote) : null;
   const outputUsdTitle = lastQuote ? deps.quoteOutputPriceSourceTitle(lastQuote) : null;
   const mockLeg: RouteHopLeg = {
@@ -2374,8 +2464,8 @@ export function renderRoutingDiagramPlaceholder(loading = false): string {
     step: { percent: 100, swapInfo: { label: '—' } },
   };
   const body =
-    renderJupiterPctLink('100%') +
-    renderJupiterMarketNode(mockMeta, mockLeg, {}, loading);
+    renderRoutePctBadge('100%') +
+    renderRouteMarketNode(mockMeta, mockLeg, {}, loading);
   const trackBody = `<div class="routing-rail-row">${body}<div class="routing-rail-tail" aria-hidden="true"></div></div>`;
   return renderRoutingFrame(
     hasIn ? inChipDisplay : '—',
@@ -2390,9 +2480,9 @@ export function renderRoutingDiagramPlaceholder(loading = false): string {
     loading,
     false,
     false,
-    inputAddon,
-    inputTotalLabel,
-    outputAddon,
+    inputFeeUsdLabel,
+    inputTotalUsdLabel,
+    outputFeeUsdLabel,
     outputUsdSubline,
     outputUsdTitle,
   );
@@ -2591,78 +2681,71 @@ function renderRoutePlanStepDetail(
     dex !== '—' && dex !== 'Unknown DEX'
       ? deps.escapeHtml(dex)
       : hopDetailPendingCell(loading, '—');
-  const inputHtml = hasInAmt
-    ? `${deps.escapeHtml(leg.inAmt)} ${deps.escapeHtml(leg.inSym)}`
-    : `${hopDetailPendingCell(loading, '—')} ${deps.escapeHtml(leg.inSym)}`;
-  const outputHtml = hasOutAmt
-    ? `${deps.escapeHtml(leg.outAmt)} ${deps.escapeHtml(leg.outSym)}`
-    : `${hopDetailPendingCell(loading, '—')} ${deps.escapeHtml(leg.outSym)}`;
-  const dexSummaryHtml =
-    dex !== '—' && dex !== 'Unknown DEX'
-      ? deps.escapeHtml(dex)
-      : hopDetailPendingCell(loading, '—');
+  const dexSummaryHtml = venueHtml;
 
-  const detailRow = (cells: string[], cols: 2 | 3) =>
-    `<div class="swap-hop-detail-grid__row swap-hop-detail-grid__row--${cols}">${cells.join('')}</div>`;
+  const mintCell = (label: string, mint: string) =>
+    mint
+      ? detailCell(label, deps.escapeHtml(deps.truncate(mint, 6, 6)), { full: mint, mono: true })
+      : detailCell(label, pendingHop ? hopDetailPendingCell(loading, '—') : '—');
 
-  const marketHtml = si?.ammKey
-    ? detailCell('Market (AMM)', deps.escapeHtml(deps.truncate(si.ammKey, 8, 8)), {
+  const marketCell = si?.ammKey
+    ? detailCell('Market (AMM)', deps.escapeHtml(deps.truncate(si.ammKey, 6, 6)), {
         full: si.ammKey,
         mono: true,
       })
-    : pendingHop
-      ? detailCell('Market (AMM)', hopDetailPendingCell(loading, '—'))
-      : detailCell('Market (AMM)', '—');
+    : detailCell('Market (AMM)', pendingHop ? hopDetailPendingCell(loading, '—') : '—');
 
-  const inputMintHtml = leg.inMint
-    ? detailCell('Input mint', deps.escapeHtml(deps.truncate(leg.inMint, 8, 8)), {
-        full: leg.inMint,
-        mono: true,
-      })
-    : pendingHop
-      ? detailCell('Input mint', hopDetailPendingCell(loading, '—'))
-      : detailCell('Input mint', '—');
-
-  const outputMintHtml = leg.outMint
-    ? detailCell('Output mint', deps.escapeHtml(deps.truncate(leg.outMint, 8, 8)), {
-        full: leg.outMint,
-        mono: true,
-      })
-    : pendingHop
-      ? detailCell('Output mint', hopDetailPendingCell(loading, '—'))
-      : detailCell('Output mint', '—');
-
-  let inAmountHtml: string;
+  let inAmountCell: string;
   if (si?.inAmount) {
     const inFmt = deps.formatRawTokenAmount(si.inAmount, leg.inMint);
-    inAmountHtml = detailCell(
+    inAmountCell = detailCell(
       'In amount',
-      `${deps.escapeHtml(inFmt.display)} <span class="swap-hop-detail-raw">(${deps.escapeHtml(String(si.inAmount))} raw)</span>`,
-      { full: inFmt.full || String(si.inAmount) },
+      `${deps.escapeHtml(inFmt.display)} ${deps.escapeHtml(leg.inSym)}`,
+      { full: `${inFmt.full || inFmt.display} ${leg.inSym} (${si.inAmount} raw)` },
     );
   } else if (pendingHop) {
     const inRaw = getPlaceholderHopInAmountRaw();
-    const inAmountValue =
-      hasInAmt && inRaw
-        ? `${deps.escapeHtml(leg.inAmt)} <span class="swap-hop-detail-raw">(${deps.escapeHtml(inRaw)} raw)</span>`
-        : hopDetailPendingCell(loading, '—');
-    inAmountHtml = detailCell('In amount', inAmountValue);
+    inAmountCell = detailCell(
+      'In amount',
+      hasInAmt
+        ? `${deps.escapeHtml(leg.inAmt)} ${deps.escapeHtml(leg.inSym)}`
+        : hopDetailPendingCell(loading, '—'),
+      hasInAmt && inRaw ? { full: `${leg.inAmt} ${leg.inSym} (${inRaw} raw)` } : undefined,
+    );
   } else {
-    inAmountHtml = detailCell('In amount', '—');
+    inAmountCell = detailCell('In amount', '—');
   }
 
-  let outAmountHtml: string;
-  if (si?.outAmount) {
-    const outFmt = deps.formatRawTokenAmount(si.outAmount, leg.outMint);
-    outAmountHtml = detailCell(
-      'Out amount',
-      `${deps.escapeHtml(outFmt.display)} <span class="swap-hop-detail-raw">(${deps.escapeHtml(String(si.outAmount))} raw)</span>`,
-      { full: outFmt.full || String(si.outAmount) },
+  let quotedOutputCell: string;
+  const quotedOutRaw = hopFees?.quotedOutRaw || si?.outAmount;
+  if (quotedOutRaw) {
+    const grossFmt = deps.formatRawTokenAmount(quotedOutRaw, leg.outMint);
+    quotedOutputCell = detailCell(
+      'Quoted output',
+      `${deps.escapeHtml(grossFmt.display)} ${deps.escapeHtml(leg.outSym)}`,
+      { full: `${grossFmt.full || grossFmt.display} ${leg.outSym} (${quotedOutRaw} raw)` },
     );
-  } else if (pendingHop) {
-    outAmountHtml = detailCell('Out amount', hopDetailPendingCell(loading, '—'));
   } else {
-    outAmountHtml = detailCell('Out amount', '—');
+    quotedOutputCell = detailCell(
+      'Quoted output',
+      pendingHop ? hopDetailPendingCell(loading, '—') : '—',
+    );
+  }
+
+  let netToWalletCell: string;
+  const netOutRaw = hopFees?.netOutRaw || si?.outAmount;
+  if (netOutRaw) {
+    const netFmt = deps.formatRawTokenAmount(netOutRaw, leg.outMint);
+    netToWalletCell = detailCell(
+      'Net output',
+      `${deps.escapeHtml(netFmt.display)} ${deps.escapeHtml(leg.outSym)}`,
+      { full: `${netFmt.full || netFmt.display} ${leg.outSym} (${netOutRaw} raw)` },
+    );
+  } else {
+    netToWalletCell = detailCell(
+      'Net output',
+      pendingHop ? hopDetailPendingCell(loading, '—') : '—',
+    );
   }
 
   let feesHtml = '';
@@ -2670,69 +2753,36 @@ function renderRoutePlanStepDetail(
     feesHtml = renderHopPlanFeesSection(hopFees, leg, quote, feeMint, feeAmt, si?.ammKey);
   } else if (feeAmt) {
     feesHtml = `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
-      <h5 class="swap-hop-panel__title">Fee breakdown</h5>
-      <div class="swap-hop-fees-table">
-        <div class="swap-hop-fees-table__row swap-hop-fees-table__row--head">
-          <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--label">Fee</span>
-          <span class="swap-hop-fees-table__cell">Amount</span>
-          <span class="swap-hop-fees-table__cell">USD</span>
-          <span class="swap-hop-fees-table__cell">${deps.escapeHtml(feeSym)}</span>
-          <span class="swap-hop-fees-table__cell">Destination</span>
-        </div>
-        <div class="swap-hop-fees-table__row swap-hop-fees-table__row--fee">
-          <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--label">Fee</span>
-          <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--amt">−${deps.escapeHtml(feeAmt)} ${deps.escapeHtml(feeSym)}</span>
-          <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--usd">—</span>
-          <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--base">—</span>
-          <span class="swap-hop-fees-table__cell swap-hop-fees-table__cell--dest">—</span>
+      <div class="swap-hop-panel__head">
+        <h5 class="swap-hop-panel__title">Fees</h5>
+      </div>
+      <div class="hop-fee-group">
+        <div class="hop-fee-row hop-fee-row--fee">
+          <span class="hop-fee-row__label">Fee</span>
+          <span class="hop-fee-row__dest"></span>
+          <span class="hop-fee-row__amt">−${deps.escapeHtml(feeAmt)} ${deps.escapeHtml(feeSym)}</span>
+          <span class="hop-fee-row__usd">—</span>
         </div>
       </div>
     </section>`;
   }
 
-  let quotedOutputHtml: string;
-  let netToWalletHtml: string;
-  if (hopFees?.quotedOutRaw) {
-    const grossFmt = deps.formatRawTokenAmount(hopFees.quotedOutRaw, leg.outMint);
-    quotedOutputHtml = detailCell('Quoted output', deps.escapeHtml(`${grossFmt.display} ${leg.outSym}`), {
-      full: grossFmt.full,
-    });
-  } else if (si?.outAmount) {
-    const outFmt = deps.formatRawTokenAmount(si.outAmount, leg.outMint);
-    quotedOutputHtml = detailCell('Quoted output', deps.escapeHtml(`${outFmt.display} ${leg.outSym}`), {
-      full: outFmt.full,
-    });
-  } else if (pendingHop) {
-    quotedOutputHtml = detailCell('Quoted output', hopDetailPendingCell(loading, '—'));
-  } else {
-    quotedOutputHtml = detailCell('Quoted output', '—');
-  }
-
-  if (hopFees?.netOutRaw) {
-    const netFmt = deps.formatRawTokenAmount(hopFees.netOutRaw, leg.outMint);
-    netToWalletHtml = detailCell('Net to wallet', deps.escapeHtml(`${netFmt.display} ${leg.outSym}`), {
-      full: netFmt.full,
-    });
-  } else if (si?.outAmount) {
-    const outFmt = deps.formatRawTokenAmount(si.outAmount, leg.outMint);
-    netToWalletHtml = detailCell('Net to wallet', deps.escapeHtml(`${outFmt.display} ${leg.outSym}`), {
-      full: outFmt.full,
-    });
-  } else if (pendingHop) {
-    netToWalletHtml = detailCell('Net to wallet', hopDetailPendingCell(loading, '—'));
-  } else {
-    netToWalletHtml = detailCell('Net to wallet', '—');
-  }
-
-  const detailRowsHtml = [
-    detailRow([detailCell('Venue', venueHtml), marketHtml], 2),
-    detailRow([inputMintHtml, outputMintHtml], 2),
-    detailRow([detailCell('Input', inputHtml), inAmountHtml], 2),
-    detailRow([detailCell('Output', outputHtml), outAmountHtml], 2),
-    detailRow([quotedOutputHtml, netToWalletHtml], 2),
+  const techCells = [
+    detailCell('Venue', venueHtml),
+    marketCell,
+    detailCell('Route share', deps.escapeHtml(pct)),
+    inAmountCell,
+    quotedOutputCell,
+    netToWalletCell,
+    mintCell('Input mint', leg.inMint),
+    mintCell('Output mint', leg.outMint),
+    feeMint
+      ? detailCell('Fee mint', deps.escapeHtml(feeSym !== '—' ? feeSym : deps.truncate(feeMint, 6, 6)), {
+          full: feeMint,
+          mono: feeSym === '—',
+        })
+      : detailCell('Fee mint', '—'),
   ].join('');
-
-  const feesPanelHtml = feesHtml;
 
   const shareBadgeHtml = showRouteShare
     ? `<span class="swap-hop-card__pct">${deps.escapeHtml(pct)}</span>`
@@ -2750,17 +2800,10 @@ function renderRoutePlanStepDetail(
       ${shareBadgeHtml}
     </summary>
     <div class="swap-hop-step-details__body">
-      <section class="swap-hop-panel swap-hop-panel--swap">
-        <h5 class="swap-hop-panel__title">Swap leg</h5>
-        ${renderHopConversionLeg(leg, 'route-hop-conversion route-hop-conversion--card swap-hop-conversion', {
-          in: loading && !hasInAmt,
-          out: loading && !hasOutAmt,
-        })}
-      </section>
-      ${feesPanelHtml}
+      ${feesHtml}
       <section class="swap-hop-panel swap-hop-panel--details">
-        <h5 class="swap-hop-panel__title">Technical details</h5>
-        <div class="swap-hop-detail-grid swap-hop-detail-grid--rows">${detailRowsHtml}</div>
+        <h5 class="swap-hop-panel__title">Details</h5>
+        <div class="swap-hop-grid3">${techCells}</div>
       </section>
     </div>
   </details>`;
