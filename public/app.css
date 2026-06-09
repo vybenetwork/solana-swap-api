@@ -6378,6 +6378,17 @@ body.token-picker-scroll-lock {
   box-shadow: 0 0 0 2px #2563eb;
 }
 
+.token-picker-shortcut--untradable {
+  opacity: 0.38;
+  cursor: not-allowed;
+  filter: grayscale(0.35);
+}
+
+.token-picker-shortcut--untradable:hover {
+  opacity: 0.38;
+  transform: none;
+}
+
 .token-picker-shortcut img {
   width: 100%;
   height: 100%;
@@ -6479,6 +6490,11 @@ body.token-picker-scroll-lock {
 }
 
 .token-picker-row--wallet.token-picker-row--untradable {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.token-picker-row--untradable:not(.token-picker-row--wallet) {
   opacity: 0.55;
   cursor: not-allowed;
 }

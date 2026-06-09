@@ -17,6 +17,8 @@ import {
   getTokenDecimalsFromCache,
   getWalletSellableAmountUi,
   getWalletBalanceAmountUi,
+  isSplValueTradable,
+  isWalletTokenTradable,
   noteSplMaxSellFraction,
   swapSimulationFailed,
   computeSplSellAmountForRetryStep,
@@ -1003,11 +1005,11 @@ function pickDefaultSellBalance(items: WalletBalanceListItem[]): WalletBalanceLi
   for (const mint of SELL_TOKEN_PRIORITY_MINTS) {
     if (isSolMint(mint)) continue;
     const hit = positive.find((i) => i.mintAddress === mint);
-    if (hit) return hit;
+    if (hit && isWalletTokenTradable(preferNativeSolMint(hit.mintAddress))) return hit;
   }
   return (
     positive
-      .filter((i) => !isSolMint(i.mintAddress))
+      .filter((i) => !isSolMint(i.mintAddress) && isSplValueTradable(i.valueUsd))
       .sort((a, b) => b.valueUsd - a.valueUsd || b.amountUi - a.amountUi)[0] ?? null
   );
 }
