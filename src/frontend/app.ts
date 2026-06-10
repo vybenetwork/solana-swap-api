@@ -25,6 +25,7 @@ import {
   shouldContinueSplSellSimRetry,
   SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER,
   isSolMint,
+  isNearMaxSellAmountUi,
   preferNativeSolMint,
   NATIVE_SOL_MINT,
   SOL_MIN_AUTO_PICK_TOTAL_UI,
@@ -2018,17 +2019,64 @@ function syncRouterFallbackToggleUi(): void {
   }
 }
 
+function resolveVybeHandoffAggregatorRouter(body: Record<string, unknown>): 'jupiter' | 'titan' | null {
+  const build = body._build as Record<string, unknown> | undefined;
+  const plan = Array.isArray(body.routePlan) ? body.routePlan : [];
+  const candidates: string[] = [];
+  const push = (value: unknown): void => {
+    const s = String(value ?? '').trim().toLowerCase();
+    if (s) candidates.push(s);
+  };
+
+  push(body._effectiveRouter);
+  push(body._buildRouter);
+  push(build?.provider);
+  for (const step of plan) {
+    const si = (step as VybeRoutePlanStepLite)?.swapInfo;
+    push(si?.label);
+    push(si?.ammKey);
+  }
+  const details = build?.details as Record<string, unknown> | undefined;
+  const buildQuote = details?.quote as Record<string, unknown> | undefined;
+  push(buildQuote?.provider);
+  const intermediate = buildQuote?.intermediateQuote as Record<string, unknown> | undefined;
+  push(intermediate?.provider);
+
+  for (const c of candidates) {
+    if (c === 'jupiter') return 'jupiter';
+    if (c === 'titan') return 'titan';
+  }
+  for (const c of candidates) {
+    if (c.includes('titan')) return 'titan';
+    if (c.includes('jupiter')) return 'jupiter';
+  }
+  return null;
+}
+
 function detectVybeAggregatorFallbackRouter(
   body: Record<string, unknown>,
   selectedRouter: string,
 ): 'jupiter' | 'titan' | null {
   if (normalizeRouterId(selectedRouter) !== 'vybe') return null;
-  const build = body._build as Record<string, unknown> | undefined;
-  const effective = normalizeRouterId(
-    body._effectiveRouter ?? body._buildRouter ?? build?.provider,
-  );
-  if (effective === 'jupiter' || effective === 'titan') return effective;
-  return null;
+  return resolveVybeHandoffAggregatorRouter(body);
+}
+
+function handoffVybeQuoteToAggregator(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+  fallbackRouter: 'jupiter' | 'titan',
+): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
+  if (!isRouterFallbackEnabled()) {
+    throw vybeRouteUnavailableError(fallbackRouter);
+  }
+  setSwapRouter(fallbackRouter, { invalidateQuote: false });
+  return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, {
+    ...buildOpts,
+    router: fallbackRouter,
+  });
 }
 
 function isEmptyAggregatorQuote(quoteBody: Record<string, unknown>): boolean {
@@ -3151,15 +3199,14 @@ async function requestVybeQuote(
 
     const fallbackRouter = detectVybeAggregatorFallbackRouter(body, selectedRouter);
     if (fallbackRouter) {
-      if (!isRouterFallbackEnabled()) {
-        throw vybeRouteUnavailableError(fallbackRouter);
-      }
-      const resetAmount = resetSplSellAmountForRouterSwitch(inputMint, attemptAmount);
-      setSwapRouter(fallbackRouter, { invalidateQuote: false });
-      return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, resetAmount, {
-        ...buildOpts,
-        router: fallbackRouter,
-      });
+      return handoffVybeQuoteToAggregator(
+        wallet,
+        inputMint,
+        outputMint,
+        originalAmount,
+        buildOpts,
+        fallbackRouter,
+      );
     }
 
     const buildTx = extractSwapBuildTransaction(body._build);
@@ -3177,6 +3224,20 @@ async function requestVybeQuote(
       return { tx: buildTx, buildPayload: body._build as Record<string, unknown> };
     }
 
+    const balanceUi = getWalletBalanceAmountUi(inputMint) ?? 0;
+    if (
+      selectedRouter === 'vybe' &&
+      isRouterFallbackEnabled() &&
+      balanceUi > 0 &&
+      isNearMaxSellAmountUi(attemptAmount, balanceUi)
+    ) {
+      setSwapRouter('jupiter', { invalidateQuote: false });
+      return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, originalAmount, {
+        ...buildOpts,
+        router: 'jupiter',
+      });
+    }
+
     const nextAmount = nextSplSellRetryAmountUi(inputMint, attemptAmount, splSimStep);
     if (nextAmount == null) break;
 
@@ -3186,16 +3247,29 @@ async function requestVybeQuote(
     maybeShowSplSellReducedWarning(attemptAmount, inputMint, originalAmount);
   }
 
-  if (lastBody) {
-    applyVybeQuoteBodyToUi(lastBody, wallet, inputMint, outputMint, originalAmount, buildOpts);
+  const handoffRouter =
+    lastBody != null ? detectVybeAggregatorFallbackRouter(lastBody, selectedRouter) : null;
+  if (handoffRouter) {
+    return handoffVybeQuoteToAggregator(
+      wallet,
+      inputMint,
+      outputMint,
+      originalAmount,
+      buildOpts,
+      handoffRouter,
+    );
   }
+
   if (selectedRouter === 'vybe' && isRouterFallbackEnabled()) {
-    const resetAmount = resetSplSellAmountForRouterSwitch(inputMint, originalAmount);
     setSwapRouter('jupiter', { invalidateQuote: false });
-    return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, resetAmount, {
+    return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, originalAmount, {
       ...buildOpts,
       router: 'jupiter',
     });
+  }
+
+  if (lastBody) {
+    applyVybeQuoteBodyToUi(lastBody, wallet, inputMint, outputMint, originalAmount, buildOpts);
   }
   if (swapQuoteWarning && splSimStep > 0) {
     const sym =

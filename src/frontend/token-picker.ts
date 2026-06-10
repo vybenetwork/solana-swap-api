@@ -797,10 +797,12 @@ export function computeWalletSellableAmountUi(
     const sellable = total * learned;
     return sellable > 0 ? sellable : null;
   }
-  return total;
+  /* Default max sell leaves ~2% for input-side protocol fees (100% button still reads 100%). */
+  const sellable = computeSplSellAmountForRetryStep(total, 1);
+  return sellable > 0 ? sellable : null;
 }
 
-/** Max sellable UI amount (SOL reserve for native SOL; full balance for other tokens). */
+/** Max sellable UI amount (SOL reserve for native SOL; ~98% of balance for other tokens). */
 export function getWalletSellableAmountUi(mint: string): number | null {
   const item = getWalletBalanceListItem(mint);
   if (item == null || !(item.amountUi > 0)) return null;

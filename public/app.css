@@ -2223,7 +2223,7 @@ tr:hover td {
   border: 1px solid #27272a;
   border-radius: 14px;
   padding: 1rem 0.85rem;
-  min-height: 92px;
+  min-height: 310px;
   overflow-x: auto;
   overflow-y: visible;
 }
@@ -2255,7 +2255,7 @@ tr:hover td {
 }
 
 .swap-quote-details-routing:has(.routing-canvas--has-fees) {
-  min-height: 240px;
+  min-height: 310px;
 }
 
 .routing-dialog-body {
@@ -2377,6 +2377,26 @@ tr:hover td {
 .routing-input-addon__val {
   color: #f87171;
   font-weight: 500;
+}
+
+.routing-input-addon-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.12rem;
+}
+
+.routing-output-fees-spacer {
+  display: block;
+  font-size: 0.625rem;
+  line-height: 1.1;
+  visibility: hidden;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.routing-output-fees-spacer-stack {
+  margin-bottom: 0;
 }
 
 .routing-input-total {
