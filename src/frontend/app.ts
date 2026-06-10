@@ -38,6 +38,9 @@ import {
   renderChipTokenIcon,
   effectiveTokenIconSrc,
   renderTokenIconImgHtml,
+  tokenBoxColorClass,
+  tokenSymColorClass,
+  routingTokenDotClass,
   saveTokenPriceStats,
   saveWalletBalanceItemsToCache,
   type TokenPickerSide,
@@ -652,8 +655,10 @@ async function refreshSwapSymbols(): Promise<void> {
 }
 
 function updateSwapTokenIcons(): void {
-  renderChipTokenIcon(swapInputTokenIconEl, swapInputMintInput?.value, endpointTokenDotClass(getSwapInSym()));
-  renderChipTokenIcon(swapOutputTokenIconEl, swapOutputMintInput?.value, endpointTokenDotClass(getSwapOutSym()));
+  const inMint = swapInputMintInput?.value.trim() ?? '';
+  const outMint = swapOutputMintInput?.value.trim() ?? '';
+  renderChipTokenIcon(swapInputTokenIconEl, inMint, routingTokenDotClass(inMint, getSwapInSym()));
+  renderChipTokenIcon(swapOutputTokenIconEl, outMint, routingTokenDotClass(outMint, getSwapOutSym()));
   updateSwapPairCards();
 }
 
@@ -902,6 +907,51 @@ function setWalletGatedDisabled(
   if (disabled) el.title = lockedTitle;
 }
 
+function getFlipBlockedReason(): string | null {
+  if (!hasValidSwapWallet()) {
+    return 'Enter or connect a valid Solana wallet to flip tokens.';
+  }
+  const buyMint = preferNativeSolMint(swapOutputMintInput?.value.trim() ?? '');
+  if (!buyMint) {
+    return 'Choose a buy token to flip.';
+  }
+  if (!isWalletTokenTradable(buyMint)) {
+    const sym =
+      getCachedTokenMeta(buyMint)?.symbol ??
+      HARDCODED_MINT_SYMBOLS[buyMint] ??
+      buyMint.slice(0, 4).toUpperCase();
+    return `No sellable ${sym} balance in this wallet — flip would sell that token after swapping sides.`;
+  }
+  return null;
+}
+
+function canFlipSellBuyTokens(): boolean {
+  return getFlipBlockedReason() === null;
+}
+
+function clearFlipInlineErrorIfShown(): void {
+  if (!swapQuoteError || swapQuoteError.hidden) return;
+  const msg = swapQuoteError.textContent ?? '';
+  if (
+    msg.includes('to flip tokens') ||
+    msg.includes('to flip.') ||
+    msg.startsWith('No sellable ')
+  ) {
+    clearInlineError(swapQuoteError);
+  }
+}
+
+function syncFlipButtonState(): void {
+  if (!swapFlipBtnEl) return;
+  const reason = getFlipBlockedReason();
+  const blocked = reason !== null;
+  swapFlipBtnEl.disabled = false;
+  swapFlipBtnEl.classList.toggle('swap-flip-fab--blocked', blocked);
+  swapFlipBtnEl.setAttribute('aria-disabled', blocked ? 'true' : 'false');
+  swapFlipBtnEl.title = blocked ? reason! : 'Flip tokens';
+  if (!blocked) clearFlipInlineErrorIfShown();
+}
+
 function syncSellTokenPickerState(): void {
   const valid = hasValidSwapWallet();
   lockTokenChipButton(
@@ -916,8 +966,7 @@ function syncSellTokenPickerState(): void {
   );
 
   if (swapFlipBtnEl) {
-    swapFlipBtnEl.disabled = !valid;
-    swapFlipBtnEl.title = valid ? 'Flip tokens' : SWAP_WALLET_LOCKED_TITLE;
+    syncFlipButtonState();
   }
   if (swapPasteOutputBtnEl) {
     swapPasteOutputBtnEl.disabled = !valid;
@@ -1292,6 +1341,7 @@ function applyFlippedOutputAsSellAmount(outputAmountUi: number): void {
 }
 
 function flipSellBuyTokens(): void {
+  if (getFlipBlockedReason()) return;
   if (!swapInputMintInput || !swapOutputMintInput) return;
   const sellMint = swapInputMintInput.value;
   const buyMint = swapOutputMintInput.value;
@@ -1318,6 +1368,7 @@ function afterSellBuyTokensFlipped(flippedOutputAmountUi: number | null = null):
   }
   void prefetchSwapPairPrices({ forceFullDetails: true, mints: newSellMint ? [newSellMint] : undefined });
   void refreshLowSolTradeWarning();
+  syncFlipButtonState();
 }
 
 function applySelectedToken(mint: string, side: TokenPickerSide): void {
@@ -1357,6 +1408,7 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
     void prefetchSwapPairPrices({ forceFullDetails: true });
   }
   void refreshLowSolTradeWarning();
+  syncFlipButtonState();
 }
 
 function getSwapInSym(): string {
@@ -1867,10 +1919,17 @@ function renderPairCardSpotHtml(
   }
   const unit = pairCardUnitSymbol(mint, chipSymbol);
   const price = fmtUsd(stats.price);
+  const unitSymCls = tokenSymColorClass(mint, chipSymbol);
   return `<div class="swap-pair-spot">
     <span class="swap-pair-spot-value">${escapeHtml(price)}</span>
-    <span class="swap-pair-spot-unit">USD / 1 ${escapeHtml(unit)}</span>
+    <span class="swap-pair-spot-unit">USD / 1 <span class="${unitSymCls}">${escapeHtml(unit)}</span></span>
   </div>`;
+}
+
+function applyTokenBoxColor(el: HTMLElement | null, mint: string, symbolHint?: string): void {
+  if (!el) return;
+  el.classList.remove('swap-token-color--sol', 'swap-token-color--stable', 'swap-token-color--alt');
+  if (mint) el.classList.add(tokenBoxColorClass(mint, symbolHint));
 }
 
 function renderPairCard(
@@ -1959,6 +2018,8 @@ function updateSwapPairCards(stats?: Record<string, TokenPriceStats>, loading = 
   if (stats) pairTokenStats = { ...pairTokenStats, ...stats };
   const inMint = swapInputMintInput?.value.trim() ?? '';
   const outMint = swapOutputMintInput?.value.trim() ?? '';
+  applyTokenBoxColor(swapCardSellEl, inMint, getSwapInSym());
+  applyTokenBoxColor(swapCardBuyEl, outMint, getSwapOutSym());
   renderPairCard(swapCardSellEl, inMint, 'sell', loading);
   renderPairCard(swapCardBuyEl, outMint, 'buy', loading);
   updateSwapSideChanges(loading);
@@ -2194,15 +2255,6 @@ function refreshQuoteUiAfterBuild(buildPayload: Record<string, unknown>): void {
 }
 
 
-function endpointTokenDotClass(sym: string): string {
-  const u = sym.toUpperCase();
-  if (u.includes('SOL')) return 'routing-token-dot--sol';
-  if (u === 'USDC') return 'routing-token-dot--usdc';
-  if (u === 'USDT' || u === 'USDT1') return 'routing-token-dot--usdt';
-  if (u === 'BONK') return 'routing-token-dot--bonk';
-  return 'routing-token-dot';
-}
-
 const SWAP_QUOTE_FIELD_ORDER: readonly string[] = [
   'inputMintAddress',
   'inputMint',
@@ -2300,6 +2352,7 @@ function renderQuoteSummaryHeroTile(
   amt: string,
   sym: string,
   variant: 'pay' | 'receive',
+  mint: string,
   sub?: string | null,
   placeholder = false,
   loading = false,
@@ -2307,19 +2360,21 @@ function renderQuoteSummaryHeroTile(
 ): string {
   const amtCls = placeholder ? ' swap-quote-summary-amt--placeholder' : '';
   const subCls = placeholder ? ' swap-quote-summary-sub--placeholder' : '';
+  const symCls = tokenSymColorClass(mint, sym);
+  const boxCls = tokenBoxColorClass(mint, sym);
   const amtHtml =
     loading && placeholder ? renderLoadingSpinner('md') : escapeHtml(amt);
   const valueInner =
     valueHtml ??
     `<span class="swap-quote-summary-amt${amtCls}">${amtHtml}</span>
-        <span class="swap-quote-summary-sym">${escapeHtml(sym)}</span>`;
+        <span class="swap-quote-summary-sym ${symCls}">${escapeHtml(sym)}</span>`;
   const subHtml =
     loading && placeholder && sub
       ? renderLoadingSpinner('sm')
       : sub
         ? escapeHtml(sub)
         : '';
-  return `<div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-tile--${variant}">
+  return `<div class="swap-quote-summary-tile swap-quote-summary-tile--hero swap-quote-summary-tile--${variant} ${boxCls}">
       <span class="swap-quote-summary-label">${escapeHtml(label)}</span>
       <span class="swap-quote-summary-value">${valueInner}</span>
       ${subHtml ? `<span class="swap-quote-summary-sub${subCls}">${subHtml}</span>` : ''}
@@ -2334,6 +2389,8 @@ function getSwapSellUsdSubLabel(): string | null {
 function renderQuoteSummaryPlaceholder(loading = false): string {
   const inSym = getSwapInSym();
   const outSym = getSwapOutSym();
+  const inMint = swapInputMintInput?.value.trim() ?? '';
+  const outMint = swapOutputMintInput?.value.trim() ?? '';
   const payAmt = getQuoteWalletPayLabel();
   const hasPay = payAmt !== '—';
   const paySub = buildQuotePaySubLabel(lastSwapQuoteOk) ?? '≈ —';
@@ -2345,15 +2402,17 @@ function renderQuoteSummaryPlaceholder(loading = false): string {
     loading && !hasPay,
   );
   return `<div class="swap-quote-summary-primary" data-quote-placeholder="true">
-      ${renderQuoteSummaryHeroTile('You pay', hasPay ? payAmt : '—', inSym, 'pay', paySub, !hasPay, loading && !hasPay, payValueHtml)}
+      ${renderQuoteSummaryHeroTile('You pay', hasPay ? payAmt : '—', inSym, 'pay', inMint, paySub, !hasPay, loading && !hasPay, payValueHtml)}
       <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
-      ${renderQuoteSummaryHeroTile('You receive', '—', outSym, 'receive', '≈ —', true, loading)}
+      ${renderQuoteSummaryHeroTile('You receive', '—', outSym, 'receive', outMint, '≈ —', true, loading)}
     </div>`;
 }
 
 function renderQuoteSummary(quote: Record<string, unknown>): string {
   const inSym = getSwapInSym();
   const outSym = getSwapOutSym();
+  const inMint = quoteInputMint(quote) ?? swapInputMintInput?.value.trim() ?? '';
+  const outMint = quoteOutputMint(quote) ?? swapOutputMintInput?.value.trim() ?? '';
   const payAmt = getQuoteWalletPayLabelFromQuote(quote);
   const outAmt = formatQuoteTokenAmount(quote, 'out');
   const payUsd = getQuotePayUsd(quote);
@@ -2365,9 +2424,9 @@ function renderQuoteSummary(quote: Record<string, unknown>): string {
   const receiveSub = receiveUsdLabel ? `≈ ${receiveUsdLabel} · from quote` : null;
 
   return `<div class="swap-quote-summary-primary">
-      ${renderQuoteSummaryHeroTile('You pay', payAmt, inSym, 'pay', paySub, false, false, payValueHtml)}
+      ${renderQuoteSummaryHeroTile('You pay', payAmt, inSym, 'pay', inMint, paySub, false, false, payValueHtml)}
       <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
-      ${renderQuoteSummaryHeroTile('You receive', outAmt.display, outSym, 'receive', receiveSub)}
+      ${renderQuoteSummaryHeroTile('You receive', outAmt.display, outSym, 'receive', outMint, receiveSub)}
     </div>`;
 }
 
@@ -4109,8 +4168,15 @@ wireTokenPickerOpen(swapInputTokenBtn, swapInputMintInput, 'input');
 wireTokenPickerOpen(swapOutputTokenBtn, swapOutputMintInput, 'output');
 
 if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
-  swapFlipBtnEl.addEventListener('click', () => {
-    if (!hasValidSwapWallet()) return;
+  swapFlipBtnEl.addEventListener('click', (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const blockedReason = getFlipBlockedReason();
+    if (blockedReason) {
+      if (swapQuoteError) showInlineError(swapQuoteError, blockedReason);
+      return;
+    }
+    if (swapQuoteError) clearInlineError(swapQuoteError);
     const flippedOutputAmountUi = parseFlipOutputAmountUi();
     invalidateSwapQuoteAfterInputChange();
     flipSellBuyTokens();
@@ -4196,6 +4262,7 @@ if (swapOutputMintInput) {
     updateSwapPairCards();
     void refreshSwapSymbols();
     void refreshLowSolTradeWarning();
+    syncFlipButtonState();
     void prefetchSwapPairPrices({ forceFullDetails: true });
   });
 }

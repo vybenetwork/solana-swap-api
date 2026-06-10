@@ -744,6 +744,59 @@ export function isSolMint(mint: string): boolean {
   return m === NATIVE_SOL_MINT || m === WSOL_MINT;
 }
 
+export type TokenMintColorKind = 'sol' | 'stable' | 'alt';
+
+const KNOWN_STABLECOIN_MINTS = new Set([
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+]);
+
+const KNOWN_STABLE_SYMBOLS = new Set([
+  'USDC',
+  'USDT',
+  'USDT1',
+  'PYUSD',
+  'USDH',
+  'UXD',
+  'USDY',
+  'USDS',
+  'USD1',
+  'CASH',
+  'EURC',
+  'DAI',
+  'USDG',
+]);
+
+/** Purple = SOL, green = stables, yellow = everything else. */
+export function getTokenMintColorKind(mint: string, symbolHint?: string): TokenMintColorKind {
+  const m = preferNativeSolMint(mint.trim());
+  if (!m) {
+    const sym = (symbolHint ?? '').toUpperCase();
+    if (sym === 'SOL' || sym === 'WSOL') return 'sol';
+    if (KNOWN_STABLE_SYMBOLS.has(sym)) return 'stable';
+    return 'alt';
+  }
+  if (isSolMint(m)) return 'sol';
+  if (KNOWN_STABLECOIN_MINTS.has(m)) return 'stable';
+  const meta = getCachedTokenMeta(m);
+  if (meta?.tags?.some((t) => t.toLowerCase() === 'stable')) return 'stable';
+  const sym = (symbolHint ?? meta?.symbol ?? '').toUpperCase();
+  if (sym && KNOWN_STABLE_SYMBOLS.has(sym)) return 'stable';
+  return 'alt';
+}
+
+export function tokenBoxColorClass(mint: string, symbolHint?: string): string {
+  return `swap-token-color--${getTokenMintColorKind(mint, symbolHint)}`;
+}
+
+export function tokenSymColorClass(mint: string, symbolHint?: string): string {
+  return `swap-token-sym-color--${getTokenMintColorKind(mint, symbolHint)}`;
+}
+
+export function routingTokenDotClass(mint: string, symbolHint?: string): string {
+  return `routing-token-dot routing-token-dot--${getTokenMintColorKind(mint, symbolHint)}`;
+}
+
 export function preferNativeSolMint(mint: string): string {
   const m = mint.trim();
   return m === WSOL_MINT ? NATIVE_SOL_MINT : m;

@@ -1909,14 +1909,37 @@ tr:hover td {
   border: 1px solid #33333d;
 }
 
-.swap-quote-summary-tile--pay {
+.swap-quote-summary-tile--pay,
+.swap-quote-summary-tile--receive {
+  /* Role labels only — border/symbol colors come from swap-token-color--* on the tile. */
+}
+
+/* Mint color: SOL purple, stables green, other yellow */
+.swap-token-color--sol {
   border-color: rgba(153, 69, 255, 0.35);
   background: linear-gradient(145deg, rgba(153, 69, 255, 0.08) 0%, #12121a 55%);
 }
 
-.swap-quote-summary-tile--receive {
-  border-color: rgba(196, 242, 11, 0.35);
-  background: linear-gradient(145deg, rgba(196, 242, 11, 0.07) 0%, #12121a 55%);
+.swap-token-color--stable {
+  border-color: rgba(74, 222, 128, 0.28);
+  background: linear-gradient(145deg, rgba(74, 222, 128, 0.08) 0%, #12121a 55%);
+}
+
+.swap-token-color--alt {
+  border-color: rgba(250, 204, 21, 0.35);
+  background: linear-gradient(145deg, rgba(250, 204, 21, 0.07) 0%, #12121a 55%);
+}
+
+.swap-token-sym-color--sol {
+  color: #c084fc;
+}
+
+.swap-token-sym-color--stable {
+  color: #4ade80;
+}
+
+.swap-token-sym-color--alt {
+  color: #facc15;
 }
 
 .swap-quote-summary-label {
@@ -1946,12 +1969,7 @@ tr:hover td {
 .swap-quote-summary-sym {
   font-size: 0.8rem;
   font-weight: 700;
-  color: #c4f20b;
   letter-spacing: 0.02em;
-}
-
-.swap-quote-summary-tile--pay .swap-quote-summary-sym {
-  color: #c084fc;
 }
 
 .swap-quote-summary-plus {
@@ -2474,6 +2492,18 @@ tr:hover td {
   padding: 0.48rem 0.62rem;
 }
 
+.routing-pill.swap-token-color--sol {
+  border-color: rgba(153, 69, 255, 0.35);
+}
+
+.routing-pill.swap-token-color--stable {
+  border-color: rgba(74, 222, 128, 0.35);
+}
+
+.routing-pill.swap-token-color--alt {
+  border-color: rgba(250, 204, 21, 0.35);
+}
+
 .routing-path {
   grid-column: 1;
   grid-row: 2;
@@ -2615,22 +2645,17 @@ tr:hover td {
 
 .routing-token-dot--sol {
   background: linear-gradient(145deg, #9945ff 0%, #14f195 100%);
-  border-color: rgba(20, 241, 149, 0.35);
+  border-color: rgba(153, 69, 255, 0.45);
 }
 
-.routing-token-dot--usdc {
-  background: #2775ca;
-  border-color: rgba(39, 117, 202, 0.5);
+.routing-token-dot--stable {
+  background: linear-gradient(145deg, #22c55e 0%, #4ade80 100%);
+  border-color: rgba(74, 222, 128, 0.45);
 }
 
-.routing-token-dot--usdt {
-  background: #26a17b;
-  border-color: rgba(38, 161, 123, 0.45);
-}
-
-.routing-token-dot--bonk {
-  background: linear-gradient(145deg, #ea580c 0%, #fbbf24 100%);
-  border-color: rgba(251, 191, 36, 0.45);
+.routing-token-dot--alt {
+  background: linear-gradient(145deg, #eab308 0%, #facc15 100%);
+  border-color: rgba(250, 204, 21, 0.45);
 }
 
 .routing-amt {
@@ -4634,18 +4659,24 @@ tr:hover td {
   color: #ffffff;
 }
 
-.swap-flip-fab:disabled {
+.swap-flip-fab:disabled,
+.swap-flip-fab[aria-disabled='true'],
+.swap-flip-fab--blocked {
   opacity: 1;
   cursor: not-allowed;
   color: #a1a1aa;
   background: #18181b;
 }
 
-.swap-flip-fab:disabled .swap-flip-fab-icon {
+.swap-flip-fab:disabled .swap-flip-fab-icon,
+.swap-flip-fab[aria-disabled='true'] .swap-flip-fab-icon,
+.swap-flip-fab--blocked .swap-flip-fab-icon {
   opacity: 1;
 }
 
-.swap-flip-fab:disabled:hover {
+.swap-flip-fab:disabled:hover,
+.swap-flip-fab[aria-disabled='true']:hover,
+.swap-flip-fab--blocked:hover {
   background: #18181b;
   color: #a1a1aa;
 }
@@ -5739,14 +5770,24 @@ tr:hover td {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-.swap-pair-card--sell {
-  border-color: rgba(139, 92, 246, 0.28);
-  background: linear-gradient(165deg, rgba(139, 92, 246, 0.08) 0%, #0f0f14 55%);
+.swap-pair-card--sell,
+.swap-pair-card--buy {
+  /* Side role only — mint colors from swap-token-color--* on the card element. */
 }
 
-.swap-pair-card--buy {
+.swap-pair-card.swap-token-color--sol {
+  border-color: rgba(153, 69, 255, 0.28);
+  background: linear-gradient(165deg, rgba(153, 69, 255, 0.08) 0%, #0f0f14 55%);
+}
+
+.swap-pair-card.swap-token-color--stable {
   border-color: rgba(74, 222, 128, 0.22);
   background: linear-gradient(165deg, rgba(74, 222, 128, 0.06) 0%, #0f0f14 55%);
+}
+
+.swap-pair-card.swap-token-color--alt {
+  border-color: rgba(250, 204, 21, 0.28);
+  background: linear-gradient(165deg, rgba(250, 204, 21, 0.06) 0%, #0f0f14 55%);
 }
 
 .swap-pair-card-head-left {

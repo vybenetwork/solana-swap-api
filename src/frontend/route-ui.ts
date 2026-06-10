@@ -26,6 +26,8 @@ import {
   isSolMint,
   NATIVE_SOL_MINT,
   WSOL_MINT,
+  tokenSymColorClass,
+  tokenBoxColorClass,
   type TokenPriceStats,
 } from './token-picker.js';
 
@@ -1144,6 +1146,7 @@ export function resolveWalletPayDebitRaw(quote: Record<string, unknown>): string
 export interface QuotePayHeroCostStackItem {
   ui: number;
   sym: string;
+  mint: string;
 }
 
 export function getQuotePayHeroCostStack(
@@ -1225,10 +1228,14 @@ export function getQuotePayHeroCostStack(
   }
 
   const stack: QuotePayHeroCostStackItem[] = [];
-  if (foundFee && feeUi > 0) stack.push({ ui: feeUi, sym: sellSym });
-  if (foundSameMintRent && sameMintRentUi > 0) stack.push({ ui: sameMintRentUi, sym: sellSym });
+  if (foundFee && feeUi > 0) stack.push({ ui: feeUi, sym: sellSym, mint });
+  if (foundSameMintRent && sameMintRentUi > 0) stack.push({ ui: sameMintRentUi, sym: sellSym, mint });
   if (foundForeignRent && foreignRentUi > 0) {
-    stack.push({ ui: foreignRentUi, sym: mintSymbolSync(NATIVE_SOL_MINT) });
+    stack.push({
+      ui: foreignRentUi,
+      sym: mintSymbolSync(NATIVE_SOL_MINT),
+      mint: NATIVE_SOL_MINT,
+    });
   }
   return stack;
 }
@@ -1237,10 +1244,11 @@ function formatPayHeroCostDisplay(ui: number): string {
   return deps.formatSwapAmountValue(ui).replace(/,/g, '');
 }
 
-function renderPayHeroCostRow(sym: string, ui: number, amtCls: string): string {
+function renderPayHeroCostRow(sym: string, ui: number, amtCls: string, mint: string): string {
+  const symCls = tokenSymColorClass(mint, sym);
   return `<span class="swap-quote-summary-fee-part">
         <span class="swap-quote-summary-amt swap-quote-summary-amt--fee${amtCls}">${deps.escapeHtml(formatPayHeroCostDisplay(ui))}</span>
-        <span class="swap-quote-summary-sym">${deps.escapeHtml(sym)}</span>
+        <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(sym)}</span>
       </span>`;
 }
 
@@ -1253,6 +1261,8 @@ export function renderQuotePayHeroValueHtml(
   loading = false,
 ): string {
   const amtCls = placeholder ? ' swap-quote-summary-amt--placeholder' : '';
+  const inputMint = quote ? quoteInputMint(quote) ?? '' : '';
+  const inputSymCls = inputMint ? tokenSymColorClass(inputMint, inSym) : 'swap-token-sym-color--alt';
   if (loading && placeholder) {
     return `<span class="swap-quote-summary-amt${amtCls}">${deps.renderLoadingSpinner('md')}</span>`;
   }
@@ -1260,19 +1270,19 @@ export function renderQuotePayHeroValueHtml(
   const swapAmt = quote ? getQuoteSwapLegLabelFromQuote(quote) : fallbackAmt;
   if (swapAmt === '—') {
     return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(fallbackAmt)}</span>
-        <span class="swap-quote-summary-sym">${deps.escapeHtml(inSym)}</span>`;
+        <span class="swap-quote-summary-sym ${inputSymCls}">${deps.escapeHtml(inSym)}</span>`;
   }
 
   const stack = quote ? getQuotePayHeroCostStack(quote, inSym) : [];
   if (stack.length === 0) {
     return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(swapAmt)}</span>
-        <span class="swap-quote-summary-sym">${deps.escapeHtml(inSym)}</span>`;
+        <span class="swap-quote-summary-sym ${inputSymCls}">${deps.escapeHtml(inSym)}</span>`;
   }
 
-  const stackRows = stack.map((row) => renderPayHeroCostRow(row.sym, row.ui, amtCls));
+  const stackRows = stack.map((row) => renderPayHeroCostRow(row.sym, row.ui, amtCls, row.mint));
 
   return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(swapAmt)}</span>
-      <span class="swap-quote-summary-sym">${deps.escapeHtml(inSym)}</span>
+      <span class="swap-quote-summary-sym ${inputSymCls}">${deps.escapeHtml(inSym)}</span>
       <span class="swap-quote-summary-plus">+</span>
       <span class="swap-quote-summary-fee-stack">${stackRows.join('')}</span>`;
 }
@@ -1349,10 +1359,10 @@ function renderDiagramInputFeeStackHtml(
     if (!showAllEndpointLabels) return '';
     return `<span class="routing-input-addon">Fee: <span class="routing-input-addon__val">${ROUTING_PLACEHOLDER_DASH} ${deps.escapeHtml(inSym)}</span></span>`;
   }
-  const lines = rows.map(
-    (row) =>
-      `<span class="routing-input-addon">Fee: <span class="routing-input-addon__val">${deps.escapeHtml(formatDiagramInputFeeVal(row.ui))} ${deps.escapeHtml(row.sym)}</span></span>`,
-  );
+  const lines = rows.map((row) => {
+    const symCls = tokenSymColorClass(row.mint, row.sym);
+    return `<span class="routing-input-addon">Fee: <span class="routing-input-addon__val">${deps.escapeHtml(formatDiagramInputFeeVal(row.ui))} <span class="${symCls}">${deps.escapeHtml(row.sym)}</span></span></span>`;
+  });
   if (lines.length === 1) return lines[0]!;
   return `<div class="routing-input-addon-stack">${lines.join('')}</div>`;
 }
@@ -1597,12 +1607,14 @@ function renderRouteEndpointPill(
       : sym === deps.getSwapOutSym()
         ? (deps.getFormOutputMint())
         : '';
+  const boxCls = mint ? tokenBoxColorClass(mint, sym) : '';
+  const symCls = tokenSymColorClass(mint, sym);
   const titleAttr = title ? ` title="${deps.escapeHtml(title)}"` : '';
   const amtHtml = amtLoading ? deps.renderLoadingSpinner('md') : deps.escapeHtml(amt);
-  return `<div class="routing-pill routing-pill--endpoint"${titleAttr}>
+  return `<div class="routing-pill routing-pill--endpoint${boxCls ? ` ${boxCls}` : ''}"${titleAttr}>
     ${renderRoutingTokenIcon(mint, sym)}
     <span class="routing-amt">${amtHtml}</span>
-    <span class="routing-sym">${deps.escapeHtml(sym)}</span>
+    <span class="routing-sym ${symCls}">${deps.escapeHtml(sym)}</span>
   </div>`;
 }
 
