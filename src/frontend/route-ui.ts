@@ -1851,6 +1851,14 @@ function feeAmountToUi(amountRaw: string, feeMint: string): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+/** Hop fee table amounts — 3 sig figs after leading fractional zeros. */
+function formatHopFeeTableAmount(amountRaw: string, feeMint: string): string {
+  const feeUi = feeAmountToUi(amountRaw, feeMint);
+  if (feeUi != null) return deps.formatFeeEquivSmallAmount(feeUi);
+  const fallback = deps.formatRawTokenAmount(amountRaw, feeMint).display;
+  return fallback === '—' ? '—' : fallback;
+}
+
 export function collectRoutePriceMints(quote: Record<string, unknown>): string[] {
   const mints = new Set<string>();
   mints.add(NATIVE_SOL_MINT);
@@ -2316,8 +2324,8 @@ function renderMockHopFeeRow(label: string, destHtml: string, feeSym: string): s
   return `<div class="hop-fee-row hop-fee-row--${variant}">
     <span class="hop-fee-row__label">${deps.escapeHtml(label)}</span>
     <span class="hop-fee-row__dest">${destHtml}</span>
-    <span class="hop-fee-row__amt">−${ROUTING_PLACEHOLDER_DASH} ${deps.escapeHtml(feeSym)}</span>
-    <span class="hop-fee-row__usd">${ROUTING_PLACEHOLDER_DASH}</span>
+    <span class="hop-fee-row__amt"><span>−${ROUTING_PLACEHOLDER_DASH} ${deps.escapeHtml(feeSym)}</span></span>
+    <span class="hop-fee-row__usd"><span>${ROUTING_PLACEHOLDER_DASH}</span></span>
   </div>`;
 }
 
@@ -2325,23 +2333,23 @@ function renderMockHopPlanFeesSection(walletFeeSym: string, outputFeeSym: string
   const walletRows = [
     renderMockHopFeeRow(
       PRIORITY_FEE_LABEL,
-      `<span class="hop-fee-dest hop-fee-dest--priority"><span class="hop-fee-dest__kind">Validators</span></span>`,
+      renderMockFeeDestBracketOnly('priority', 'Solana Validators/RPC'),
       walletFeeSym,
     ),
     renderMockHopFeeRow(
       'Protocol fee',
-      `<span class="hop-fee-dest hop-fee-dest--recipient"><span class="hop-fee-dest__kind">Fee recipient</span><span class="hop-fee-dest__sep" aria-hidden="true">·</span><span class="hop-fee-dest__note">${ROUTING_PLACEHOLDER_DASH}</span></span>`,
+      renderMockFeeDestBracketOnly('recipient', 'Fee Recipient'),
       walletFeeSym,
     ),
     renderMockHopFeeRow(
       ACC_RENT_FEE_LABEL,
-      `<span class="hop-fee-dest hop-fee-dest--ata"><span class="hop-fee-dest__kind">Token account</span><span class="hop-fee-dest__sep" aria-hidden="true">·</span><span class="hop-fee-dest__note">New SPL token account (rent-exempt deposit)</span></span>`,
+      renderMockFeeDestBracketOnly('ata', 'Token Account'),
       walletFeeSym,
     ),
   ].join('');
   const outputRows = renderMockHopFeeRow(
     'Pool fee',
-    `<span class="hop-fee-dest hop-fee-dest--pool"><span class="hop-fee-dest__kind">Pool vault</span><span class="hop-fee-dest__sep" aria-hidden="true">·</span><span class="hop-fee-dest__note">${ROUTING_PLACEHOLDER_DASH}</span></span>`,
+    renderMockFeeDestBracketOnly('pool', 'Pool Vault'),
     outputFeeSym,
   );
   const groupsHtml =
@@ -2440,31 +2448,60 @@ function resolveFeeDestinationAddress(
 }
 
 const FEE_DEST_KIND_META: Record<string, { label: string; mod: string }> = {
-  lp_pool: { label: 'Pool vault', mod: 'pool' },
-  new_token_account: { label: 'Token account', mod: 'ata' },
-  fee_recipient: { label: 'Fee recipient', mod: 'recipient' },
+  lp_pool: { label: 'Pool Vault', mod: 'pool' },
+  new_token_account: { label: 'Token Account', mod: 'ata' },
+  fee_recipient: { label: 'Fee Recipient', mod: 'recipient' },
   input_wallet: { label: 'Your wallet', mod: 'input-wallet' },
-  network_priority: { label: 'Validators', mod: 'priority' },
+  network_priority: { label: 'Solana Validators/RPC', mod: 'priority' },
   output_deduction: { label: 'Output deduction', mod: 'deduct' },
 };
 
-/** One-line destination: colored kind tag + Solscan address link (or note fallback). */
+function renderFeeDestBracketTag(label: string): string {
+  return `<span class="hop-fee-dest__kind-tag">(${deps.escapeHtml(label)})</span>`;
+}
+
+function renderMockFeeDestBracketOnly(mod: string, label: string): string {
+  return `<span class="hop-fee-dest hop-fee-dest--${mod}">${renderFeeDestBracketTag(label)}</span>`;
+}
+
+function renderMockFeeDestBracket(mod: string, label: string, addr = ROUTING_PLACEHOLDER_DASH): string {
+  return `<span class="hop-fee-dest hop-fee-dest--${mod}"><span class="hop-fee-dest__note">${addr}</span> ${renderFeeDestBracketTag(label)}</span>`;
+}
+
+/** One-line destination: address first, then kind in brackets — or kind/note fallback. */
 function renderFeeDestinationInline(item: HopFeeItemLite, ctx?: FeeDestinationRenderCtx): string {
   const meta = item.destinationKind ? FEE_DEST_KIND_META[item.destinationKind] : undefined;
   const addr = resolveFeeDestinationAddress(item, ctx);
   const addrHtml = addr ? renderFeeDestinationAddrLine(addr) : '';
-  const note = item.destinationNote?.trim();
+  const note =
+    item.destinationKind === 'network_priority' || item.destinationKind === 'new_token_account'
+      ? ''
+      : item.destinationNote?.trim();
 
   if (!meta && !addrHtml) {
     if (!note) return '';
     return `<span class="hop-fee-dest"><span class="hop-fee-dest__note">${deps.escapeHtml(note)}</span></span>`;
   }
+
+  const mod = meta?.mod ?? 'generic';
+  if (addrHtml && meta) {
+    return `<span class="hop-fee-dest hop-fee-dest--${mod}">${addrHtml} ${renderFeeDestBracketTag(meta.label)}</span>`;
+  }
+
+  if (addrHtml) {
+    return `<span class="hop-fee-dest">${addrHtml}</span>`;
+  }
+
+  if (meta && !note) {
+    return `<span class="hop-fee-dest hop-fee-dest--${mod}">${renderFeeDestBracketTag(meta.label)}</span>`;
+  }
+
   const kindHtml = meta
     ? `<span class="hop-fee-dest__kind">${deps.escapeHtml(meta.label)}</span>`
     : '';
-  const tail = addrHtml || (note ? `<span class="hop-fee-dest__note">${deps.escapeHtml(note)}</span>` : '');
+  const tail = note ? `<span class="hop-fee-dest__note">${deps.escapeHtml(note)}</span>` : '';
   const sep = kindHtml && tail ? '<span class="hop-fee-dest__sep" aria-hidden="true">·</span>' : '';
-  return `<span class="hop-fee-dest hop-fee-dest--${meta?.mod ?? 'generic'}">${kindHtml}${sep}${tail}</span>`;
+  return `<span class="hop-fee-dest hop-fee-dest--${mod}">${kindHtml}${sep}${tail}</span>`;
 }
 
 /** Compact fee row: label · destination · token amount · USD. */
@@ -2478,13 +2515,13 @@ function renderHopFeeRow(
   const titleParts = [formatFeeEquivDetailText(equiv)];
   const note = item.destinationNote?.trim();
   if (note) titleParts.push(note);
-  const amt = `−${equiv.primary} ${equiv.feeSym}`;
+  const amt = `−${formatHopFeeTableAmount(item.amountRaw, item.mint)} ${equiv.feeSym}`;
   const usd = equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : '—';
   return `<div class="hop-fee-row hop-fee-row--${variant}" title="${deps.escapeHtml(titleParts.join(' — '))}">
     <span class="hop-fee-row__label">${deps.escapeHtml(label)}</span>
     <span class="hop-fee-row__dest">${renderFeeDestinationInline(item, destCtx)}</span>
-    <span class="hop-fee-row__amt">${deps.escapeHtml(amt)}</span>
-    <span class="hop-fee-row__usd">${deps.escapeHtml(usd)}</span>
+    <span class="hop-fee-row__amt"><span>${deps.escapeHtml(amt)}</span></span>
+    <span class="hop-fee-row__usd"><span>${deps.escapeHtml(usd)}</span></span>
   </div>`;
 }
 
@@ -2623,7 +2660,7 @@ function sumHopPlanFeeTableNativeAmount(
     }
   }
   if (total <= 0n) return null;
-  const formatted = deps.formatRawTokenAmount(total.toString(), mint).display;
+  const formatted = formatHopFeeTableAmount(total.toString(), mint);
   if (formatted === '—') return null;
   return { display: formatted, sym: mintSymbolSync(mint) };
 }
@@ -2672,9 +2709,7 @@ function sumHopPlanFeeTableTotals(
   if (!foundUsd && !foundWalletBase) return null;
 
   const nativeTotal = sumHopPlanFeeTableNativeAmount(rowData);
-  const walletFmt = foundWalletBase
-    ? deps.formatSwapAmountValue(walletBaseUi).replace(/,/g, '')
-    : '—';
+  const walletFmt = foundWalletBase ? deps.formatFeeEquivSmallAmount(walletBaseUi) : '—';
   const amountDisplay = nativeTotal
     ? `−${nativeTotal.display} ${nativeTotal.sym}`
     : '—';
@@ -3304,11 +3339,12 @@ function renderRoutePlanStepDetail(
       ? mintSymbolSync(si.feeMintAddress)
       : '—';
   const feeMint = (hopFees?.mint ?? si?.feeMintAddress ?? '').trim();
+  const feeAmtMint = feeMint || leg.inMint;
   const feeAmt =
     hopFees?.totalAmountRaw && hopFees.totalAmountRaw !== '0'
-      ? deps.formatRawTokenAmount(hopFees.totalAmountRaw, feeMint || leg.inMint).display
+      ? formatHopFeeTableAmount(hopFees.totalAmountRaw, feeAmtMint)
       : si?.feeAmount && si.feeAmount !== '0'
-        ? deps.formatRawTokenAmount(si.feeAmount, feeMint || leg.inMint).display
+        ? formatHopFeeTableAmount(si.feeAmount, feeAmtMint)
         : null;
 
   const detailCell = (
@@ -3410,8 +3446,8 @@ function renderRoutePlanStepDetail(
         <div class="hop-fee-row hop-fee-row--fee">
           <span class="hop-fee-row__label">Fee</span>
           <span class="hop-fee-row__dest"></span>
-          <span class="hop-fee-row__amt">−${deps.escapeHtml(feeAmt)} ${deps.escapeHtml(feeSym)}</span>
-          <span class="hop-fee-row__usd">—</span>
+          <span class="hop-fee-row__amt"><span>−${deps.escapeHtml(feeAmt)} ${deps.escapeHtml(feeSym)}</span></span>
+          <span class="hop-fee-row__usd"><span>—</span></span>
         </div>
       </div>
     </section>`;

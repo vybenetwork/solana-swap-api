@@ -201,7 +201,6 @@ function attachAggregatorTokenAccRent(items: HopFeeItem[], rentLamports: bigint)
     amountRaw: rentLamports.toString(),
     mint: WSOL_MINT,
     destinationKind: 'new_token_account',
-    destinationNote: 'New SPL token account (rent-exempt deposit)',
   });
 }
 
@@ -214,10 +213,6 @@ function attachHopAccRentEntries(items: HopFeeItem[], entries: TokenAccRentEntry
       mint: WSOL_MINT,
       destinationAddress: rent.accountAddress,
       destinationKind: 'new_token_account',
-      destinationNote:
-        rent.createdNew !== false
-          ? 'New SPL token account (rent-exempt deposit)'
-          : 'Token account deposit',
     });
   }
 }
@@ -363,9 +358,6 @@ function enrichHopFeeItemDestinations(
 
     if (item.label === 'Acc Rent Fee') {
       if (!item.destinationKind) item.destinationKind = 'new_token_account';
-      if (!item.destinationNote) {
-        item.destinationNote = 'New SPL token account (rent-exempt deposit)';
-      }
       continue;
     }
 
@@ -399,7 +391,6 @@ function enrichHopFeeItemDestinations(
         }
         if (!isInputWalletDebit && amount <= 10_000n && item.label === 'Route fee') {
           item.destinationKind = 'network_priority';
-          item.destinationNote = 'Solana priority fee (validators)';
           if (walletAddr) item.destinationAddress = walletAddr;
           continue;
         }
@@ -578,7 +569,6 @@ function attachFirstHopInputSideFees(
       amountRaw: networkFeeLamports.toString(),
       mint: WSOL_MINT,
       destinationKind: 'network_priority',
-      destinationNote: 'Network fee: base signature + priority fee (validators)',
     });
     extra -= networkFeeLamports;
   }

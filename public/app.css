@@ -3580,6 +3580,9 @@ tr:hover td {
 }
 
 .swap-hop-fee-dest__addr-link {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.2;
   text-decoration: none;
   color: #93c5fd;
 }
@@ -3617,7 +3620,7 @@ tr:hover td {
 
 .hop-fee-row {
   display: grid;
-  grid-template-columns: minmax(4.6rem, auto) minmax(0, 1fr) auto minmax(3rem, auto);
+  grid-template-columns: minmax(4.6rem, auto) minmax(0, 1fr) 120px minmax(3.5rem, auto);
   gap: 0.5rem;
   align-items: center;
   padding: 0.38rem 0.55rem;
@@ -3636,15 +3639,16 @@ tr:hover td {
   letter-spacing: 0.04em;
   color: #a1a1aa;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  line-height: 1.2;
+  min-width: 90px;
 }
 
 .hop-fee-row--fee-protocol .hop-fee-row__label,
-.hop-fee-row--fee-route .hop-fee-row__label {
-  color: #f87171;
-}
-
+.hop-fee-row--fee-route .hop-fee-row__label,
 .hop-fee-row--fee-pool .hop-fee-row__label {
-  color: #60a5fa;
+  color: #f87171;
 }
 
 .hop-fee-row--fee-token-acc-rent .hop-fee-row__label {
@@ -3652,8 +3656,11 @@ tr:hover td {
 }
 
 .hop-fee-row__dest {
-  min-width: 0;
+  min-width: 230px;
+  max-width: 230px;
   overflow: hidden;
+  font-size: 0.58rem;
+  white-space: nowrap;
 }
 
 .hop-fee-dest {
@@ -3664,6 +3671,7 @@ tr:hover td {
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
+  line-height: 1.2;
 }
 
 .hop-fee-dest__kind {
@@ -3671,6 +3679,14 @@ tr:hover td {
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+  color: #71717a;
+  flex-shrink: 0;
+}
+
+.hop-fee-dest__kind-tag {
+  font-size: 0.55rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
   color: #71717a;
   flex-shrink: 0;
 }
@@ -3712,20 +3728,35 @@ tr:hover td {
   color: #71717a;
 }
 
+.hop-fee-row__amt,
+.hop-fee-row__usd {
+  display: block;
+  width: 100%;
+  text-align: left;
+  line-height: 1.2;
+  justify-self: start;
+}
+
+.hop-fee-row__amt > span,
+.hop-fee-row__usd > span {
+  display: block;
+  width: 100%;
+  text-align: left;
+  white-space: nowrap;
+}
+
 .hop-fee-row__amt {
   font-size: 0.64rem;
   color: #fafafa;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  text-align: right;
+  min-width: 120px;
+  max-width: 120px;
 }
 
 .hop-fee-row__usd {
   font-size: 0.62rem;
   color: #fde68a;
   font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  text-align: right;
 }
 
 /* Hop technical details — 3 cells per row */
@@ -3742,7 +3773,7 @@ tr:hover td {
   }
 
   .hop-fee-row {
-    grid-template-columns: minmax(4.6rem, auto) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(4.6rem, auto) minmax(0, 1fr) 120px;
   }
 
   .hop-fee-row__usd {
@@ -4374,11 +4405,6 @@ tr:hover td {
 .swap-side-label-token {
   color: #fafafa;
   font-weight: 600;
-}
-
-.swap-side-label-balance-pct {
-  font-weight: 500;
-  color: #a1a1aa;
 }
 
 .swap-side-body {
