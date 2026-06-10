@@ -2636,17 +2636,20 @@ interface HopFeeMintTotal {
   mint: string;
   sym: string;
   display: string;
+  feeCount: number;
 }
 
 function sumHopPlanFeeTotalsByMint(
   rowData: Array<{ item: HopFeeItemLite; equiv: FeeAmountEquiv }>,
 ): HopFeeMintTotal[] {
   const totals = new Map<string, bigint>();
+  const counts = new Map<string, number>();
   for (const { item } of rowData) {
     const mint = item.mint.trim();
     if (!mint || !item.amountRaw || !/^\d+$/.test(item.amountRaw)) continue;
     try {
       totals.set(mint, (totals.get(mint) ?? 0n) + BigInt(item.amountRaw));
+      counts.set(mint, (counts.get(mint) ?? 0) + 1);
     } catch {
       continue;
     }
@@ -2657,7 +2660,12 @@ function sumHopPlanFeeTotalsByMint(
     if (total <= 0n) continue;
     const display = formatHopFeeTableAmount(total.toString(), mint);
     if (display === '—') continue;
-    rows.push({ mint, sym: mintSymbolSync(mint), display });
+    rows.push({
+      mint,
+      sym: mintSymbolSync(mint),
+      display,
+      feeCount: counts.get(mint) ?? 1,
+    });
   }
 
   rows.sort((a, b) => {
@@ -2669,12 +2677,22 @@ function sumHopPlanFeeTotalsByMint(
   return rows;
 }
 
-function renderHopFeeTotalChip(mint: string, sym: string, display: string): string {
+function hopFeeCountLabel(feeCount: number): string {
+  return feeCount > 1 ? 'Fees' : 'Fee';
+}
+
+function renderHopFeeTotalChip(
+  mint: string,
+  sym: string,
+  display: string,
+  feeCount = 1,
+): string {
   const boxCls = tokenBoxColorClass(mint, sym);
   const symCls = tokenSymColorClass(mint, sym);
   const safeSym = deps.escapeHtml(sym);
+  const feeLabel = hopFeeCountLabel(feeCount);
   const amt = deps.escapeHtml(display.startsWith('−') ? display : `−${display}`);
-  return `<span class="swap-pair-chg hop-fees-total-chip ${boxCls}" title="Total ${safeSym} fees this hop"><span class="hop-fees-total-chip__amt">${amt}</span> <span class="hop-fees-total-chip__sym ${symCls}">${safeSym}</span></span>`;
+  return `<span class="swap-pair-chg hop-fees-total-chip ${boxCls}" title="Total ${safeSym} ${feeLabel.toLowerCase()} this hop"><span class="hop-fees-total-chip__amt">${amt}</span> <span class="hop-fees-total-chip__sym ${symCls}">${safeSym}</span> <span class="hop-fees-total-chip__kind">(${feeLabel})</span></span>`;
 }
 
 function sumHopPlanFeeTotalUsd(
@@ -2693,12 +2711,15 @@ function sumHopPlanFeeTotalUsd(
   return found ? totalUsd : null;
 }
 
+function formatHopFeeUsdTotalDisplay(usd: number): string {
+  if (usd < 0.01) return '< $0.01';
+  return `−$${deps.formatSwapPayUsdAmount(usd)}`;
+}
+
 function renderHopFeeUsdTotalChip(usd: number | null, placeholder = false): string {
   if (!placeholder && (usd == null || usd <= 0)) return '';
-  const amt = placeholder
-    ? ROUTING_PLACEHOLDER_DASH
-    : `−$${deps.formatSwapPayUsdAmount(usd!)}`;
-  return `<span class="swap-pair-chg hop-fees-total-chip hop-fees-total-chip--usd" title="Combined USD fees this hop"><span class="hop-fees-total-chip__amt">${deps.escapeHtml(amt)}</span> <span class="hop-fees-total-chip__sym">USD (Total)</span></span>`;
+  const amt = placeholder ? ROUTING_PLACEHOLDER_DASH : formatHopFeeUsdTotalDisplay(usd!);
+  return `<span class="swap-pair-chg hop-fees-total-chip hop-fees-total-chip--usd" title="Combined USD total fees this hop"><span class="hop-fees-total-chip__amt">${deps.escapeHtml(amt)}</span> <span class="hop-fees-total-chip__sym">USD</span> <span class="hop-fees-total-chip__kind">(Total Fees)</span></span>`;
 }
 
 function renderHopFeesTotalsChips(
@@ -2707,7 +2728,7 @@ function renderHopFeesTotalsChips(
 ): string {
   const totals = sumHopPlanFeeTotalsByMint(rowData);
   const currencyChips = totals
-    .map(({ mint, sym, display }) => renderHopFeeTotalChip(mint, sym, display))
+    .map(({ mint, sym, display, feeCount }) => renderHopFeeTotalChip(mint, sym, display, feeCount))
     .join('');
   const usdChip = renderHopFeeUsdTotalChip(sumHopPlanFeeTotalUsd(rowData, quote));
   if (!currencyChips && !usdChip) return '';
@@ -2717,8 +2738,8 @@ function renderHopFeesTotalsChips(
 function renderHopFeesTotalsChipsMock(walletSym: string, outputSym: string): string {
   const walletMint = walletSym.toUpperCase() === 'SOL' ? NATIVE_SOL_MINT : '';
   const chips = [
-    renderHopFeeTotalChip(walletMint, walletSym, ROUTING_PLACEHOLDER_DASH),
-    renderHopFeeTotalChip('', outputSym, ROUTING_PLACEHOLDER_DASH),
+    renderHopFeeTotalChip(walletMint, walletSym, ROUTING_PLACEHOLDER_DASH, 3),
+    renderHopFeeTotalChip('', outputSym, ROUTING_PLACEHOLDER_DASH, 1),
     renderHopFeeUsdTotalChip(null, true),
   ].join('');
   return `<div class="hop-fees-totals" aria-label="Fee totals by currency">${chips}</div>`;

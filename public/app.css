@@ -3597,6 +3597,12 @@ tr:hover td {
   background: linear-gradient(145deg, rgba(250, 204, 21, 0.12) 0%, rgba(250, 204, 21, 0.04) 42%, #12121a 100%);
 }
 
+.hop-fees-total-chip__kind {
+  color: #fafafa;
+  font-weight: 400;
+  font-size: 0.58rem;
+}
+
 .hop-fees-total-chip.swap-token-color--sol .hop-fees-total-chip__amt,
 .hop-fees-total-chip.swap-token-color--sol .hop-fees-total-chip__sym {
   color: #c084fc;
