@@ -3570,8 +3570,8 @@ tr:hover td {
   align-items: center;
   justify-content: flex-end;
   gap: 0.35rem;
-  min-width: 0;
-  max-width: 68%;
+  max-width: 510px;
+  min-width: 510px;
 }
 
 .hop-fees-total-chip {
