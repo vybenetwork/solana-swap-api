@@ -769,18 +769,17 @@ const KNOWN_STABLE_SYMBOLS = new Set([
 
 /** Purple = SOL, green = stables, yellow = everything else. */
 export function getTokenMintColorKind(mint: string, symbolHint?: string): TokenMintColorKind {
+  const symHint = (symbolHint ?? '').toUpperCase();
+  if (symHint === 'SOL' || symHint === 'WSOL') return 'sol';
+  if (symHint && KNOWN_STABLE_SYMBOLS.has(symHint)) return 'stable';
+
   const m = preferNativeSolMint(mint.trim());
-  if (!m) {
-    const sym = (symbolHint ?? '').toUpperCase();
-    if (sym === 'SOL' || sym === 'WSOL') return 'sol';
-    if (KNOWN_STABLE_SYMBOLS.has(sym)) return 'stable';
-    return 'alt';
-  }
+  if (!m) return 'alt';
   if (isSolMint(m)) return 'sol';
   if (KNOWN_STABLECOIN_MINTS.has(m)) return 'stable';
   const meta = getCachedTokenMeta(m);
   if (meta?.tags?.some((t) => t.toLowerCase() === 'stable')) return 'stable';
-  const sym = (symbolHint ?? meta?.symbol ?? '').toUpperCase();
+  const sym = (meta?.symbol ?? '').toUpperCase();
   if (sym && KNOWN_STABLE_SYMBOLS.has(sym)) return 'stable';
   return 'alt';
 }

@@ -48,6 +48,7 @@ export interface RouteUiDeps {
   formatRawTokenAmount: (raw: string | undefined, mint: string) => { display: string; full: string };
   formatSwapAmountValue: (n: number) => string;
   formatSwapAmount: (value: unknown) => { display: string; full: string };
+  formatFeeStackAmount: (n: number) => string;
   formatFeeEquivSmallAmount: (n: number) => string;
   formatFeeEquivUsdFiatDisplay: (n: number) => string;
   formatSwapPayUsdAmount: (n: number) => string;
@@ -211,11 +212,13 @@ export function quoteInAmountUi(quote: Record<string, unknown>, mint?: string): 
 }
 
 export function quoteInputMint(quote: Record<string, unknown>): string {
-  return String(quote.inputMintAddress ?? quote.inputMint ?? deps.getFormInputMint()).trim();
+  const fromQuote = String(quote.inputMintAddress ?? quote.inputMint ?? '').trim();
+  return fromQuote || deps.getFormInputMint().trim();
 }
 
 export function quoteOutputMint(quote: Record<string, unknown>): string {
-  return String(quote.outputMintAddress ?? quote.outputMint ?? deps.getFormOutputMint()).trim();
+  const fromQuote = String(quote.outputMintAddress ?? quote.outputMint ?? '').trim();
+  return fromQuote || deps.getFormOutputMint().trim();
 }
 
 export function quoteUiAmount(quote: Record<string, unknown>, field: 'out' | 'min'): unknown {
@@ -749,9 +752,13 @@ export function getQuoteYouPaySubLabel(quote: Record<string, unknown>): string |
   const breakdown = resolveQuoteYouPayUsd(quote);
   if (!breakdown) return null;
 
+  const feeCount = getQuotePayHeroCostStack(quote, deps.getSwapInSym())
+    .filter((row) => row.kind === 'fee')
+    .reduce((total, row) => total + (row.count ?? 1), 0);
+
   const parts: string[] = [`≈ $${deps.formatSwapPayUsdAmount(breakdown.swapUsd)}`];
   if (breakdown.feeUsd != null && breakdown.feeUsd > 0) {
-    parts.push(`+ $${deps.formatSwapPayUsdAmount(breakdown.feeUsd)} (fee)`);
+    parts.push(`+ $${deps.formatSwapPayUsdAmount(breakdown.feeUsd)} (${feeCount > 1 ? 'fees' : 'fee'})`);
   }
   if (breakdown.rentUsd != null && breakdown.rentUsd > 0) {
     parts.push(`+ $${deps.formatSwapPayUsdAmount(breakdown.rentUsd)} (rent)`);
@@ -1147,6 +1154,9 @@ export interface QuotePayHeroCostStackItem {
   ui: number;
   sym: string;
   mint: string;
+  kind: 'fee' | 'rent';
+  /** Distinct wallet-fee line items rolled into this row (fee kind only). */
+  count?: number;
 }
 
 export function getQuotePayHeroCostStack(
@@ -1157,6 +1167,7 @@ export function getQuotePayHeroCostStack(
   if (!mint) return [];
 
   let feeUi = 0;
+  let feeItemCount = 0;
   let sameMintRentUi = 0;
   let foreignRentUi = 0;
   let foundFee = false;
@@ -1184,6 +1195,7 @@ export function getQuotePayHeroCostStack(
 
       if (sameMint) {
         feeUi += ui;
+        feeItemCount += 1;
         foundFee = true;
       }
     }
@@ -1207,9 +1219,11 @@ export function getQuotePayHeroCostStack(
             if (impliedFee > 0) {
               feeUi = impliedFee;
               foundFee = true;
+              if (feeItemCount === 0) feeItemCount = 1;
             } else if (!foundSameMintRent && !foundForeignRent) {
               feeUi = deltaUi;
               foundFee = true;
+              if (feeItemCount === 0) feeItemCount = 1;
             }
           }
         }
@@ -1224,31 +1238,58 @@ export function getQuotePayHeroCostStack(
     if (inputFeeUi != null && inputFeeUi > 0) {
       feeUi = inputFeeUi;
       foundFee = true;
+      if (feeItemCount === 0) feeItemCount = 1;
     }
   }
 
   const stack: QuotePayHeroCostStackItem[] = [];
-  if (foundFee && feeUi > 0) stack.push({ ui: feeUi, sym: sellSym, mint });
-  if (foundSameMintRent && sameMintRentUi > 0) stack.push({ ui: sameMintRentUi, sym: sellSym, mint });
+  if (foundFee && feeUi > 0) {
+    stack.push({
+      ui: feeUi,
+      sym: sellSym,
+      mint,
+      kind: 'fee',
+      count: Math.max(feeItemCount, 1),
+    });
+  }
+  if (foundSameMintRent && sameMintRentUi > 0) {
+    stack.push({ ui: sameMintRentUi, sym: sellSym, mint, kind: 'rent' });
+  }
   if (foundForeignRent && foreignRentUi > 0) {
     stack.push({
       ui: foreignRentUi,
       sym: mintSymbolSync(NATIVE_SOL_MINT),
       mint: NATIVE_SOL_MINT,
+      kind: 'rent',
     });
   }
   return stack;
 }
 
-function formatPayHeroCostDisplay(ui: number): string {
-  return deps.formatSwapAmountValue(ui).replace(/,/g, '');
+function payHeroCostKindLabel(
+  kind: QuotePayHeroCostStackItem['kind'],
+  count = 1,
+): string {
+  if (kind === 'rent') return ' (rent)';
+  return count > 1 ? ' (fees)' : ' (fee)';
 }
 
-function renderPayHeroCostRow(sym: string, ui: number, amtCls: string, mint: string): string {
+function formatPayHeroCostDisplay(ui: number): string {
+  return deps.formatFeeStackAmount(ui);
+}
+
+function renderPayHeroCostRow(
+  sym: string,
+  ui: number,
+  amtCls: string,
+  mint: string,
+  kind: QuotePayHeroCostStackItem['kind'],
+  feeCount = 1,
+): string {
   const symCls = tokenSymColorClass(mint, sym);
   return `<span class="swap-quote-summary-fee-part">
         <span class="swap-quote-summary-amt swap-quote-summary-amt--fee${amtCls}">${deps.escapeHtml(formatPayHeroCostDisplay(ui))}</span>
-        <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(sym)}</span>
+        <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(sym)}</span><span class="swap-quote-summary-fee-kind">${payHeroCostKindLabel(kind, feeCount)}</span>
       </span>`;
 }
 
@@ -1261,8 +1302,10 @@ export function renderQuotePayHeroValueHtml(
   loading = false,
 ): string {
   const amtCls = placeholder ? ' swap-quote-summary-amt--placeholder' : '';
-  const inputMint = quote ? quoteInputMint(quote) ?? '' : '';
-  const inputSymCls = inputMint ? tokenSymColorClass(inputMint, inSym) : 'swap-token-sym-color--alt';
+  const inputMint = (
+    quote ? quoteInputMint(quote) : deps.getFormInputMint().trim()
+  ).trim();
+  const inputSymCls = tokenSymColorClass(inputMint, inSym);
   if (loading && placeholder) {
     return `<span class="swap-quote-summary-amt${amtCls}">${deps.renderLoadingSpinner('md')}</span>`;
   }
@@ -1279,7 +1322,9 @@ export function renderQuotePayHeroValueHtml(
         <span class="swap-quote-summary-sym ${inputSymCls}">${deps.escapeHtml(inSym)}</span>`;
   }
 
-  const stackRows = stack.map((row) => renderPayHeroCostRow(row.sym, row.ui, amtCls, row.mint));
+  const stackRows = stack.map((row) =>
+    renderPayHeroCostRow(row.sym, row.ui, amtCls, row.mint, row.kind, row.count ?? 1),
+  );
 
   return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(swapAmt)}</span>
       <span class="swap-quote-summary-sym ${inputSymCls}">${deps.escapeHtml(inSym)}</span>
@@ -1347,22 +1392,78 @@ export function getQuoteDiagramInputFeeRows(
 }
 
 function formatDiagramInputFeeVal(ui: number): string {
-  return `+${deps.formatSwapAmountValue(ui).replace(/,/g, '')}`;
+  return `+${deps.formatFeeStackAmount(ui)}`;
+}
+
+function diagramInputFeeLineLabel(kind: QuotePayHeroCostStackItem['kind'], feeCountInCurrency: number): string {
+  if (kind === 'rent') return 'Rent Fee:';
+  if (feeCountInCurrency > 1) return `${feeCountInCurrency} Fees:`;
+  return 'Fee:';
+}
+
+function renderDiagramInputFeeLine(
+  label: string,
+  ui: number,
+  mint: string,
+  sym: string,
+): string {
+  const symCls = tokenSymColorClass(mint, sym);
+  return `<span class="routing-input-addon">${label} <span class="routing-input-addon__val">${deps.escapeHtml(formatDiagramInputFeeVal(ui))} <span class="${symCls}">${deps.escapeHtml(sym)}</span></span></span>`;
 }
 
 function renderDiagramInputFeeStackHtml(
   rows: QuotePayHeroCostStackItem[],
   inSym: string,
   showAllEndpointLabels: boolean,
+  inMint = '',
 ): string {
   if (rows.length === 0) {
     if (!showAllEndpointLabels) return '';
-    return `<span class="routing-input-addon">Fee: <span class="routing-input-addon__val">${ROUTING_PLACEHOLDER_DASH} ${deps.escapeHtml(inSym)}</span></span>`;
+    const mint = inMint.trim() || deps.getFormInputMint().trim();
+    const symCls = tokenSymColorClass(mint, inSym);
+    return `<span class="routing-input-addon">Fee: <span class="routing-input-addon__val">${ROUTING_PLACEHOLDER_DASH} <span class="${symCls}">${deps.escapeHtml(inSym)}</span></span></span>`;
   }
-  const lines = rows.map((row) => {
-    const symCls = tokenSymColorClass(row.mint, row.sym);
-    return `<span class="routing-input-addon">Fee: <span class="routing-input-addon__val">${deps.escapeHtml(formatDiagramInputFeeVal(row.ui))} <span class="${symCls}">${deps.escapeHtml(row.sym)}</span></span></span>`;
-  });
+
+  const feeGroups = new Map<string, { mint: string; sym: string; ui: number; count: number }>();
+  const rentRows: QuotePayHeroCostStackItem[] = [];
+
+  for (const row of rows) {
+    if (row.kind === 'rent') {
+      rentRows.push(row);
+      continue;
+    }
+    const key = row.mint.trim();
+    const hit = feeGroups.get(key);
+    if (hit) {
+      hit.ui += row.ui;
+      hit.count += row.count ?? 1;
+    } else {
+      feeGroups.set(key, { mint: row.mint, sym: row.sym, ui: row.ui, count: row.count ?? 1 });
+    }
+  }
+
+  const lines: string[] = [];
+  for (const group of feeGroups.values()) {
+    lines.push(
+      renderDiagramInputFeeLine(
+        diagramInputFeeLineLabel('fee', group.count),
+        group.ui,
+        group.mint,
+        group.sym,
+      ),
+    );
+  }
+  for (const row of rentRows) {
+    lines.push(
+      renderDiagramInputFeeLine(
+        diagramInputFeeLineLabel('rent', 1),
+        row.ui,
+        row.mint,
+        row.sym,
+      ),
+    );
+  }
+
   if (lines.length === 1) return lines[0]!;
   return `<div class="routing-input-addon-stack">${lines.join('')}</div>`;
 }
@@ -1394,20 +1495,24 @@ export function getQuoteDiagramInputFeeAddon(quote: Record<string, unknown>): st
   if (walletAddon) return walletAddon;
   const inputFeeUi = sumInputSideWalletFeesInSellMintUi(quote);
   if (inputFeeUi == null) return null;
-  const formatted = deps.formatSwapAmountValue(inputFeeUi).replace(/,/g, '');
-  return formatted === '—' ? null : `+${formatted}`;
+  const formatted = deps.formatFeeStackAmount(inputFeeUi);
+  return formatted === '0' ? null : `+${formatted}`;
 }
 
 function getQuoteDiagramInputTotalLabel(quote: Record<string, unknown>): string | null {
   const breakdown = resolveQuoteYouPayUsd(quote);
   if (!breakdown) return null;
 
+  const stack = getQuotePayHeroCostStack(quote, deps.getSwapInSym());
+  const feeCount = stack
+    .filter((row) => row.kind === 'fee')
+    .reduce((total, row) => total + (row.count ?? 1), 0);
   const hasFee = breakdown.feeUsd != null && breakdown.feeUsd > 0;
   const hasRent = breakdown.rentUsd != null && breakdown.rentUsd > 0;
 
   let suffix = '';
-  if (hasFee && hasRent) suffix = ' (fees + rent)';
-  else if (hasFee) suffix = ' (fees)';
+  if (hasFee && hasRent) suffix = feeCount > 1 ? ' (fees + rent)' : ' (fee + rent)';
+  else if (hasFee) suffix = feeCount > 1 ? ' (fees)' : ' (fee)';
   else if (hasRent) suffix = ' (rent)';
 
   return `≈ $${deps.formatSwapPayUsdAmount(breakdown.totalUsd)}${suffix}`;
@@ -2206,6 +2311,44 @@ function renderMockRoutingFeeBranch(): string {
   </div>`;
 }
 
+function renderMockHopFeeRow(label: string, destHtml: string, feeSym: string): string {
+  const variant = feeChipVariant(label);
+  return `<div class="hop-fee-row hop-fee-row--${variant}">
+    <span class="hop-fee-row__label">${deps.escapeHtml(label)}</span>
+    <span class="hop-fee-row__dest">${destHtml}</span>
+    <span class="hop-fee-row__amt">−${ROUTING_PLACEHOLDER_DASH} ${deps.escapeHtml(feeSym)}</span>
+    <span class="hop-fee-row__usd">${ROUTING_PLACEHOLDER_DASH}</span>
+  </div>`;
+}
+
+function renderMockHopPlanFeesSection(feeSym: string): string {
+  const rows = [
+    renderMockHopFeeRow(
+      PRIORITY_FEE_LABEL,
+      `<span class="hop-fee-dest hop-fee-dest--priority"><span class="hop-fee-dest__kind">Validators</span></span>`,
+      feeSym,
+    ),
+    renderMockHopFeeRow(
+      'Protocol fee',
+      `<span class="hop-fee-dest hop-fee-dest--recipient"><span class="hop-fee-dest__kind">Fee recipient</span><span class="hop-fee-dest__sep" aria-hidden="true">·</span><span class="hop-fee-dest__note">${ROUTING_PLACEHOLDER_DASH}</span></span>`,
+      feeSym,
+    ),
+    renderMockHopFeeRow(
+      ACC_RENT_FEE_LABEL,
+      `<span class="hop-fee-dest hop-fee-dest--ata"><span class="hop-fee-dest__kind">Token account</span><span class="hop-fee-dest__sep" aria-hidden="true">·</span><span class="hop-fee-dest__note">New SPL token account (rent-exempt deposit)</span></span>`,
+      feeSym,
+    ),
+  ].join('');
+  const totalHtml = `<span class="hop-fees-total" title="Total fees for this hop">−${ROUTING_PLACEHOLDER_DASH} ${deps.escapeHtml(feeSym)} · ${ROUTING_PLACEHOLDER_DASH}</span>`;
+  return `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
+    <div class="swap-hop-panel__head">
+      <h5 class="swap-hop-panel__title">Fees</h5>
+      ${totalHtml}
+    </div>
+    <div class="hop-fee-group">${rows}</div>
+  </section>`;
+}
+
 function renderMockRouteMarketNode(
   meta: RouteHopMeta,
   leg: RouteHopLeg,
@@ -2789,7 +2932,11 @@ function renderRoutingFrame(
   const accRentClass = hasAccRentAbove ? ' routing-canvas--has-acc-rent-above' : '';
   const feeRows = inputFeeRows ?? [];
   const inputTotalVal =
-    inputTotalLabel && inputTotalLabel !== '—' ? inputTotalLabel : ROUTING_PLACEHOLDER_DASH;
+    inputTotalLabel && inputTotalLabel !== '—'
+      ? inputTotalLabel
+      : showAllEndpointLabels
+        ? `$${ROUTING_PLACEHOLDER_DASH} (fee)`
+        : ROUTING_PLACEHOLDER_DASH;
   const outputFeesVal =
     outputFeesUsdLabel && outputFeesUsdLabel !== '—'
       ? outputFeesUsdLabel
@@ -2799,7 +2946,12 @@ function renderRoutingFrame(
       ? outputUsdSubline
       : `≈ ${ROUTING_PLACEHOLDER_DASH}`;
 
-  const inputAddonHtml = renderDiagramInputFeeStackHtml(feeRows, inSym, showAllEndpointLabels);
+  const inputAddonHtml = renderDiagramInputFeeStackHtml(
+    feeRows,
+    inSym,
+    showAllEndpointLabels,
+    deps.getFormInputMint(),
+  );
   const inputFeeLineCount = countDiagramInputFeeLines(feeRows, showAllEndpointLabels);
   const outputFeesShown =
     showAllEndpointLabels || (outputFeesUsdLabel != null && outputFeesUsdLabel !== '—');
@@ -3237,6 +3389,9 @@ function renderRoutePlanStepDetail(
   let feesHtml = '';
   if (hopFees?.items.length) {
     feesHtml = renderHopPlanFeesSection(hopFees, leg, quote, feeMint, feeAmt, si?.ammKey);
+  } else if (placeholder) {
+    const mockFeeSym = feeSym !== '—' ? feeSym : leg.inSym;
+    feesHtml = renderMockHopPlanFeesSection(mockFeeSym);
   } else if (feeAmt) {
     feesHtml = `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
       <div class="swap-hop-panel__head">

@@ -227,6 +227,7 @@ function getSolanaWindow(): WindowWithSolana {
 const swapInputSymbolEl = document.getElementById('swapInputSymbol') as HTMLElement | null;
 const swapOutputSymbolEl = document.getElementById('swapOutputSymbol') as HTMLElement | null;
 const swapSellLabelTokenEl = document.getElementById('swapSellLabelToken') as HTMLElement | null;
+const swapSellLabelBalancePctEl = document.getElementById('swapSellLabelBalancePct') as HTMLElement | null;
 const swapBuyLabelTokenEl = document.getElementById('swapBuyLabelToken') as HTMLElement | null;
 const swapBuyAmountDisplayEl = document.getElementById('swapBuyAmountDisplay') as HTMLElement | null;
 const swapSellFiatEl = document.getElementById('swapSellFiat') as HTMLElement | null;
@@ -627,6 +628,40 @@ async function syncSwapSideLabels(): Promise<void> {
   const buySym = getSwapOutSym();
   if (swapSellLabelTokenEl) swapSellLabelTokenEl.textContent = swapSideTokenName(inMint, sellSym);
   if (swapBuyLabelTokenEl) swapBuyLabelTokenEl.textContent = swapSideTokenName(outMint, buySym);
+  syncSellLabelBalancePct();
+}
+
+function formatSellBalancePercentValue(amount: number, total: number): string | null {
+  if (!Number.isFinite(amount) || !Number.isFinite(total) || total <= 0 || amount <= 0) return null;
+  const pct = Math.min(100, (amount / total) * 100);
+  if (pct >= 99.95) return '100';
+  if (pct >= 10) {
+    const rounded = Math.round(pct * 10) / 10;
+    return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
+  }
+  if (pct >= 1) return (Math.round(pct * 10) / 10).toFixed(1);
+  return (Math.round(pct * 100) / 100).toFixed(2);
+}
+
+function syncSellLabelBalancePct(): void {
+  if (!swapSellLabelBalancePctEl) return;
+  const mint = swapInputMintInput?.value.trim() ?? '';
+  const amount = Number(swapAmountInput?.value.trim() ?? '');
+  const total =
+    mint && hasValidSwapWallet() ? getWalletBalanceAmountUi(mint) : null;
+  const pctStr =
+    total != null && total > 0 && Number.isFinite(amount) && amount > 0
+      ? formatSellBalancePercentValue(amount, total)
+      : null;
+  if (pctStr) {
+    swapSellLabelBalancePctEl.textContent = ` (${pctStr}% of Balance)`;
+    swapSellLabelBalancePctEl.hidden = false;
+    swapSellLabelBalancePctEl.removeAttribute('aria-hidden');
+  } else {
+    swapSellLabelBalancePctEl.textContent = '';
+    swapSellLabelBalancePctEl.hidden = true;
+    swapSellLabelBalancePctEl.setAttribute('aria-hidden', 'true');
+  }
 }
 
 async function refreshSwapSymbols(): Promise<void> {
@@ -667,29 +702,34 @@ function trimUsdTrailingZeros(formatted: string): string {
   return formatted.replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.0+$/, '');
 }
 
-/**
- * Fee SOL/USD equivalents — show 2 non-zero fractional digits (0.00012, 0.00302);
- * trim trailing zero on the 2nd when it would be 0 (0.00010 → 0.0001).
- */
-function formatFeeEquivSmallAmount(n: number): string {
+function roundToSigFigs(abs: number, sigFigs: number): number {
+  if (!Number.isFinite(abs) || abs === 0) return 0;
+  const exp = Math.floor(Math.log10(abs));
+  const scale = Math.pow(10, sigFigs - 1 - exp);
+  return Math.round(abs * scale) / scale;
+}
+
+/** Small fee/rent amounts — 3 sig figs after leading fractional zeros; rounds the 3rd digit. */
+function formatFeeStackAmount(n: number): string {
+  const sign = n < 0 ? '-' : '';
   const abs = Math.abs(n);
   if (!Number.isFinite(abs) || abs === 0) return '0';
-  if (abs >= 1) return trimUsdTrailingZeros(abs.toFixed(4));
+  if (abs >= 1) return sign + trimUsdTrailingZeros(abs.toFixed(4));
 
-  const frac = abs.toFixed(14).split('.')[1] ?? '';
-  const nonZeroPositions: number[] = [];
-  for (let i = 0; i < frac.length; i++) {
-    if (frac[i] !== '0') {
-      nonZeroPositions.push(i);
-      if (nonZeroPositions.length === 2) break;
-    }
-  }
-  if (nonZeroPositions.length === 0) return '0';
+  const rounded = roundToSigFigs(abs, 3);
+  if (rounded === 0) return '0';
+  const exp = Math.floor(Math.log10(rounded));
+  const decPlaces = Math.max(0, -exp + 2);
+  let out = rounded.toFixed(Math.min(decPlaces, 14));
+  out = out.replace(/(\.\d*?)0+$/, '$1');
+  return sign + out;
+}
 
-  const endPos =
-    nonZeroPositions.length >= 2 ? nonZeroPositions[1]! + 1 : nonZeroPositions[0]! + 1;
-  const fracOut = frac.slice(0, endPos).replace(/0+$/, '');
-  return `0.${fracOut}`;
+/**
+ * Fee SOL/USD equivalents in route hop details — same 3 sig fig rule as the You pay stack.
+ */
+function formatFeeEquivSmallAmount(n: number): string {
+  return formatFeeStackAmount(n);
 }
 
 function formatFeeEquivUsdFiatDisplay(n: number): string {
@@ -839,8 +879,8 @@ function resetSwapQuoteToMock(): void {
   if (swapFooterMaxSlippageEl) swapFooterMaxSlippageEl.textContent = '—';
   setRouteChipLabel('—', true);
   if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = '';
-  if (swapBuildResultEl) swapBuildResultEl.hidden = true;
   if (swapTxBase64El) swapTxBase64El.value = '';
+  syncSwapBuildResultPanel();
   resetSwapQuoteDetailsPanel();
   renderRawResponsePanels();
   syncSwapSellAmountUi();
@@ -998,18 +1038,63 @@ function formatMaxSellPercentButtonLabel(_mint: string): string {
   return '100%';
 }
 
+function sellAmountRoughlyEqual(a: number, b: number, mint: string): boolean {
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  if (a === b) return true;
+  const decimals = getMintDecimals(mint);
+  const eps = Math.pow(10, -Math.min(Math.max(decimals, 0), 12)) * 1.5;
+  return Math.abs(a - b) <= eps;
+}
+
+function sellAmountMatchesPercent(currentUi: number, percent: number, mint: string): boolean {
+  const total = getWalletBalanceAmountUi(mint);
+  const sellable = getWalletSellableAmountUi(mint);
+  if (total == null || total <= 0 || sellable == null || sellable <= 0) return false;
+  if (!Number.isFinite(currentUi) || currentUi <= 0) return false;
+
+  const maxPct = getMaxSellPercentForMint(mint);
+  if (percent >= maxPct) {
+    return isNearMaxSellAmountUi(currentUi, sellable) || sellAmountRoughlyEqual(currentUi, sellable, mint);
+  }
+
+  const target = Math.min(total * (percent / 100), sellable);
+  return sellAmountRoughlyEqual(currentUi, target, mint);
+}
+
+function resolveActiveSellPercent(currentUi: number, mint: string): number | null {
+  const maxPct = getMaxSellPercentForMint(mint);
+  if (sellAmountMatchesPercent(currentUi, maxPct, mint)) return maxPct;
+  for (const pct of [50, 25]) {
+    if (sellAmountMatchesPercent(currentUi, pct, mint)) return pct;
+  }
+  return null;
+}
+
 function syncSellPctButtonsState(): void {
   const container = document.getElementById('swapSellPctBtns');
   if (!container) return;
   const mint = swapInputMintInput?.value.trim() ?? '';
-  const enabled =
+  const walletReady =
     hasValidSwapWallet() && mint.length > 0 && (getWalletSellableAmountUi(mint) ?? 0) > 0;
+  const currentUi = Number(swapAmountInput?.value.trim() ?? '');
+  const activePct =
+    walletReady && Number.isFinite(currentUi) && currentUi > 0
+      ? resolveActiveSellPercent(currentUi, mint)
+      : null;
+  const maxPct = mint ? getMaxSellPercentForMint(mint) : 100;
+
   for (const btn of container.querySelectorAll<HTMLButtonElement>('.swap-sell-pct-btn')) {
-    btn.disabled = !enabled;
+    const pct = Number(btn.dataset.sellPct);
+    const isMaxBtn = btn.hasAttribute('data-sell-pct-max');
+    const isActive =
+      activePct != null &&
+      (isMaxBtn ? activePct >= maxPct : Number.isFinite(pct) && pct === activePct);
+    btn.classList.toggle('swap-sell-pct-btn--active', isActive);
+    btn.disabled = !walletReady || isActive;
   }
+
   const maxBtn = container.querySelector<HTMLButtonElement>('[data-sell-pct-max]');
   if (maxBtn && mint) {
-    const maxPct = getMaxSellPercentForMint(mint);
     maxBtn.dataset.sellPct = String(maxPct);
     maxBtn.textContent = formatMaxSellPercentButtonLabel(mint);
   } else if (maxBtn) {
@@ -1098,6 +1183,7 @@ function syncSwapAmountMaxFromBalance(): void {
   }
   clampSwapAmountInputToMax();
   syncSellPctButtonsState();
+  syncSellLabelBalancePct();
   syncSwapSellAmountUi();
 }
 
@@ -1922,7 +2008,7 @@ function renderPairCardSpotHtml(
   const unitSymCls = tokenSymColorClass(mint, chipSymbol);
   return `<div class="swap-pair-spot">
     <span class="swap-pair-spot-value">${escapeHtml(price)}</span>
-    <span class="swap-pair-spot-unit">USD / 1 <span class="${unitSymCls}">${escapeHtml(unit)}</span></span>
+    <span class="swap-pair-spot-unit"><span class="swap-pair-spot-fiat-label">USD</span> / <span class="${unitSymCls}">1 ${escapeHtml(unit)}</span></span>
   </div>`;
 }
 
@@ -2907,6 +2993,7 @@ function applyVybeQuoteBodyToUi(
   renderSwapQuoteUI(quote);
   void enrichRouteLabels(quote);
   if (swapBuildBtn) syncBuildButtonState();
+  prepareSwapBuildResultPanelForNewQuote();
 }
 
 async function fetchAggregatorSwapQuote(
@@ -3194,6 +3281,7 @@ function applyAggregatorBuildToUi(
   renderSwapQuoteUI(quote);
   void enrichRouteLabels(quote);
   if (swapBuildBtn) syncBuildButtonState();
+  prepareSwapBuildResultPanelForNewQuote();
 }
 
 async function resolveAggregatorBuildTx(
@@ -3632,7 +3720,7 @@ function promptSignSwapConfirm(
 async function applyBuiltSwapTx(buildTx: string, buildPayload: Record<string, unknown>): Promise<boolean> {
   if (!swapTxBase64El || !swapBuildResultEl) return false;
   swapTxBase64El.value = buildTx;
-  swapBuildResultEl.hidden = false;
+  syncSwapBuildResultPanel();
   refreshQuoteUiAfterBuild(buildPayload);
   renderRawResponsePanels();
   return true;
@@ -3657,7 +3745,7 @@ async function postPasteSignSwap(): Promise<void> {
   if (swapBuildBtn) swapBuildBtn.disabled = true;
   try {
     swapTxBase64El.value = await signSwapTransactionBase64(pasted, true);
-    swapBuildResultEl.hidden = false;
+    syncSwapBuildResultPanel();
   } catch (err) {
     if (swapQuoteError) {
       showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
@@ -3718,7 +3806,7 @@ async function postBuildSwap(): Promise<void> {
         : await resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
     if (swapBuildMode === 'build-sign') {
       swapTxBase64El.value = await signSwapTransactionBase64(buildTx, true);
-      swapBuildResultEl.hidden = false;
+      syncSwapBuildResultPanel();
     } else {
       const ok = await applyBuiltSwapTx(buildTx, buildPayload);
       if (!ok) return;
@@ -3934,6 +4022,29 @@ async function disconnectBrowserWallet(): Promise<void> {
   onWalletAddressReady(true);
 }
 
+function syncSwapBuildResultPanel(): void {
+  if (!swapBuildResultEl) return;
+
+  const hasTx = Boolean(swapTxBase64El?.value.trim());
+  const isBuildFlow = swapBuildMode === 'build' || swapBuildMode === 'build-sign';
+
+  if (swapBuildMode === 'paste-sign') {
+    swapBuildResultEl.hidden = !hasTx;
+  } else if (isBuildFlow) {
+    swapBuildResultEl.hidden = false;
+  } else {
+    swapBuildResultEl.hidden = true;
+  }
+
+  if (swapCopyTxBtn) swapCopyTxBtn.disabled = !hasTx;
+}
+
+function prepareSwapBuildResultPanelForNewQuote(): void {
+  if (swapBuildMode !== 'build' && swapBuildMode !== 'build-sign') return;
+  if (swapTxBase64El) swapTxBase64El.value = '';
+  syncSwapBuildResultPanel();
+}
+
 function syncWalletFieldForMode(): void {
   const needsWalletConnect = swapBuildMode === 'build-sign' || swapBuildMode === 'paste-sign';
   const address = swapWalletAddressInput?.value.trim() ?? '';
@@ -4006,6 +4117,7 @@ function syncSwapBuildModeUi(): void {
         : 'Used only when you click <strong>Build swap (no signing)</strong>.';
     }
   }
+  syncSwapBuildResultPanel();
 }
 
 function setSwapBuildMode(mode: SwapBuildMode): void {
@@ -4083,6 +4195,7 @@ initRouteUi({
   formatRawTokenAmount,
   formatSwapAmountValue,
   formatSwapAmount,
+  formatFeeStackAmount,
   formatFeeEquivSmallAmount,
   formatFeeEquivUsdFiatDisplay,
   formatSwapPayUsdAmount,
@@ -4271,17 +4384,22 @@ swapAmountInput?.addEventListener('input', () => {
   invalidateSwapQuoteAfterInputChange();
   clampSwapAmountInputToMax();
   syncSwapSellAmountUi();
+  syncSellPctButtonsState();
+  syncSellLabelBalancePct();
 });
 swapAmountInput?.addEventListener('change', () => {
   invalidateSwapQuoteAfterInputChange();
   clampSwapAmountInputToMax();
   syncSwapSellAmountUi();
+  syncSellPctButtonsState();
+  syncSellLabelBalancePct();
 });
 
 void ensureTokenCatalogLoaded().then(() => updateSwapTokenIcons());
 void refreshSwapSymbols();
 updateSwapPairCards();
 syncSellPctButtonsState();
+syncSellLabelBalancePct();
 bindRoutingDiagramZoomListeners();
 scheduleRoutingDiagramZoom();
 resetSwapQuoteDetailsPanel();
