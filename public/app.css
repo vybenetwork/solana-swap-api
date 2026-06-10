@@ -3447,6 +3447,8 @@ tr:hover td {
   background: linear-gradient(180deg, #14141c 0%, #101016 100%);
   flex-shrink: 0;
   box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03) inset;
+  min-width: 606px;
+  max-width: 606px;
 }
 
 .swap-hop-step-details {
