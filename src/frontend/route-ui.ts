@@ -2321,31 +2321,39 @@ function renderMockHopFeeRow(label: string, destHtml: string, feeSym: string): s
   </div>`;
 }
 
-function renderMockHopPlanFeesSection(feeSym: string): string {
-  const rows = [
+function renderMockHopPlanFeesSection(walletFeeSym: string, outputFeeSym: string): string {
+  const walletRows = [
     renderMockHopFeeRow(
       PRIORITY_FEE_LABEL,
       `<span class="hop-fee-dest hop-fee-dest--priority"><span class="hop-fee-dest__kind">Validators</span></span>`,
-      feeSym,
+      walletFeeSym,
     ),
     renderMockHopFeeRow(
       'Protocol fee',
       `<span class="hop-fee-dest hop-fee-dest--recipient"><span class="hop-fee-dest__kind">Fee recipient</span><span class="hop-fee-dest__sep" aria-hidden="true">·</span><span class="hop-fee-dest__note">${ROUTING_PLACEHOLDER_DASH}</span></span>`,
-      feeSym,
+      walletFeeSym,
     ),
     renderMockHopFeeRow(
       ACC_RENT_FEE_LABEL,
       `<span class="hop-fee-dest hop-fee-dest--ata"><span class="hop-fee-dest__kind">Token account</span><span class="hop-fee-dest__sep" aria-hidden="true">·</span><span class="hop-fee-dest__note">New SPL token account (rent-exempt deposit)</span></span>`,
-      feeSym,
+      walletFeeSym,
     ),
   ].join('');
-  const totalHtml = `<span class="hop-fees-total" title="Total fees for this hop">−${ROUTING_PLACEHOLDER_DASH} ${deps.escapeHtml(feeSym)} · ${ROUTING_PLACEHOLDER_DASH}</span>`;
+  const outputRows = renderMockHopFeeRow(
+    'Pool fee',
+    `<span class="hop-fee-dest hop-fee-dest--pool"><span class="hop-fee-dest__kind">Pool vault</span><span class="hop-fee-dest__sep" aria-hidden="true">·</span><span class="hop-fee-dest__note">${ROUTING_PLACEHOLDER_DASH}</span></span>`,
+    outputFeeSym,
+  );
+  const groupsHtml =
+    `<div class="hop-fee-group"><div class="hop-fee-group__title">Paid from wallet</div>${walletRows}</div>` +
+    `<div class="hop-fee-group"><div class="hop-fee-group__title">Deducted from output</div>${outputRows}</div>`;
+  const totalHtml = `<span class="hop-fees-total" title="Total fees for this hop">~$${ROUTING_PLACEHOLDER_DASH}</span>`;
   return `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
     <div class="swap-hop-panel__head">
       <h5 class="swap-hop-panel__title">Fees</h5>
       ${totalHtml}
     </div>
-    <div class="hop-fee-group">${rows}</div>
+    ${groupsHtml}
   </section>`;
 }
 
@@ -3390,8 +3398,9 @@ function renderRoutePlanStepDetail(
   if (hopFees?.items.length) {
     feesHtml = renderHopPlanFeesSection(hopFees, leg, quote, feeMint, feeAmt, si?.ammKey);
   } else if (placeholder) {
-    const mockFeeSym = feeSym !== '—' ? feeSym : leg.inSym;
-    feesHtml = renderMockHopPlanFeesSection(mockFeeSym);
+    const mockWalletFeeSym = feeSym !== '—' ? feeSym : leg.inSym;
+    const mockOutputFeeSym = leg.outSym !== '—' ? leg.outSym : 'USDT';
+    feesHtml = renderMockHopPlanFeesSection(mockWalletFeeSym, mockOutputFeeSym);
   } else if (feeAmt) {
     feesHtml = `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
       <div class="swap-hop-panel__head">
