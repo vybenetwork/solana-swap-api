@@ -3562,14 +3562,64 @@ tr:hover td {
   min-width: 0;
 }
 
-.hop-fees-total {
-  font-size: 0.66rem;
+.hop-fees-totals {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 68%;
+}
+
+.hop-fees-total-chip {
+  font-size: 0.64rem;
   font-weight: 600;
-  color: #ecfccb;
   font-variant-numeric: tabular-nums;
+  line-height: 1.15;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  border-width: 1px;
+  border-style: solid;
+}
+
+.hop-fees-total-chip.swap-token-color--sol {
+  border-color: rgba(153, 69, 255, 0.35);
+  background: linear-gradient(145deg, rgba(153, 69, 255, 0.14) 0%, rgba(153, 69, 255, 0.05) 42%, #12121a 100%);
+}
+
+.hop-fees-total-chip.swap-token-color--stable {
+  border-color: rgba(74, 222, 128, 0.28);
+  background: linear-gradient(145deg, rgba(74, 222, 128, 0.12) 0%, rgba(74, 222, 128, 0.04) 42%, #12121a 100%);
+}
+
+.hop-fees-total-chip.swap-token-color--alt {
+  border-color: rgba(250, 204, 21, 0.35);
+  background: linear-gradient(145deg, rgba(250, 204, 21, 0.12) 0%, rgba(250, 204, 21, 0.04) 42%, #12121a 100%);
+}
+
+.hop-fees-total-chip.swap-token-color--sol .hop-fees-total-chip__amt,
+.hop-fees-total-chip.swap-token-color--sol .hop-fees-total-chip__sym {
+  color: #c084fc;
+}
+
+.hop-fees-total-chip.swap-token-color--stable .hop-fees-total-chip__amt,
+.hop-fees-total-chip.swap-token-color--stable .hop-fees-total-chip__sym {
+  color: #4ade80;
+}
+
+.hop-fees-total-chip.swap-token-color--alt .hop-fees-total-chip__amt,
+.hop-fees-total-chip.swap-token-color--alt .hop-fees-total-chip__sym {
+  color: #facc15;
+}
+
+.hop-fees-total-chip--usd {
+  border-color: rgba(253, 230, 138, 0.35);
+  background: linear-gradient(145deg, rgba(253, 230, 138, 0.12) 0%, rgba(253, 230, 138, 0.04) 42%, #12121a 100%);
+}
+
+.hop-fees-total-chip--usd .hop-fees-total-chip__amt,
+.hop-fees-total-chip--usd .hop-fees-total-chip__sym {
+  color: #fde68a;
 }
 
 .swap-hop-fee-dest__addr {

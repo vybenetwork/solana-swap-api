@@ -2355,7 +2355,7 @@ function renderMockHopPlanFeesSection(walletFeeSym: string, outputFeeSym: string
   const groupsHtml =
     `<div class="hop-fee-group"><div class="hop-fee-group__title">Paid from wallet</div>${walletRows}</div>` +
     `<div class="hop-fee-group"><div class="hop-fee-group__title">Deducted from output</div>${outputRows}</div>`;
-  const totalHtml = `<span class="hop-fees-total" title="Total fees for this hop">~$${ROUTING_PLACEHOLDER_DASH}</span>`;
+  const totalHtml = renderHopFeesTotalsChipsMock(walletFeeSym, outputFeeSym);
   return `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
     <div class="swap-hop-panel__head">
       <h5 class="swap-hop-panel__title">Fees</h5>
@@ -2564,18 +2564,7 @@ function renderHopPlanFeesSection(
     ? group('Paid from wallet', walletRows) + group('Deducted from output', outputRows)
     : group(null, [...walletRows, ...outputRows]);
 
-  let totalHtml = '';
-  const totalEquiv = sumHopPlanFeeTableTotals(rowData, quote);
-  if (totalEquiv) {
-    const parts: string[] = [];
-    if (totalEquiv.amountDisplay && totalEquiv.amountDisplay !== '—') {
-      parts.push(totalEquiv.amountDisplay);
-    }
-    if (totalEquiv.usd) parts.push(totalEquiv.usd);
-    if (parts.length > 0) {
-      totalHtml = `<span class="hop-fees-total" title="Total fees for this hop">${deps.escapeHtml(parts.join(' · '))}</span>`;
-    }
-  }
+  const totalHtml = renderHopFeesTotalsChips(rowData, quote);
 
   return `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
     <div class="swap-hop-panel__head">
@@ -2641,6 +2630,98 @@ function feeTableBaseLegUi(
   const feeUi = feeAmountToUi(item.amountRaw, item.mint);
   if (feeUi == null) return null;
   return convertFeeUiToSellLeg(feeUi, item.mint, quote);
+}
+
+interface HopFeeMintTotal {
+  mint: string;
+  sym: string;
+  display: string;
+}
+
+function sumHopPlanFeeTotalsByMint(
+  rowData: Array<{ item: HopFeeItemLite; equiv: FeeAmountEquiv }>,
+): HopFeeMintTotal[] {
+  const totals = new Map<string, bigint>();
+  for (const { item } of rowData) {
+    const mint = item.mint.trim();
+    if (!mint || !item.amountRaw || !/^\d+$/.test(item.amountRaw)) continue;
+    try {
+      totals.set(mint, (totals.get(mint) ?? 0n) + BigInt(item.amountRaw));
+    } catch {
+      continue;
+    }
+  }
+
+  const rows: HopFeeMintTotal[] = [];
+  for (const [mint, total] of totals) {
+    if (total <= 0n) continue;
+    const display = formatHopFeeTableAmount(total.toString(), mint);
+    if (display === '—') continue;
+    rows.push({ mint, sym: mintSymbolSync(mint), display });
+  }
+
+  rows.sort((a, b) => {
+    const aSol = isSolMint(a.mint) ? 0 : 1;
+    const bSol = isSolMint(b.mint) ? 0 : 1;
+    if (aSol !== bSol) return aSol - bSol;
+    return a.sym.localeCompare(b.sym);
+  });
+  return rows;
+}
+
+function renderHopFeeTotalChip(mint: string, sym: string, display: string): string {
+  const boxCls = tokenBoxColorClass(mint, sym);
+  const symCls = tokenSymColorClass(mint, sym);
+  const safeSym = deps.escapeHtml(sym);
+  const amt = deps.escapeHtml(display.startsWith('−') ? display : `−${display}`);
+  return `<span class="swap-pair-chg hop-fees-total-chip ${boxCls}" title="Total ${safeSym} fees this hop"><span class="hop-fees-total-chip__amt">${amt}</span> <span class="hop-fees-total-chip__sym ${symCls}">${safeSym}</span></span>`;
+}
+
+function sumHopPlanFeeTotalUsd(
+  rowData: Array<{ item: HopFeeItemLite; equiv: FeeAmountEquiv }>,
+  quote: Record<string, unknown>,
+): number | null {
+  let totalUsd = 0;
+  let found = false;
+  for (const { item, equiv } of rowData) {
+    const usdN = computeFeeUsdNumeric(item, quote) ?? parseFeeEquivUsdNumber(equiv.usd);
+    if (usdN != null && usdN > 0) {
+      totalUsd += usdN;
+      found = true;
+    }
+  }
+  return found ? totalUsd : null;
+}
+
+function renderHopFeeUsdTotalChip(usd: number | null, placeholder = false): string {
+  if (!placeholder && (usd == null || usd <= 0)) return '';
+  const amt = placeholder
+    ? ROUTING_PLACEHOLDER_DASH
+    : `−$${deps.formatSwapPayUsdAmount(usd!)}`;
+  return `<span class="swap-pair-chg hop-fees-total-chip hop-fees-total-chip--usd" title="Combined USD fees this hop"><span class="hop-fees-total-chip__amt">${deps.escapeHtml(amt)}</span> <span class="hop-fees-total-chip__sym">USD (Total)</span></span>`;
+}
+
+function renderHopFeesTotalsChips(
+  rowData: Array<{ item: HopFeeItemLite; equiv: FeeAmountEquiv }>,
+  quote: Record<string, unknown>,
+): string {
+  const totals = sumHopPlanFeeTotalsByMint(rowData);
+  const currencyChips = totals
+    .map(({ mint, sym, display }) => renderHopFeeTotalChip(mint, sym, display))
+    .join('');
+  const usdChip = renderHopFeeUsdTotalChip(sumHopPlanFeeTotalUsd(rowData, quote));
+  if (!currencyChips && !usdChip) return '';
+  return `<div class="hop-fees-totals" aria-label="Fee totals by currency">${currencyChips}${usdChip}</div>`;
+}
+
+function renderHopFeesTotalsChipsMock(walletSym: string, outputSym: string): string {
+  const walletMint = walletSym.toUpperCase() === 'SOL' ? NATIVE_SOL_MINT : '';
+  const chips = [
+    renderHopFeeTotalChip(walletMint, walletSym, ROUTING_PLACEHOLDER_DASH),
+    renderHopFeeTotalChip('', outputSym, ROUTING_PLACEHOLDER_DASH),
+    renderHopFeeUsdTotalChip(null, true),
+  ].join('');
+  return `<div class="hop-fees-totals" aria-label="Fee totals by currency">${chips}</div>`;
 }
 
 /** Native amount total when every row shares one mint; otherwise mixed-mint fees cannot be summed. */
@@ -3438,9 +3519,23 @@ function renderRoutePlanStepDetail(
     const mockOutputFeeSym = leg.outSym !== '—' ? leg.outSym : 'USDT';
     feesHtml = renderMockHopPlanFeesSection(mockWalletFeeSym, mockOutputFeeSym);
   } else if (feeAmt) {
+    const feeRaw = hopFees?.totalAmountRaw ?? si?.feeAmount ?? '';
+    const singleFeeItem: HopFeeItemLite = {
+      label: 'Fee',
+      amountRaw: feeRaw,
+      mint: feeAmtMint,
+    };
+    const singleRowData = [
+      {
+        item: singleFeeItem,
+        equiv: computeFeeEquivalents(feeRaw, feeAmtMint, quote),
+      },
+    ];
+    const feeTotalsHtml = renderHopFeesTotalsChips(singleRowData, quote);
     feesHtml = `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
       <div class="swap-hop-panel__head">
         <h5 class="swap-hop-panel__title">Fees</h5>
+        ${feeTotalsHtml}
       </div>
       <div class="hop-fee-group">
         <div class="hop-fee-row hop-fee-row--fee">
