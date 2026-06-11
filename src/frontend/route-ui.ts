@@ -2319,37 +2319,65 @@ function renderMockRoutingFeeBranch(): string {
   </div>`;
 }
 
-function renderMockHopFeeRow(label: string, destHtml: string, feeSym: string): string {
+function renderHopFeeAmountHtml(
+  mint: string,
+  amountRaw: string,
+  sym: string,
+  placeholder = false,
+): string {
+  const symCls = tokenSymColorClass(mint, sym);
+  const safeSym = deps.escapeHtml(sym);
+  const display = placeholder
+    ? ROUTING_PLACEHOLDER_DASH
+    : deps.escapeHtml(formatHopFeeTableAmount(amountRaw, mint));
+  return `<span class="hop-fee-row__amt-val ${symCls}">−${display} ${safeSym}</span>`;
+}
+
+function renderMockHopFeeRow(
+  label: string,
+  destHtml: string,
+  feeMint: string,
+  feeSym: string,
+): string {
   const variant = feeChipVariant(label);
   return `<div class="hop-fee-row hop-fee-row--${variant}">
     <span class="hop-fee-row__label">${deps.escapeHtml(label)}</span>
     <span class="hop-fee-row__dest">${destHtml}</span>
-    <span class="hop-fee-row__amt"><span>−${ROUTING_PLACEHOLDER_DASH} ${deps.escapeHtml(feeSym)}</span></span>
+    <span class="hop-fee-row__amt"><span>${renderHopFeeAmountHtml(feeMint, '', feeSym, true)}</span></span>
     <span class="hop-fee-row__usd"><span>${ROUTING_PLACEHOLDER_DASH}</span></span>
   </div>`;
 }
 
-function renderMockHopPlanFeesSection(walletFeeSym: string, outputFeeSym: string): string {
+function renderMockHopPlanFeesSection(
+  walletFeeMint: string,
+  walletFeeSym: string,
+  outputFeeMint: string,
+  outputFeeSym: string,
+): string {
   const walletRows = [
     renderMockHopFeeRow(
       PRIORITY_FEE_LABEL,
       renderMockFeeDestBracketOnly('priority', 'Solana Validators/RPC'),
+      walletFeeMint,
       walletFeeSym,
     ),
     renderMockHopFeeRow(
       'Protocol fee',
       renderMockFeeDestBracketOnly('recipient', 'Fee Recipient'),
+      walletFeeMint,
       walletFeeSym,
     ),
     renderMockHopFeeRow(
       ACC_RENT_FEE_LABEL,
       renderMockFeeDestBracketOnly('ata', 'Token Account'),
+      walletFeeMint,
       walletFeeSym,
     ),
   ].join('');
   const outputRows = renderMockHopFeeRow(
     'Pool fee',
     renderMockFeeDestBracketOnly('pool', 'Pool Vault'),
+    outputFeeMint,
     outputFeeSym,
   );
   const groupsHtml =
@@ -2429,6 +2457,21 @@ function renderFeeDestinationAddrLine(addr: string): string {
   const display = deps.escapeHtml(deps.truncate(trimmed, 8, 8));
   const url = deps.escapeHtml(solscanAccountUrl(trimmed));
   return `<a class="swap-hop-fee-dest__addr swap-hop-fee-dest__addr-link" href="${url}" target="_blank" rel="noopener noreferrer" title="${deps.escapeHtml(trimmed)}">${display}</a>`;
+}
+
+function formatMintDetailValue(mint: string, sym?: string): string {
+  const symVal = sym?.trim();
+  const addrHtml = deps.escapeHtml(mint);
+  const symCls = tokenSymColorClass(mint, symVal || undefined);
+  const symPart =
+    symVal && symVal !== '—'
+      ? `<span class="swap-hop-detail-row__mint-sym ${symCls}"> (${deps.escapeHtml(symVal)})</span>`
+      : '';
+  return `<span class="swap-hop-detail-row__mint-val"><span class="swap-hop-detail-row__mint-addr">${addrHtml}</span>${symPart}</span>`;
+}
+
+function hopFlowPartClass(mint: string, sym?: string): string {
+  return `swap-hop-detail-row__flow-part ${tokenSymColorClass(mint, sym?.trim() || undefined)}`;
 }
 
 function resolveFeeDestinationAddress(
@@ -2515,12 +2558,12 @@ function renderHopFeeRow(
   const titleParts = [formatFeeEquivDetailText(equiv)];
   const note = item.destinationNote?.trim();
   if (note) titleParts.push(note);
-  const amt = `−${formatHopFeeTableAmount(item.amountRaw, item.mint)} ${equiv.feeSym}`;
+  const amtHtml = renderHopFeeAmountHtml(item.mint, item.amountRaw, equiv.feeSym);
   const usd = equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : '—';
   return `<div class="hop-fee-row hop-fee-row--${variant}" title="${deps.escapeHtml(titleParts.join(' — '))}">
     <span class="hop-fee-row__label">${deps.escapeHtml(label)}</span>
     <span class="hop-fee-row__dest">${renderFeeDestinationInline(item, destCtx)}</span>
-    <span class="hop-fee-row__amt"><span>${deps.escapeHtml(amt)}</span></span>
+    <span class="hop-fee-row__amt"><span>${amtHtml}</span></span>
     <span class="hop-fee-row__usd"><span>${deps.escapeHtml(usd)}</span></span>
   </div>`;
 }
@@ -3449,16 +3492,20 @@ function renderRoutePlanStepDetail(
         ? formatHopFeeTableAmount(si.feeAmount, feeAmtMint)
         : null;
 
-  const detailCell = (
+  const detailRow = (
     label: string,
     valueHtml: string,
-    opts?: { full?: string; mono?: boolean },
+    opts?: { full?: string; mono?: boolean; mint?: boolean },
   ) => {
-    const valClass = opts?.mono ? ' swap-hop-detail-v--mono' : '';
-    return `<div class="swap-hop-detail-cell">
-      <span class="swap-hop-detail-k">${deps.escapeHtml(label)}</span>
-      <span class="swap-hop-detail-v${valClass}"${opts?.full ? ` title="${deps.escapeHtml(opts.full)}"` : ''}>${valueHtml}</span>
-  </div>`;
+    const valClass = opts?.mint
+      ? ' swap-hop-detail-row__v--mint'
+      : opts?.mono
+        ? ' swap-hop-detail-row__v--mono'
+        : '';
+    return `<div class="swap-hop-detail-row">
+      <span class="swap-hop-detail-row__k">${deps.escapeHtml(label)}</span>
+      <span class="swap-hop-detail-row__v${valClass}"${opts?.full ? ` title="${deps.escapeHtml(opts.full)}"` : ''}>${valueHtml}</span>
+    </div>`;
   };
 
   const venueHtml =
@@ -3467,70 +3514,96 @@ function renderRoutePlanStepDetail(
       : hopDetailPendingCell(loading, '—');
   const dexSummaryHtml = venueHtml;
 
-  const mintCell = (label: string, mint: string) =>
-    mint
-      ? detailCell(label, deps.escapeHtml(deps.truncate(mint, 6, 6)), { full: mint, mono: true })
-      : detailCell(label, pendingHop ? hopDetailPendingCell(loading, '—') : '—');
+  const mintRow = (label: string, mint: string, sym?: string) => {
+    if (pendingHop) {
+      if (mint) {
+        return detailRow(label, formatMintDetailValue(mint, sym), { full: mint, mint: true });
+      }
+      return detailRow(label, hopDetailPendingCell(loading, '—'));
+    }
+    if (!mint) return detailRow(label, '—');
+    return detailRow(label, formatMintDetailValue(mint, sym), { full: mint, mint: true });
+  };
 
-  const marketCell = si?.ammKey
-    ? detailCell('Market (AMM)', deps.escapeHtml(deps.truncate(si.ammKey, 6, 6)), {
-        full: si.ammKey,
-        mono: true,
-      })
-    : detailCell('Market (AMM)', pendingHop ? hopDetailPendingCell(loading, '—') : '—');
+  const marketHtml = si?.ammKey
+    ? deps.escapeHtml(si.ammKey)
+    : pendingHop
+      ? hopDetailPendingCell(loading, '—')
+      : '—';
+  const marketMono = Boolean(si?.ammKey && isLikelySolanaPubkey(si.ammKey));
+  const marketTitle = si?.ammKey ? deps.escapeHtml(si.ammKey) : undefined;
 
-  let inAmountCell: string;
+  const metaRow = `<div class="swap-hop-detail-row swap-hop-detail-row--meta">
+    <div class="swap-hop-detail-row__meta-box">
+      <span class="swap-hop-detail-row__meta-k">Venue</span>
+      <span class="swap-hop-detail-row__meta-v">${venueHtml}</span>
+    </div>
+    <div class="swap-hop-detail-row__meta-box">
+      <span class="swap-hop-detail-row__meta-k">Market</span>
+      <span class="swap-hop-detail-row__meta-v${marketMono ? ' swap-hop-detail-row__meta-v--mono' : ''}"${marketTitle ? ` title="${marketTitle}"` : ''}>${marketHtml}</span>
+    </div>
+    <div class="swap-hop-detail-row__meta-box">
+      <span class="swap-hop-detail-row__meta-k">Route share</span>
+      <span class="swap-hop-detail-row__meta-v">${deps.escapeHtml(pct)}</span>
+    </div>
+  </div>`;
+
+  let inAmountHtml: string;
   if (si?.inAmount) {
     const inFmt = deps.formatRawTokenAmount(si.inAmount, leg.inMint);
-    inAmountCell = detailCell(
-      'In amount',
-      `${deps.escapeHtml(inFmt.display)} ${deps.escapeHtml(leg.inSym)}`,
-      { full: `${inFmt.full || inFmt.display} ${leg.inSym} (${si.inAmount} raw)` },
-    );
+    inAmountHtml = `${deps.escapeHtml(inFmt.display)} ${deps.escapeHtml(leg.inSym)}`;
   } else if (pendingHop) {
-    const inRaw = getPlaceholderHopInAmountRaw();
-    inAmountCell = detailCell(
-      'In amount',
-      hasInAmt
-        ? `${deps.escapeHtml(leg.inAmt)} ${deps.escapeHtml(leg.inSym)}`
-        : hopDetailPendingCell(loading, '—'),
-      hasInAmt && inRaw ? { full: `${leg.inAmt} ${leg.inSym} (${inRaw} raw)` } : undefined,
-    );
+    inAmountHtml = hasInAmt
+      ? `${deps.escapeHtml(leg.inAmt)} ${deps.escapeHtml(leg.inSym)}`
+      : hopDetailPendingCell(loading, '—');
   } else {
-    inAmountCell = detailCell('In amount', '—');
+    inAmountHtml = '—';
   }
 
-  let quotedOutputCell: string;
+  let quotedOutputHtml: string;
   const quotedOutRaw = hopFees?.quotedOutRaw || si?.outAmount;
   if (quotedOutRaw) {
     const grossFmt = deps.formatRawTokenAmount(quotedOutRaw, leg.outMint);
-    quotedOutputCell = detailCell(
-      'Quoted output',
-      `${deps.escapeHtml(grossFmt.display)} ${deps.escapeHtml(leg.outSym)}`,
-      { full: `${grossFmt.full || grossFmt.display} ${leg.outSym} (${quotedOutRaw} raw)` },
-    );
+    quotedOutputHtml = `${deps.escapeHtml(grossFmt.display)} ${deps.escapeHtml(leg.outSym)}`;
   } else {
-    quotedOutputCell = detailCell(
-      'Quoted output',
-      pendingHop ? hopDetailPendingCell(loading, '—') : '—',
-    );
+    quotedOutputHtml = pendingHop ? hopDetailPendingCell(loading, '—') : '—';
   }
 
-  let netToWalletCell: string;
+  let netOutputHtml: string;
   const netOutRaw = hopFees?.netOutRaw || si?.outAmount;
   if (netOutRaw) {
     const netFmt = deps.formatRawTokenAmount(netOutRaw, leg.outMint);
-    netToWalletCell = detailCell(
-      'Net output',
-      `${deps.escapeHtml(netFmt.display)} ${deps.escapeHtml(leg.outSym)}`,
-      { full: `${netFmt.full || netFmt.display} ${leg.outSym} (${netOutRaw} raw)` },
-    );
+    netOutputHtml = `${deps.escapeHtml(netFmt.display)} ${deps.escapeHtml(leg.outSym)}`;
   } else {
-    netToWalletCell = detailCell(
-      'Net output',
-      pendingHop ? hopDetailPendingCell(loading, '—') : '—',
-    );
+    netOutputHtml = pendingHop ? hopDetailPendingCell(loading, '—') : '—';
   }
+
+  const inAmountTitle =
+    si?.inAmount
+      ? (() => {
+          const inFmt = deps.formatRawTokenAmount(si.inAmount, leg.inMint);
+          return `${inFmt.full || inFmt.display} ${leg.inSym} (${si.inAmount} raw)`;
+        })()
+      : hasInAmt && pendingHop
+        ? (() => {
+            const inRaw = getPlaceholderHopInAmountRaw();
+            return inRaw ? `${leg.inAmt} ${leg.inSym} (${inRaw} raw)` : undefined;
+          })()
+        : undefined;
+
+  const quotedTitle = quotedOutRaw
+    ? (() => {
+        const grossFmt = deps.formatRawTokenAmount(quotedOutRaw, leg.outMint);
+        return `${grossFmt.full || grossFmt.display} ${leg.outSym} (${quotedOutRaw} raw)`;
+      })()
+    : undefined;
+
+  const netTitle = netOutRaw
+    ? (() => {
+        const netFmt = deps.formatRawTokenAmount(netOutRaw, leg.outMint);
+        return `${netFmt.full || netFmt.display} ${leg.outSym} (${netOutRaw} raw)`;
+      })()
+    : undefined;
 
   let feesHtml = '';
   if (hopFees?.items.length) {
@@ -3538,7 +3611,12 @@ function renderRoutePlanStepDetail(
   } else if (placeholder) {
     const mockWalletFeeSym = feeSym !== '—' ? feeSym : leg.inSym;
     const mockOutputFeeSym = leg.outSym !== '—' ? leg.outSym : 'USDT';
-    feesHtml = renderMockHopPlanFeesSection(mockWalletFeeSym, mockOutputFeeSym);
+    feesHtml = renderMockHopPlanFeesSection(
+      feeAmtMint || leg.inMint,
+      mockWalletFeeSym,
+      leg.outMint || feeMint,
+      mockOutputFeeSym,
+    );
   } else if (feeAmt) {
     const feeRaw = hopFees?.totalAmountRaw ?? si?.feeAmount ?? '';
     const singleFeeItem: HopFeeItemLite = {
@@ -3562,29 +3640,49 @@ function renderRoutePlanStepDetail(
         <div class="hop-fee-row hop-fee-row--fee">
           <span class="hop-fee-row__label">Fee</span>
           <span class="hop-fee-row__dest"></span>
-          <span class="hop-fee-row__amt"><span>−${deps.escapeHtml(feeAmt)} ${deps.escapeHtml(feeSym)}</span></span>
+          <span class="hop-fee-row__amt"><span>${renderHopFeeAmountHtml(feeAmtMint, feeRaw, feeSym)}</span></span>
           <span class="hop-fee-row__usd"><span>—</span></span>
         </div>
       </div>
     </section>`;
   }
 
-  const techCells = [
-    detailCell('Venue', venueHtml),
-    marketCell,
-    detailCell('Route share', deps.escapeHtml(pct)),
-    inAmountCell,
-    quotedOutputCell,
-    netToWalletCell,
-    mintCell('Input mint', leg.inMint),
-    mintCell('Output mint', leg.outMint),
-    feeMint
-      ? detailCell('Fee mint', deps.escapeHtml(feeSym !== '—' ? feeSym : deps.truncate(feeMint, 6, 6)), {
-          full: feeMint,
-          mono: feeSym === '—',
-        })
-      : detailCell('Fee mint', '—'),
-  ].join('');
+  const amountFlowRow = `<div class="swap-hop-detail-row swap-hop-detail-row--flow">
+    <span class="swap-hop-detail-row__k">Amounts</span>
+    <span class="swap-hop-detail-row__v swap-hop-detail-row__v--flow">
+      <span class="${hopFlowPartClass(leg.inMint, leg.inSym)}"${inAmountTitle ? ` title="${deps.escapeHtml(inAmountTitle)}"` : ''}>${inAmountHtml}</span>
+      <span class="swap-hop-detail-row__flow-sep" aria-hidden="true">→</span>
+      <span class="${hopFlowPartClass(leg.outMint, leg.outSym)}"${quotedTitle ? ` title="${deps.escapeHtml(quotedTitle)}"` : ''}>${quotedOutputHtml}</span>
+      <span class="swap-hop-detail-row__flow-sep" aria-hidden="true">→</span>
+      <span class="${hopFlowPartClass(leg.outMint, leg.outSym)}"${netTitle ? ` title="${deps.escapeHtml(netTitle)}"` : ''}>${netOutputHtml}</span>
+    </span>
+  </div>`;
+
+  const detailsHtml = `<div class="swap-hop-detail-rows">
+    ${metaRow}
+    ${amountFlowRow}
+    ${mintRow('Input mint', leg.inMint, leg.inSym)}
+    ${mintRow('Output mint', leg.outMint, leg.outSym)}
+    ${
+      feeMint
+        ? detailRow(
+            'Fee mint',
+            pendingHop && loading && feeSym === '—'
+              ? hopDetailPendingCell(loading, '—')
+              : formatMintDetailValue(feeMint, feeSym !== '—' ? feeSym : undefined),
+            { full: feeMint, mint: true },
+          )
+        : pendingHop
+          ? detailRow(
+              'Fee mint',
+              leg.outMint
+                ? formatMintDetailValue(leg.outMint, leg.outSym)
+                : hopDetailPendingCell(loading, '—'),
+              leg.outMint ? { full: leg.outMint, mint: true } : undefined,
+            )
+          : detailRow('Fee mint', '—')
+    }
+  </div>`;
 
   const shareBadgeHtml = showRouteShare
     ? `<span class="swap-hop-card__pct">${deps.escapeHtml(pct)}</span>`
@@ -3605,7 +3703,7 @@ function renderRoutePlanStepDetail(
       ${feesHtml}
       <section class="swap-hop-panel swap-hop-panel--details">
         <h5 class="swap-hop-panel__title">Details</h5>
-        <div class="swap-hop-grid3">${techCells}</div>
+        ${detailsHtml}
       </section>
     </div>
   </details>`;

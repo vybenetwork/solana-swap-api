@@ -3552,8 +3552,10 @@ tr:hover td {
 }
 
 .swap-hop-panel--details {
-  border-color: #1f1f27;
-  background: #09090c;
+  border: none;
+  background: transparent;
+  padding: 0;
+  gap: 0.35rem;
 }
 
 .swap-hop-panel__head {
@@ -3621,13 +3623,13 @@ tr:hover td {
 }
 
 .hop-fees-total-chip--usd {
-  border-color: rgba(253, 230, 138, 0.35);
-  background: linear-gradient(145deg, rgba(253, 230, 138, 0.12) 0%, rgba(253, 230, 138, 0.04) 42%, #12121a 100%);
+  border-color: rgba(74, 222, 128, 0.28);
+  background: linear-gradient(145deg, rgba(74, 222, 128, 0.12) 0%, rgba(74, 222, 128, 0.04) 42%, #12121a 100%);
 }
 
 .hop-fees-total-chip--usd .hop-fees-total-chip__amt,
 .hop-fees-total-chip--usd .hop-fees-total-chip__sym {
-  color: #fde68a;
+  color: #4ade80;
 }
 
 .swap-hop-fee-dest__addr {
@@ -3805,31 +3807,192 @@ tr:hover td {
 
 .hop-fee-row__amt {
   font-size: 0.64rem;
-  color: #fafafa;
   font-variant-numeric: tabular-nums;
   min-width: 120px;
   max-width: 120px;
 }
 
+.hop-fee-row__amt-val.swap-token-sym-color--sol {
+  color: #c084fc;
+}
+
+.hop-fee-row__amt-val.swap-token-sym-color--stable {
+  color: #4ade80;
+}
+
+.hop-fee-row__amt-val.swap-token-sym-color--alt {
+  color: #facc15;
+}
+
 .hop-fee-row__usd {
   font-size: 0.62rem;
-  color: #fde68a;
+  color: #4ade80;
   font-variant-numeric: tabular-nums;
 }
 
-/* Hop technical details — 3 cells per row */
-.swap-hop-grid3 {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.4rem;
+/* Hop technical details — single compact row list */
+.swap-hop-detail-rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #1f1f27;
+  border-radius: 8px;
+  background: #0a0a0e;
+  overflow: hidden;
   min-width: 0;
 }
 
-@media (max-width: 560px) {
-  .swap-hop-grid3 {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+.swap-hop-detail-row {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 6.25rem) minmax(0, 1fr);
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.26rem 0.48rem;
+  border-bottom: 1px solid #16161c;
+  min-width: 0;
+  min-height: 1.35rem;
+}
 
+.swap-hop-detail-row:last-child {
+  border-bottom: none;
+}
+
+.swap-hop-detail-row--meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding: 0.35rem 0.48rem;
+  align-items: stretch;
+}
+
+.swap-hop-detail-row__meta-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.14rem;
+  min-width: 0;
+  padding: 0.3rem 0.35rem;
+  border: 1px solid #1f1f27;
+  border-radius: 6px;
+  background: #0c0c10;
+  text-align: center;
+}
+
+.swap-hop-detail-row__meta-k {
+  font-size: 0.56rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #71717a;
+  white-space: nowrap;
+  line-height: 1.15;
+}
+
+.swap-hop-detail-row__meta-v {
+  display: block;
+  width: 100%;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #e4e4e7;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
+}
+
+.swap-hop-detail-row__meta-v--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.64rem;
+  font-weight: 500;
+  color: #a1a1aa;
+}
+
+.swap-hop-detail-row__k {
+  font-size: 0.56rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #71717a;
+  white-space: nowrap;
+}
+
+.swap-hop-detail-row__v {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #e4e4e7;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.25;
+  text-align: right;
+}
+
+.swap-hop-detail-row__v--mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.64rem;
+  font-weight: 500;
+  color: #a1a1aa;
+  white-space: normal;
+  word-break: break-all;
+  text-overflow: unset;
+  overflow: visible;
+}
+
+.swap-hop-detail-row__v--mint {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.64rem;
+  font-weight: 500;
+  white-space: normal;
+  word-break: break-all;
+  text-overflow: unset;
+  overflow: visible;
+}
+
+.swap-hop-detail-row__mint-addr {
+  color: #fafafa;
+}
+
+.swap-hop-detail-row__flow-part.swap-token-sym-color--sol,
+.swap-hop-detail-row__mint-sym.swap-token-sym-color--sol {
+  color: #c084fc;
+}
+
+.swap-hop-detail-row__flow-part.swap-token-sym-color--stable,
+.swap-hop-detail-row__mint-sym.swap-token-sym-color--stable {
+  color: #4ade80;
+}
+
+.swap-hop-detail-row__flow-part.swap-token-sym-color--alt,
+.swap-hop-detail-row__mint-sym.swap-token-sym-color--alt {
+  color: #facc15;
+}
+
+.swap-hop-detail-row__v--flow {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.swap-hop-detail-row__flow-part {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.swap-hop-detail-row__flow-sep {
+  flex-shrink: 0;
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: #3f3f46;
+  line-height: 1;
+}
+
+@media (max-width: 560px) {
   .hop-fee-row {
     grid-template-columns: minmax(4.6rem, auto) minmax(0, 1fr) 120px;
   }
@@ -3837,51 +4000,6 @@ tr:hover td {
   .hop-fee-row__usd {
     display: none;
   }
-}
-
-.swap-hop-detail-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 0.16rem;
-  padding: 0.42rem 0.5rem;
-  background: #0c0c10;
-  border: 1px solid #27272a;
-  border-radius: 9px;
-  min-width: 0;
-}
-
-.swap-hop-detail-k {
-  font-size: 0.56rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: #71717a;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.swap-hop-detail-v {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: #e4e4e7;
-  font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.35;
-}
-
-.swap-hop-detail-v--mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.68rem;
-  font-weight: 500;
-  color: #a1a1aa;
-}
-
-.swap-hop-detail-v code {
-  font-size: 0.68rem;
-  color: #d4d4d8;
 }
 
 .swap-hop-card {
