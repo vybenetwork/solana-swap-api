@@ -1880,13 +1880,14 @@ function formatSwapRate(value: unknown): string {
   return formatSwapAmount(value).display;
 }
 
-/** Footer price impact — always two decimal places (e.g. 0.30%). */
+/** Footer price impact — always two decimal places (e.g. 0.30%); zero shows (No Impact). */
 function formatPriceImpactPct(value: unknown): string {
   if (value == null || value === '') return '—';
   const raw = String(value).trim().replace(/%$/, '');
   const n = Number(raw);
   if (!Number.isFinite(n)) return '—';
-  return formatFooterPctAlwaysTwoDecimals(n);
+  const formatted = formatFooterPctAlwaysTwoDecimals(n);
+  return formatted === '0.00%' ? '0.00% (No Impact)' : formatted;
 }
 
 

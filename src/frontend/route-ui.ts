@@ -3590,6 +3590,7 @@ function hopDetailPendingCell(loading: boolean, html: string): string {
   return loading ? deps.renderLoadingSpinner('sm') : html;
 }
 
+/** NET vs pre-fees % — show through first non-zero decimal (e.g. -0.005%, not -0%). */
 function formatHopQuotedToNetPctChange(
   quotedRaw: string | undefined,
   netRaw: string | undefined,
@@ -3600,20 +3601,24 @@ function formatHopQuotedToNetPctChange(
   const diff = net - quoted;
   if (diff === 0n) return null;
 
-  const sign = diff > 0n ? '+' : '-';
-  const absDiff = diff < 0n ? -diff : diff;
-  const pctHundredths = (absDiff * 10000n) / quoted;
-  const whole = pctHundredths / 100n;
-  const frac = pctHundredths % 100n;
-  let pctStr: string;
-  if (frac === 0n) {
-    pctStr = whole.toString();
-  } else if (frac % 10n === 0n) {
-    pctStr = `${whole}.${(frac / 10n).toString()}`;
-  } else {
-    pctStr = `${whole}.${frac.toString().padStart(2, '0')}`;
+  const pct = (Number(diff) / Number(quoted)) * 100;
+  if (!Number.isFinite(pct) || pct === 0) return null;
+
+  const sign = pct > 0 ? '+' : '-';
+  const abs = Math.abs(pct);
+
+  for (let d = 1; d <= 8; d++) {
+    const factor = 10 ** d;
+    const truncated = Math.floor(abs * factor) / factor;
+    const prevTruncated = d === 1 ? 0 : Math.floor(abs * 10 ** (d - 1)) / 10 ** (d - 1);
+    if (truncated > prevTruncated) {
+      let numStr = truncated.toFixed(d);
+      numStr = numStr.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+      return `${sign}${numStr}%`;
+    }
   }
-  return `${sign}${pctStr}%`;
+
+  return `${sign}${abs.toExponential(1)}%`;
 }
 
 function renderHopNetPctChangeLabelHtml(
