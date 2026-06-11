@@ -2,12 +2,11 @@
  * Route diagram, route plan steps, hop % badges, and fee/rent accounting.
  *
  * ## Hop outgoing % (badge on each hop)
- * 1. Start with swapUsd / payUsd (wallet pay includes input-side fees/rent).
- * 2. For each hop through index i, multiply by hopLocalOutRetentionFactor:
- *    - Prefer netRaw / grossRaw from resolveHopOutAmounts.
- *    - Else netUi / (netUi + outputSideFeesUi) when pool/protocol fees sit on output mint.
- * 3. Last hop may scale quoted raw by wallet pay vs swap leg (scaleQuotedRawToWalletPay).
- * 4. Fallback: hopOutUsd / cumulativePayUsd when USD prices exist.
+ * Per-hop step factors (computeHopStepRetentionFactor) chain into cumulative in/out
+ * badges shared by the route diagram and route plan step headers:
+ * 1. hopLocalOutRetentionFactor — output-side pool/protocol cuts on the hop mint.
+ * 2. Wallet fees on this hop (same items as diagram fee branch + acc rent above).
+ * 3. Chain: inPct = running retention entering hop; outPct = inPct × step factor.
  *
  * ## Fee classification
  * - isWalletCostFeeItem: debited from wallet (acc rent, protocol/route on sell mint, priority, etc.)
@@ -438,10 +437,18 @@ function resolveRouteHopLegs(plan: VybeRoutePlanStepLite[], quote: Record<string
   });
 }
 
+function formatHopPctLabel(pct: number): string {
+  if (!Number.isFinite(pct)) return '—';
+  const rounded = Math.round(pct * 100) / 100;
+  if (Number.isInteger(rounded)) {
+    return `${rounded}%`;
+  }
+  return `${rounded.toFixed(2)}%`;
+}
+
 function hopPercentLabel(step: VybeRoutePlanStepLite): string {
   if (step.percent == null || !Number.isFinite(step.percent)) return '—';
-  const rounded = Math.round(step.percent * 100) / 100;
-  return `${rounded}%`;
+  return formatHopPctLabel(step.percent);
 }
 
 export function parsePositiveBigInt(raw: string | undefined | null): bigint | null {
@@ -588,6 +595,95 @@ function sumWalletDebitedFeesUsdThroughHop(
     }
   }
   return total;
+}
+
+/** Wallet-cost fee USD on one hop — same items as the diagram fee branch + acc rent above. */
+function sumWalletCostFeesUsdOnStep(
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+): number {
+  let total = 0;
+  for (const item of getHopFeeDisplayItems(step)) {
+    if (!isWalletCostFeeItem(item, quote) && !isAccRentWalletFeeItem(item)) continue;
+    const usd = computeFeeUsdNumeric(item, quote);
+    if (usd != null && usd > 0) total += usd;
+  }
+  return total;
+}
+
+/** Per-hop retention multiplier (output-side + wallet fees shown on this hop). */
+function computeHopStepRetentionFactor(
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+  planIndex: number,
+  isLastHop: boolean,
+): number {
+  let factor = hopLocalOutRetentionFactor(step, quote, isLastHop) ?? 1;
+
+  const hopWalletUsd = sumWalletCostFeesUsdOnStep(step, quote);
+  if (hopWalletUsd > 0) {
+    const payAfter = getQuoteTotalWalletPayUsd(quote, planIndex);
+    const payBefore =
+      planIndex > 0
+        ? getQuoteTotalWalletPayUsd(quote, planIndex - 1)
+        : deps.getQuoteSwapUsdValue(quote);
+
+    if (payAfter != null && payBefore != null && payAfter > payBefore + 1e-9) {
+      factor *= payBefore / payAfter;
+    } else {
+      const payBasis = payAfter ?? payBefore ?? deps.getQuoteSwapUsdValue(quote);
+      if (payBasis != null && payBasis > 0) {
+        factor *= Math.max(0, 1 - hopWalletUsd / payBasis);
+      }
+    }
+  }
+
+  if (!Number.isFinite(factor) || factor <= 0) return 1;
+  return Math.min(factor, 1);
+}
+
+/** Cumulative wallet % retained through planIndex using per-hop step factors. */
+function computeRunningRetentionPctThroughHop(
+  quote: Record<string, unknown>,
+  throughPlanIndex: number,
+): number {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  if (throughPlanIndex < 0 || throughPlanIndex >= plan.length) return 100;
+
+  let running = 100;
+  for (let i = 0; i <= throughPlanIndex; i++) {
+    running *= computeHopStepRetentionFactor(plan[i]!, quote, i, i === plan.length - 1);
+  }
+  return running;
+}
+
+function resolveHopRetentionPctTitle(
+  quote: Record<string, unknown>,
+  planIndex: number,
+  step: VybeRoutePlanStepLite,
+  isLastHop: boolean,
+): string | null {
+  if (isLastHop) return computeFinalReceivePctBreakdown(quote)?.title ?? null;
+  return computeIntermediateHopReceivePctBreakdown(quote, planIndex, step)?.title ?? null;
+}
+
+/** Shared in/out % for route diagram links and hop plan step headers. */
+function resolveHopRetentionPctsAtHop(
+  quote: Record<string, unknown>,
+  planIndex: number,
+  step: VybeRoutePlanStepLite,
+  isLastHop: boolean,
+): { inPct: number; outPct: number; outTitle: string | null } {
+  const inPct =
+    planIndex > 0 ? computeRunningRetentionPctThroughHop(quote, planIndex - 1) : 100;
+  const stepFactor = computeHopStepRetentionFactor(step, quote, planIndex, isLastHop);
+  let outPct = inPct * stepFactor;
+  if (outPct > inPct + 0.001) outPct = inPct;
+  return {
+    inPct,
+    outPct,
+    outTitle: resolveHopRetentionPctTitle(quote, planIndex, step, isLastHop),
+  };
 }
 
 /** Swap leg USD plus wallet-debited fees charged through the given hop index. */
@@ -798,7 +894,7 @@ export function computeFinalReceivePctBreakdown(
   if (!Number.isFinite(pctRaw) || pctRaw <= 0) return null;
   const pct = Math.min(pctRaw, 100);
 
-  const pctLabel = `${Math.round(pct * 100) / 100}%`;
+  const pctLabel = formatHopPctLabel(pct);
   const breakdown =
     payParts.length > 1 ? ` (${payParts.join(' + ')})` : '';
   const title =
@@ -880,7 +976,7 @@ function computeIntermediateHopReceivePctBreakdown(
   const pct = (outUsd / payUsd) * 100;
   if (!Number.isFinite(pct) || pct <= 0) return null;
 
-  const pctLabel = `${Math.round(pct * 100) / 100}%`;
+  const pctLabel = formatHopPctLabel(pct);
   const payParts = [`$${deps.formatSwapPayUsdAmount(swapUsd)} swap`];
   if (buckets.feeUsd != null) payParts.push(`$${deps.formatSwapPayUsdAmount(buckets.feeUsd)} fee`);
   if (buckets.rentUsd != null) payParts.push(`$${deps.formatSwapPayUsdAmount(buckets.rentUsd)} rent`);
@@ -1110,7 +1206,7 @@ function computeHopOutgoingPercentBreakdown(
   const buildBreakdown = (pct: number): HopOutgoingPercentBreakdown => {
     const outUi = isLastHop ? deps.quoteOutputUiAmount(quote) : null;
     return {
-      pctLabel: `${Math.round(pct * 100) / 100}%`,
+      pctLabel: formatHopPctLabel(pct),
       netDisplay:
         outUi != null
           ? deps.formatSwapAmountValue(outUi).replace(/,/g, '')
@@ -3110,7 +3206,6 @@ function renderRouteTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<st
   collectRouteHopMetas(node, metas);
   if (metas.length === 0) return '';
 
-  let prevOutPct: number | null = null;
   const inner = metas
     .map((meta, i) => {
       const leg = legs[meta.planIndex];
@@ -3118,25 +3213,19 @@ function renderRouteTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<st
       const isLastHop = i === metas.length - 1;
       const inLink =
         i === 0 ? renderRoutePctBadge(hopPercentLabel(meta.step)) : '';
-      const retention = resolveCumulativeRetentionPctAtHop(
+      const retention = resolveHopRetentionPctsAtHop(
         quote,
         meta.planIndex,
         meta.step,
         isLastHop,
       );
-      let outPct: string | null = null;
-      let outTitle: string | null = null;
-      if (retention) {
-        const pctNum = retention.pct;
-        if (prevOutPct == null || pctNum < prevOutPct - 0.001) {
-          outPct = formatHopPctLabel(pctNum);
-          outTitle = retention.title;
-          prevOutPct = pctNum;
-        }
-      }
       const outLink =
-        outPct && outPct !== '100%'
-          ? renderRoutePctBadge(outPct, 'out', outTitle)
+        retention.outPct < retention.inPct - 0.001
+          ? renderRoutePctBadge(
+              formatHopPctLabel(retention.outPct),
+              'out',
+              retention.outTitle,
+            )
           : '';
       return inLink + renderRouteMarketNode(meta, leg, quote) + outLink;
     })
@@ -3663,40 +3752,8 @@ function renderHopCardPctArrow(): string {
   return `<span class="swap-hop-card__pct-arrow" aria-hidden="true">→</span>`;
 }
 
-function formatHopPctLabel(pct: number): string {
-  return `${Math.round(pct * 100) / 100}%`;
-}
-
 function pendingQuoteRecord(quote: Record<string, unknown>): boolean {
   return !quote || Object.keys(quote).length === 0;
-}
-
-/** Wallet % retained after hop planIndex (cumulative; matches route diagram basis). */
-function resolveCumulativeRetentionPctAtHop(
-  quote: Record<string, unknown>,
-  planIndex: number,
-  step: VybeRoutePlanStepLite,
-  isLastHop: boolean,
-): { pct: number; title: string | null } | null {
-  const cumulative = computeCumulativeHopOutgoingPct(quote, planIndex);
-  if (cumulative != null && cumulative > 0) {
-    const title = isLastHop
-      ? (computeFinalReceivePctBreakdown(quote)?.title ?? null)
-      : (computeIntermediateHopReceivePctBreakdown(quote, planIndex, step)?.title ?? null);
-    return { pct: cumulative, title };
-  }
-
-  const pctBreakdown = isLastHop
-    ? computeFinalReceivePctBreakdown(quote)
-    : computeIntermediateHopReceivePctBreakdown(quote, planIndex, step);
-  if (pctBreakdown) {
-    return { pct: pctBreakdown.pct, title: pctBreakdown.title };
-  }
-
-  const label = hopOutgoingPercentLabel(step, quote, isLastHop, planIndex);
-  const n = parseHopPctLabel(label);
-  if (n != null) return { pct: n, title: null };
-  return null;
 }
 
 /** Green = cumulative wallet % entering hop; blue = cumulative % after hop. */
@@ -3712,35 +3769,12 @@ function resolveHopCardRetentionPcts(
     return { inPct: '100%', outPct: fallback, outTitle: null };
   }
 
-  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
-
-  let inPctNum = 100;
-  if (planIndex > 0 && plan[planIndex - 1]) {
-    const prev = resolveCumulativeRetentionPctAtHop(
-      quote,
-      planIndex - 1,
-      plan[planIndex - 1]!,
-      planIndex - 1 === plan.length - 1,
-    );
-    if (prev) inPctNum = prev.pct;
-  }
-
-  let outPctNum = inPctNum;
-  let outTitle: string | null = null;
-  const out = resolveCumulativeRetentionPctAtHop(quote, planIndex, step, isLastHop);
-  if (out) {
-    outPctNum = out.pct;
-    outTitle = out.title;
-  }
-
-  if (outPctNum > inPctNum + 0.001) {
-    outPctNum = inPctNum;
-  }
+  const retention = resolveHopRetentionPctsAtHop(quote, planIndex, step, isLastHop);
 
   return {
-    inPct: formatHopPctLabel(inPctNum),
-    outPct: formatHopPctLabel(outPctNum),
-    outTitle,
+    inPct: formatHopPctLabel(retention.inPct),
+    outPct: formatHopPctLabel(retention.outPct),
+    outTitle: retention.outTitle,
   };
 }
 
