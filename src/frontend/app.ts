@@ -1861,6 +1861,10 @@ function quoteTokenAmountUiNumber(quote: Record<string, unknown>, field: 'out' |
   return null;
 }
 
+function formatFooterPctAlwaysTwoDecimals(pct: number): string {
+  return `${pct.toFixed(2)}%`;
+}
+
 /** Max slippage % = (1 − min received ÷ output) × 100 */
 function formatMaxSlippageRatio(quote: Record<string, unknown>): string {
   const out = quoteTokenAmountUiNumber(quote, 'out');
@@ -1868,10 +1872,7 @@ function formatMaxSlippageRatio(quote: Record<string, unknown>): string {
   if (out == null || min == null || out <= 0) return '—';
   const pct = (1 - min / out) * 100;
   if (!Number.isFinite(pct)) return '—';
-  const abs = Math.abs(pct);
-  if (abs === 0) return '0%';
-  if (abs < 0.01) return '< 0.01%';
-  return `${pct.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 0 })}%`;
+  return formatFooterPctAlwaysTwoDecimals(pct);
 }
 
 function formatSwapRate(value: unknown): string {
@@ -1879,18 +1880,13 @@ function formatSwapRate(value: unknown): string {
   return formatSwapAmount(value).display;
 }
 
-/** Human-readable price impact — "< 0.01%" for tiny values, else max 2 decimals. */
+/** Footer price impact — always two decimal places (e.g. 0.30%). */
 function formatPriceImpactPct(value: unknown): string {
   if (value == null || value === '') return '—';
   const raw = String(value).trim().replace(/%$/, '');
   const n = Number(raw);
-  if (!Number.isFinite(n)) return `${String(value).replace(/%$/, '')}%`;
-
-  const abs = Math.abs(n);
-  if (abs === 0) return '0% (No Impact)';
-  if (abs < 0.01) return '< 0.01%';
-
-  return `${n.toLocaleString(undefined, { maximumFractionDigits: 2, minimumFractionDigits: 0 })}%`;
+  if (!Number.isFinite(n)) return '—';
+  return formatFooterPctAlwaysTwoDecimals(n);
 }
 
 
