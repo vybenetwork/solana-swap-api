@@ -3,7 +3,7 @@
  */
 
 import express, { type Request, type Response } from 'express';
-import { loadEnv, getApiKey, PUBLIC_DIR, SOLANA_RPC_URL } from './config.js';
+import { loadEnv, getApiKey, PUBLIC_DIR, SOLANA_RPC_URL, DEFAULT_SWAP_SERVICE_FEE_PCT } from './config.js';
 import { createClient } from './api/index.js';
 import { toHumanReadableError } from './api/client.js';
 import { InsufficientBalanceError } from './api/wallet-balance.js';
@@ -312,7 +312,9 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
     protocol,
     simulate: typeof body.simulate === 'boolean' ? body.simulate : undefined,
     swapFee:
-      body.swapFee != null && Number.isFinite(Number(body.swapFee)) ? Number(body.swapFee) : 0,
+      body.swapFee != null && Number.isFinite(Number(body.swapFee))
+        ? Number(body.swapFee)
+        : DEFAULT_SWAP_SERVICE_FEE_PCT,
   };
 }
 

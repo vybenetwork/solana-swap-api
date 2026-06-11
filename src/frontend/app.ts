@@ -99,6 +99,8 @@ interface TokenSymbolResponse {
 const MAX_FETCH_RETRIES = 5;
 const FETCH_RETRY_DELAY_MS = 2000;
 const VYBE_QUOTE_TX_REUSE_MS = 45_000;
+/** Default service fee % on build for Vybe, Jupiter, and Titan (0 = none). */
+const DEFAULT_SWAP_SERVICE_FEE_PCT = 0;
 
 /** Hardcoded mint → symbol; never fetch these from API. */
 const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
@@ -2836,12 +2838,16 @@ function syncSlippageInputForAutoSlippage(): void {
   }
 }
 
+function resolveSwapServiceFeePct(): number {
+  if (swapEnableServiceFeeCheckbox?.checked !== true) return DEFAULT_SWAP_SERVICE_FEE_PCT;
+  const raw = swapServiceFeeInput?.value.trim() ?? '';
+  const n = raw ? Number(raw) : DEFAULT_SWAP_SERVICE_FEE_PCT;
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_SWAP_SERVICE_FEE_PCT;
+}
+
 function collectSwapBuildOptions(): Record<string, unknown> {
   const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : undefined;
   const router = getSwapRouter();
-  const serviceFeeRaw =
-    swapEnableServiceFeeCheckbox?.checked === true ? (swapServiceFeeInput?.value.trim() ?? '') : '';
-  const serviceFeeN = serviceFeeRaw ? Number(serviceFeeRaw) : NaN;
   return {
     slippage: Number.isFinite(slippage) ? slippage : undefined,
     router,
@@ -2858,12 +2864,7 @@ function collectSwapBuildOptions(): Record<string, unknown> {
       swapEnableProtocolCheckbox?.checked === true
         ? swapProtocolSelect?.value.trim() || undefined
         : undefined,
-    swapFee:
-      swapEnableServiceFeeCheckbox?.checked === true &&
-      Number.isFinite(serviceFeeN) &&
-      serviceFeeN >= 0
-        ? serviceFeeN
-        : 0,
+    swapFee: resolveSwapServiceFeePct(),
   };
 }
 
@@ -4186,7 +4187,26 @@ initRouteUi({
 wireBuildOptionToggle(swapEnablePartnerCheckbox, swapPartnerFieldEl, swapPartnerInput);
 wireBuildOptionToggle(swapEnablePoolAddressCheckbox, swapPoolAddressFieldEl, swapPoolAddressInput);
 wireBuildOptionToggle(swapEnableProtocolCheckbox, swapProtocolFieldEl, swapProtocolSelect);
-wireBuildOptionToggle(swapEnableServiceFeeCheckbox, swapServiceFeeFieldEl, swapServiceFeeInput);
+
+function wireServiceFeeToggle(): void {
+  if (!swapEnableServiceFeeCheckbox || !swapServiceFeeFieldEl) return;
+  const sync = (): void => {
+    const on = swapEnableServiceFeeCheckbox.checked;
+    swapServiceFeeFieldEl.hidden = !on;
+    if (!on && swapServiceFeeInput) {
+      swapServiceFeeInput.value = '';
+    } else if (on && swapServiceFeeInput && !swapServiceFeeInput.value.trim()) {
+      swapServiceFeeInput.value = String(DEFAULT_SWAP_SERVICE_FEE_PCT);
+    }
+    invalidateSwapQuoteAfterInputChange();
+  };
+  swapEnableServiceFeeCheckbox.addEventListener('change', sync);
+  swapServiceFeeInput?.addEventListener('input', invalidateSwapQuoteAfterInputChange);
+  swapServiceFeeInput?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
+  sync();
+}
+
+wireServiceFeeToggle();
 
 swapModeBuildBtn?.addEventListener('click', () => setSwapBuildMode('build'));
 swapModeBuildSignBtn?.addEventListener('click', () => setSwapBuildMode('build-sign'));

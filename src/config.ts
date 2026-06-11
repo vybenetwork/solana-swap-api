@@ -52,3 +52,6 @@ export const SOLANA_RPC_URL = (
 /** Minimum SOL to pay fees + ATA rent when selling SPL tokens (non-gasless). */
 export const SOL_MIN_TX_FEE_BALANCE_UI = 0.006;
 
+/** Default service/protocol fee percent on swap build (0 = none). UI uses whole percent. */
+export const DEFAULT_SWAP_SERVICE_FEE_PCT = 0;
+

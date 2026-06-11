@@ -2459,19 +2459,51 @@ function renderFeeDestinationAddrLine(addr: string): string {
   return `<a class="swap-hop-fee-dest__addr swap-hop-fee-dest__addr-link" href="${url}" target="_blank" rel="noopener noreferrer" title="${deps.escapeHtml(trimmed)}">${display}</a>`;
 }
 
+function displayHopMintAddress(mint: string): string {
+  const trimmed = mint.trim();
+  return trimmed === NATIVE_SOL_MINT ? WSOL_MINT : trimmed;
+}
+
 function formatMintDetailValue(mint: string, sym?: string): string {
   const symVal = sym?.trim();
-  const addrHtml = deps.escapeHtml(mint);
   const symCls = tokenSymColorClass(mint, symVal || undefined);
+  const displayMint = displayHopMintAddress(mint);
+  const iconHtml = `<span class="swap-hop-detail-row__mint-icon">${renderRoutingTokenIcon(mint, symVal || '')}</span>`;
   const symPart =
     symVal && symVal !== '—'
-      ? `<span class="swap-hop-detail-row__mint-sym ${symCls}"> (${deps.escapeHtml(symVal)})</span>`
+      ? `<span class="swap-hop-detail-row__mint-sym ${symCls}">${deps.escapeHtml(symVal)}</span>`
       : '';
-  return `<span class="swap-hop-detail-row__mint-val"><span class="swap-hop-detail-row__mint-addr">${addrHtml}</span>${symPart}</span>`;
+  const addrInner = isLikelySolanaPubkey(displayMint)
+    ? `<a class="swap-hop-detail-row__mint-addr swap-hop-detail-row__mint-addr-link" href="${deps.escapeHtml(solscanAccountUrl(displayMint))}" target="_blank" rel="noopener noreferrer" title="${deps.escapeHtml(displayMint)}">${deps.escapeHtml(displayMint)}</a>`
+    : `<span class="swap-hop-detail-row__mint-addr">${deps.escapeHtml(displayMint)}</span>`;
+  const addrHtml = `<span class="swap-hop-detail-row__mint-addr-wrap"><span class="swap-hop-detail-row__mint-addr-bracket">(</span>${addrInner}<span class="swap-hop-detail-row__mint-addr-bracket">)</span></span>`;
+  return `<span class="swap-hop-detail-row__mint-val">${iconHtml}${symPart}${addrHtml}</span>`;
 }
 
 function hopFlowPartClass(mint: string, sym?: string): string {
   return `swap-hop-detail-row__flow-part ${tokenSymColorClass(mint, sym?.trim() || undefined)}`;
+}
+
+function renderHopMarketPairSuffix(
+  inSym: string,
+  outSym: string,
+  inMint: string,
+  outMint: string,
+): string {
+  const inLabel = inSym?.trim();
+  const outLabel = outSym?.trim();
+  if (!inLabel || inLabel === '—' || !outLabel || outLabel === '—') return '';
+  const inCls = tokenSymColorClass(inMint, inLabel);
+  const outCls = tokenSymColorClass(outMint, outLabel);
+  return `<span class="swap-hop-market-row__pair"><span class="swap-hop-market-row__pair-wrap"> (</span><span class="swap-hop-market-row__pair-sym ${inCls}">${deps.escapeHtml(inLabel)}</span><span class="swap-hop-market-row__pair-sep">-</span><span class="swap-hop-market-row__pair-sym ${outCls}">${deps.escapeHtml(outLabel)}</span><span class="swap-hop-market-row__pair-wrap">)</span></span>`;
+}
+
+function renderHopMarketDetailAddressHtml(marketRaw: string): string {
+  if (isLikelySolanaPubkey(marketRaw)) {
+    const url = deps.escapeHtml(solscanAccountUrl(marketRaw));
+    return `<a class="swap-hop-market-row__addr swap-hop-market-row__addr-link" href="${url}" target="_blank" rel="noopener noreferrer" title="${deps.escapeHtml(marketRaw)}">${deps.escapeHtml(marketRaw)}</a>`;
+  }
+  return `<span class="swap-hop-market-row__addr">${deps.escapeHtml(marketRaw)}</span>`;
 }
 
 function resolveFeeDestinationAddress(
@@ -3327,6 +3359,58 @@ export function routerDisplayLabel(routerId: string): string {
   return id.charAt(0).toUpperCase() + id.slice(1);
 }
 
+function detectAggregatorBrand(text: string): 'vybe' | 'jupiter' | 'titan' | null {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed === '—') return null;
+  const id = normalizeRouterId(trimmed);
+  if (id === 'vybe' || id === 'jupiter' || id === 'titan') return id;
+  const lower = trimmed.toLowerCase();
+  if (lower.includes('jupiter')) return 'jupiter';
+  if (lower.includes('titan')) return 'titan';
+  if (lower.includes('vybe')) return 'vybe';
+  return null;
+}
+
+function routerIconSrc(brand: 'vybe' | 'jupiter' | 'titan'): string {
+  if (brand === 'vybe') return '/favicon.svg';
+  if (brand === 'jupiter') return '/images/jupiter-logo.png';
+  return '/images/titan-logo.png';
+}
+
+function quoteRouterBrand(quote: Record<string, unknown>): 'vybe' | 'jupiter' | 'titan' {
+  const id = normalizeRouterId(
+    quote._effectiveRouter ?? quote._buildRouter ?? quote._selectedRouter ?? quote.router ?? deps.getSwapRouter(),
+  );
+  if (id === 'jupiter' || id === 'titan' || id === 'vybe') return id;
+  return 'vybe';
+}
+
+function renderViaRouterBadge(brand: 'vybe' | 'jupiter' | 'titan'): string {
+  const label = routerDisplayLabel(brand);
+  const iconClass = `swap-hop-via-router__icon swap-hop-via-router__icon--${brand}`;
+  return `<span class="swap-hop-via-router"><img class="${iconClass}" src="${routerIconSrc(brand)}" alt="" width="14" height="14" decoding="async" /><span class="swap-hop-via-router__label">(via ${deps.escapeHtml(label)})</span></span>`;
+}
+
+function renderHopVenueHtml(
+  dexLabel: string,
+  quote: Record<string, unknown>,
+  options: { loading: boolean; pendingHop: boolean },
+): string {
+  const router = quoteRouterBrand(quote);
+  if (options.pendingHop && (dexLabel === '—' || dexLabel === 'Unknown DEX')) {
+    if (options.loading) return hopDetailPendingCell(true, '—');
+    return renderViaRouterBadge(router);
+  }
+  if (dexLabel === '—' || dexLabel === 'Unknown DEX') {
+    return renderViaRouterBadge(router);
+  }
+  const dexBrand = detectAggregatorBrand(dexLabel);
+  if (dexBrand === router) {
+    return renderViaRouterBadge(router);
+  }
+  return `<span class="swap-hop-venue-display"><span class="swap-hop-venue-display__dex">${deps.escapeHtml(dexLabel)}</span>${renderViaRouterBadge(router)}</span>`;
+}
+
 export function formatRouteDiagramTitle(quote: Record<string, unknown>): string {
   const selected = normalizeRouterId(
     quote._selectedRouter ?? quote.router ?? deps.getSwapRouter(),
@@ -3455,6 +3539,73 @@ function hopDetailPendingCell(loading: boolean, html: string): string {
   return loading ? deps.renderLoadingSpinner('sm') : html;
 }
 
+function formatHopQuotedToNetPctChange(
+  quotedRaw: string | undefined,
+  netRaw: string | undefined,
+): string | null {
+  const quoted = parsePositiveBigInt(quotedRaw);
+  const net = parsePositiveBigInt(netRaw);
+  if (quoted === null || net === null || quoted === 0n) return null;
+  const diff = net - quoted;
+  if (diff === 0n) return null;
+
+  const sign = diff > 0n ? '+' : '-';
+  const absDiff = diff < 0n ? -diff : diff;
+  const pctHundredths = (absDiff * 10000n) / quoted;
+  const whole = pctHundredths / 100n;
+  const frac = pctHundredths % 100n;
+  let pctStr: string;
+  if (frac === 0n) {
+    pctStr = whole.toString();
+  } else if (frac % 10n === 0n) {
+    pctStr = `${whole}.${(frac / 10n).toString()}`;
+  } else {
+    pctStr = `${whole}.${frac.toString().padStart(2, '0')}`;
+  }
+  return `${sign}${pctStr}%`;
+}
+
+function renderHopNetPctChangeLabelHtml(
+  quotedRaw: string | undefined,
+  netRaw: string | undefined,
+): string {
+  const formatted = formatHopQuotedToNetPctChange(quotedRaw, netRaw);
+  if (!formatted) return '';
+  const cls =
+    formatted.startsWith('-')
+      ? 'swap-hop-amount-tile__chg--down'
+      : 'swap-hop-amount-tile__chg--up';
+  return `<span class="swap-hop-amount-tile__chg ${cls}"> (${deps.escapeHtml(formatted)})</span>`;
+}
+
+function renderHopAmountTile(
+  label: string,
+  amtHtml: string,
+  sym: string,
+  mint: string,
+  title?: string,
+  labelExtraHtml = '',
+): string {
+  const boxCls = mint ? tokenBoxColorClass(mint, sym) : '';
+  const symCls = tokenSymColorClass(mint, sym);
+  const titleAttr = title ? ` title="${deps.escapeHtml(title)}"` : '';
+  const symPart =
+    sym && sym !== '—'
+      ? `<span class="swap-hop-amount-tile__sym ${symCls}">${deps.escapeHtml(sym)}</span>`
+      : '';
+  const iconPart = mint
+    ? `<span class="swap-hop-amount-tile__icon">${renderRoutingTokenIcon(mint, sym)}</span>`
+    : '';
+  return `<div class="swap-hop-amount-tile${boxCls ? ` ${boxCls}` : ''}"${titleAttr}>
+    <span class="swap-hop-amount-tile__label">${deps.escapeHtml(label)}${labelExtraHtml}</span>
+    <span class="swap-hop-amount-tile__value">${iconPart}<span class="swap-hop-amount-tile__amt">${amtHtml}</span>${symPart}</span>
+  </div>`;
+}
+
+function renderHopAmountsArrow(): string {
+  return `<span class="swap-hop-amounts-arrow" aria-hidden="true"><span class="swap-hop-amounts-arrow-icon">→</span></span>`;
+}
+
 function renderRoutePlanStepDetail(
   step: VybeRoutePlanStepLite,
   hopLabel: string,
@@ -3508,74 +3659,60 @@ function renderRoutePlanStepDetail(
     </div>`;
   };
 
-  const venueHtml =
-    dex !== '—' && dex !== 'Unknown DEX'
-      ? deps.escapeHtml(dex)
-      : hopDetailPendingCell(loading, '—');
+  const venueHtml = renderHopVenueHtml(dex, quote, { loading, pendingHop });
   const dexSummaryHtml = venueHtml;
 
   const mintRow = (label: string, mint: string, sym?: string) => {
+    const displayMint = displayHopMintAddress(mint);
     if (pendingHop) {
       if (mint) {
-        return detailRow(label, formatMintDetailValue(mint, sym), { full: mint, mint: true });
+        return detailRow(label, formatMintDetailValue(mint, sym), { full: displayMint, mint: true });
       }
       return detailRow(label, hopDetailPendingCell(loading, '—'));
     }
     if (!mint) return detailRow(label, '—');
-    return detailRow(label, formatMintDetailValue(mint, sym), { full: mint, mint: true });
+    return detailRow(label, formatMintDetailValue(mint, sym), { full: displayMint, mint: true });
   };
 
-  const marketHtml = si?.ammKey
-    ? deps.escapeHtml(si.ammKey)
-    : pendingHop
-      ? hopDetailPendingCell(loading, '—')
-      : '—';
-  const marketMono = Boolean(si?.ammKey && isLikelySolanaPubkey(si.ammKey));
-  const marketTitle = si?.ammKey ? deps.escapeHtml(si.ammKey) : undefined;
-
-  const metaRow = `<div class="swap-hop-detail-row swap-hop-detail-row--meta">
-    <div class="swap-hop-detail-row__meta-box">
-      <span class="swap-hop-detail-row__meta-k">Venue</span>
-      <span class="swap-hop-detail-row__meta-v">${venueHtml}</span>
-    </div>
-    <div class="swap-hop-detail-row__meta-box">
-      <span class="swap-hop-detail-row__meta-k">Market</span>
-      <span class="swap-hop-detail-row__meta-v${marketMono ? ' swap-hop-detail-row__meta-v--mono' : ''}"${marketTitle ? ` title="${marketTitle}"` : ''}>${marketHtml}</span>
-    </div>
-    <div class="swap-hop-detail-row__meta-box">
-      <span class="swap-hop-detail-row__meta-k">Route share</span>
-      <span class="swap-hop-detail-row__meta-v">${deps.escapeHtml(pct)}</span>
-    </div>
+  const marketRaw = si?.ammKey?.trim() ?? '';
+  const marketTitle = marketRaw ? deps.escapeHtml(marketRaw) : undefined;
+  const marketPairHtml = renderHopMarketPairSuffix(leg.inSym, leg.outSym, leg.inMint, leg.outMint);
+  let marketAddrHtml: string;
+  if (marketRaw) {
+    marketAddrHtml = renderHopMarketDetailAddressHtml(marketRaw);
+  } else if (pendingHop) {
+    marketAddrHtml = hopDetailPendingCell(loading, '—');
+  } else {
+    marketAddrHtml = '—';
+  }
+  const marketRowHtml = `<div class="swap-hop-detail-row swap-hop-detail-row--market">
+    <span class="swap-hop-detail-row__k">Market</span>
+    <span class="swap-hop-detail-row__v swap-hop-detail-row__v--market"${marketTitle ? ` title="${marketTitle}"` : ''}><span class="swap-hop-market-row__value">${marketAddrHtml}${marketPairHtml}</span></span>
   </div>`;
 
-  let inAmountHtml: string;
+  let inAmtHtml: string;
   if (si?.inAmount) {
-    const inFmt = deps.formatRawTokenAmount(si.inAmount, leg.inMint);
-    inAmountHtml = `${deps.escapeHtml(inFmt.display)} ${deps.escapeHtml(leg.inSym)}`;
+    inAmtHtml = deps.escapeHtml(deps.formatRawTokenAmount(si.inAmount, leg.inMint).display);
   } else if (pendingHop) {
-    inAmountHtml = hasInAmt
-      ? `${deps.escapeHtml(leg.inAmt)} ${deps.escapeHtml(leg.inSym)}`
-      : hopDetailPendingCell(loading, '—');
+    inAmtHtml = hasInAmt ? deps.escapeHtml(leg.inAmt) : hopDetailPendingCell(loading, '—');
   } else {
-    inAmountHtml = '—';
+    inAmtHtml = '—';
   }
 
-  let quotedOutputHtml: string;
   const quotedOutRaw = hopFees?.quotedOutRaw || si?.outAmount;
+  let quotedAmtHtml: string;
   if (quotedOutRaw) {
-    const grossFmt = deps.formatRawTokenAmount(quotedOutRaw, leg.outMint);
-    quotedOutputHtml = `${deps.escapeHtml(grossFmt.display)} ${deps.escapeHtml(leg.outSym)}`;
+    quotedAmtHtml = deps.escapeHtml(deps.formatRawTokenAmount(quotedOutRaw, leg.outMint).display);
   } else {
-    quotedOutputHtml = pendingHop ? hopDetailPendingCell(loading, '—') : '—';
+    quotedAmtHtml = pendingHop ? hopDetailPendingCell(loading, '—') : '—';
   }
 
-  let netOutputHtml: string;
   const netOutRaw = hopFees?.netOutRaw || si?.outAmount;
+  let netAmtHtml: string;
   if (netOutRaw) {
-    const netFmt = deps.formatRawTokenAmount(netOutRaw, leg.outMint);
-    netOutputHtml = `${deps.escapeHtml(netFmt.display)} ${deps.escapeHtml(leg.outSym)}`;
+    netAmtHtml = deps.escapeHtml(deps.formatRawTokenAmount(netOutRaw, leg.outMint).display);
   } else {
-    netOutputHtml = pendingHop ? hopDetailPendingCell(loading, '—') : '—';
+    netAmtHtml = pendingHop ? hopDetailPendingCell(loading, '—') : '—';
   }
 
   const inAmountTitle =
@@ -3647,41 +3784,27 @@ function renderRoutePlanStepDetail(
     </section>`;
   }
 
-  const amountFlowRow = `<div class="swap-hop-detail-row swap-hop-detail-row--flow">
-    <span class="swap-hop-detail-row__k">Amounts</span>
-    <span class="swap-hop-detail-row__v swap-hop-detail-row__v--flow">
-      <span class="${hopFlowPartClass(leg.inMint, leg.inSym)}"${inAmountTitle ? ` title="${deps.escapeHtml(inAmountTitle)}"` : ''}>${inAmountHtml}</span>
-      <span class="swap-hop-detail-row__flow-sep" aria-hidden="true">→</span>
-      <span class="${hopFlowPartClass(leg.outMint, leg.outSym)}"${quotedTitle ? ` title="${deps.escapeHtml(quotedTitle)}"` : ''}>${quotedOutputHtml}</span>
-      <span class="swap-hop-detail-row__flow-sep" aria-hidden="true">→</span>
-      <span class="${hopFlowPartClass(leg.outMint, leg.outSym)}"${netTitle ? ` title="${deps.escapeHtml(netTitle)}"` : ''}>${netOutputHtml}</span>
-    </span>
-  </div>`;
+  const amountsSectionHtml = `<section class="swap-hop-panel swap-hop-panel--amounts" aria-label="Hop amounts">
+    <div class="swap-hop-amounts-flow">
+      ${renderHopAmountTile('In', inAmtHtml, leg.inSym, leg.inMint, inAmountTitle)}
+      ${renderHopAmountsArrow()}
+      ${renderHopAmountTile('Quoted', quotedAmtHtml, leg.outSym, leg.outMint, quotedTitle)}
+      ${renderHopAmountsArrow()}
+      ${renderHopAmountTile(
+        'Net',
+        netAmtHtml,
+        leg.outSym,
+        leg.outMint,
+        netTitle,
+        renderHopNetPctChangeLabelHtml(quotedOutRaw, netOutRaw),
+      )}
+    </div>
+  </section>`;
 
   const detailsHtml = `<div class="swap-hop-detail-rows">
-    ${metaRow}
-    ${amountFlowRow}
+    ${marketRowHtml}
     ${mintRow('Input mint', leg.inMint, leg.inSym)}
     ${mintRow('Output mint', leg.outMint, leg.outSym)}
-    ${
-      feeMint
-        ? detailRow(
-            'Fee mint',
-            pendingHop && loading && feeSym === '—'
-              ? hopDetailPendingCell(loading, '—')
-              : formatMintDetailValue(feeMint, feeSym !== '—' ? feeSym : undefined),
-            { full: feeMint, mint: true },
-          )
-        : pendingHop
-          ? detailRow(
-              'Fee mint',
-              leg.outMint
-                ? formatMintDetailValue(leg.outMint, leg.outSym)
-                : hopDetailPendingCell(loading, '—'),
-              leg.outMint ? { full: leg.outMint, mint: true } : undefined,
-            )
-          : detailRow('Fee mint', '—')
-    }
   </div>`;
 
   const shareBadgeHtml = showRouteShare
@@ -3700,6 +3823,7 @@ function renderRoutePlanStepDetail(
       ${shareBadgeHtml}
     </summary>
     <div class="swap-hop-step-details__body">
+      ${amountsSectionHtml}
       ${feesHtml}
       <section class="swap-hop-panel swap-hop-panel--details">
         <h5 class="swap-hop-panel__title">Details</h5>

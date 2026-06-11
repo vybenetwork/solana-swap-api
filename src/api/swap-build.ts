@@ -3,6 +3,7 @@
  */
 
 import axios, { type AxiosInstance } from 'axios';
+import { DEFAULT_SWAP_SERVICE_FEE_PCT } from '../config.js';
 import type { VybeSwapBuildResponse } from '../types/swap.js';
 import { withRetry } from './client.js';
 import { toVybeSwapMint } from './sol-mints.js';
@@ -64,8 +65,20 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
   if (body.poolAddress?.trim()) payload.poolAddress = body.poolAddress.trim();
   if (body.protocol) payload.protocol = body.protocol;
   if (body.simulate != null) payload.simulate = body.simulate;
-  payload.swapFee = body.swapFee != null && Number.isFinite(body.swapFee) ? body.swapFee : 0;
+  payload.swapFee = swapFeeParamForRouter(body.swapFee, router);
   return payload;
+}
+
+/** UI fee is whole percent (1 = 1%). Vybe uses fraction (0.01 = 1%); Jupiter/Titan use whole percent. */
+function swapFeeParamForRouter(
+  feePctUi: number | undefined | null,
+  router?: SwapProxyRouter,
+): number {
+  const pct =
+    feePctUi != null && Number.isFinite(feePctUi) ? feePctUi : DEFAULT_SWAP_SERVICE_FEE_PCT;
+  if (pct <= 0) return 0;
+  if (router === 'jupiter' || router === 'titan') return pct;
+  return pct / 100;
 }
 
 function isRetryableBuildError(err: unknown): boolean {
