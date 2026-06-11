@@ -891,6 +891,10 @@ body {
 .section-header .section-warning {
   margin: 0 0 0 6px;
   max-height: 30px;
+  max-width: 890px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   align-self: center;
   flex-shrink: 1;
   min-width: 0;
@@ -962,6 +966,11 @@ body {
   background: rgba(239, 68, 68, 0.1);
   box-shadow: 0 0 0 1px rgba(248, 113, 113, 0.35), 0 0 10px rgba(239, 68, 68, 0.25);
   animation: section-error-pulse 1.2s ease-in-out infinite;
+  max-width: 890px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .section-error[hidden] {

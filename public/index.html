@@ -40,7 +40,7 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="shortcut icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="vybe-demo-shell.css?v=6" />
-    <link rel="stylesheet" href="app.css?v=17" />
+    <link rel="stylesheet" href="app.css?v=18" />
   </head>
   <body>
     <div class="container">
@@ -453,23 +453,38 @@
                       </div>
                     </div>
                   </div>
-                  <div class="swap-toggle-row swap-toggle-row--expandable">
-                    <div class="swap-toggle-row__text">
-                      <span class="swap-adv-label-row">
-                        <span class="label-icon field-icon icon-dollar swap-adv-label-icon" aria-hidden="true"></span>
-                        <span>Service fee</span>
-                      </span>
-                      <span class="swap-toggle-row__hint">Fee % on build</span>
-                    </div>
-                    <div class="swap-toggle-row__controls">
-                      <div class="swap-toggle-row__field swap-toggle-row__field--fee" id="swapServiceFeeField" hidden>
-                        <span class="swap-toggle-field__suffix-wrap">
-                          <input type="number" id="swapServiceFee" class="swap-toggle-field__input" min="0" step="0.05" value="0" placeholder="0" title="e.g. 0 for no fee, 1 for 1%" aria-label="Service fee percent" />
-                          <span class="swap-toggle-field__suffix" aria-hidden="true">%</span>
+                  <div class="swap-build-toggles-row">
+                    <div class="swap-toggle-row swap-toggle-row--expandable">
+                      <div class="swap-toggle-row__text">
+                        <span class="swap-adv-label-row">
+                          <span class="label-icon field-icon icon-dollar swap-adv-label-icon" aria-hidden="true"></span>
+                          <span>Service fee</span>
                         </span>
+                        <span class="swap-toggle-row__hint">Fee % on build</span>
                       </div>
-                      <label class="swap-pill-switch" title="Add service fee percent on build">
-                        <input type="checkbox" id="swapEnableServiceFee" class="swap-pill-switch__input" />
+                      <div class="swap-toggle-row__controls">
+                        <div class="swap-toggle-row__field swap-toggle-row__field--fee" id="swapServiceFeeField" hidden>
+                          <span class="swap-toggle-field__suffix-wrap">
+                            <input type="number" id="swapServiceFee" class="swap-toggle-field__input" min="0" step="0.05" value="0" placeholder="0" title="e.g. 0 for no fee, 1 for 1%" aria-label="Service fee percent" />
+                            <span class="swap-toggle-field__suffix" aria-hidden="true">%</span>
+                          </span>
+                        </div>
+                        <label class="swap-pill-switch" title="Add service fee percent on build">
+                          <input type="checkbox" id="swapEnableServiceFee" class="swap-pill-switch__input" />
+                          <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                        </label>
+                      </div>
+                    </div>
+                    <div class="swap-toggle-row">
+                      <div class="swap-toggle-row__text">
+                        <span class="swap-adv-label-row">
+                          <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
+                          <span>Route via Trades</span>
+                        </span>
+                        <span class="swap-toggle-row__hint">Top 5 trade markets</span>
+                      </div>
+                      <label class="swap-pill-switch" title="Route Vybe swap through top markets from last 250 pair trades">
+                        <input type="checkbox" id="swapRouteViaTrades" class="swap-pill-switch__input" />
                         <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
                       </label>
                     </div>
@@ -552,6 +567,10 @@
                 <details class="swap-quote-details-collapsible" id="swapQuoteRoutePlanDetails" open>
                   <summary class="swap-quote-details-collapsible__summary">Route plan steps</summary>
                   <div id="swapQuoteDetailsRouteSteps" class="swap-quote-details-route-steps"></div>
+                </details>
+                <details class="swap-quote-details-collapsible" id="swapRouteViaTradesLogDetails">
+                  <summary class="swap-quote-details-collapsible__summary">Route via Trades log</summary>
+                  <div id="swapRouteViaTradesLog" class="swap-route-via-trades-log"></div>
                 </details>
                 <details class="swap-quote-details-collapsible">
                   <summary class="swap-quote-details-collapsible__summary">Top-level API fields</summary>

@@ -89,6 +89,7 @@ import {
   getQuoteWalletCostBucketsUsd,
   getQuoteYouPaySubLabel,
   renderQuotePayHeroValueHtml,
+  renderRouteViaTradesLogHtml,
 } from './route-ui.js';
 
 interface TokenSymbolResponse {
@@ -180,6 +181,7 @@ const swapProtocolSelect = document.getElementById('swapProtocol') as HTMLSelect
 const swapEnableServiceFeeCheckbox = document.getElementById('swapEnableServiceFee') as HTMLInputElement | null;
 const swapServiceFeeFieldEl = document.getElementById('swapServiceFeeField') as HTMLElement | null;
 const swapServiceFeeInput = document.getElementById('swapServiceFee') as HTMLInputElement | null;
+const swapRouteViaTradesCheckbox = document.getElementById('swapRouteViaTrades') as HTMLInputElement | null;
 const swapQuoteBtn = document.getElementById('swapQuoteBtn') as HTMLButtonElement | null;
 const swapBuildBtn = document.getElementById('swapBuildBtn') as HTMLButtonElement | null;
 const swapBuildResultEl = document.getElementById('swapBuildResult') as HTMLElement | null;
@@ -267,6 +269,7 @@ const swapQuoteDetailsRoutingEl = document.getElementById('swapQuoteDetailsRouti
 const swapQuoteRouteSubtitleEl = document.getElementById('swapQuoteRouteSubtitle') as HTMLElement | null;
 const swapQuoteDetailsFieldsEl = document.getElementById('swapQuoteDetailsFields') as HTMLElement | null;
 const swapQuoteDetailsRouteStepsEl = document.getElementById('swapQuoteDetailsRouteSteps') as HTMLElement | null;
+const swapRouteViaTradesLogEl = document.getElementById('swapRouteViaTradesLog') as HTMLElement | null;
 const swapQuoteSummaryEl = document.getElementById('swapQuoteSummary') as HTMLElement | null;
 const swapRawQuoteResponseEl = document.getElementById('swapRawQuoteResponse') as HTMLElement | null;
 const swapRawSwapResponseEl = document.getElementById('swapRawSwapResponse') as HTMLElement | null;
@@ -391,24 +394,28 @@ function applyQuoteLoadingUi(): void {
 
 function showInlineError(el: HTMLElement, msg: string): void {
   el.textContent = msg;
+  el.title = msg;
   el.hidden = false;
   el.removeAttribute('aria-hidden');
 }
 
 function clearInlineError(el: HTMLElement): void {
   el.textContent = '';
+  el.removeAttribute('title');
   el.hidden = true;
   el.setAttribute('aria-hidden', 'true');
 }
 
 function showInlineWarning(el: HTMLElement, msg: string): void {
   el.textContent = msg;
+  el.title = msg;
   el.hidden = false;
   el.removeAttribute('aria-hidden');
 }
 
 function clearInlineWarning(el: HTMLElement): void {
   el.textContent = '';
+  el.removeAttribute('title');
   el.hidden = true;
   el.setAttribute('aria-hidden', 'true');
 }
@@ -2175,6 +2182,7 @@ function detectVybeAggregatorFallbackRouter(
   selectedRouter: string,
 ): 'jupiter' | 'titan' | null {
   if (normalizeRouterId(selectedRouter) !== 'vybe') return null;
+  if (body._routeViaTrades != null) return null;
   return resolveVybeHandoffAggregatorRouter(body);
 }
 
@@ -2554,6 +2562,15 @@ function renderRawJsonEl(el: HTMLElement | null, data: unknown, emptyMsg: string
   }
 }
 
+function renderRouteViaTradesLogPanel(): void {
+  if (!swapRouteViaTradesLogEl) return;
+  const raw = lastRawQuoteResponse as Record<string, unknown> | null;
+  const meta = raw?._routeViaTrades as Record<string, unknown> | undefined;
+  swapRouteViaTradesLogEl.innerHTML = swapQuoteFetching
+    ? `<p class="routing-empty routing-empty--loading">${renderLoadingSpinner('sm')}</p>`
+    : renderRouteViaTradesLogHtml(meta);
+}
+
 function renderRawResponsePanels(): void {
   renderRawJsonEl(swapRawQuoteResponseEl, lastRawQuoteResponse, 'No quote response yet.');
   renderRawJsonEl(
@@ -2561,6 +2578,7 @@ function renderRawResponsePanels(): void {
     lastRawSwapResponse,
     'Build a swap to see the raw swap response.',
   );
+  renderRouteViaTradesLogPanel();
 }
 
 function renderSwapQuoteDetailsPanel(quote: Record<string, unknown>): void {
@@ -2929,6 +2947,10 @@ function collectSwapBuildOptions(): Record<string, unknown> {
       swapEnableProtocolCheckbox?.checked === true
         ? swapProtocolSelect?.value.trim() || undefined
         : undefined,
+    routeViaTrades:
+      swapRouteViaTradesCheckbox?.checked === true &&
+      swapEnablePoolAddressCheckbox?.checked !== true &&
+      swapEnableProtocolCheckbox?.checked !== true,
     swapFee: resolveSwapServiceFeePct(),
   };
 }
@@ -3019,6 +3041,19 @@ function applyVybeQuoteBodyToUi(
     }
   }
   cacheVybeQuoteBuild(body, wallet, inputMint, outputMint, effectiveAmount, buildOpts);
+  if (swapQuoteError) clearInlineError(swapQuoteError);
+  const rvt = body._routeViaTrades as {
+    directRouteFailed?: boolean;
+    lastError?: string;
+    fallbackRouter?: string;
+    unpinnedVybeRetry?: boolean;
+  } | undefined;
+  if (rvt?.directRouteFailed && rvt.lastError && swapQuoteWarning) {
+    let summary = 'Route via Trades: pinned pools unavailable';
+    if (rvt.fallbackRouter === 'jupiter') summary += ' — fell back to Jupiter';
+    else if (rvt.unpinnedVybeRetry) summary += ' — using Vybe auto-route';
+    showInlineWarning(swapQuoteWarning, `${summary}. ${rvt.lastError}`);
+  }
   renderRawResponsePanels();
   renderSwapQuoteUI(quote);
   openRoutePlanPanelIfClosed();
@@ -4280,6 +4315,7 @@ initRouteUi({
 wireBuildOptionToggle(swapEnablePartnerCheckbox, swapPartnerFieldEl, swapPartnerInput);
 wireBuildOptionToggle(swapEnablePoolAddressCheckbox, swapPoolAddressFieldEl, swapPoolAddressInput);
 wireBuildOptionToggle(swapEnableProtocolCheckbox, swapProtocolFieldEl, swapProtocolSelect);
+swapRouteViaTradesCheckbox?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
 
 function wireServiceFeeToggle(): void {
   if (!swapEnableServiceFeeCheckbox || !swapServiceFeeFieldEl) return;

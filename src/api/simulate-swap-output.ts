@@ -10,6 +10,8 @@ import {
   type AddressLookupTableAccount,
 } from '@solana/web3.js';
 import { SOLANA_RPC_URL } from '../config.js';
+import { findProgramOwnedPoolStateInTx } from './pool-address-validation.js';
+import { IX_BUILDER_PROGRAM_IDS } from './route-via-trades.js';
 import { prepareVersionedSwapTransaction } from './prepare-versioned-swap-tx.js';
 import { WSOL_MINT, isSolMint } from './sol-mints.js';
 import type { VybeRoutePlanStep } from '../types/swap.js';
@@ -850,6 +852,18 @@ export async function simulateSwapEffects(
     inputMint?.trim() ?? '',
     outputMint.trim(),
   );
+
+  const dexPoolState = await findProgramOwnedPoolStateInTx(
+    connection,
+    accountKeyStrings,
+    IX_BUILDER_PROGRAM_IDS,
+  );
+  if (dexPoolState) {
+    const hopIdx = 0;
+    const existing = inferredPoolAddressesByHop.findIndex((e) => e.hopIndex === hopIdx);
+    if (existing >= 0) inferredPoolAddressesByHop[existing]!.poolAddress = dexPoolState;
+    else inferredPoolAddressesByHop.unshift({ hopIndex: hopIdx, poolAddress: dexPoolState });
+  }
 
   return {
     simulationErr: null,

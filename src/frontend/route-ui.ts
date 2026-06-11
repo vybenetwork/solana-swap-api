@@ -4032,3 +4032,179 @@ export function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): strin
     )
     .join('');
 }
+
+function shortSolAddress(addr: string, head = 4, tail = 4): string {
+  const a = addr.trim();
+  if (a.length <= head + tail + 1) return a;
+  return `${a.slice(0, head)}…${a.slice(-tail)}`;
+}
+
+const ROUTE_VIA_TRADES_DISABLED_LABELS: Record<string, string> = {
+  toggle_off: 'Route via Trades toggle is off',
+  manual_pool: 'Manual pool pin — trade routing skipped',
+  manual_protocol: 'Manual protocol set — trade routing skipped',
+  router_not_vybe: 'Router is not Vybe — trade routing skipped',
+};
+
+const ROUTE_VIA_TRADES_OUTCOME_LABELS: Record<string, string> = {
+  direct: 'Direct pool build succeeded',
+  unpinned_vybe: 'Trade queue exhausted — unpinned Vybe auto-route',
+  jupiter_fallback: 'Trade queue exhausted — switched to Jupiter',
+  skipped: 'Route via Trades not used',
+  failed: 'Trade queue failed',
+};
+
+export function renderRouteViaTradesLogHtml(meta: Record<string, unknown> | null | undefined): string {
+  if (!meta || typeof meta !== 'object') {
+    return '<p class="routing-empty">Route via Trades log appears on Vybe quotes.</p>';
+  }
+
+  const enabled = meta.enabled === true;
+  const outcome = String(meta.outcome ?? '');
+  const outcomeLabel = ROUTE_VIA_TRADES_OUTCOME_LABELS[outcome] ?? (outcome || '—');
+  const parts: string[] = [];
+
+  parts.push('<div class="rvt-log">');
+  parts.push('<div class="rvt-log__summary">');
+  if (!enabled) {
+    const reason = String(meta.disabledReason ?? '');
+    const reasonLabel = ROUTE_VIA_TRADES_DISABLED_LABELS[reason] ?? (reason || 'Disabled');
+    parts.push(`<p class="rvt-log__line rvt-log__line--muted"><strong>Skipped:</strong> ${escapeHtml(reasonLabel)}</p>`);
+  } else {
+    parts.push(`<p class="rvt-log__line"><strong>Outcome:</strong> ${escapeHtml(outcomeLabel)}</p>`);
+    const fetched = Number(meta.tradesFetched ?? 0);
+    const limit = Number(meta.tradesFetchLimit ?? 1000);
+    const fetchOk = meta.tradesFetchOk === true;
+    const pairCount = Number(meta.pairTradeCount ?? 0);
+    parts.push(
+      `<p class="rvt-log__line"><strong>Trades:</strong> ${fetched} rows (limit ${limit})${fetchOk ? '' : ' (empty)'} — ${pairCount} matched sell→buy pair</p>`,
+    );
+    const maxCount = Number(meta.maxTradeCount ?? 0);
+    const minThreshold = Number(meta.minCountThreshold ?? 0);
+    const tradeEligible = Number(meta.tradeMarketsEligible ?? 0);
+    const queued = Array.isArray(meta.queued) ? meta.queued : [];
+    parts.push(
+      `<p class="rvt-log__line"><strong>Markets:</strong> top pool ${maxCount} trades — queue ≥ ${Math.round(minThreshold)} (50% rule) · ${tradeEligible} eligible · ${queued.length} queued</p>`,
+    );
+  }
+  parts.push('</div>');
+
+  const topMarkets = Array.isArray(meta.topMarkets) ? (meta.topMarkets as Record<string, unknown>[]) : [];
+  if (topMarkets.length > 0) {
+    parts.push('<div class="rvt-log__section"><h5 class="rvt-log__heading">Ranked from trades</h5><ul class="rvt-log__list">');
+    for (const row of topMarkets) {
+      const rank = Number(row.rank ?? 0);
+      const label = String(row.programLabel ?? '');
+      const addr = String(row.marketAddress ?? '');
+      const count = Number(row.tradeCount ?? 0);
+      const eligible = row.eligible === true;
+      const supported = row.supportedProgram === true;
+      parts.push(
+        `<li class="rvt-log__item${eligible ? '' : ' rvt-log__item--fail'}">` +
+          `#${rank} <strong>${count}</strong> trades · ${escapeHtml(label)} ` +
+          `<code class="rvt-log__addr" title="${escapeHtml(addr)}">${escapeHtml(shortSolAddress(addr, 6, 6))}</code> ` +
+          `${eligible ? '<span class="rvt-log__badge rvt-log__badge--ok">queued</span>' : supported ? '<span class="rvt-log__badge rvt-log__badge--fail">&lt;50%</span>' : '<span class="rvt-log__badge rvt-log__badge--fail">unsupported</span>'}` +
+          `</li>`,
+      );
+    }
+    parts.push('</ul></div>');
+  }
+
+  const queued = Array.isArray(meta.queued) ? (meta.queued as Record<string, unknown>[]) : [];
+  if (queued.length > 0) {
+    parts.push('<div class="rvt-log__section"><h5 class="rvt-log__heading">Build queue</h5><ul class="rvt-log__list">');
+    for (const q of queued) {
+      const idx = Number(q.queueIndex ?? 0);
+      const label = String(q.programLabel ?? '');
+      const addr = String(q.marketAddress ?? '');
+      const count = Number(q.tradeCount ?? 0);
+      parts.push(
+        `<li class="rvt-log__item"><span class="rvt-log__badge rvt-log__badge--queue">#${idx}</span> ` +
+          `<strong>${count}</strong> trades · ${escapeHtml(label)} ` +
+          `<code class="rvt-log__addr" title="${escapeHtml(addr)}">${escapeHtml(shortSolAddress(addr, 6, 6))}</code></li>`,
+      );
+    }
+    parts.push('</ul></div>');
+  }
+
+  const buildLog = Array.isArray(meta.buildLog) ? (meta.buildLog as Record<string, unknown>[]) : [];
+  if (buildLog.length > 0) {
+    parts.push('<div class="rvt-log__section"><h5 class="rvt-log__heading">Build attempts</h5><ul class="rvt-log__list">');
+    for (const entry of buildLog) {
+      const ok = entry.success === true;
+      const idx = Number(entry.queueIndex ?? 0);
+      const attempt = String(entry.attempt ?? '');
+      const provider = entry.provider ? String(entry.provider) : '';
+      const err = entry.error ? String(entry.error) : '';
+      const statusClass = ok ? 'ok' : 'fail';
+      const providerBit = provider ? ` · ${escapeHtml(provider)}` : '';
+      const errBit = err ? `<span class="rvt-log__err" title="${escapeHtml(err)}">${escapeHtml(err.length > 80 ? `${err.slice(0, 77)}…` : err)}</span>` : '';
+      parts.push(
+        `<li class="rvt-log__item rvt-log__item--${statusClass}">` +
+          `<span class="rvt-log__badge rvt-log__badge--${statusClass}">${ok ? 'OK' : 'FAIL'}</span> ` +
+          `#${idx} ${escapeHtml(attempt)}${providerBit}${errBit ? ` — ${errBit}` : ''}</li>`,
+      );
+    }
+    parts.push('</ul></div>');
+  }
+
+  const selected = meta.selected as Record<string, unknown> | undefined;
+  if (selected && typeof selected === 'object' && selected.marketAddress) {
+    const addr = String(selected.marketAddress);
+    const programLabel = String(selected.programLabel ?? selected.programAddress ?? '');
+    const programBit = programLabel
+      ? ` <span class="rvt-log__muted">(${escapeHtml(programLabel)})</span>`
+      : '';
+    parts.push(
+      `<p class="rvt-log__line rvt-log__line--selected"><strong>Selected pool:</strong> ` +
+        `<code class="rvt-log__addr" title="${escapeHtml(addr)}">${escapeHtml(shortSolAddress(addr, 8, 8))}</code>${programBit}</p>`,
+    );
+  }
+
+  const recoveryLog = Array.isArray(meta.recoveryLog) ? (meta.recoveryLog as Record<string, unknown>[]) : [];
+  if (recoveryLog.length > 0) {
+    parts.push('<div class="rvt-log__section"><h5 class="rvt-log__heading">Recovery</h5><ul class="rvt-log__list">');
+    for (const step of recoveryLog) {
+      const ok = step.success === true;
+      const name = String(step.step ?? '').replace(/_/g, ' ');
+      const provider = step.provider ? String(step.provider) : '';
+      const err = step.error ? String(step.error) : '';
+      const statusClass = ok ? 'ok' : 'fail';
+      parts.push(
+        `<li class="rvt-log__item rvt-log__item--${statusClass}">` +
+          `<span class="rvt-log__badge rvt-log__badge--${statusClass}">${ok ? 'OK' : 'FAIL'}</span> ` +
+          `${escapeHtml(name)}${provider ? ` · ${escapeHtml(provider)}` : ''}` +
+          `${err ? ` — <span class="rvt-log__err">${escapeHtml(err)}</span>` : ''}</li>`,
+      );
+    }
+    parts.push('</ul></div>');
+  }
+
+  if (meta.lastError && (meta.directRouteFailed === true || outcome === 'jupiter_fallback' || outcome === 'unpinned_vybe')) {
+    const err = String(meta.lastError);
+    parts.push(`<p class="rvt-log__line rvt-log__line--warn"><strong>Last queue error:</strong> ${escapeHtml(err)}</p>`);
+  }
+
+  const timings = meta.timingsMs as Record<string, number> | undefined;
+  if (timings && typeof timings === 'object') {
+    const bits: string[] = [];
+    if (timings.fetchTrades != null) bits.push(`trades fetch ${timings.fetchTrades}ms`);
+    if (timings.parallelProbe != null) bits.push(`build probe ${timings.parallelProbe}ms`);
+    if (timings.sequentialBuild != null) bits.push(`sequential ${timings.sequentialBuild}ms`);
+    if (timings.total != null) bits.push(`route total ${timings.total}ms`);
+    if (bits.length > 0) {
+      parts.push(`<p class="rvt-log__line rvt-log__line--muted"><strong>Timing:</strong> ${escapeHtml(bits.join(' · '))}</p>`);
+    }
+  }
+
+  parts.push('</div>');
+  return parts.join('');
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}

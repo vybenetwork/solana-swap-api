@@ -21,6 +21,9 @@ import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.j
 import { simulateSwapEffects, type TokenAccRentEntry, type EmbeddedPoolFeeEntry, type WalletFeeTransferEntry, type TokenFeeCreditEntry } from './api/simulate-swap-output.js';
 import { enrichRoutePlanFees, estimateWalletPayDebitRaw } from './api/enrich-route-fees.js';
 import type { VybeRoutePlanStep } from './types/swap.js';
+import { createHttpClient } from './api/client.js';
+import { getTrades, type GetTradesParams, type TradesSortField } from './api/trades.js';
+import { fetchRankedTopMarketsFromTrades } from './api/route-via-trades.js';
 
 loadEnv();
 const apiKey = getApiKey();
@@ -276,9 +279,11 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
   gasless?: boolean;
   partner?: string;
   poolAddress?: string;
+  programAddress?: string;
   protocol?: SwapProxyProtocol;
   simulate?: boolean;
   swapFee?: number;
+  routeViaTrades?: boolean;
 } | { error: string } {
   const accountAddress = typeof body.accountAddress === 'string' ? body.accountAddress.trim() : '';
   const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount);
@@ -309,14 +314,86 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
     gasless: typeof body.gasless === 'boolean' ? body.gasless : undefined,
     partner: typeof body.partner === 'string' ? body.partner : undefined,
     poolAddress: typeof body.poolAddress === 'string' ? body.poolAddress : undefined,
+    programAddress: typeof body.programAddress === 'string' ? body.programAddress.trim() : undefined,
     protocol,
     simulate: typeof body.simulate === 'boolean' ? body.simulate : undefined,
     swapFee:
       body.swapFee != null && Number.isFinite(Number(body.swapFee))
         ? Number(body.swapFee)
         : DEFAULT_SWAP_SERVICE_FEE_PCT,
+    routeViaTrades: typeof body.routeViaTrades === 'boolean' ? body.routeViaTrades : undefined,
   };
 }
+
+/** GET /api/trades — proxy Vybe GET /v4/trades (same params as historical-trade-data repo). */
+app.get('/api/trades', async (req: Request, res: Response) => {
+  try {
+    const sortByAsc = q(req, 'sortByAsc').trim() as TradesSortField | '';
+    const sortByDesc = q(req, 'sortByDesc').trim() as TradesSortField | '';
+    if (sortByAsc && sortByDesc) {
+      return res.status(400).json({ error: 'Only one of sortByAsc or sortByDesc can be set.' });
+    }
+
+    const limitRaw = qNum(req, 'limit');
+    const limit = limitRaw != null ? Math.min(Math.max(0, limitRaw), 1000) : 250;
+    const pageRaw = qNum(req, 'page');
+    const page = pageRaw != null ? Math.max(0, Math.trunc(pageRaw)) : undefined;
+    const marketAddress = q(req, 'marketAddress').trim();
+
+    const params: GetTradesParams = {
+      programAddress: q(req, 'programAddress').trim() || undefined,
+      baseMintAddress: q(req, 'baseMintAddress').trim() || undefined,
+      quoteMintAddress: q(req, 'quoteMintAddress').trim() || undefined,
+      mintAddress: q(req, 'mintAddress').trim() || undefined,
+      marketAddress: marketAddress || undefined,
+      authorityAddress: q(req, 'authorityAddress').trim() || undefined,
+      feePayerAddress: q(req, 'feePayerAddress').trim() || undefined,
+      resolution: q(req, 'resolution').trim() || undefined,
+      timeStart: qNum(req, 'timeStart'),
+      timeEnd: qNum(req, 'timeEnd'),
+      page,
+      limit,
+      sortByAsc: sortByAsc || undefined,
+      sortByDesc: sortByDesc || undefined,
+    };
+
+    if (params.marketAddress) {
+      delete params.baseMintAddress;
+      delete params.quoteMintAddress;
+    }
+
+    const http = createHttpClient(apiKey);
+    const data = await getTrades(http, params);
+    res.json(data);
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
+    res.status(status).json({ error: toHumanReadableError(err) });
+  }
+});
+
+/** GET /api/route-via-trades/top-markets — rank top trade markets for a mint pair. */
+app.get('/api/route-via-trades/top-markets', async (req: Request, res: Response) => {
+  try {
+    const inputMintAddress = q(req, 'inputMintAddress').trim();
+    const outputMintAddress = q(req, 'outputMintAddress').trim();
+    if (!inputMintAddress || !outputMintAddress) {
+      return res.status(400).json({ error: 'inputMintAddress and outputMintAddress required' });
+    }
+    const limitRaw = qNum(req, 'limit');
+    const topNRaw = qNum(req, 'topN');
+    const http = createHttpClient(apiKey);
+    const result = await fetchRankedTopMarketsFromTrades(http, {
+      inputMintAddress,
+      outputMintAddress,
+      limit: limitRaw ?? undefined,
+      topN: topNRaw ?? undefined,
+    });
+    res.json(result);
+  } catch (err) {
+    const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
+    res.status(status).json({ error: toHumanReadableError(err) });
+  }
+});
 
 /** GET /api/trading/swap-quote — Vybe GET /v4/trading/swap-quote */
 app.get('/api/trading/swap-quote', async (req: Request, res: Response) => {
@@ -374,6 +451,7 @@ app.post('/api/trading/vybe-quote', async (req: Request, res: Response) => {
         : { _buildUnavailable: true }),
       _tokenStats: result.tokenStats,
       _quoteSource: result.quote._quoteSource ?? 'vybe-price-build',
+      ...(result.routeViaTrades ? { _routeViaTrades: result.routeViaTrades } : {}),
     });
   } catch (err) {
     const status =

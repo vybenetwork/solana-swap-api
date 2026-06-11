@@ -38,8 +38,12 @@ export interface BuildSwapParams {
   partner?: string;
   poolAddress?: string;
   protocol?: SwapProxyProtocol;
+  /** DEX program id from trade data (best-effort; not in OpenAPI but forwarded to Vybe). */
+  programAddress?: string;
   simulate?: boolean;
   swapFee?: number;
+  /** When true (Vybe router, no manual pool), rank markets from recent trades and try top pools. */
+  routeViaTrades?: boolean;
 }
 
 export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
@@ -64,6 +68,7 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
   if (body.partner?.trim()) payload.partner = body.partner.trim();
   if (body.poolAddress?.trim()) payload.poolAddress = body.poolAddress.trim();
   if (body.protocol) payload.protocol = body.protocol;
+  if (body.programAddress?.trim()) payload.programAddress = body.programAddress.trim();
   if (body.simulate != null) payload.simulate = body.simulate;
   payload.swapFee = swapFeeParamForRouter(body.swapFee, router);
   return payload;

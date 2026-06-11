@@ -774,6 +774,9 @@ export function enrichRoutePlanFees(
     if (!isLikelySolanaPubkey(si.ammKey)) {
       const inferred = inferredPoolByHop.get(i);
       if (inferred) si.ammKey = inferred;
+    } else {
+      const inferred = inferredPoolByHop.get(i);
+      if (inferred && inferred !== si.ammKey.trim()) si.ammKey = inferred;
     }
     const items: HopFeeItem[] = [];
     const isLast = i === lastIdx;
