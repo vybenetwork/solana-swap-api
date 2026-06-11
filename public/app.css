@@ -5076,6 +5076,7 @@ tr:hover td {
 }
 
 .swap-wallet-field-total-usd.swap-btn-3d {
+  min-width: 80px;
   background: linear-gradient(180deg, #3daf72 0%, #2f9460 45%, #247a4f 100%);
   border-top-color: rgba(255, 255, 255, 0.22);
   color: #ecfdf5;
@@ -5756,8 +5757,8 @@ tr:hover td {
 }
 
 .swap-toggle-row__field--partner {
-  width: 4.95rem;
-  max-width: 4.95rem;
+  width: 5.5rem;
+  max-width: 5.5rem;
 }
 
 .swap-toggle-row__field--protocol {
@@ -5768,6 +5769,21 @@ tr:hover td {
 .swap-toggle-row__field--fee {
   width: 4.675rem;
   max-width: 4.675rem;
+}
+
+.swap-toggle-row__field--fee .swap-toggle-field__suffix-wrap .swap-toggle-field__input {
+  padding-right: 4.85rem;
+}
+
+.swap-toggle-row__field--fee .swap-toggle-field__suffix--service-fee {
+  right: 0.35rem;
+  font-size: 0.65rem;
+  white-space: nowrap;
+}
+
+.swap-build-toggles-row .swap-toggle-row--fee:has(#swapEnableServiceFee:checked) .swap-toggle-row__field--fee {
+  width: 100%;
+  max-width: 100%;
 }
 
 .swap-toggle-row__hint {
@@ -5907,7 +5923,8 @@ tr:hover td {
 
 .swap-build-toggles-row .swap-toggle-row__field--partner,
 .swap-build-toggles-row .swap-toggle-row__field--pool,
-.swap-build-toggles-row .swap-toggle-row__field--protocol {
+.swap-build-toggles-row .swap-toggle-row__field--protocol,
+.swap-build-toggles-row .swap-toggle-row__field--fee {
   grid-column: 1 / -1;
   grid-row: 2;
   width: 100%;
@@ -5930,6 +5947,24 @@ tr:hover td {
 }
 
 .swap-build-toggles-row .swap-toggle-row--pool:has(#swapEnablePoolAddress:checked) .swap-toggle-row__field--pool {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.swap-build-toggles-row .swap-toggle-row--partner:has(#swapEnablePartner:checked) .swap-toggle-row__text {
+  display: none;
+}
+
+.swap-build-toggles-row .swap-toggle-row--partner:has(#swapEnablePartner:checked) .swap-toggle-row__field--partner {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.swap-build-toggles-row .swap-toggle-row--fee:has(#swapEnableServiceFee:checked) .swap-toggle-row__text {
+  display: none;
+}
+
+.swap-build-toggles-row .swap-toggle-row--fee:has(#swapEnableServiceFee:checked) .swap-toggle-row__field--fee {
   grid-column: 1;
   grid-row: 1;
 }

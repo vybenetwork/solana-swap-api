@@ -292,11 +292,17 @@ function renderLoadingSpinner(size: 'sm' | 'md' | 'lg' = 'sm'): string {
   return `<span class="inline-loading-spinner inline-loading-spinner--${size}" aria-hidden="true"></span>`;
 }
 
+function isPartnerConfigValid(): boolean {
+  if (swapEnablePartnerCheckbox?.checked !== true) return true;
+  return Boolean(swapPartnerInput?.value.trim());
+}
+
 function isSwapQuoteInputReady(): boolean {
   if (swapQuoteFetching || swapBuildMode === 'paste-sign') return false;
 
   const wallet = swapWalletAddressInput?.value.trim() ?? '';
   if (!hasValidSwapWallet()) return false;
+  if (!isPartnerConfigValid()) return false;
   if (walletBalancesFetching || walletBalancesReadyFor !== wallet) return false;
 
   const sellMint = swapInputMintInput?.value.trim() ?? '';
@@ -3644,6 +3650,11 @@ async function fetchSwapQuote(): Promise<void> {
     }
   }
 
+  if (!isPartnerConfigValid()) {
+    if (swapQuoteError) showInlineError(swapQuoteError, 'Enter a Partner ID or disable Partner.');
+    return;
+  }
+
   const router = getSwapRouter();
   if (router === 'vybe') {
     const walletErr = validateVybeQuoteWallet();
@@ -4206,8 +4217,8 @@ function syncSwapBuildModeUi(): void {
       swapAdvancedBuildHintEl.textContent = 'Not used in Paste & Sign mode.';
     } else {
       swapAdvancedBuildHintEl.innerHTML = isSignMode
-        ? 'Used only when you click <strong>Build &amp; sign swap</strong>.'
-        : 'Used only when you click <strong>Build swap (no signing)</strong>.';
+        ? 'Applied when you click <strong>Get quote</strong> or <strong>Build &amp; sign swap</strong>.'
+        : 'Applied when you click <strong>Get quote</strong> or <strong>Build swap (no signing)</strong>.';
     }
   }
   syncSwapBuildResultPanel();
@@ -4316,7 +4327,10 @@ wireBuildOptionToggle(swapEnablePartnerCheckbox, swapPartnerFieldEl, swapPartner
 swapEnablePartnerCheckbox?.addEventListener('change', () => {
   syncServiceFeePartnerGate(hasValidSwapWallet());
   invalidateSwapQuoteAfterInputChange();
+  syncSwapQuoteButtonState();
 });
+swapPartnerInput?.addEventListener('input', syncSwapQuoteButtonState);
+swapPartnerInput?.addEventListener('change', syncSwapQuoteButtonState);
 wireBuildOptionToggle(swapEnablePoolAddressCheckbox, swapPoolAddressFieldEl, swapPoolAddressInput);
 wireBuildOptionToggle(swapEnableProtocolCheckbox, swapProtocolFieldEl, swapProtocolSelect);
 swapRouteViaTradesCheckbox?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
