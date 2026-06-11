@@ -11,7 +11,14 @@ import {
 } from './resolve-token-prices.js';
 import type { VybeSwapQuote, VybeSwapBuildResponse, VybeRoutePlanStep } from '../types/swap.js';
 import { assertWalletHasSellAmount } from './wallet-balance.js';
-import { simulateSwapEffects, type TokenAccRentEntry, type EmbeddedPoolFeeEntry, type WalletFeeTransferEntry, type TokenFeeCreditEntry } from './simulate-swap-output.js';
+import {
+  simulateSwapEffects,
+  type TokenAccRentEntry,
+  type EmbeddedPoolFeeEntry,
+  type WalletFeeTransferEntry,
+  type TokenFeeCreditEntry,
+  type InferredHopPoolEntry,
+} from './simulate-swap-output.js';
 import { enrichRoutePlanFees } from './enrich-route-fees.js';
 import { NATIVE_SOL_MINT, toVybeSwapMint } from './sol-mints.js';
 
@@ -88,6 +95,7 @@ function synthesizeQuoteFromBuild(
     router?: string;
     walletPayDebitRaw?: string | null;
     networkFeeLamports?: bigint;
+    inferredPoolAddressesByHop?: InferredHopPoolEntry[];
   },
 ): VybeSwapQuote {
   const inAmount = build.details.quote.inAmount;
@@ -112,7 +120,8 @@ function synthesizeQuoteFromBuild(
       : null;
 
   const providerLabel = build.provider ?? build.details.quote.provider ?? 'Vybe';
-  const poolKey = params.poolAddress?.trim() || 'vybe';
+  const inferredPool = feeOpts?.inferredPoolAddressesByHop?.[0]?.poolAddress?.trim();
+  const poolKey = params.poolAddress?.trim() || inferredPool || 'vybe';
 
   const baseRoutePlan: VybeRoutePlanStep[] = [
     {
@@ -146,6 +155,7 @@ function synthesizeQuoteFromBuild(
       walletAddress: params.accountAddress,
       inputMint,
       networkFeeLamports: feeOpts?.networkFeeLamports ?? 0n,
+      inferredPoolAddressesByHop: feeOpts?.inferredPoolAddressesByHop,
     },
   );
 
@@ -282,12 +292,30 @@ export async function buildVybeQuoteFromPriceAndSwap(
   let walletSolTransfers: WalletFeeTransferEntry[] = [];
   let tokenFeeCredits: TokenFeeCreditEntry[] = [];
   let networkFeeLamports = 0n;
+  let inferredPoolAddressesByHop: InferredHopPoolEntry[] = [];
+  const preSimRoutePlan: VybeRoutePlanStep[] = [
+    {
+      percent: 100,
+      bps: null,
+      swapInfo: {
+        ammKey: params.poolAddress?.trim() || '',
+        label: build.provider ?? build.details.quote.provider ?? 'Vybe',
+        inputMintAddress: vybeInputMint,
+        outputMintAddress: vybeOutputMint,
+        inAmount: build.details.quote.inAmount,
+        outAmount: build.details.quote.outAmount,
+        feeAmount: '0',
+        feeMintAddress: vybeInputMint,
+      },
+    },
+  ];
   if (typeof buildTx === 'string' && buildTx.length > 0) {
     const sim = await simulateSwapEffects(
       buildTx,
       params.accountAddress,
       vybeOutputMint,
       uiInputMint,
+      preSimRoutePlan,
     );
     simulatedOutRaw = sim.outputDeltaRaw;
     walletPayDebitRaw = sim.walletPayDebitRaw;
@@ -297,6 +325,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
     walletSolTransfers = sim.walletSolTransfers;
     tokenFeeCredits = sim.tokenFeeCredits;
     networkFeeLamports = sim.networkFeeLamports;
+    inferredPoolAddressesByHop = sim.inferredPoolAddressesByHop;
   }
 
   const effective = normalizeRouterId(build.provider ?? selected);
@@ -309,7 +338,17 @@ export async function buildVybeQuoteFromPriceAndSwap(
       inputStats,
       outputStats,
       simulatedOutRaw ?? undefined,
-      { pdaRentLamports, tokenAccRentByMint, embeddedPoolFeesByHop, walletSolTransfers, tokenFeeCredits, router: selected, walletPayDebitRaw, networkFeeLamports },
+      {
+        pdaRentLamports,
+        tokenAccRentByMint,
+        embeddedPoolFeesByHop,
+        walletSolTransfers,
+        tokenFeeCredits,
+        router: selected,
+        walletPayDebitRaw,
+        networkFeeLamports,
+        inferredPoolAddressesByHop,
+      },
     ),
     selected,
     effective,

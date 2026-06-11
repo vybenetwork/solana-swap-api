@@ -50,6 +50,11 @@ export interface TokenFeeCreditEntry {
   tokenAccountAddress?: string;
 }
 
+export interface InferredHopPoolEntry {
+  hopIndex: number;
+  poolAddress: string;
+}
+
 export interface SwapSimulationResult {
   outputDeltaRaw: string | null;
   /** Set when RPC simulation returns an error (e.g. insufficient input token for fees). */
@@ -68,10 +73,28 @@ export interface SwapSimulationResult {
   walletPayDebitRaw: string | null;
   /** Network tx fee (base signature fee + compute-budget priority fee), lamports. */
   networkFeeLamports: bigint;
+  /** Pool state addresses inferred from token balance deltas (Vybe has no swap-quote ammKey). */
+  inferredPoolAddressesByHop: InferredHopPoolEntry[];
 }
 
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
 const COMPUTE_BUDGET_PROGRAM_ID = 'ComputeBudget111111111111111111111111111111';
+const SPL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const SPL_TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+
+const EXCLUDED_POOL_OWNER_ADDRESSES = new Set([
+  SYSTEM_PROGRAM_ID,
+  ATA_PROGRAM_ID,
+  SPL_TOKEN_PROGRAM_ID,
+  SPL_TOKEN_2022_PROGRAM_ID,
+  COMPUTE_BUDGET_PROGRAM_ID,
+]);
+
+function isLikelySolanaPubkey(value: string | undefined): boolean {
+  const s = value?.trim() ?? '';
+  if (s.length < 32 || s.length > 44) return false;
+  return /^[1-9A-HJ-NP-Za-km-z]+$/.test(s);
+}
 const BASE_SIGNATURE_FEE_LAMPORTS = 5_000n;
 const DEFAULT_COMPUTE_UNIT_LIMIT = 200_000n;
 
@@ -525,6 +548,92 @@ function detectAtaCreationRentByMint(
   return entries;
 }
 
+function inferPoolOwnerFromTokenDeltas(
+  preTokenBalances: TokenBalanceEntry[],
+  postTokenBalances: TokenBalanceEntry[],
+  walletAddress: string,
+  inputMint: string,
+  outputMint: string,
+): string | null {
+  const ownerInflow = new Map<string, bigint>();
+  const ownerOutflow = new Map<string, bigint>();
+
+  for (const post of postTokenBalances) {
+    const owner = post.owner?.trim();
+    const mint = post.mint?.trim();
+    const idx = post.accountIndex;
+    if (idx == null || !owner || !mint || owner === walletAddress) continue;
+    if (EXCLUDED_POOL_OWNER_ADDRESSES.has(owner)) continue;
+
+    const pre = preTokenBalances.find((b) => b.accountIndex === idx);
+    const postAmt = BigInt(post.uiTokenAmount?.amount ?? '0');
+    const preAmt = BigInt(pre?.uiTokenAmount?.amount ?? '0');
+    const delta = postAmt - preAmt;
+    if (delta === 0n) continue;
+
+    if (mintMatchesPoolFee(mint, inputMint) && delta > 0n) {
+      ownerInflow.set(owner, (ownerInflow.get(owner) ?? 0n) + delta);
+    }
+    if (mintMatchesPoolFee(mint, outputMint) && delta < 0n) {
+      ownerOutflow.set(owner, (ownerOutflow.get(owner) ?? 0n) + (-delta));
+    }
+  }
+
+  let best: string | null = null;
+  let bestScore = 0n;
+  const owners = new Set([...ownerInflow.keys(), ...ownerOutflow.keys()]);
+  for (const owner of owners) {
+    if (!isLikelySolanaPubkey(owner)) continue;
+    const inflow = ownerInflow.get(owner) ?? 0n;
+    const outflow = ownerOutflow.get(owner) ?? 0n;
+    const score =
+      inflow > 0n && outflow > 0n
+        ? inflow + outflow
+        : inflow > 0n || outflow > 0n
+          ? (inflow + outflow) / 2n
+          : 0n;
+    if (score > bestScore) {
+      bestScore = score;
+      best = owner;
+    }
+  }
+
+  return best;
+}
+
+function inferSwapPoolAddressesByHop(
+  routePlan: VybeRoutePlanStep[] | undefined,
+  preTokenBalances: TokenBalanceEntry[] | null | undefined,
+  postTokenBalances: TokenBalanceEntry[] | null | undefined,
+  walletAddress: string,
+  inputMint: string,
+  outputMint: string,
+): InferredHopPoolEntry[] {
+  if (!preTokenBalances?.length || !postTokenBalances?.length) return [];
+
+  const hops: Array<{ inputMintAddress: string; outputMintAddress: string }> =
+    routePlan?.length
+      ? routePlan.map((hop) => ({
+          inputMintAddress: hop.swapInfo?.inputMintAddress?.trim() || inputMint,
+          outputMintAddress: hop.swapInfo?.outputMintAddress?.trim() || outputMint,
+        }))
+      : [{ inputMintAddress: inputMint, outputMintAddress: outputMint }];
+
+  const entries: InferredHopPoolEntry[] = [];
+  for (let i = 0; i < hops.length; i++) {
+    const hop = hops[i]!;
+    const poolAddress = inferPoolOwnerFromTokenDeltas(
+      preTokenBalances,
+      postTokenBalances,
+      walletAddress,
+      hop.inputMintAddress,
+      hop.outputMintAddress,
+    );
+    if (poolAddress) entries.push({ hopIndex: i, poolAddress });
+  }
+  return entries;
+}
+
 function detectTokenFeeCredits(
   preTokenBalances: TokenBalanceEntry[] | null | undefined,
   postTokenBalances: TokenBalanceEntry[] | null | undefined,
@@ -650,6 +759,7 @@ export async function simulateSwapEffects(
     tokenFeeCredits: [],
     walletPayDebitRaw: null,
     networkFeeLamports: 0n,
+    inferredPoolAddressesByHop: [],
   };
   const trimmed = base64Tx.trim();
   if (!trimmed || !ownerAddress.trim() || !outputMint.trim()) {
@@ -732,6 +842,15 @@ export async function simulateSwapEffects(
     accountKeyStrings,
   );
 
+  const inferredPoolAddressesByHop = inferSwapPoolAddressesByHop(
+    routePlan,
+    value.preTokenBalances,
+    value.postTokenBalances,
+    ownerAddress.trim(),
+    inputMint?.trim() ?? '',
+    outputMint.trim(),
+  );
+
   return {
     simulationErr: null,
     outputDeltaRaw: extractWalletOutputDeltaRaw(
@@ -750,6 +869,7 @@ export async function simulateSwapEffects(
     tokenFeeCredits,
     walletPayDebitRaw,
     networkFeeLamports: computeNetworkFeeLamports(prepared, accountKeyStrings),
+    inferredPoolAddressesByHop,
   };
 }
 

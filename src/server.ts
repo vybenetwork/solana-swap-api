@@ -428,6 +428,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
     let walletSolTransfers: WalletFeeTransferEntry[] = [];
     let tokenFeeCredits: TokenFeeCreditEntry[] = [];
     let networkFeeLamports = 0n;
+    let inferredPoolAddressesByHop: { hopIndex: number; poolAddress: string }[] = [];
     if (typeof buildTx === 'string' && buildTx.length > 0) {
       const sim = await simulateSwapEffects(
         buildTx,
@@ -444,6 +445,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
       walletSolTransfers = sim.walletSolTransfers;
       tokenFeeCredits = sim.tokenFeeCredits;
       networkFeeLamports = sim.networkFeeLamports;
+      inferredPoolAddressesByHop = sim.inferredPoolAddressesByHop;
     }
 
     const feeEnrichment = enrichRoutePlanFees(
@@ -462,6 +464,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
         walletAddress: parsed.accountAddress,
         inputMint: parsed.inputMintAddress,
         networkFeeLamports,
+        inferredPoolAddressesByHop,
       },
     );
 

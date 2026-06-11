@@ -3463,7 +3463,6 @@ tr:hover td {
 }
 
 .swap-hop-step-details--placeholder .swap-hop-card__dex,
-.swap-hop-step-details--placeholder .swap-hop-step-details__preview,
 .swap-hop-step-details--placeholder .swap-hop-card__pct {
   color: #52525b;
 }
@@ -3500,18 +3499,7 @@ tr:hover td {
 .swap-hop-step-details__main {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.12rem;
-}
-
-.swap-hop-step-details__preview {
-  font-size: 0.72rem;
-  color: #71717a;
-  font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  min-height: 0;
 }
 
 .swap-hop-step-details:not([open]) > .swap-hop-step-details__body {
@@ -3547,6 +3535,8 @@ tr:hover td {
 }
 
 .swap-hop-panel--amounts {
+  display: flex;
+  flex-direction: column;
   border: none;
   background: transparent;
   padding: 0;
@@ -3979,6 +3969,44 @@ tr:hover td {
   white-space: nowrap;
 }
 
+.swap-hop-venue-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.14rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.swap-hop-venue-market {
+  display: block;
+  font-size: 0.58rem;
+  line-height: 1.3;
+  color: #71717a;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.swap-hop-venue-market .swap-hop-market-row__value {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.28rem;
+  max-width: 100%;
+}
+
+.swap-hop-venue-market .swap-hop-market-row__addr {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: inherit;
+  font-weight: 500;
+  color: #93c5fd;
+  text-align: left;
+  word-break: break-all;
+}
+
+.swap-hop-venue-market .swap-hop-market-row__pair {
+  font-size: inherit;
+}
+
 .swap-hop-via-router {
   display: inline-flex;
   align-items: center;
@@ -4381,6 +4409,50 @@ tr:hover td {
   font-size: 0.82rem;
   font-weight: 600;
   color: #f4f4f5;
+}
+
+.swap-hop-card__trail {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.swap-hop-card__swap-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+
+.swap-hop-card__swap-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.swap-hop-card__swap-icon .routing-token-img {
+  width: 1rem;
+  height: 1rem;
+}
+
+.swap-hop-card__swap-icon-link {
+  text-decoration: none;
+  border-radius: 50%;
+  transition: opacity 0.15s ease, box-shadow 0.15s ease;
+}
+
+.swap-hop-card__swap-icon-link:hover {
+  opacity: 0.88;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.35);
+}
+
+.swap-hop-card__swap-arrow {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #71717a;
+  line-height: 1;
 }
 
 .swap-hop-card__pct {
@@ -6156,8 +6228,7 @@ tr:hover td {
   vertical-align: -0.1em;
 }
 
-.swap-hop-step-details--loading .swap-hop-card__dex .inline-loading-spinner,
-.swap-hop-step-details--loading .swap-hop-step-details__preview .inline-loading-spinner {
+.swap-hop-step-details--loading .swap-hop-card__dex .inline-loading-spinner {
   vertical-align: -0.1em;
 }
 

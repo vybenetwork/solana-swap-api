@@ -4,7 +4,13 @@
  */
 
 import type { VybeRoutePlanStep, VybeSwapBuildResponse } from '../types/swap.js';
-import type { TokenAccRentEntry, EmbeddedPoolFeeEntry, WalletFeeTransferEntry, TokenFeeCreditEntry } from './simulate-swap-output.js';
+import type {
+  TokenAccRentEntry,
+  EmbeddedPoolFeeEntry,
+  WalletFeeTransferEntry,
+  TokenFeeCreditEntry,
+  InferredHopPoolEntry,
+} from './simulate-swap-output.js';
 import { WSOL_MINT, isSolMint } from './sol-mints.js';
 
 function isLikelySolanaPubkey(value: string | undefined): boolean {
@@ -700,6 +706,7 @@ export function enrichRoutePlanFees(
     walletAddress?: string;
     inputMint?: string;
     networkFeeLamports?: bigint;
+    inferredPoolAddressesByHop?: InferredHopPoolEntry[];
   },
 ): RouteFeeEnrichment {
   const quotedOutRaw = build.details.quote.outAmount?.trim() || '0';
@@ -755,10 +762,19 @@ export function enrichRoutePlanFees(
   const usedSolTransfers = new Set<number>();
   const usedTokenCredits = new Set<number>();
   const enrichedPlan: RoutePlanStepWithFees[] = [];
+  const inferredPoolByHop = new Map<number, string>();
+  for (const entry of opts?.inferredPoolAddressesByHop ?? []) {
+    const pool = pickPubkey(entry.poolAddress);
+    if (pool) inferredPoolByHop.set(entry.hopIndex, pool);
+  }
 
   for (let i = 0; i < basePlan.length; i++) {
     const step = basePlan[i]!;
     const si = step.swapInfo;
+    if (!isLikelySolanaPubkey(si.ammKey)) {
+      const inferred = inferredPoolByHop.get(i);
+      if (inferred) si.ammKey = inferred;
+    }
     const items: HopFeeItem[] = [];
     const isLast = i === lastIdx;
     const nextStep = isLast ? undefined : basePlan[i + 1];

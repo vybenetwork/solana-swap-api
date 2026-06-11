@@ -2451,6 +2451,10 @@ function solscanAccountUrl(address: string): string {
   return `https://solscan.io/account/${encodeURIComponent(address.trim())}`;
 }
 
+function solscanTokenUrl(mint: string): string {
+  return `https://solscan.io/token/${encodeURIComponent(displayHopMintAddress(mint).trim())}`;
+}
+
 function renderFeeDestinationAddrLine(addr: string): string {
   const trimmed = addr.trim();
   if (!isLikelySolanaPubkey(trimmed)) return '';
@@ -2462,22 +2466,6 @@ function renderFeeDestinationAddrLine(addr: string): string {
 function displayHopMintAddress(mint: string): string {
   const trimmed = mint.trim();
   return trimmed === NATIVE_SOL_MINT ? WSOL_MINT : trimmed;
-}
-
-function formatMintDetailValue(mint: string, sym?: string): string {
-  const symVal = sym?.trim();
-  const symCls = tokenSymColorClass(mint, symVal || undefined);
-  const displayMint = displayHopMintAddress(mint);
-  const iconHtml = `<span class="swap-hop-detail-row__mint-icon">${renderRoutingTokenIcon(mint, symVal || '')}</span>`;
-  const symPart =
-    symVal && symVal !== '—'
-      ? `<span class="swap-hop-detail-row__mint-sym ${symCls}">${deps.escapeHtml(symVal)}</span>`
-      : '';
-  const addrInner = isLikelySolanaPubkey(displayMint)
-    ? `<a class="swap-hop-detail-row__mint-addr swap-hop-detail-row__mint-addr-link" href="${deps.escapeHtml(solscanAccountUrl(displayMint))}" target="_blank" rel="noopener noreferrer" title="${deps.escapeHtml(displayMint)}">${deps.escapeHtml(displayMint)}</a>`
-    : `<span class="swap-hop-detail-row__mint-addr">${deps.escapeHtml(displayMint)}</span>`;
-  const addrHtml = `<span class="swap-hop-detail-row__mint-addr-wrap"><span class="swap-hop-detail-row__mint-addr-bracket">(</span>${addrInner}<span class="swap-hop-detail-row__mint-addr-bracket">)</span></span>`;
-  return `<span class="swap-hop-detail-row__mint-val">${iconHtml}${symPart}${addrHtml}</span>`;
 }
 
 function hopFlowPartClass(mint: string, sym?: string): string {
@@ -3606,6 +3594,38 @@ function renderHopAmountsArrow(): string {
   return `<span class="swap-hop-amounts-arrow" aria-hidden="true"><span class="swap-hop-amounts-arrow-icon">→</span></span>`;
 }
 
+function renderHopVenueMarketLine(
+  marketAddrHtml: string,
+  marketPairHtml: string,
+  title?: string,
+): string {
+  if (!marketAddrHtml && !marketPairHtml) return '';
+  const titleAttr = title ? ` title="${deps.escapeHtml(title)}"` : '';
+  return `<span class="swap-hop-venue-market"${titleAttr}><span class="swap-hop-market-row__value">${marketAddrHtml}${marketPairHtml}</span></span>`;
+}
+
+function renderHopCardSwapTokenIconLink(mint: string, sym: string): string {
+  const displayMint = displayHopMintAddress(mint);
+  const iconHtml = renderRoutingTokenIcon(mint, sym);
+  if (!isLikelySolanaPubkey(displayMint)) {
+    return `<span class="swap-hop-card__swap-icon">${iconHtml}</span>`;
+  }
+  const symLabel = sym?.trim() || displayMint;
+  const url = deps.escapeHtml(solscanTokenUrl(mint));
+  return `<a class="swap-hop-card__swap-icon swap-hop-card__swap-icon-link" href="${url}" target="_blank" rel="noopener noreferrer" title="${deps.escapeHtml(symLabel)} on Solscan" aria-label="View ${deps.escapeHtml(symLabel)} on Solscan">${iconHtml}</a>`;
+}
+
+function renderHopCardSwapTokenIcons(leg: RouteHopLeg): string {
+  const inMint = leg.inMint?.trim() ?? '';
+  const outMint = leg.outMint?.trim() ?? '';
+  if (!inMint && !outMint) return '';
+  const inIcon = inMint ? renderHopCardSwapTokenIconLink(inMint, leg.inSym) : '';
+  const outIcon = outMint ? renderHopCardSwapTokenIconLink(outMint, leg.outSym) : '';
+  if (!inIcon && !outIcon) return '';
+  const title = `${leg.inSym} → ${leg.outSym}`;
+  return `<span class="swap-hop-card__swap-icons" title="${deps.escapeHtml(title)}" aria-label="${deps.escapeHtml(title)}">${inIcon}<span class="swap-hop-card__swap-arrow" aria-hidden="true">→</span>${outIcon}</span>`;
+}
+
 function renderRoutePlanStepDetail(
   step: VybeRoutePlanStepLite,
   hopLabel: string,
@@ -3622,12 +3642,6 @@ function renderRoutePlanStepDetail(
   const showRouteShare = isFirstHopInRoute || (pct !== '100%' && pct !== '—');
   const pendingHop = placeholder || loading;
   const hasInAmt = leg.inAmt !== '—' && leg.inAmt !== '';
-  const hasOutAmt = leg.outAmt !== '—' && leg.outAmt !== '';
-  const previewInAmt =
-    loading && !hasInAmt ? deps.renderLoadingSpinner('sm') : deps.escapeHtml(leg.inAmt);
-  const previewOutAmt = loading && !hasOutAmt ? deps.renderLoadingSpinner('sm') : deps.escapeHtml(leg.outAmt);
-  const preview = `${previewInAmt} ${deps.escapeHtml(leg.inSym)} → ${previewOutAmt} ${deps.escapeHtml(leg.outSym)}`;
-  const previewShare = showRouteShare ? ` · ${deps.escapeHtml(pct)} route share` : '';
   const hopFees = getHopFeeBreakdown(step);
   const feeSym = hopFees?.mint
     ? mintSymbolSync(hopFees.mint)
@@ -3643,36 +3657,7 @@ function renderRoutePlanStepDetail(
         ? formatHopFeeTableAmount(si.feeAmount, feeAmtMint)
         : null;
 
-  const detailRow = (
-    label: string,
-    valueHtml: string,
-    opts?: { full?: string; mono?: boolean; mint?: boolean },
-  ) => {
-    const valClass = opts?.mint
-      ? ' swap-hop-detail-row__v--mint'
-      : opts?.mono
-        ? ' swap-hop-detail-row__v--mono'
-        : '';
-    return `<div class="swap-hop-detail-row">
-      <span class="swap-hop-detail-row__k">${deps.escapeHtml(label)}</span>
-      <span class="swap-hop-detail-row__v${valClass}"${opts?.full ? ` title="${deps.escapeHtml(opts.full)}"` : ''}>${valueHtml}</span>
-    </div>`;
-  };
-
   const venueHtml = renderHopVenueHtml(dex, quote, { loading, pendingHop });
-  const dexSummaryHtml = venueHtml;
-
-  const mintRow = (label: string, mint: string, sym?: string) => {
-    const displayMint = displayHopMintAddress(mint);
-    if (pendingHop) {
-      if (mint) {
-        return detailRow(label, formatMintDetailValue(mint, sym), { full: displayMint, mint: true });
-      }
-      return detailRow(label, hopDetailPendingCell(loading, '—'));
-    }
-    if (!mint) return detailRow(label, '—');
-    return detailRow(label, formatMintDetailValue(mint, sym), { full: displayMint, mint: true });
-  };
 
   const marketRaw = si?.ammKey?.trim() ?? '';
   const marketTitle = marketRaw ? deps.escapeHtml(marketRaw) : undefined;
@@ -3685,10 +3670,13 @@ function renderRoutePlanStepDetail(
   } else {
     marketAddrHtml = '—';
   }
-  const marketRowHtml = `<div class="swap-hop-detail-row swap-hop-detail-row--market">
-    <span class="swap-hop-detail-row__k">Market</span>
-    <span class="swap-hop-detail-row__v swap-hop-detail-row__v--market"${marketTitle ? ` title="${marketTitle}"` : ''}><span class="swap-hop-market-row__value">${marketAddrHtml}${marketPairHtml}</span></span>
-  </div>`;
+  const marketLineHtml =
+    marketRaw || pendingHop
+      ? renderHopVenueMarketLine(marketAddrHtml, marketPairHtml, marketTitle)
+      : '';
+  const dexSummaryHtml = marketLineHtml
+    ? `<span class="swap-hop-venue-stack">${venueHtml}${marketLineHtml}</span>`
+    : venueHtml;
 
   let inAmtHtml: string;
   if (si?.inAmount) {
@@ -3801,15 +3789,12 @@ function renderRoutePlanStepDetail(
     </div>
   </section>`;
 
-  const detailsHtml = `<div class="swap-hop-detail-rows">
-    ${marketRowHtml}
-    ${mintRow('Input mint', leg.inMint, leg.inSym)}
-    ${mintRow('Output mint', leg.outMint, leg.outSym)}
-  </div>`;
-
+  const swapIconsHtml = renderHopCardSwapTokenIcons(leg);
   const shareBadgeHtml = showRouteShare
-    ? `<span class="swap-hop-card__pct">${deps.escapeHtml(pct)}</span>`
-    : '';
+    ? `<span class="swap-hop-card__trail">${swapIconsHtml}<span class="swap-hop-card__pct">${deps.escapeHtml(pct)}</span></span>`
+    : swapIconsHtml
+      ? `<span class="swap-hop-card__trail">${swapIconsHtml}</span>`
+      : '';
 
   const placeholderClass = placeholder ? ' swap-hop-step-details--placeholder' : '';
   const loadingClass = loading ? ' swap-hop-step-details--loading' : '';
@@ -3818,17 +3803,12 @@ function renderRoutePlanStepDetail(
       <span class="swap-hop-card__index">Hop #${deps.escapeHtml(hopLabel)}</span>
       <span class="swap-hop-step-details__main">
         <span class="swap-hop-card__dex">${dexSummaryHtml}</span>
-        <span class="swap-hop-step-details__preview">${preview}${previewShare}</span>
       </span>
       ${shareBadgeHtml}
     </summary>
     <div class="swap-hop-step-details__body">
       ${amountsSectionHtml}
       ${feesHtml}
-      <section class="swap-hop-panel swap-hop-panel--details">
-        <h5 class="swap-hop-panel__title">Details</h5>
-        ${detailsHtml}
-      </section>
     </div>
   </details>`;
 }
