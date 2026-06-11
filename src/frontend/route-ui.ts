@@ -2360,14 +2360,24 @@ function renderMockAccRentAboveBranch(): string {
   </div>`;
 }
 
-function renderMockRoutingFeeBranch(): string {
-  const labels = [PRIORITY_FEE_LABEL, 'Protocol fee'];
-  const feeCount = labels.length;
-  const slots = labels
-    .map((label) => {
+function renderMockRoutingFeeBranch(outputSym = 'SOL'): string {
+  const walletLabels = [PRIORITY_FEE_LABEL, 'Protocol fee'];
+  const entries: Array<{ label: string; equiv: FeeAmountEquiv }> = [
+    ...walletLabels.map((label) => ({
+      label,
+      equiv: placeholderRoutingFeeEquiv(),
+    })),
+    {
+      label: 'Pool fee',
+      equiv: placeholderRoutingFeeEquiv(`${ROUTING_PLACEHOLDER_DASH} ${outputSym}`),
+    },
+  ];
+  const feeCount = entries.length;
+  const slots = entries
+    .map(({ label, equiv }) => {
       const chip = renderRoutingFeeChip(
         label,
-        placeholderRoutingFeeEquiv(),
+        equiv,
         feeChipVariant(label),
         label,
       );
@@ -2464,7 +2474,7 @@ function renderMockRouteMarketNode(
   const dexHtml = loading ? deps.renderLoadingSpinner('sm') : deps.escapeHtml(si?.label ?? ROUTING_PLACEHOLDER_DASH);
   const sym = deps.escapeHtml(leg.outSym);
   const accRentAbove = renderMockAccRentAboveBranch();
-  const feeBranchBelow = renderMockRoutingFeeBranch();
+  const feeBranchBelow = renderMockRoutingFeeBranch(leg.outSym);
   const railNode = `<div class="routing-market-node">
     ${renderHopIndexBadge(meta.label)}
       <div class="routing-pill routing-pill--hop">
@@ -3744,6 +3754,7 @@ function renderRoutePlanStepDetail(
   quote: Record<string, unknown> = {},
   planIndex = 0,
   isLastHop = true,
+  collapsible = true,
 ): string {
   const si = step.swapInfo;
   const dex = si?.label ?? 'Unknown DEX';
@@ -3904,8 +3915,10 @@ function renderRoutePlanStepDetail(
 
   const placeholderClass = placeholder ? ' swap-hop-step-details--placeholder' : '';
   const loadingClass = loading ? ' swap-hop-step-details--loading' : '';
-  return `<details class="swap-hop-step-card swap-hop-step-details${placeholderClass}${loadingClass}"${expanded ? ' open' : ''}>
-    <summary class="swap-hop-step-details__summary">
+  const lockedClass = !collapsible ? ' swap-hop-step-details--locked' : '';
+  const isOpen = !collapsible || expanded;
+  return `<details class="swap-hop-step-card swap-hop-step-details${placeholderClass}${loadingClass}${lockedClass}"${isOpen ? ' open' : ''}${!collapsible ? ' data-hop-locked="true"' : ''}>
+    <summary class="swap-hop-step-details__summary"${!collapsible ? ' aria-disabled="true"' : ''}>
       <span class="swap-hop-card__index">Hop #${deps.escapeHtml(hopLabel)}</span>
       <span class="swap-hop-step-details__main">
         <span class="swap-hop-card__dex">${dexSummaryHtml}</span>
@@ -3938,7 +3951,7 @@ export function renderQuoteRoutePlanStepsPlaceholder(loading = false): string {
     percent: 100,
     swapInfo: { label: '—' },
   };
-  return renderRoutePlanStepDetail(mockStep, '1', mockLeg, true, true, loading, {}, 0, true);
+  return renderRoutePlanStepDetail(mockStep, '1', mockLeg, true, true, loading, {}, 0, true, false);
 }
 
 export function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): string {
@@ -3948,6 +3961,8 @@ export function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): strin
   const tree = buildRouteTree(plan);
   const metas: RouteHopMeta[] = [];
   collectRouteHopMetas(tree, metas);
+  const hopCount = metas.length > 0 ? metas.length : plan.length;
+  const singleHop = hopCount === 1;
   if (metas.length === 0) {
     return plan
       .map((s, i) =>
@@ -3961,6 +3976,7 @@ export function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): strin
           quote,
           i,
           i === plan.length - 1,
+          !singleHop,
         ),
       )
       .join('');
@@ -3977,6 +3993,7 @@ export function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): strin
         quote,
         meta.planIndex,
         i === metas.length - 1,
+        !singleHop,
       ),
     )
     .join('');

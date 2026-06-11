@@ -219,12 +219,21 @@
                 </span>
                 <div class="swap-wallet-field-control">
                   <input type="text" id="swapWalletAddress" placeholder="Signer / account address" autocomplete="off" />
-                  <div class="swap-wallet-field-sign-row" id="swapWalletSignRow" hidden>
-                    <button type="button" id="swapConnectWalletBtn" class="swap-wallet-field-connect">
-                      <span class="swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet" id="swapConnectWalletBtnIcon" aria-hidden="true"></span>
-                      <span class="swap-wallet-field-connect__text" id="swapConnectWalletBtnText">Connect wallet</span>
-                    </button>
-                    <button type="button" id="swapDisconnectWalletBtn" class="swap-wallet-field-disconnect" hidden>Disconnect</button>
+                  <div class="swap-wallet-field-sign" id="swapWalletSignRow" hidden>
+                    <div class="swap-wallet-field-tray" id="swapWalletTray">
+                      <button type="button" id="swapConnectWalletBtn" class="swap-wallet-field-connect swap-btn-3d">
+                        <span class="swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet" id="swapConnectWalletBtnIcon" aria-hidden="true"></span>
+                        <span class="swap-wallet-field-connect__text" id="swapConnectWalletBtnText">Connect wallet</span>
+                      </button>
+                      <button type="button" class="swap-wallet-field-total-usd swap-btn-3d" id="swapWalletTotalUsd" hidden aria-label="Wallet balance — open sell token picker">
+                        <span class="swap-wallet-field-total-usd__val" id="swapWalletTotalUsdVal">—</span>
+                        <span class="swap-wallet-field-total-usd__popup-icon" aria-hidden="true"></span>
+                      </button>
+                      <button type="button" id="swapDisconnectWalletBtn" class="swap-wallet-field-disconnect swap-btn-3d" hidden>
+                        <span class="swap-wallet-field-disconnect__icon" aria-hidden="true"></span>
+                        <span class="swap-wallet-field-disconnect__text">Disconnect</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
               </label>

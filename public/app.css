@@ -2145,6 +2145,12 @@ tr:hover td {
   background: #0c0c10;
 }
 
+.swap-quote-details-collapsible[open] > .swap-quote-details-collapsible__summary {
+  pointer-events: none;
+  cursor: default;
+  color: #a1a1aa;
+}
+
 .swap-quote-details-collapsible__summary {
   list-style: none;
   cursor: pointer;
@@ -3441,9 +3447,33 @@ tr:hover td {
   border-color: #3f3f46;
 }
 
+.swap-hop-step-details--locked > .swap-hop-step-details__summary {
+  cursor: default;
+  pointer-events: none;
+}
+
+.swap-hop-step-details--locked > .swap-hop-step-details__summary a {
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.swap-hop-step-details--locked > .swap-hop-step-details__summary::before {
+  display: none;
+}
+
 .swap-hop-step-details--placeholder .swap-hop-card__dex,
 .swap-hop-step-details--placeholder .swap-hop-card__pct {
   color: #52525b;
+}
+
+.swap-hop-step-details:not(.swap-hop-step-details--locked)[open] > .swap-hop-step-details__summary {
+  pointer-events: none;
+  cursor: default;
+}
+
+.swap-hop-step-details:not(.swap-hop-step-details--locked)[open] > .swap-hop-step-details__summary a {
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .swap-hop-step-details__summary {
@@ -4764,57 +4794,114 @@ tr:hover td {
   min-width: 0;
 }
 
-.swap-wallet-field-sign-row {
-  display: flex;
-  align-items: stretch;
-  gap: 0.45rem;
+.swap-wallet-field-sign {
   width: 100%;
+  min-width: 0;
 }
 
-.swap-wallet-field-sign-row[hidden] {
+.swap-wallet-field-sign[hidden] {
   display: none !important;
 }
 
-.swap-wallet-field-connect {
-  flex: 1;
+/* Raised 3D purple wallet buttons — no outer tray */
+.swap-wallet-field-tray {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr) auto;
+  gap: 0.45rem;
+  align-items: stretch;
+  width: 100%;
   min-width: 0;
+}
+
+.swap-wallet-field-tray:not(.swap-wallet-field-tray--connected) .swap-wallet-field-connect {
+  grid-column: 1 / -1;
+}
+
+.swap-wallet-field-tray--connected {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.swap-wallet-field-tray .swap-btn-3d {
+  max-height: 30.8px;
+  height: 30.8px;
+  min-height: 0;
+  padding-block: 0;
+  padding-inline: 0.65rem;
+}
+
+.swap-wallet-field-tray--connected .swap-wallet-field-connect {
+  width: 100%;
+  min-width: 0;
+}
+
+.swap-btn-3d {
   box-sizing: border-box;
   display: inline-flex;
   align-items: center;
-  gap: 0.45rem;
-  padding: 0.4rem 0.55rem;
-  font-size: 0.85rem;
+  justify-content: center;
+  gap: 0.4rem;
+  min-width: 0;
+  padding: 0.62rem 0.8rem;
+  font-size: 0.94rem;
   font-weight: 600;
   font-family: inherit;
-  text-align: left;
-  border: 1px solid rgba(193, 241, 29, 0.55);
-  border-radius: 8px;
-  background: rgba(193, 241, 29, 0.1);
-  color: #d9f99d;
+  letter-spacing: 0.01em;
+  text-align: center;
+  border: none;
+  border-radius: 7px;
+  color: #f3e8ff;
   cursor: pointer;
-  box-shadow:
-    0 0 12px rgba(193, 241, 29, 0.22),
-    0 0 24px rgba(193, 241, 29, 0.1),
-    inset 0 0 12px rgba(193, 241, 29, 0.06);
-  animation: swap-wallet-connect-glow 2.4s ease-in-out infinite;
-  transition: background 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+  background: linear-gradient(180deg, #6b3fa8 0%, #5b2f96 38%, #4a2578 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  -webkit-text-stroke: 0.35px rgba(0, 0, 0, 0.75);
+  paint-order: stroke fill;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.65);
+  transition: transform 0.1s ease, filter 0.1s ease;
 }
 
-.swap-wallet-field-connect__icon {
-  width: 1rem;
-  height: 1rem;
+.swap-btn-3d:hover:not(:disabled):not(.swap-btn-3d--static) {
+  filter: brightness(1.08);
+}
+
+.swap-btn-3d:active:not(:disabled):not(.swap-btn-3d--static) {
+  transform: translateY(1px);
+  filter: brightness(0.96);
+}
+
+.swap-btn-3d--static,
+.swap-btn-3d:disabled {
+  cursor: default;
+}
+
+.swap-wallet-field-connect {
+  min-width: 0;
+}
+
+.swap-wallet-field-connect .swap-wallet-field-connect__icon {
+  width: 0.8rem;
+  height: 0.8rem;
   flex-shrink: 0;
 }
 
+.swap-wallet-field-connect--connected.swap-btn-3d,
+.swap-wallet-field-total-usd.swap-btn-3d {
+  font-size: 0.858rem;
+}
+
+.swap-wallet-field-connect--connected .swap-wallet-field-connect__icon {
+  width: 0.75rem;
+  height: 0.75rem;
+}
+
 .swap-wallet-field-connect__icon--wallet {
-  background: currentColor;
+  background: #fff;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M21 7H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2Zm0 2v2H5V9h16Zm-3 6a1.5 1.5 0 1 1 1.5-1.5A1.5 1.5 0 0 1 18 15Z'/%3E%3C/svg%3E") center / contain no-repeat;
           mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M21 7H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2Zm0 2v2H5V9h16Zm-3 6a1.5 1.5 0 1 1 1.5-1.5A1.5 1.5 0 0 1 18 15Z'/%3E%3C/svg%3E") center / contain no-repeat;
 }
 
 .swap-wallet-field-connect__icon--spinner {
-  border: 2px solid rgba(193, 241, 29, 0.25);
-  border-top-color: #c4f20b;
+  border: 2px solid rgba(255, 255, 255, 0.28);
+  border-top-color: #fff;
   border-radius: 50%;
   background: none;
   -webkit-mask: none;
@@ -4836,24 +4923,6 @@ tr:hover td {
   }
 }
 
-@keyframes swap-wallet-connect-glow {
-  0%,
-  100% {
-    box-shadow:
-      0 0 10px rgba(193, 241, 29, 0.2),
-      0 0 20px rgba(193, 241, 29, 0.08),
-      inset 0 0 10px rgba(193, 241, 29, 0.05);
-    border-color: rgba(193, 241, 29, 0.5);
-  }
-  50% {
-    box-shadow:
-      0 0 16px rgba(193, 241, 29, 0.38),
-      0 0 32px rgba(193, 241, 29, 0.16),
-      inset 0 0 14px rgba(193, 241, 29, 0.1);
-    border-color: rgba(193, 241, 29, 0.75);
-  }
-}
-
 .swap-wallet-field-connect:not([hidden]) {
   display: inline-flex;
 }
@@ -4864,67 +4933,114 @@ tr:hover td {
 
 .swap-wallet-field-connect--loading {
   cursor: wait;
-  animation: none;
-  box-shadow: none;
-  border-color: #3f3f46;
-  background: #18181b;
-  color: #a1a1aa;
 }
 
-.swap-wallet-field-connect--connected {
-  cursor: default;
-  animation: none;
-  box-shadow: none;
-  border-color: #3f3f46;
-  background: #18181b;
-  color: #e4e4e7;
+.swap-wallet-field-connect--loading.swap-btn-3d {
+  background: linear-gradient(180deg, #4a4a58 0%, #32323e 100%);
+  color: #d4d4d8;
+  border-top-color: rgba(255, 255, 255, 0.12);
+}
+
+.swap-wallet-field-connect--connected.swap-btn-3d {
+  background: linear-gradient(180deg, #7040a8 0%, #5a3290 45%, #482678 100%);
+  border-top-color: rgba(255, 255, 255, 0.16);
+  color: #f5f0ff;
 }
 
 .swap-wallet-field-connect--connected:disabled {
   opacity: 1;
 }
 
-.swap-wallet-field-disconnect {
-  flex-shrink: 0;
-  padding: 0.4rem 0.65rem;
-  font-size: 0.78rem;
-  font-weight: 600;
-  font-family: inherit;
-  border: 1px solid #3f3f46;
-  border-radius: 8px;
-  background: #18181b;
-  color: #a1a1aa;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.swap-wallet-field-disconnect:hover {
-  background: #27272a;
-  border-color: #52525b;
-  color: #e4e4e7;
-}
-
-.swap-wallet-field-disconnect:focus-visible {
-  outline: 2px solid rgba(193, 241, 29, 0.55);
-  outline-offset: 2px;
-}
-
+.swap-wallet-field-total-usd[hidden],
 .swap-wallet-field-disconnect[hidden] {
   display: none !important;
 }
 
-.swap-wallet-field-connect:hover {
-  background: rgba(193, 241, 29, 0.16);
-  animation: none;
-  box-shadow:
-    0 0 18px rgba(193, 241, 29, 0.45),
-    0 0 36px rgba(193, 241, 29, 0.2),
-    inset 0 0 14px rgba(193, 241, 29, 0.12);
-  border-color: rgba(193, 241, 29, 0.85);
+.swap-wallet-field-total-usd {
+  flex-direction: row;
+  align-items: center;
+  gap: 0.35rem;
+  cursor: pointer;
+  width: fit-content;
+  max-width: fit-content;
+  justify-self: start;
 }
 
-.swap-wallet-field-connect:focus-visible {
-  outline: 2px solid rgba(193, 241, 29, 0.55);
+.swap-wallet-field-total-usd.swap-btn-3d {
+  background: linear-gradient(180deg, #3daf72 0%, #2f9460 45%, #247a4f 100%);
+  border-top-color: rgba(255, 255, 255, 0.22);
+  color: #ecfdf5;
+  -webkit-text-stroke: 0.25px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+  padding-inline: 0.65rem 0.55rem;
+}
+
+.swap-wallet-field-total-usd.swap-btn-3d:hover {
+  filter: brightness(1.1);
+}
+
+.swap-wallet-field-total-usd__popup-icon {
+  width: 0.5rem;
+  height: 0.5rem;
+  flex-shrink: 0;
+  border-right: 1.5px solid rgba(236, 253, 245, 0.92);
+  border-bottom: 1.5px solid rgba(236, 253, 245, 0.92);
+  transform: rotate(45deg) translateY(-1px);
+  opacity: 0.92;
+}
+
+.swap-wallet-field-total-usd__val {
+  -webkit-text-stroke: inherit;
+  paint-order: inherit;
+  text-shadow: inherit;
+}
+
+.swap-wallet-field-total-usd__val {
+  font-size: inherit;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #ecfdf5;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.swap-wallet-field-disconnect {
+  flex-shrink: 0;
+  padding-inline: 0.75rem;
+  white-space: nowrap;
+  gap: 0.35rem;
+}
+
+.swap-wallet-field-disconnect__icon {
+  width: 0.75rem;
+  height: 0.75rem;
+  flex-shrink: 0;
+  background: #fff5f5;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M10.09 15.59 11.5 17 16.5 12 11.5 7 10.09 8.41 12.67 11H3v2h9.67l-2.58 2.59zM19 3H11v2h8v14h-8v2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M10.09 15.59 11.5 17 16.5 12 11.5 7 10.09 8.41 12.67 11H3v2h9.67l-2.58 2.59zM19 3H11v2h8v14h-8v2h8a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.swap-wallet-field-disconnect__text {
+  line-height: 1;
+}
+
+.swap-wallet-field-disconnect.swap-btn-3d {
+  background: linear-gradient(180deg, #c04f4f 0%, #a53a3a 45%, #8a2c2c 100%);
+  border-top-color: rgba(255, 255, 255, 0.2);
+  color: #fff5f5;
+  font-size: 0.858rem;
+  -webkit-text-stroke: 0.25px rgba(0, 0, 0, 0.45);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.45);
+}
+
+.swap-wallet-field-disconnect.swap-btn-3d:hover {
+  filter: brightness(1.1);
+}
+
+.swap-wallet-field-connect:focus-visible,
+.swap-wallet-field-disconnect:focus-visible,
+.swap-wallet-field-total-usd:focus-visible {
+  outline: 2px solid rgba(168, 85, 247, 0.65);
   outline-offset: 2px;
 }
 

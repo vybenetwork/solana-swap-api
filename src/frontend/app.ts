@@ -17,6 +17,8 @@ import {
   getTokenDecimalsFromCache,
   getWalletSellableAmountUi,
   getWalletBalanceAmountUi,
+  getWalletTotalBalanceUsd,
+  formatWalletTotalUsd,
   isSplValueTradable,
   isWalletTokenTradable,
   noteSplMaxSellFraction,
@@ -193,6 +195,9 @@ const swapConnectWalletBtn = document.getElementById('swapConnectWalletBtn') as 
 const swapConnectWalletBtnIconEl = document.getElementById('swapConnectWalletBtnIcon') as HTMLElement | null;
 const swapConnectWalletBtnTextEl = document.getElementById('swapConnectWalletBtnText') as HTMLElement | null;
 const swapDisconnectWalletBtn = document.getElementById('swapDisconnectWalletBtn') as HTMLButtonElement | null;
+const swapWalletTrayEl = document.getElementById('swapWalletTray') as HTMLElement | null;
+const swapWalletTotalUsdEl = document.getElementById('swapWalletTotalUsd') as HTMLButtonElement | null;
+const swapWalletTotalUsdValEl = document.getElementById('swapWalletTotalUsdVal') as HTMLElement | null;
 const swapWalletSignRowEl = document.getElementById('swapWalletSignRow') as HTMLElement | null;
 const swapBuildResultTitleEl = document.getElementById('swapBuildResultTitle') as HTMLElement | null;
 const swapBuildResultMetaEl = document.getElementById('swapBuildResultMeta') as HTMLElement | null;
@@ -262,7 +267,6 @@ const swapQuoteDetailsRoutingEl = document.getElementById('swapQuoteDetailsRouti
 const swapQuoteRouteSubtitleEl = document.getElementById('swapQuoteRouteSubtitle') as HTMLElement | null;
 const swapQuoteDetailsFieldsEl = document.getElementById('swapQuoteDetailsFields') as HTMLElement | null;
 const swapQuoteDetailsRouteStepsEl = document.getElementById('swapQuoteDetailsRouteSteps') as HTMLElement | null;
-const swapQuoteRoutePlanDetailsEl = document.getElementById('swapQuoteRoutePlanDetails') as HTMLDetailsElement | null;
 const swapQuoteSummaryEl = document.getElementById('swapQuoteSummary') as HTMLElement | null;
 const swapRawQuoteResponseEl = document.getElementById('swapRawQuoteResponse') as HTMLElement | null;
 const swapRawSwapResponseEl = document.getElementById('swapRawSwapResponse') as HTMLElement | null;
@@ -1231,6 +1235,7 @@ async function refreshWalletBalancesForSwap(wallet: string, applyDefaults: boole
   const gen = ++walletBalanceFetchGen;
   walletBalancesFetching = true;
   syncSwapQuoteButtonState();
+  updateWalletTotalUsdUi();
   const force = wallet !== lastWalletBalanceFetchAddress;
   try {
     const items = await prefetchWalletBalances(wallet, force);
@@ -1263,6 +1268,7 @@ async function refreshWalletBalancesForSwap(wallet: string, applyDefaults: boole
     if (gen === walletBalanceFetchGen) {
       walletBalancesFetching = false;
       syncSwapQuoteButtonState();
+      updateWalletTotalUsdUi();
     }
   }
 }
@@ -1290,6 +1296,7 @@ function onWalletAddressReady(immediate = false): void {
     lastAutoAppliedWalletAddress = '';
     if (swapAmountInput) swapAmountInput.removeAttribute('max');
     syncSwapQuoteButtonState();
+    updateWalletTotalUsdUi();
     return;
   }
 
@@ -2572,20 +2579,76 @@ function bindRoutePlanStepsAccordion(): void {
   if (!swapQuoteDetailsRouteStepsEl) return;
   if (swapQuoteDetailsRouteStepsEl.dataset.accordionBound === 'true') return;
   swapQuoteDetailsRouteStepsEl.dataset.accordionBound = 'true';
-  swapQuoteDetailsRouteStepsEl.addEventListener('toggle', (e) => {
+  swapQuoteDetailsRouteStepsEl.addEventListener('click', (e) => {
     const target = e.target;
-    if (!(target instanceof HTMLDetailsElement) || !target.classList.contains('swap-hop-step-details')) return;
-    if (!target.open) return;
-    swapQuoteDetailsRouteStepsEl
-      ?.querySelectorAll<HTMLDetailsElement>('.swap-hop-step-details')
-      .forEach((el) => {
-        if (el !== target) el.open = false;
-      });
+    if (!(target instanceof Element)) return;
+    if (target.closest('a')) return;
+    const details = target.closest<HTMLDetailsElement>('.swap-hop-step-details');
+    if (!details || !swapQuoteDetailsRouteStepsEl.contains(details)) return;
+    if (details.dataset.hopLocked === 'true') return;
+    if (!target.closest('.swap-hop-step-details__summary')) return;
+
+    const hops = [
+      ...swapQuoteDetailsRouteStepsEl.querySelectorAll<HTMLDetailsElement>('.swap-hop-step-details'),
+    ].filter((el) => el.dataset.hopLocked !== 'true');
+    if (hops.length <= 1) return;
+
+    e.preventDefault();
+    if (details.open) return;
+    for (const hop of hops) {
+      hop.open = hop === details;
+    }
   });
 }
 
-function ensureRoutePlanStepsExpanded(): void {
-  if (swapQuoteRoutePlanDetailsEl) swapQuoteRoutePlanDetailsEl.open = true;
+function bindQuoteDetailsPanelAccordion(): void {
+  if (!swapQuoteDetailsBodyEl) return;
+  if (swapQuoteDetailsBodyEl.dataset.panelAccordionBound === 'true') return;
+  swapQuoteDetailsBodyEl.dataset.panelAccordionBound = 'true';
+  swapQuoteDetailsBodyEl.addEventListener('click', (e) => {
+    const target = e.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('a')) return;
+    const panel = target.closest<HTMLDetailsElement>('.swap-quote-details-collapsible');
+    if (!panel || !swapQuoteDetailsBodyEl.contains(panel)) return;
+    if (!target.closest('.swap-quote-details-collapsible__summary')) return;
+
+    const panels = [
+      ...swapQuoteDetailsBodyEl.querySelectorAll<HTMLDetailsElement>('.swap-quote-details-collapsible'),
+    ];
+    if (panels.length <= 1) return;
+
+    e.preventDefault();
+    if (panel.open) return;
+    for (const p of panels) {
+      p.open = p === panel;
+    }
+  });
+}
+
+function ensureDefaultQuoteDetailsPanelOpen(): void {
+  if (!swapQuoteDetailsBodyEl) return;
+  const panels = [
+    ...swapQuoteDetailsBodyEl.querySelectorAll<HTMLDetailsElement>('.swap-quote-details-collapsible'),
+  ];
+  panels.forEach((panel, i) => {
+    panel.open = i === 0;
+  });
+}
+
+function openRoutePlanPanelIfClosed(): void {
+  if (!swapQuoteDetailsBodyEl) return;
+  const routePlanPanel = document.getElementById(
+    'swapQuoteRoutePlanDetails',
+  ) as HTMLDetailsElement | null;
+  if (!routePlanPanel || routePlanPanel.open) return;
+
+  const panels = [
+    ...swapQuoteDetailsBodyEl.querySelectorAll<HTMLDetailsElement>('.swap-quote-details-collapsible'),
+  ];
+  for (const panel of panels) {
+    panel.open = panel === routePlanPanel;
+  }
 }
 
 function ensureFirstHopExpanded(): void {
@@ -2593,13 +2656,17 @@ function ensureFirstHopExpanded(): void {
     swapQuoteDetailsRouteStepsEl?.querySelectorAll<HTMLDetailsElement>('.swap-hop-step-details');
   if (!hops?.length) return;
   hops.forEach((el, i) => {
+    if (el.dataset.hopLocked === 'true') {
+      el.open = true;
+      return;
+    }
     el.open = i === 0;
   });
 }
 
 function syncRoutePlanStepsUi(): void {
   bindRoutePlanStepsAccordion();
-  ensureRoutePlanStepsExpanded();
+  bindQuoteDetailsPanelAccordion();
   ensureFirstHopExpanded();
 }
 
@@ -2621,6 +2688,7 @@ function resetSwapQuoteDetailsPanel(): void {
   if (swapQuoteDetailsRouteStepsEl) {
     swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(swapQuoteFetching);
   }
+  ensureDefaultQuoteDetailsPanelOpen();
   syncRoutePlanStepsUi();
   if (swapQuoteDetailsFieldsEl) {
     swapQuoteDetailsFieldsEl.innerHTML = swapQuoteFetching
@@ -2953,6 +3021,7 @@ function applyVybeQuoteBodyToUi(
   cacheVybeQuoteBuild(body, wallet, inputMint, outputMint, effectiveAmount, buildOpts);
   renderRawResponsePanels();
   renderSwapQuoteUI(quote);
+  openRoutePlanPanelIfClosed();
   void enrichRouteLabels(quote);
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
@@ -3241,6 +3310,7 @@ function applyAggregatorBuildToUi(
 
   renderRawResponsePanels();
   renderSwapQuoteUI(quote);
+  openRoutePlanPanelIfClosed();
   void enrichRouteLabels(quote);
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
@@ -3935,37 +4005,63 @@ async function signSwapTransactionBase64(txString: string, sendAfterSign = false
   return bytesToBase64(signed.serialize());
 }
 
+function updateWalletTotalUsdUi(): void {
+  const wrap = swapWalletTotalUsdEl;
+  const valEl = swapWalletTotalUsdValEl;
+  if (!wrap || !valEl) return;
+
+  const address = swapWalletAddressInput?.value.trim() ?? '';
+  const needsWalletConnect = swapBuildMode === 'build-sign' || swapBuildMode === 'paste-sign';
+  if (!needsWalletConnect) return;
+
+  if (!address) {
+    valEl.textContent = '—';
+    return;
+  }
+
+  if (walletBalancesFetching) {
+    valEl.textContent = '…';
+    return;
+  }
+  valEl.textContent = formatWalletTotalUsd(getWalletTotalBalanceUsd());
+}
+
 function updateConnectWalletButtonUi(address: string, hasWallet: boolean): void {
   const btn = swapConnectWalletBtn;
+  const tray = swapWalletTrayEl;
+  const totalEl = swapWalletTotalUsdEl;
   const disconnectBtn = swapDisconnectWalletBtn;
   const iconEl = swapConnectWalletBtnIconEl;
   const textEl = swapConnectWalletBtnTextEl;
   if (!btn || !textEl) return;
 
-  btn.classList.remove('swap-wallet-field-connect--connected', 'swap-wallet-field-connect--loading');
+  btn.classList.remove('swap-wallet-field-connect--connected', 'swap-wallet-field-connect--loading', 'swap-btn-3d--static');
+  if (tray) tray.classList.toggle('swap-wallet-field-tray--connected', hasWallet && !walletConnectLoading);
+  if (totalEl) totalEl.hidden = !hasWallet || walletConnectLoading;
+  if (disconnectBtn) disconnectBtn.hidden = !hasWallet || walletConnectLoading;
 
   if (walletConnectLoading) {
     btn.disabled = true;
     btn.classList.add('swap-wallet-field-connect--loading');
     if (iconEl) iconEl.className = 'swap-wallet-field-connect__icon swap-wallet-field-connect__icon--spinner';
     textEl.textContent = 'Connecting…';
-    if (disconnectBtn) disconnectBtn.hidden = true;
+    updateWalletTotalUsdUi();
       return;
     }
 
   if (hasWallet) {
     btn.disabled = true;
-    btn.classList.add('swap-wallet-field-connect--connected');
+    btn.classList.add('swap-wallet-field-connect--connected', 'swap-btn-3d--static');
     if (iconEl) iconEl.className = 'swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet';
     textEl.textContent = truncate(address, 4, 4);
-    if (disconnectBtn) disconnectBtn.hidden = false;
+    updateWalletTotalUsdUi();
     return;
   }
 
   btn.disabled = false;
   if (iconEl) iconEl.className = 'swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet';
   textEl.textContent = 'Connect wallet';
-  if (disconnectBtn) disconnectBtn.hidden = true;
+  updateWalletTotalUsdUi();
 }
 
 async function disconnectBrowserWallet(): Promise<void> {
@@ -4230,6 +4326,9 @@ swapConnectWalletBtn?.addEventListener('click', () => {
 });
 swapDisconnectWalletBtn?.addEventListener('click', () => {
   void disconnectBrowserWallet();
+});
+swapWalletTotalUsdEl?.addEventListener('click', () => {
+  tryOpenSellTokenPicker();
 });
 swapWalletAddressInput?.addEventListener('input', () => onWalletAddressReady(false));
 swapWalletAddressInput?.addEventListener('change', () => onWalletAddressReady(true));

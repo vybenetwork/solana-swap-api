@@ -832,6 +832,24 @@ export function getWalletBalanceAmountUi(mint: string): number | null {
   return item && item.amountUi > 0 ? item.amountUi : null;
 }
 
+/** Sum USD value of all cached wallet token rows (API returns per-mint valueUsd). */
+export function getWalletTotalBalanceUsd(): number | null {
+  if (!walletBalanceCache?.items.length) return null;
+  let total = 0;
+  for (const item of walletBalanceCache.items) {
+    const v = item.valueUsd;
+    if (Number.isFinite(v) && v > 0) total += v;
+  }
+  return total;
+}
+
+export function formatWalletTotalUsd(total: number | null): string {
+  if (total == null) return '—';
+  if (!Number.isFinite(total) || total <= 0) return '$0.00';
+  if (total < SPL_MIN_TRADABLE_VALUE_USD) return '< $0.01';
+  return `$${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 export function computeWalletSellableAmountUi(
   total: number,
   mint: string,
