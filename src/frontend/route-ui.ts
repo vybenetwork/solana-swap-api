@@ -3173,10 +3173,6 @@ function routingCanvasHopClass(hopCount: number): string {
   return '';
 }
 
-function routingCanvasLayoutAttrs(hopCount: number, hasAccRentAbove: boolean): string {
-  return ` data-routing-hop-count="${hopCount}" data-routing-acc-rent="${hasAccRentAbove ? '1' : '0'}"`;
-}
-
 function renderRoutingFrame(
   inDisplay: string,
   inSym: string,
@@ -3245,7 +3241,7 @@ function renderRoutingFrame(
     showAllEndpointLabels || (outputUsdSubline && outputUsdSubline !== '—')
       ? `<span class="routing-output-usd"${outputUsdTitle ? ` title="${deps.escapeHtml(outputUsdTitle)}"` : ''}>USD Output: <span class="routing-output-usd__val">${deps.escapeHtml(outputUsdVal)}</span></span>`
       : '';
-  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${placeholderClass}${loadingClass}"${routingCanvasLayoutAttrs(hopCount, hasAccRentAbove)}>
+  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${placeholderClass}${loadingClass}">
     <div class="routing-frame${multiInputFeesClass}">
       <div class="routing-endpoint routing-endpoint--in">
         <div class="routing-endpoint-stack">
@@ -3499,78 +3495,25 @@ export function renderRoutePanels(quote: Record<string, unknown>): void {
   scheduleRoutingDiagramZoom();
 }
 
-const ROUTING_SCROLL_FIT_SCALE_DEFAULT = 0.75;
-
-function routingScrollFitScale(canvas: HTMLElement): number {
-  const hops = Number(canvas.dataset.routingHopCount ?? '0');
-  const accRent = canvas.dataset.routingAccRent === '1';
-  if (hops >= 4) return 0.68;
-  if (hops >= 3) return 0.72;
-  if (hops >= 2 && accRent) return 0.78;
-  if (hops >= 2) return 0.82;
-  if (accRent) return 0.85;
-  return ROUTING_SCROLL_FIT_SCALE_DEFAULT;
-}
-
-function routingCanvasPrefersScrollFit(canvas: HTMLElement): boolean {
-  const hops = Number(canvas.dataset.routingHopCount ?? '0');
-  const accRent = canvas.dataset.routingAccRent === '1';
-  return hops >= 3 || (hops >= 2 && accRent);
-}
-
-function syncRoutingDiagramZoom(container: HTMLElement | null): void {
-  if (!container) return;
-  const canvas = container.querySelector(':scope > .routing-canvas') as HTMLElement | null;
-  if (!canvas) {
-    container.classList.remove('swap-quote-details-routing--scroll-fit', 'routing-dialog-body--scroll-fit');
-    return;
-  }
-
-  canvas.classList.remove('routing-canvas--scroll-fit');
-  canvas.style.removeProperty('--routing-scroll-fit-scale');
-  container.classList.remove('swap-quote-details-routing--scroll-fit', 'routing-dialog-body--scroll-fit');
-
-  const overflows = canvas.scrollWidth > container.clientWidth + 2;
-  const prefersFit = routingCanvasPrefersScrollFit(canvas);
-  if (!overflows && !prefersFit) return;
-
-  const scale = routingScrollFitScale(canvas);
-  canvas.style.setProperty('--routing-scroll-fit-scale', String(scale));
-  canvas.classList.add('routing-canvas--scroll-fit');
-  if (container.id === 'routingDialogBody') {
-    container.classList.add('routing-dialog-body--scroll-fit');
-  } else {
-    container.classList.add('swap-quote-details-routing--scroll-fit');
-  }
-}
-
-/** Center the diagram's scroll position when it still overflows after fitting. */
+/** Center horizontal scroll when the route diagram is wider than its container. */
 function centerRoutingDiagramScroll(container: HTMLElement | null): void {
   if (!container) return;
   const overflowX = container.scrollWidth - container.clientWidth;
   if (overflowX > 2) container.scrollLeft = overflowX / 2;
-  const overflowY = container.scrollHeight - container.clientHeight;
-  if (overflowY > 2) container.scrollTop = overflowY / 2;
 }
 
 export function scheduleRoutingDiagramZoom(): void {
   requestAnimationFrame(() => {
-    syncRoutingDiagramZoom(deps.dom.swapQuoteDetailsRoutingEl);
-    syncRoutingDiagramZoom(deps.dom.routingDialogBodyEl);
-    requestAnimationFrame(() => {
-      syncRoutingDiagramZoom(deps.dom.swapQuoteDetailsRoutingEl);
-      syncRoutingDiagramZoom(deps.dom.routingDialogBodyEl);
-      centerRoutingDiagramScroll(deps.dom.swapQuoteDetailsRoutingEl);
-      centerRoutingDiagramScroll(deps.dom.routingDialogBodyEl);
-    });
+    centerRoutingDiagramScroll(deps.dom.swapQuoteDetailsRoutingEl);
+    centerRoutingDiagramScroll(deps.dom.routingDialogBodyEl);
   });
 }
 
-let routingDiagramZoomBound = false;
+let routingDiagramScrollBound = false;
 
 export function bindRoutingDiagramZoomListeners(): void {
-  if (routingDiagramZoomBound) return;
-  routingDiagramZoomBound = true;
+  if (routingDiagramScrollBound) return;
+  routingDiagramScrollBound = true;
   window.addEventListener('resize', scheduleRoutingDiagramZoom);
 }
 function getPlaceholderHopInAmountRaw(): string | null {

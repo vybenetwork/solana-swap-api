@@ -2269,28 +2269,6 @@ tr:hover td {
   min-width: min-content;
 }
 
-.swap-quote-details-routing--scroll-fit,
-.routing-dialog-body--scroll-fit {
-  overflow-x: hidden;
-}
-
-.routing-canvas--scroll-fit {
-  zoom: var(--routing-scroll-fit-scale, 0.75);
-}
-
-@supports not (zoom: 1) {
-  .routing-canvas--scroll-fit {
-    transform: scale(var(--routing-scroll-fit-scale, 0.75));
-    transform-origin: top left;
-    width: max-content;
-  }
-
-  .swap-quote-details-routing--scroll-fit,
-  .routing-dialog-body--scroll-fit {
-    overflow-x: auto;
-  }
-}
-
 .swap-quote-details-routing:has(.routing-canvas--has-fees) {
   min-height: 310px;
 }
@@ -2302,6 +2280,7 @@ tr:hover td {
   padding: 1rem 0.85rem;
   min-height: 120px;
   overflow-x: auto;
+  overflow-y: visible;
 }
 
 .routing-dialog-body .routing-canvas {
