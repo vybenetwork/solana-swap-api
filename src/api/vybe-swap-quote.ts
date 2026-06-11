@@ -61,6 +61,14 @@ function formatImpactPct(spotRate: number, execRate: number): string {
   return impact.toFixed(4);
 }
 
+/** Vybe-native pool build (Meteora, etc.) — not Jupiter/Titan aggregator responses. */
+function isVybeNativePoolBuild(build: VybeSwapBuildResponse, selectedRouter?: string): boolean {
+  const selected = normalizeRouterId(selectedRouter ?? 'vybe');
+  if (selected !== 'vybe') return false;
+  const provider = normalizeRouterId(String(build.provider ?? build.details.quote.provider ?? ''));
+  return provider !== 'jupiter' && provider !== 'titan';
+}
+
 function normalizeRoutePlan(raw: unknown): VybeRoutePlanStep[] {
   if (!Array.isArray(raw)) return [];
   return raw.map((step) => {
@@ -106,13 +114,23 @@ function synthesizeQuoteFromBuild(
     effectiveOutAmount != null && effectiveOutAmount !== quotedOutAmount;
 
   const outAmountUi = rawToUi(outAmount, outputStats.decimals);
+  const quotedOutUi = rawToUi(quotedOutAmount, outputStats.decimals);
+  const inAmountUi = rawToUi(inAmount, inputStats.decimals);
   const otherAmountThreshold = applySlippageThreshold(outAmount, slippagePct);
   const otherAmountThresholdUi = rawToUi(otherAmountThreshold, outputStats.decimals);
   const swapRate = params.amount > 0 ? outAmountUi / params.amount : 0;
+  const quotedSwapRate = inAmountUi > 0 ? quotedOutUi / inAmountUi : swapRate;
+  const executedSwapRate = inAmountUi > 0 ? outAmountUi / inAmountUi : swapRate;
 
   const spotCrossRate =
     inputStats.price > 0 && outputStats.price > 0 ? inputStats.price / outputStats.price : 0;
-  const priceImpactPct = formatImpactPct(spotCrossRate, swapRate);
+  /* Vybe direct-pool builds can report simulated out well below build quote without true
+   * market impact — compare pool quote rate to spot (Jupiter-style), not sim vs spot. */
+  const impactExecRate =
+    outputFromSimulation && isVybeNativePoolBuild(build, feeOpts?.router)
+      ? quotedSwapRate
+      : executedSwapRate;
+  const priceImpactPct = formatImpactPct(spotCrossRate, impactExecRate);
 
   const swapUsdValue =
     inputStats.price > 0 && Number.isFinite(params.amount)
