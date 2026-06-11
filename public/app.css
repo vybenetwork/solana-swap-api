@@ -4418,6 +4418,13 @@ tr:hover td {
   gap: 0.35rem;
 }
 
+.swap-hop-card__pct-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+  flex-shrink: 0;
+}
+
 .swap-hop-card__swap-icons {
   display: inline-flex;
   align-items: center;
@@ -4461,8 +4468,25 @@ tr:hover td {
   font-weight: 600;
   color: #4ade80;
   background: rgba(74, 222, 128, 0.12);
+  border: 1px solid rgba(74, 222, 128, 0.28);
   padding: 0.15rem 0.4rem;
   border-radius: 999px;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.swap-hop-card__pct--out {
+  color: #93c5fd;
+  background: rgba(147, 197, 253, 0.12);
+  border-color: rgba(147, 197, 253, 0.35);
+}
+
+.swap-hop-card__pct-arrow {
+  font-size: 0.62rem;
+  font-weight: 700;
+  color: #71717a;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .swap-quote-fields-grid {

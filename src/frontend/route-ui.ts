@@ -3615,15 +3615,86 @@ function renderHopCardSwapTokenIconLink(mint: string, sym: string): string {
   return `<a class="swap-hop-card__swap-icon swap-hop-card__swap-icon-link" href="${url}" target="_blank" rel="noopener noreferrer" title="${deps.escapeHtml(symLabel)} on Solscan" aria-label="View ${deps.escapeHtml(symLabel)} on Solscan">${iconHtml}</a>`;
 }
 
-function renderHopCardSwapTokenIcons(leg: RouteHopLeg): string {
-  const inMint = leg.inMint?.trim() ?? '';
-  const outMint = leg.outMint?.trim() ?? '';
-  if (!inMint && !outMint) return '';
-  const inIcon = inMint ? renderHopCardSwapTokenIconLink(inMint, leg.inSym) : '';
-  const outIcon = outMint ? renderHopCardSwapTokenIconLink(outMint, leg.outSym) : '';
-  if (!inIcon && !outIcon) return '';
-  const title = `${leg.inSym} → ${leg.outSym}`;
-  return `<span class="swap-hop-card__swap-icons" title="${deps.escapeHtml(title)}" aria-label="${deps.escapeHtml(title)}">${inIcon}<span class="swap-hop-card__swap-arrow" aria-hidden="true">→</span>${outIcon}</span>`;
+function renderHopCardPctBadge(
+  pct: string,
+  direction: 'in' | 'out' = 'in',
+  title?: string | null,
+): string {
+  const outCls = direction === 'out' ? ' swap-hop-card__pct--out' : '';
+  const titleAttr = title ? ` title="${deps.escapeHtml(title)}"` : '';
+  return `<span class="swap-hop-card__pct${outCls}"${titleAttr}>${deps.escapeHtml(pct)}</span>`;
+}
+
+function renderHopCardPctGroup(
+  leg: RouteHopLeg,
+  mintSide: 'in' | 'out',
+  pct: string,
+  direction: 'in' | 'out',
+  title?: string | null,
+): string {
+  const mint = (mintSide === 'in' ? leg.inMint : leg.outMint)?.trim() ?? '';
+  const sym = mintSide === 'in' ? leg.inSym : leg.outSym;
+  const iconHtml = mint ? renderHopCardSwapTokenIconLink(mint, sym) : '';
+  return `<span class="swap-hop-card__pct-group">${iconHtml}${renderHopCardPctBadge(pct, direction, title)}</span>`;
+}
+
+function renderHopCardPctArrow(): string {
+  return `<span class="swap-hop-card__pct-arrow" aria-hidden="true">→</span>`;
+}
+
+function formatHopPctLabel(pct: number): string {
+  return `${Math.round(pct * 100) / 100}%`;
+}
+
+/** Blue chip: wallet-value retained after this hop (fees on input + hop output). */
+function resolveHopCardOutgoingPct(
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+  isLastHop: boolean,
+  planIndex: number,
+  inPct: string,
+): { pct: string; title: string | null } {
+  if (pendingQuoteRecord(quote)) {
+    return { pct: inPct, title: null };
+  }
+
+  if (isLastHop) {
+    const finalBreakdown = computeFinalReceivePctBreakdown(quote);
+    if (finalBreakdown) {
+      return { pct: finalBreakdown.pctLabel, title: finalBreakdown.title };
+    }
+  }
+
+  const intermediateBreakdown = computeIntermediateHopReceivePctBreakdown(quote, planIndex, step);
+  const cumulativePct = computeCumulativeHopOutgoingPct(quote, planIndex);
+
+  let bestPct: number | null = null;
+  let title: string | null = intermediateBreakdown?.title ?? null;
+
+  if (intermediateBreakdown) {
+    bestPct = intermediateBreakdown.pct;
+  }
+  if (cumulativePct != null && cumulativePct > 0) {
+    if (bestPct == null || cumulativePct < bestPct) {
+      bestPct = cumulativePct;
+    }
+  }
+
+  if (bestPct != null && bestPct < 99.995) {
+    return { pct: formatHopPctLabel(bestPct), title };
+  }
+
+  const hopOutLabel = hopOutgoingPercentLabel(step, quote, isLastHop, planIndex);
+  const hopOutNum = parseHopPctLabel(hopOutLabel);
+  if (hopOutNum != null && hopOutNum < 99.995) {
+    return { pct: hopOutLabel!, title: null };
+  }
+
+  return { pct: inPct, title: null };
+}
+
+function pendingQuoteRecord(quote: Record<string, unknown>): boolean {
+  return !quote || Object.keys(quote).length === 0;
 }
 
 function renderRoutePlanStepDetail(
@@ -3634,12 +3705,12 @@ function renderRoutePlanStepDetail(
   placeholder = false,
   loading = false,
   quote: Record<string, unknown> = {},
-  isFirstHopInRoute = false,
+  planIndex = 0,
+  isLastHop = true,
 ): string {
   const si = step.swapInfo;
   const dex = si?.label ?? 'Unknown DEX';
   const pct = hopPercentLabel(step);
-  const showRouteShare = isFirstHopInRoute || (pct !== '100%' && pct !== '—');
   const pendingHop = placeholder || loading;
   const hasInAmt = leg.inAmt !== '—' && leg.inAmt !== '';
   const hopFees = getHopFeeBreakdown(step);
@@ -3789,12 +3860,8 @@ function renderRoutePlanStepDetail(
     </div>
   </section>`;
 
-  const swapIconsHtml = renderHopCardSwapTokenIcons(leg);
-  const shareBadgeHtml = showRouteShare
-    ? `<span class="swap-hop-card__trail">${swapIconsHtml}<span class="swap-hop-card__pct">${deps.escapeHtml(pct)}</span></span>`
-    : swapIconsHtml
-      ? `<span class="swap-hop-card__trail">${swapIconsHtml}</span>`
-      : '';
+  const outgoingPct = resolveHopCardOutgoingPct(step, quote, isLastHop, planIndex, pct);
+  const shareBadgeHtml = `<span class="swap-hop-card__trail">${renderHopCardPctGroup(leg, 'in', pct, 'in')}${renderHopCardPctArrow()}${renderHopCardPctGroup(leg, 'out', outgoingPct.pct, 'out', outgoingPct.title)}</span>`;
 
   const placeholderClass = placeholder ? ' swap-hop-step-details--placeholder' : '';
   const loadingClass = loading ? ' swap-hop-step-details--loading' : '';
@@ -3832,7 +3899,7 @@ export function renderQuoteRoutePlanStepsPlaceholder(loading = false): string {
     percent: 100,
     swapInfo: { label: '—' },
   };
-  return renderRoutePlanStepDetail(mockStep, '1', mockLeg, true, true, loading, {}, true);
+  return renderRoutePlanStepDetail(mockStep, '1', mockLeg, true, true, loading, {}, 0, true);
 }
 
 export function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): string {
@@ -3845,7 +3912,17 @@ export function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): strin
   if (metas.length === 0) {
     return plan
       .map((s, i) =>
-        renderRoutePlanStepDetail(s, String(i + 1), legs[i]!, i === 0, false, false, quote, i === 0),
+        renderRoutePlanStepDetail(
+          s,
+          String(i + 1),
+          legs[i]!,
+          i === 0,
+          false,
+          false,
+          quote,
+          i,
+          i === plan.length - 1,
+        ),
       )
       .join('');
   }
@@ -3859,7 +3936,8 @@ export function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): strin
         false,
         false,
         quote,
-        i === 0,
+        meta.planIndex,
+        i === metas.length - 1,
       ),
     )
     .join('');
