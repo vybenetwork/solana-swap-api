@@ -5776,6 +5776,14 @@ tr:hover td {
   padding-left: 1.35rem;
 }
 
+.swap-toggle-row--route-via-trades .swap-adv-label-row {
+  font-size: 0.65rem;
+}
+
+.swap-toggle-row--route-via-trades .swap-toggle-row__hint {
+  font-size: 0.55rem;
+}
+
 .swap-pill-switch {
   position: relative;
   display: inline-flex;

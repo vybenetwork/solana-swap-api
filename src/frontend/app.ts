@@ -902,6 +902,7 @@ function hasValidSwapWallet(): boolean {
 }
 
 const SWAP_WALLET_LOCKED_TITLE = 'Enter or connect a valid Solana wallet first';
+const SWAP_SERVICE_FEE_PARTNER_LOCKED_TITLE = 'Enable Partner first';
 
 function lockTokenChipButton(
   btn: HTMLButtonElement | null,
@@ -1001,8 +1002,7 @@ function syncSellTokenPickerState(): void {
   setWalletGatedDisabled(swapSimulateCheckbox, !valid);
   setWalletGatedDisabled(swapEnablePartnerCheckbox, !valid);
   setWalletGatedDisabled(swapPartnerInput, !valid);
-  setWalletGatedDisabled(swapEnableServiceFeeCheckbox, !valid);
-  setWalletGatedDisabled(swapServiceFeeInput, !valid);
+  syncServiceFeePartnerGate(valid);
 
   syncSlippageInputForAutoSlippage();
   syncSellPctButtonsState();
@@ -4313,9 +4313,40 @@ initRouteUi({
 });
 
 wireBuildOptionToggle(swapEnablePartnerCheckbox, swapPartnerFieldEl, swapPartnerInput);
+swapEnablePartnerCheckbox?.addEventListener('change', () => {
+  syncServiceFeePartnerGate(hasValidSwapWallet());
+  invalidateSwapQuoteAfterInputChange();
+});
 wireBuildOptionToggle(swapEnablePoolAddressCheckbox, swapPoolAddressFieldEl, swapPoolAddressInput);
 wireBuildOptionToggle(swapEnableProtocolCheckbox, swapProtocolFieldEl, swapProtocolSelect);
 swapRouteViaTradesCheckbox?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
+
+function syncServiceFeePartnerGate(walletValid = hasValidSwapWallet()): void {
+  const partnerOn = swapEnablePartnerCheckbox?.checked === true;
+
+  if (!partnerOn) {
+    if (swapEnableServiceFeeCheckbox?.checked) {
+      swapEnableServiceFeeCheckbox.checked = false;
+    }
+    if (swapServiceFeeFieldEl) swapServiceFeeFieldEl.hidden = true;
+    if (swapServiceFeeInput) swapServiceFeeInput.value = '';
+  }
+
+  const blocked = !walletValid || !partnerOn;
+  const lockedTitle = !walletValid
+    ? SWAP_WALLET_LOCKED_TITLE
+    : SWAP_SERVICE_FEE_PARTNER_LOCKED_TITLE;
+
+  if (swapEnableServiceFeeCheckbox) {
+    swapEnableServiceFeeCheckbox.disabled = blocked;
+    swapEnableServiceFeeCheckbox.title = blocked ? lockedTitle : 'Add service fee percent on build';
+  }
+  if (swapServiceFeeInput) {
+    const inputBlocked = blocked || swapEnableServiceFeeCheckbox?.checked !== true;
+    swapServiceFeeInput.disabled = inputBlocked;
+    swapServiceFeeInput.title = blocked ? lockedTitle : '';
+  }
+}
 
 function wireServiceFeeToggle(): void {
   if (!swapEnableServiceFeeCheckbox || !swapServiceFeeFieldEl) return;
@@ -4327,6 +4358,7 @@ function wireServiceFeeToggle(): void {
     } else if (on && swapServiceFeeInput && !swapServiceFeeInput.value.trim()) {
       swapServiceFeeInput.value = String(DEFAULT_SWAP_SERVICE_FEE_PCT);
     }
+    syncServiceFeePartnerGate();
     invalidateSwapQuoteAfterInputChange();
   };
   swapEnableServiceFeeCheckbox.addEventListener('change', sync);
@@ -4336,6 +4368,7 @@ function wireServiceFeeToggle(): void {
 }
 
 wireServiceFeeToggle();
+syncServiceFeePartnerGate(hasValidSwapWallet());
 
 swapModeBuildBtn?.addEventListener('click', () => setSwapBuildMode('build'));
 swapModeBuildSignBtn?.addEventListener('click', () => setSwapBuildMode('build-sign'));

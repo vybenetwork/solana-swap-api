@@ -434,23 +434,18 @@
                         <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
                       </label>
                     </div>
-                    <div class="swap-toggle-row swap-toggle-row--expandable">
+                    <div class="swap-toggle-row swap-toggle-row--route-via-trades">
                       <div class="swap-toggle-row__text">
                         <span class="swap-adv-label-row">
-                          <span class="label-icon field-icon icon-link swap-adv-label-icon" aria-hidden="true"></span>
-                          <span>Partner</span>
+                          <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
+                          <span>Route via Trades</span>
                         </span>
-                        <span class="swap-toggle-row__hint">Partner id</span>
+                        <span class="swap-toggle-row__hint">Top market counts</span>
                       </div>
-                      <div class="swap-toggle-row__controls">
-                        <div class="swap-toggle-row__field swap-toggle-row__field--partner" id="swapPartnerField" hidden>
-                          <input type="text" id="swapPartner" class="swap-toggle-field__input" placeholder="Partner id" autocomplete="off" spellcheck="false" aria-label="Partner id" />
-                        </div>
-                        <label class="swap-pill-switch" title="Send partner id on build">
-                          <input type="checkbox" id="swapEnablePartner" class="swap-pill-switch__input" />
-                          <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
-                        </label>
-                      </div>
+                      <label class="swap-pill-switch" title="Rank pools from recent Vybe trades and try top markets">
+                        <input type="checkbox" id="swapRouteViaTrades" class="swap-pill-switch__input" />
+                        <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                      </label>
                     </div>
                   </div>
                   <div class="swap-build-toggles-row">
@@ -469,24 +464,29 @@
                             <span class="swap-toggle-field__suffix" aria-hidden="true">%</span>
                           </span>
                         </div>
-                        <label class="swap-pill-switch" title="Add service fee percent on build">
-                          <input type="checkbox" id="swapEnableServiceFee" class="swap-pill-switch__input" />
+                        <label class="swap-pill-switch" title="Add service fee percent on build (requires Partner)">
+                          <input type="checkbox" id="swapEnableServiceFee" class="swap-pill-switch__input" disabled />
                           <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
                         </label>
                       </div>
                     </div>
-                    <div class="swap-toggle-row">
+                    <div class="swap-toggle-row swap-toggle-row--expandable">
                       <div class="swap-toggle-row__text">
                         <span class="swap-adv-label-row">
-                          <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
-                          <span>Route via Trades</span>
+                          <span class="label-icon field-icon icon-link swap-adv-label-icon" aria-hidden="true"></span>
+                          <span>Partner</span>
                         </span>
-                        <span class="swap-toggle-row__hint">Top 5 trade markets</span>
+                        <span class="swap-toggle-row__hint">Partner id</span>
                       </div>
-                      <label class="swap-pill-switch" title="Route Vybe swap through top markets from last 250 pair trades">
-                        <input type="checkbox" id="swapRouteViaTrades" class="swap-pill-switch__input" />
-                        <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
-                      </label>
+                      <div class="swap-toggle-row__controls">
+                        <div class="swap-toggle-row__field swap-toggle-row__field--partner" id="swapPartnerField" hidden>
+                          <input type="text" id="swapPartner" class="swap-toggle-field__input" placeholder="Partner id" autocomplete="off" spellcheck="false" aria-label="Partner id" />
+                        </div>
+                        <label class="swap-pill-switch" title="Send partner id on build">
+                          <input type="checkbox" id="swapEnablePartner" class="swap-pill-switch__input" />
+                          <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                        </label>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -679,7 +679,7 @@
       import bs58 from 'bs58';
       window.bs58 = bs58;
     </script>
-    <script type="module" src="app.js?v=35"></script>
+    <script type="module" src="app.js?v=37"></script>
   </body>
 </html>
 

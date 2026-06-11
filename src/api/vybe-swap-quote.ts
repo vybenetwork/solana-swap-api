@@ -103,7 +103,7 @@ function buildSkippedRouteViaTradesMeta(
   let disabledReason: RouteViaTradesDisabledReason;
   if (params.routeViaTrades !== true) disabledReason = 'toggle_off';
   else if (selected !== 'vybe') disabledReason = 'router_not_vybe';
-  else if (params.poolAddress?.trim()) disabledReason = 'manual_pool';
+  else if (params.poolAddress?.trim() || params.programAddress?.trim()) disabledReason = 'manual_pool';
   else if (params.protocol != null) disabledReason = 'manual_protocol';
   else disabledReason = 'toggle_off';
 
@@ -477,7 +477,11 @@ export async function buildVybeQuoteFromPriceAndSwap(
   const manualPool = params.poolAddress?.trim();
   const manualProgram = params.programAddress?.trim();
   const useRouteViaTrades =
-    params.routeViaTrades === true && selected === 'vybe' && params.protocol == null;
+    params.routeViaTrades === true &&
+    selected === 'vybe' &&
+    params.protocol == null &&
+    !params.poolAddress?.trim() &&
+    !params.programAddress?.trim();
   const useTradeCandidatePin = useRouteViaTrades && Boolean(manualPool && manualProgram);
   const useTradeFetch = useRouteViaTrades && !manualPool;
 
