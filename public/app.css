@@ -5864,11 +5864,7 @@ tr:hover td {
   opacity: 0.55;
 }
 
-.swap-build-toggles:has(.swap-pill-switch__input:disabled) .swap-toggle-row {
-  opacity: 0.55;
-}
-
-.swap-advanced-details:has(.swap-pill-switch__input:disabled) .swap-toggle-row {
+.swap-toggle-row:has(.swap-pill-switch__input:disabled) {
   opacity: 0.55;
 }
 

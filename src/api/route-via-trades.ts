@@ -315,7 +315,7 @@ function poolAddressFromBuild(build: import('../types/swap.js').VybeSwapBuildRes
 
 type BuildAttempt = Pick<
   import('./swap-build.js').BuildSwapParams,
-  'poolAddress' | 'programAddress'
+  'poolAddress' | 'programAddress' | 'protocol'
 >;
 
 export { staticAccountKeysFromSwapTx } from './pool-address-validation.js';
@@ -508,7 +508,13 @@ function buildAttemptsForCandidate(candidate: TradeMarketCandidate): BuildAttemp
   const poolAddress = candidate.marketAddress;
   const programAddress = candidate.programAddress?.trim();
   if (poolAddress && programAddress) {
-    return [{ poolAddress, programAddress }];
+    return [
+      {
+        poolAddress,
+        programAddress,
+        protocol: candidate.protocol ?? programAddressToProtocol(programAddress),
+      },
+    ];
   }
   return [];
 }
@@ -519,11 +525,16 @@ function buildSwapBodyForTradeAttempt(
 ): import('./swap-build.js').BuildSwapParams {
   const { protocol: _omitProtocol, poolAddress: _omitPool, programAddress: _omitProgram, ...rest } =
     body;
+  const programAddress = attempt.programAddress?.trim();
+  const protocol =
+    attempt.protocol ??
+    (programAddress ? programAddressToProtocol(programAddress) : undefined);
   return {
     ...rest,
     router: 'vybe',
     poolAddress: attempt.poolAddress,
-    programAddress: attempt.programAddress,
+    ...(programAddress ? { programAddress } : {}),
+    ...(protocol ? { protocol } : {}),
   };
 }
 
