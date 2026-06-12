@@ -672,9 +672,10 @@ export function getSplMaxSellFraction(mint: string): number | null {
   return splMaxSellFractionByMint.has(key) ? splMaxSellFractionByMint.get(key)! : null;
 }
 
-/** Remember a conservative max sell fraction after sim failure or successful capped quote. */
+/** Remember a conservative max sell fraction after sim failure retries only (not routine quote normalization). */
 export function noteSplMaxSellFraction(mint: string, amountUi: number, balanceUi: number): void {
   const key = mint.trim();
+  if (isSolMint(key)) return;
   if (!key || !Number.isFinite(amountUi) || !Number.isFinite(balanceUi) || balanceUi <= 0) return;
   const fraction = amountUi / balanceUi;
   if (fraction <= 0 || fraction > 1) return;
@@ -690,12 +691,50 @@ export function isNearMaxSellAmountUi(amountUi: number, balanceUi: number): bool
   return amountUi >= balanceUi * 0.9;
 }
 
+function quotedBuildOutAmountRaw(buildPayload?: Record<string, unknown> | null): string | null {
+  if (!buildPayload) return null;
+  const details = buildPayload.details as Record<string, unknown> | undefined;
+  const quote = details?.quote as Record<string, unknown> | undefined;
+  const candidates = [quote?.outAmount, buildPayload.outAmount];
+  for (const raw of candidates) {
+    const digits = String(raw ?? '').trim();
+    if (/^\d+$/.test(digits) && digits !== '0') return digits;
+  }
+  return null;
+}
+
 export function swapSimulationFailed(
   simulatedOutRaw: string | null | undefined,
   buildTx: unknown,
+  buildPayload?: Record<string, unknown> | null,
 ): boolean {
   if (!buildTx || typeof buildTx !== 'string' || buildTx.length === 0) return false;
-  return simulatedOutRaw == null || simulatedOutRaw === '';
+  if (simulatedOutRaw != null && simulatedOutRaw !== '') return false;
+  if (quotedBuildOutAmountRaw(buildPayload)) return false;
+  const topOut = String(buildPayload?.outAmount ?? '').trim();
+  if (/^\d+$/.test(topOut) && topOut !== '0') return false;
+  return true;
+}
+
+/** Do not overwrite the sell input when quote inAmount is only fee/normalization noise at max sell. */
+export function shouldApplySellAmountFromQuoteInAmount(
+  requestedUi: number,
+  quotedInUi: number,
+  mint: string,
+): boolean {
+  if (!Number.isFinite(requestedUi) || requestedUi <= 0) return false;
+  if (!Number.isFinite(quotedInUi) || quotedInUi <= 0) return false;
+  const relDiff = Math.abs(requestedUi - quotedInUi) / requestedUi;
+  if (relDiff < 0.001) return false;
+
+  const sellable = getWalletSellableAmountUi(mint);
+  if (sellable != null && sellable > 0) {
+    const atSellableCeiling =
+      requestedUi <= sellable * 1.001 || isNearMaxSellAmountUi(requestedUi, sellable);
+    if (atSellableCeiling && quotedInUi <= sellable * 1.001) return false;
+  }
+
+  return quotedInUi < requestedUi * 0.999;
 }
 
 /** step 1 → 98% of balance, step 2 → 96%, etc. */

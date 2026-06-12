@@ -23,6 +23,7 @@ import {
   isWalletTokenTradable,
   noteSplMaxSellFraction,
   swapSimulationFailed,
+  shouldApplySellAmountFromQuoteInAmount,
   computeSplSellAmountForRetryStep,
   shouldContinueSplSellSimRetry,
   SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER,
@@ -1800,20 +1801,32 @@ function extractAuthoritativeInAmountRaw(
 }
 
 /** Align sell input with on-chain inAmount from quote/build (Jupiter/Titan often normalize UI amount). */
-function syncSellAmountInputFromInAmountRaw(raw: string, mint: string): number | null {
+function syncSellAmountInputFromInAmountRaw(
+  raw: string,
+  mint: string,
+  requestedUi?: number,
+): number | null {
   if (!swapAmountInput || !mint) return null;
   const digits = parseRawAmountDigits(raw);
   if (!digits) return null;
   const { display } = formatRawTokenAmount(digits, mint);
   if (display === '—') return null;
-  swapAmountInput.value = display.replace(/,/g, '');
   const n = Number(display.replace(/,/g, ''));
   if (!Number.isFinite(n) || n <= 0) return null;
+  if (
+    requestedUi != null &&
+    !shouldApplySellAmountFromQuoteInAmount(requestedUi, n, mint)
+  ) {
+    return requestedUi;
+  }
+  swapAmountInput.value = display.replace(/,/g, '');
   return n;
 }
 
 function maybeShowSplSellReducedWarning(amountUi: number, mint: string, originalAmountUi?: number): void {
   if (!swapQuoteWarning) return;
+  const sellable = getWalletSellableAmountUi(mint);
+  if (sellable != null && amountUi >= sellable * 0.995) return;
   const balance = getWalletBalanceAmountUi(mint);
   if (balance == null) return;
   if (originalAmountUi != null && amountUi >= originalAmountUi * 0.999) return;
@@ -1852,12 +1865,28 @@ function nextSplSellRetryAmountUi(
 ): number | null {
   const balance = getWalletBalanceAmountUi(inputMint);
   if (balance == null) return null;
+  const sellable = getWalletSellableAmountUi(inputMint);
+  if (sellable != null && currentAmountUi <= sellable * 1.001) return null;
   if (!shouldContinueSplSellSimRetry(inputMint, currentAmountUi, balance, step)) return null;
 
   const nextStep = step + 1;
   const nextAmount = computeSplSellAmountForRetryStep(balance, nextStep);
   if (!(nextAmount > 0) || nextAmount >= currentAmountUi * 0.999) return null;
   return nextAmount;
+}
+
+function rememberSplMaxSellAfterSimRetry(
+  inputMint: string,
+  attemptAmountUi: number,
+  splSimStep: number,
+): void {
+  if (splSimStep <= 0) return;
+  noteSplMaxSellFraction(
+    inputMint,
+    attemptAmountUi,
+    getWalletBalanceAmountUi(inputMint) ?? attemptAmountUi,
+  );
+  syncSwapAmountMaxFromBalance();
 }
 
 
@@ -3057,7 +3086,7 @@ function applyVybeQuoteBodyToUi(
   const inRaw = parseRawAmountDigits(body.inAmount ?? quote.inAmount);
   if (inRaw) {
     quote = { ...quote, inAmount: inRaw };
-    const synced = syncSellAmountInputFromInAmountRaw(inRaw, inputMint);
+    const synced = syncSellAmountInputFromInAmountRaw(inRaw, inputMint, amount);
     if (synced != null) effectiveAmount = synced;
   }
   lastSwapQuoteOk = quote;
@@ -3259,11 +3288,11 @@ async function executeAggregatorQuoteAndBuild(
     const simFailed = swapSimulationFailed(
       last.swapBody._simulatedOutAmount as string | null | undefined,
       buildTx,
+      last.swapBody,
     );
     if (!simFailed) {
       if (attemptAmount < originalAmount * 0.999) {
-        noteSplMaxSellFraction(inputMint, attemptAmount, getWalletBalanceAmountUi(inputMint) ?? attemptAmount);
-        syncSwapAmountMaxFromBalance();
+        rememberSplMaxSellAfterSimRetry(inputMint, attemptAmount, splSimStep);
         maybeShowSplSellReducedWarning(attemptAmount, inputMint, originalAmount);
       }
       applyAggregatorBuildToUi(
@@ -3349,7 +3378,7 @@ function applyAggregatorBuildToUi(
         return { ...step, swapInfo: { ...step.swapInfo, inAmount: inAmountRaw } };
       });
     }
-    const synced = syncSellAmountInputFromInAmountRaw(inAmountRaw, inputMint);
+    const synced = syncSellAmountInputFromInAmountRaw(inAmountRaw, inputMint, amount);
     if (synced != null) effectiveAmount = synced;
   }
 
@@ -3438,7 +3467,7 @@ async function requestVybeQuote(
 
     const inRaw = parseRawAmountDigits(body.inAmount);
     if (inRaw) {
-      const synced = syncSellAmountInputFromInAmountRaw(inRaw, inputMint);
+      const synced = syncSellAmountInputFromInAmountRaw(inRaw, inputMint, attemptAmount);
       if (synced != null) attemptAmount = synced;
     }
 
@@ -3455,11 +3484,14 @@ async function requestVybeQuote(
     }
 
     const buildTx = extractSwapBuildTransaction(body._build);
-    const simFailed = swapSimulationFailed(body._simulatedOutAmount as string | null | undefined, buildTx);
+    const simFailed = swapSimulationFailed(
+      body._simulatedOutAmount as string | null | undefined,
+      buildTx,
+      body,
+    );
     if (!simFailed) {
       if (attemptAmount < originalAmount * 0.999) {
-        noteSplMaxSellFraction(inputMint, attemptAmount, getWalletBalanceAmountUi(inputMint) ?? attemptAmount);
-        syncSwapAmountMaxFromBalance();
+        rememberSplMaxSellAfterSimRetry(inputMint, attemptAmount, splSimStep);
         maybeShowSplSellReducedWarning(attemptAmount, inputMint, originalAmount);
       }
       applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, originalAmount, buildOpts);
