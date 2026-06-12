@@ -13,7 +13,7 @@ export interface GetSwapQuoteParams {
   inputMintAddress: string;
   outputMintAddress: string;
   accountAddress?: string;
-  /** Percentage, default API 0.5 */
+  /** Percentage, default 2 */
   slippage?: number;
 }
 

@@ -4240,8 +4240,8 @@ export function renderRouteViaTradesLogHtml(meta: Record<string, unknown> | null
   if (timings && typeof timings === 'object') {
     const bits: string[] = [];
     if (timings.fetchTrades != null) bits.push(`trades fetch ${timings.fetchTrades}ms`);
-    if (timings.parallelProbe != null) bits.push(`build probe ${timings.parallelProbe}ms`);
-    if (timings.sequentialBuild != null) bits.push(`sequential ${timings.sequentialBuild}ms`);
+    const probeMs = timings.sequentialProbe ?? timings.parallelProbe;
+    if (probeMs != null) bits.push(`queue probe ${probeMs}ms`);
     if (timings.total != null) bits.push(`route total ${timings.total}ms`);
     if (bits.length > 0) {
       parts.push(`<p class="rvt-log__line rvt-log__line--muted"><strong>Timing:</strong> ${escapeHtml(bits.join(' · '))}</p>`);

@@ -11,6 +11,7 @@ import {
   formatRouteViaTradesServerLog,
   isAggregatorSwapProvider,
   ROUTE_VIA_TRADES_LIMIT,
+  TRADES_API_UNAVAILABLE_MESSAGE,
   type QueuedMarketEntry,
   type RankedTradeMarket,
   type RouteViaTradesBuildAttemptLog,
@@ -33,6 +34,7 @@ import {
   type InferredHopPoolEntry,
 } from './simulate-swap-output.js';
 import { enrichRoutePlanFees } from './enrich-route-fees.js';
+import { DEFAULT_SWAP_SLIPPAGE_PCT } from '../config.js';
 import { NATIVE_SOL_MINT, toVybeSwapMint } from './sol-mints.js';
 
 /** Wrapped SOL mint — Vybe TokenInformationCH symbol is `wSOL` for this address. */
@@ -90,6 +92,10 @@ export interface RouteViaTradesMeta {
   /** Plain Vybe build (no pool pin) succeeded after the trade queue was exhausted. */
   unpinnedVybeRetry?: boolean;
   lastError?: string;
+  /** When GET /v4/trades returns 404. */
+  tradesUnavailable?: boolean;
+  /** User-facing banner text (warning or success after Jupiter fallback). */
+  userMessage?: string;
 }
 
 function logRouteViaTradesMeta(meta: RouteViaTradesMeta): void {
@@ -161,6 +167,8 @@ async function recoverAfterTradeQueueExhausted(
     timingsMs: routed.timingsMs,
     directRouteFailed: true,
     lastError: routed.lastError,
+    tradesUnavailable: routed.tradesUnavailable === true,
+    userMessage: routed.tradesUnavailable ? TRADES_API_UNAVAILABLE_MESSAGE : undefined,
   };
 
   const unpinnedParams: VybeQuoteParams = {
@@ -172,32 +180,34 @@ async function recoverAfterTradeQueueExhausted(
     routeViaTrades: false,
   };
 
-  try {
-    const unpinned = await buildSwap(http, unpinnedParams);
-    const provider = String(unpinned.provider ?? unpinned.details?.quote?.provider ?? '').trim();
-    if (acceptUnpinnedVybeBuild(unpinned)) {
-      recoveryLog.push({ step: 'unpinned_vybe', success: true, provider: provider || undefined });
-      const meta: RouteViaTradesMeta = {
-        ...routeViaTrades,
-        outcome: 'unpinned_vybe',
-        unpinnedVybeRetry: true,
-        recoveryLog,
-      };
-      logRouteViaTradesMeta(meta);
-      return { build: unpinned, routeViaTrades: meta };
+  if (!routed.tradesUnavailable) {
+    try {
+      const unpinned = await buildSwap(http, unpinnedParams);
+      const provider = String(unpinned.provider ?? unpinned.details?.quote?.provider ?? '').trim();
+      if (acceptUnpinnedVybeBuild(unpinned)) {
+        recoveryLog.push({ step: 'unpinned_vybe', success: true, provider: provider || undefined });
+        const meta: RouteViaTradesMeta = {
+          ...routeViaTrades,
+          outcome: 'unpinned_vybe',
+          unpinnedVybeRetry: true,
+          recoveryLog,
+        };
+        logRouteViaTradesMeta(meta);
+        return { build: unpinned, routeViaTrades: meta };
+      }
+      recoveryLog.push({
+        step: 'unpinned_vybe',
+        success: false,
+        provider: provider || undefined,
+        error: provider ? `Vybe returned aggregator/provider ${provider}` : 'no direct tx',
+      });
+    } catch (err) {
+      recoveryLog.push({
+        step: 'unpinned_vybe',
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
-    recoveryLog.push({
-      step: 'unpinned_vybe',
-      success: false,
-      provider: provider || undefined,
-      error: provider ? `Vybe returned aggregator/provider ${provider}` : 'no direct tx',
-    });
-  } catch (err) {
-    recoveryLog.push({
-      step: 'unpinned_vybe',
-      success: false,
-      error: err instanceof Error ? err.message : String(err),
-    });
   }
 
   const aggregatorParams: VybeQuoteParams = {
@@ -208,7 +218,11 @@ async function recoverAfterTradeQueueExhausted(
     routeViaTrades: false,
   };
 
-  for (const router of ['titan', 'jupiter'] as const) {
+  const aggregatorRouters: Array<'jupiter' | 'titan'> = routed.tradesUnavailable
+    ? ['jupiter', 'titan']
+    : ['titan', 'jupiter'];
+
+  for (const router of aggregatorRouters) {
     try {
       const build = await buildSwap(http, { ...aggregatorParams, router });
       const provider = String(build.provider ?? build.details?.quote?.provider ?? router).trim();
@@ -218,11 +232,17 @@ async function recoverAfterTradeQueueExhausted(
         provider: provider || router,
       });
       const outcome = router === 'titan' ? 'titan_fallback' : 'jupiter_fallback';
+      const jupiterOk = router === 'jupiter' && routed.tradesUnavailable;
       const meta: RouteViaTradesMeta = {
         ...routeViaTrades,
         outcome,
         fallbackRouter: router,
         recoveryLog,
+        userMessage: jupiterOk
+          ? 'Routed via Jupiter — Vybe trades API unavailable.'
+          : routed.tradesUnavailable && router === 'titan'
+            ? 'Routed via Titan — Vybe trades API unavailable.'
+            : routeViaTrades.userMessage,
       };
       logRouteViaTradesMeta(meta);
       return { build, routeViaTrades: meta };
@@ -318,7 +338,7 @@ function synthesizeQuoteFromBuild(
   const inAmount = build.details.quote.inAmount;
   const quotedOutAmount = build.details.quote.outAmount;
   const outAmount = effectiveOutAmount ?? quotedOutAmount;
-  const slippagePct = build.slippage ?? params.slippage ?? 0.5;
+  const slippagePct = build.slippage ?? params.slippage ?? DEFAULT_SWAP_SLIPPAGE_PCT;
   const outputFromSimulation =
     effectiveOutAmount != null && effectiveOutAmount !== quotedOutAmount;
 
@@ -573,6 +593,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
   }
   const buildTx = build.tx ?? build.transaction;
   let simulatedOutRaw: string | null = null;
+  let simulationErr: unknown = null;
   let walletPayDebitRaw: string | null = null;
   let pdaRentLamports = 0n;
   let tokenAccRentByMint: TokenAccRentEntry[] = [];
@@ -609,6 +630,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
       preSimRoutePlan,
     );
     simulatedOutRaw = sim.outputDeltaRaw;
+    simulationErr = sim.simulationErr;
     walletPayDebitRaw = sim.walletPayDebitRaw;
     pdaRentLamports = sim.pdaRentLamports;
     tokenAccRentByMint = sim.tokenAccRentByMint;
@@ -655,6 +677,9 @@ export async function buildVybeQuoteFromPriceAndSwap(
   }
   if (uiOutputMint === NATIVE_SOL_MINT) {
     quote.outputMintAddress = NATIVE_SOL_MINT;
+  }
+  if (simulationErr != null) {
+    quote._simulationErr = simulationErr;
   }
   return {
     quote,

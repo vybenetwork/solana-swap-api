@@ -42,6 +42,11 @@ export function toHumanReadableError(err: unknown): string {
   return String(err);
 }
 
+/** True when Vybe API responded 404 (e.g. /v4/trades not enabled for this key). */
+export function isVybeApiNotFoundError(err: unknown): boolean {
+  return axios.isAxiosError(err) && err.response?.status === 404;
+}
+
 /**
  * Run an async function with retries on error (2s delay, up to 3 retries).
  * @param fn - Function that performs one attempt
@@ -54,6 +59,7 @@ export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
       return await fn();
     } catch (err) {
       lastErr = err;
+      if (isVybeApiNotFoundError(err)) throw err;
       if (attempt < VYBE_MAX_RETRIES) {
         await new Promise((r) => setTimeout(r, VYBE_RETRY_DELAY_MS));
         continue;

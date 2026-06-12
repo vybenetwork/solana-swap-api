@@ -22,7 +22,7 @@ import { simulateSwapEffects, type TokenAccRentEntry, type EmbeddedPoolFeeEntry,
 import { enrichRoutePlanFees, estimateWalletPayDebitRaw } from './api/enrich-route-fees.js';
 import type { VybeRoutePlanStep } from './types/swap.js';
 import { createHttpClient } from './api/client.js';
-import { getTrades, type GetTradesParams, type TradesSortField } from './api/trades.js';
+import { getTrades, isVybeApiNotFoundError, type GetTradesParams, type TradesSortField } from './api/trades.js';
 import { fetchRankedTopMarketsFromTrades } from './api/route-via-trades.js';
 
 loadEnv();
@@ -366,6 +366,13 @@ app.get('/api/trades', async (req: Request, res: Response) => {
     const data = await getTrades(http, params);
     res.json(data);
   } catch (err) {
+    if (isVybeApiNotFoundError(err)) {
+      console.warn('[api/trades] GET /v4/trades returned 404 — returning empty list with warning');
+      return res.json({
+        data: [],
+        warning: 'Vybe GET /v4/trades unavailable (404). Use Jupiter routing instead.',
+      });
+    }
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
     res.status(status).json({ error: toHumanReadableError(err) });
   }

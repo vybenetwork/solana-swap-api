@@ -25,8 +25,9 @@ export {
 } from './pinned-swap-params.js';
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
 import { staticAccountKeysFromSwapTx, validateTradeRoutedBuildOnChain } from './pool-address-validation.js';
+import { simulateSwapEffects } from './simulate-swap-output.js';
 import { toVybeSwapMint } from './sol-mints.js';
-import { getTrades, type GetTradesParams } from './trades.js';
+import { getTrades, isVybeApiNotFoundError, type GetTradesParams } from './trades.js';
 
 export const ROUTE_VIA_TRADES_LIMIT = 1000;
 export const ROUTE_VIA_TRADES_DISPLAY_MARKETS = 15;
@@ -34,6 +35,9 @@ export const ROUTE_VIA_TRADES_DISPLAY_MARKETS = 15;
 export const ROUTE_VIA_TRADES_MIN_COUNT_FRACTION = 0.05;
 /** Max pinned build attempts from the eligible trade-ranked queue. */
 export const ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS = 5;
+
+export const TRADES_API_UNAVAILABLE_MESSAGE =
+  'Vybe GET /v4/trades unavailable (404). Falling back to Jupiter.';
 /** @deprecated Use ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS */
 export const ROUTE_VIA_TRADES_TOP_MARKETS = ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS;
 
@@ -273,13 +277,42 @@ export function buildTxIncludesAddresses(
 async function validateTradeBuild(
   build: import('../types/swap.js').VybeSwapBuildResponse,
   candidate: TradeMarketCandidate,
+  swapParams: Pick<
+    import('./swap-build.js').BuildSwapParams,
+    'accountAddress' | 'inputMintAddress' | 'outputMintAddress'
+  >,
 ): Promise<{ ok: boolean; reason: string }> {
   const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
   const result = await validateTradeRoutedBuildOnChain(connection, build, {
     marketAddress: candidate.marketAddress,
     programAddress: candidate.programAddress,
   });
-  return { ok: result.ok, reason: result.reason ?? 'Built tx failed pool/program validation' };
+  if (!result.ok) {
+    return { ok: false, reason: result.reason ?? 'Built tx failed pool/program validation' };
+  }
+
+  const tx = build.tx ?? build.transaction;
+  if (typeof tx !== 'string' || !tx.trim()) {
+    return { ok: false, reason: 'Built tx missing' };
+  }
+
+  const sim = await simulateSwapEffects(
+    tx,
+    swapParams.accountAddress.trim(),
+    swapParams.outputMintAddress.trim(),
+    swapParams.inputMintAddress.trim(),
+  );
+  if (sim.simulationErr) {
+    return {
+      ok: false,
+      reason: `Swap simulation failed: ${JSON.stringify(sim.simulationErr)}`,
+    };
+  }
+  if (!sim.outputDeltaRaw || sim.outputDeltaRaw === '0') {
+    return { ok: false, reason: 'Swap simulation returned zero output' };
+  }
+
+  return { ok: true, reason: '' };
 }
 
 function describeTradeBuildRejectReasonFromValidation(reason: string): string {
@@ -329,18 +362,34 @@ export interface FetchTopMarketsParams {
 }
 
 
+export interface TradesFetchResult {
+  trades: VybeTrade[];
+  rawCount: number;
+  fetchParams: GetTradesParams;
+  /** Set when GET /v4/trades returns 404 — caller should fall back to Jupiter. */
+  tradesUnavailable?: boolean;
+}
+
 /** Single Vybe fetch with ix-builder quote-token mint selection, then filter pair client-side. */
 async function fetchTradesForPair(
   http: AxiosInstance,
   inputMint: string,
   outputMint: string,
   limit: number,
-): Promise<{ trades: VybeTrade[]; rawCount: number; fetchParams: GetTradesParams }> {
+): Promise<TradesFetchResult> {
   const fetchParams = buildTradesFetchParams(inputMint, outputMint, limit);
-  const res = await getTrades(http, fetchParams);
-  const raw = res.data ?? [];
-  const trades = raw.filter((t) => tradeMatchesSellInputDirection(t, inputMint, outputMint));
-  return { trades, rawCount: raw.length, fetchParams };
+  try {
+    const res = await getTrades(http, fetchParams);
+    const raw = res.data ?? [];
+    const trades = raw.filter((t) => tradeMatchesSellInputDirection(t, inputMint, outputMint));
+    return { trades, rawCount: raw.length, fetchParams, tradesUnavailable: false };
+  } catch (err) {
+    if (isVybeApiNotFoundError(err)) {
+      console.warn(`[route-via-trades] ${TRADES_API_UNAVAILABLE_MESSAGE}`);
+      return { trades: [], rawCount: 0, fetchParams, tradesUnavailable: true };
+    }
+    throw err;
+  }
 }
 
 function resolveFromTrades(
@@ -368,12 +417,13 @@ export async function fetchTopMarketsFromTrades(
   tradesFetchedForward: number;
   tradesFetchedInverse: number;
   pairTradeCount: number;
+  tradesUnavailable?: boolean;
 }> {
   const inputMint = params.inputMintAddress.trim();
   const outputMint = params.outputMintAddress.trim();
   const limit = params.limit ?? ROUTE_VIA_TRADES_LIMIT;
 
-  const { trades, rawCount } = await fetchTradesForPair(
+  const { trades, rawCount, tradesUnavailable } = await fetchTradesForPair(
     http,
     inputMint,
     outputMint,
@@ -390,6 +440,7 @@ export async function fetchTopMarketsFromTrades(
     tradesFetchedForward: rawCount,
     tradesFetchedInverse: 0,
     pairTradeCount: resolved.pairTradeCount,
+    tradesUnavailable: tradesUnavailable === true,
   };
 }
 
@@ -409,8 +460,13 @@ export interface RouteViaTradesQueueMeta {
   tradeMarketsEligible: number;
   queued: QueuedMarketEntry[];
   buildLog: RouteViaTradesBuildAttemptLog[];
+  /** GET /v4/trades returned 404 — queue empty, use Jupiter fallback. */
+  tradesUnavailable?: boolean;
   timingsMs?: {
     fetchTrades?: number;
+    /** Time spent building + simulating queue candidates one at a time. */
+    sequentialProbe?: number;
+    /** @deprecated Use sequentialProbe */
     parallelProbe?: number;
     sequentialBuild?: number;
     total?: number;
@@ -508,7 +564,7 @@ async function trySingleBuildAttempt(
   try {
     const build = await buildSwap(http, buildSwapBodyForTradeAttempt(body, attempt));
     const provider = String(build.provider ?? build.details?.quote?.provider ?? '').trim();
-    const validation = await validateTradeBuild(build, candidate);
+    const validation = await validateTradeBuild(build, candidate, body);
     if (!validation.ok) {
       const lastError = describeTradeBuildRejectReasonFromValidation(validation.reason);
       return {
@@ -557,78 +613,6 @@ async function trySingleBuildAttempt(
       ],
     };
   }
-}
-
-function pickBestParallelProbe(results: BuildProbeResult[]): Extract<BuildProbeResult, { ok: true }> | undefined {
-  const winners = results.filter((r): r is Extract<BuildProbeResult, { ok: true }> => r.ok);
-  if (winners.length === 0) return undefined;
-  return winners.sort((a, b) => b.queueEntry.tradeCount - a.queueEntry.tradeCount)[0];
-}
-
-async function tryDirectBuildForCandidate(
-  http: AxiosInstance,
-  body: import('./swap-build.js').BuildSwapParams,
-  queueEntry: QueuedMarketEntry,
-  buildSwap: typeof import('./swap-build.js').buildSwap,
-  options?: { skipFirstAttempt?: boolean },
-): Promise<
-  | {
-      ok: true;
-      build: import('../types/swap.js').VybeSwapBuildResponse;
-      selected: TradeMarketCandidate;
-      buildLog: RouteViaTradesBuildAttemptLog[];
-    }
-  | { ok: false; lastError: string; buildLog: RouteViaTradesBuildAttemptLog[] }
-> {
-  const candidate = queueEntry;
-  const buildLog: RouteViaTradesBuildAttemptLog[] = [];
-  let lastError = 'unknown error';
-  let attempts = buildAttemptsForCandidate(candidate);
-  if (options?.skipFirstAttempt && attempts.length > 0) {
-    attempts = attempts.slice(1);
-  }
-  for (const attempt of attempts) {
-    const baseLog: Omit<RouteViaTradesBuildAttemptLog, 'attempt' | 'success' | 'provider' | 'error'> = {
-      queueIndex: queueEntry.queueIndex,
-      marketAddress: queueEntry.marketAddress,
-      programLabel: queueEntry.programLabel,
-      tradeCount: queueEntry.tradeCount,
-    };
-    const attemptLabel = describeBuildAttempt(attempt);
-    try {
-      const build = await buildSwap(http, buildSwapBodyForTradeAttempt(body, attempt));
-      const provider = String(build.provider ?? build.details?.quote?.provider ?? '').trim();
-      const validation = await validateTradeBuild(build, candidate);
-      if (!validation.ok) {
-        lastError = describeTradeBuildRejectReasonFromValidation(validation.reason);
-        buildLog.push({
-          ...baseLog,
-          attempt: attemptLabel,
-          provider: provider || undefined,
-          success: false,
-          error: lastError,
-        });
-        continue;
-      }
-      buildLog.push({
-        ...baseLog,
-        attempt: attemptLabel,
-        provider: provider || undefined,
-        success: true,
-      });
-      return { ok: true, build, selected: resolveCandidateFromBuild(candidate, build), buildLog };
-    } catch (err) {
-      lastError =
-        err instanceof Error ? err.message : err != null ? String(err) : 'unknown error';
-      buildLog.push({
-        ...baseLog,
-        attempt: attemptLabel,
-        success: false,
-        error: lastError,
-      });
-    }
-  }
-  return { ok: false, lastError, buildLog };
 }
 
 /** Build as if (marketAddress, programAddress) were the #1 row from trades — pool+program only, no trades fetch. */
@@ -695,7 +679,8 @@ export async function buildSwapForTradeCandidate(
 
   const probeStart = Date.now();
   const result = await trySingleBuildAttempt(http, body, entry, attempt, buildSwap);
-  timingsMs.parallelProbe = Date.now() - probeStart;
+  timingsMs.sequentialProbe = Date.now() - probeStart;
+  timingsMs.parallelProbe = timingsMs.sequentialProbe;
   buildLog.push(...result.buildLog);
   timingsMs.total = Date.now() - totalStart;
 
@@ -741,6 +726,8 @@ export async function buildSwapViaTradeMarkets(
   const buildLog: RouteViaTradesBuildAttemptLog[] = [];
   let lastError = 'unknown error';
 
+  const tradesUnavailable = tradeData.tradesUnavailable === true;
+
   const queueMeta = {
     topMarkets: tradeData.topMarkets,
     maxTradeCount: tradeData.maxTradeCount,
@@ -755,6 +742,7 @@ export async function buildSwapViaTradeMarkets(
     queued,
     buildLog,
     timingsMs,
+    tradesUnavailable,
   };
 
   if (queued.length === 0) {
@@ -763,49 +751,22 @@ export async function buildSwapViaTradeMarkets(
       kind: 'exhausted',
       ...queueMeta,
       tried: [],
-      lastError:
-        'Route via Trades: no eligible markets (ix-builder supported program + ≥5% of top pool trade count).',
+      lastError: tradesUnavailable
+        ? TRADES_API_UNAVAILABLE_MESSAGE
+        : 'Route via Trades: no eligible markets (ix-builder supported program + ≥5% of top pool trade count).',
     };
   }
 
   const probeStart = Date.now();
-  const probeResults = await Promise.all(
-    queued
-      .map((queueEntry) => {
-        const attempt = quickProbeAttemptForQueueEntry(queueEntry);
-        return attempt ? trySingleBuildAttempt(http, body, queueEntry, attempt, buildSwap) : null;
-      })
-      .filter((job): job is Promise<BuildProbeResult> => job != null),
-  );
-  timingsMs.parallelProbe = Date.now() - probeStart;
-
-  for (const result of probeResults) {
+  for (const queueEntry of queued) {
+    const attempt = quickProbeAttemptForQueueEntry(queueEntry);
+    if (!attempt) continue;
+    const result = await trySingleBuildAttempt(http, body, queueEntry, attempt, buildSwap);
     buildLog.push(...result.buildLog);
     tried.push(result.queueEntry);
-    if (!result.ok) lastError = result.lastError;
-  }
-
-  const probeWinner = pickBestParallelProbe(probeResults);
-  if (probeWinner) {
-    timingsMs.total = Date.now() - totalStart;
-    return {
-      kind: 'direct',
-      build: probeWinner.build,
-      selected: probeWinner.selected,
-      tried,
-      ...queueMeta,
-      buildLog,
-    };
-  }
-
-  const sequentialStart = Date.now();
-  for (const queueEntry of queued) {
-    const result = await tryDirectBuildForCandidate(http, body, queueEntry, buildSwap, {
-      skipFirstAttempt: true,
-    });
-    buildLog.push(...result.buildLog);
     if (result.ok) {
-      timingsMs.sequentialBuild = Date.now() - sequentialStart;
+      timingsMs.sequentialProbe = Date.now() - probeStart;
+      timingsMs.parallelProbe = timingsMs.sequentialProbe;
       timingsMs.total = Date.now() - totalStart;
       return {
         kind: 'direct',
@@ -818,7 +779,8 @@ export async function buildSwapViaTradeMarkets(
     }
     lastError = result.lastError;
   }
-  timingsMs.sequentialBuild = Date.now() - sequentialStart;
+  timingsMs.sequentialProbe = Date.now() - probeStart;
+  timingsMs.parallelProbe = timingsMs.sequentialProbe;
   timingsMs.total = Date.now() - totalStart;
 
   return {
@@ -906,12 +868,13 @@ export async function fetchRankedTopMarketsFromTrades(
   tradesFetchedForward: number;
   tradesFetchedInverse: number;
   pairTradeCount: number;
+  tradesUnavailable?: boolean;
 }> {
   const inputMint = params.inputMintAddress.trim();
   const outputMint = params.outputMintAddress.trim();
   const limit = params.limit ?? ROUTE_VIA_TRADES_LIMIT;
 
-  const { trades, rawCount } = await fetchTradesForPair(
+  const { trades, rawCount, tradesUnavailable } = await fetchTradesForPair(
     http,
     inputMint,
     outputMint,
@@ -928,5 +891,6 @@ export async function fetchRankedTopMarketsFromTrades(
     tradesFetchedForward: rawCount,
     tradesFetchedInverse: 0,
     pairTradeCount: resolved.pairTradeCount,
+    tradesUnavailable: tradesUnavailable === true,
   };
 }

@@ -5,7 +5,9 @@
 
 import type { AxiosInstance } from 'axios';
 import type { VybeTradesResponse } from '../types/api.js';
-import { withRetry } from './client.js';
+import { isVybeApiNotFoundError, withRetry } from './client.js';
+
+export { isVybeApiNotFoundError };
 
 export type TradesSortField = 'price' | 'blockTime';
 

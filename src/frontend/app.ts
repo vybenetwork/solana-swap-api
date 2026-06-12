@@ -135,6 +135,9 @@ const STABLECOIN_USD_FALLBACK_MINTS: ReadonlySet<string> = new Set([
 ]);
 const STABLECOIN_USD_FALLBACK_PRICE = 1;
 
+/** Default slippage tolerance percent (matches #swapSlippage input). */
+const DEFAULT_SWAP_SLIPPAGE_PCT = 2;
+
 /** Prefer SOL, then USDC, then USDT when auto-picking sell token from wallet balances. */
 const SELL_TOKEN_PRIORITY_MINTS: readonly string[] = [
   'So11111111111111111111111111111111111111112',
@@ -2350,7 +2353,7 @@ function applyFeeEnrichmentToQuote(
     const outFmt = formatRawTokenAmount(simulatedOutRaw, outMint);
     next.outAmountUi = Number(outFmt.display.replace(/,/g, ''));
     next._outputFromSimulation = outputFromSimulation;
-    const slippagePct = swapSlippageInput ? Number(swapSlippageInput.value) : 0.5;
+    const slippagePct = swapSlippageInput ? Number(swapSlippageInput.value) : DEFAULT_SWAP_SLIPPAGE_PCT;
     if (Number.isFinite(slippagePct) && slippagePct >= 0) {
       try {
         const out = BigInt(simulatedOutRaw);
@@ -3106,13 +3109,19 @@ function applyVybeQuoteBodyToUi(
     lastError?: string;
     fallbackRouter?: string;
     unpinnedVybeRetry?: boolean;
+    tradesUnavailable?: boolean;
+    userMessage?: string;
   } | undefined;
-  if (rvt?.directRouteFailed && rvt.lastError && swapQuoteWarning) {
-    let summary = 'Route via Trades: pinned pools unavailable';
-    if (rvt.fallbackRouter === 'jupiter') summary += ' — fell back to Jupiter';
-    else if (rvt.fallbackRouter === 'titan') summary += ' — fell back to Titan';
-    else if (rvt.unpinnedVybeRetry) summary += ' — using Vybe auto-route';
-    showInlineWarning(swapQuoteWarning, `${summary}. ${rvt.lastError}`);
+  if (swapQuoteWarning) {
+    if (rvt?.userMessage) {
+      showInlineWarning(swapQuoteWarning, rvt.userMessage);
+    } else if (rvt?.directRouteFailed && rvt.lastError) {
+      let summary = 'Route via Trades: pinned pools unavailable';
+      if (rvt.fallbackRouter === 'jupiter') summary += ' — fell back to Jupiter';
+      else if (rvt.fallbackRouter === 'titan') summary += ' — fell back to Titan';
+      else if (rvt.unpinnedVybeRetry) summary += ' — using Vybe auto-route';
+      showInlineWarning(swapQuoteWarning, `${summary}. ${rvt.lastError}`);
+    }
   }
   renderRawResponsePanels();
   renderSwapQuoteUI(quote);

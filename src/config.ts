@@ -55,3 +55,6 @@ export const SOL_MIN_TX_FEE_BALANCE_UI = 0.006;
 /** Default service/protocol fee percent on swap build (0 = none). UI uses whole percent. */
 export const DEFAULT_SWAP_SERVICE_FEE_PCT = 0;
 
+/** Default slippage tolerance percent when the client does not specify one. */
+export const DEFAULT_SWAP_SLIPPAGE_PCT = 2;
+

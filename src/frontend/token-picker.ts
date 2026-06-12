@@ -708,6 +708,8 @@ export function swapSimulationFailed(
   buildTx: unknown,
   buildPayload?: Record<string, unknown> | null,
 ): boolean {
+  const simulationErr = buildPayload?._simulationErr ?? buildPayload?.simulationErr;
+  if (simulationErr != null) return true;
   if (!buildTx || typeof buildTx !== 'string' || buildTx.length === 0) return false;
   if (simulatedOutRaw != null && simulatedOutRaw !== '') return false;
   if (quotedBuildOutAmountRaw(buildPayload)) return false;
