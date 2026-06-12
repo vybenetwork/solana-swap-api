@@ -26,10 +26,18 @@ function pickPubkey(...candidates: (string | undefined)[]): string | undefined {
   return undefined;
 }
 
+export function isAccRentFeeItem(item: Pick<HopFeeItem, 'label' | 'destinationKind'>): boolean {
+  if (item.destinationKind === 'new_token_account') return true;
+  const l = item.label.trim().toLowerCase();
+  return l === 'acc rent fee' || l === 'pda rent' || l === 'token acc rent' || l.endsWith(' rent fee');
+}
+
 export interface HopFeeItem {
   label: string;
   amountRaw: string;
   mint: string;
+  /** Mint of the token account that received rent (WSOL, BONK, etc.). Fee amount is native SOL. */
+  accountMint?: string;
   destinationAddress?: string;
   destinationKind?: 'lp_pool' | 'new_token_account' | 'fee_recipient' | 'output_deduction' | 'input_wallet' | 'network_priority';
   destinationNote?: string;
@@ -105,18 +113,16 @@ export function estimateWalletPayDebitRaw(
 }
 
 function isWalletDebitedFeeItem(item: HopFeeItem, inputMint: string): boolean {
-  const label = item.label.trim().toLowerCase();
-  if (label === 'acc rent fee' || label === 'pda rent' || label === 'token acc rent') {
-    return isSolMint(inputMint) && isSolMint(item.mint);
-  }
+  if (isAccRentFeeItem(item)) return true;
   const kind = item.destinationKind;
   if (kind === 'lp_pool' || kind === 'output_deduction' || kind === 'network_priority') {
     return false;
   }
-  if (kind === 'fee_recipient' || kind === 'input_wallet' || kind === 'new_token_account') {
+  if (kind === 'fee_recipient' || kind === 'input_wallet') {
     if (isSolMint(inputMint)) return isSolMint(item.mint);
     return item.mint === inputMint.trim();
   }
+  const label = item.label.trim().toLowerCase();
   if (label === 'pool fee') return false;
   if (label === 'protocol fee') {
     if (isSolMint(inputMint)) return isSolMint(item.mint);
@@ -206,6 +212,7 @@ function attachAggregatorTokenAccRent(items: HopFeeItem[], rentLamports: bigint)
     label: 'Acc Rent Fee',
     amountRaw: rentLamports.toString(),
     mint: WSOL_MINT,
+    accountMint: WSOL_MINT,
     destinationKind: 'new_token_account',
   });
 }
@@ -217,6 +224,7 @@ function attachHopAccRentEntries(items: HopFeeItem[], entries: TokenAccRentEntry
       label: 'Acc Rent Fee',
       amountRaw: rent.lamports.toString(),
       mint: WSOL_MINT,
+      accountMint: rent.mint.trim(),
       destinationAddress: rent.accountAddress,
       destinationKind: 'new_token_account',
     });
@@ -362,7 +370,7 @@ function enrichHopFeeItemDestinations(
       continue;
     }
 
-    if (item.label === 'Acc Rent Fee') {
+    if (isAccRentFeeItem(item)) {
       if (!item.destinationKind) item.destinationKind = 'new_token_account';
       continue;
     }
@@ -647,7 +655,7 @@ function inferInterHopFeeRaw(
 
 function sumFeesInMint(items: HopFeeItem[], mint: string): bigint {
   return items.reduce((sum, item) => {
-    if (item.label === 'Acc Rent Fee') return sum;
+    if (isAccRentFeeItem(item)) return sum;
     if (!mintMatches(item.mint, mint)) return sum;
     try {
       return sum + BigInt(item.amountRaw);
@@ -886,7 +894,7 @@ export function enrichRoutePlanFees(
       if (totalFeeRaw != null) {
         const totalFee = BigInt(totalFeeRaw);
         const accounted = sumFeesInMint(
-          items.filter((it) => it.label !== 'Acc Rent Fee'),
+          items.filter((it) => !isAccRentFeeItem(it)),
           outMint,
         );
         const routeExtra = totalFee > accounted ? totalFee - accounted : 0n;

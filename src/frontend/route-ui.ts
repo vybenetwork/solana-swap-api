@@ -99,6 +99,8 @@ export interface HopFeeItemLite {
   label: string;
   amountRaw: string;
   mint: string;
+  /** Mint of the token account that received rent; fee amount is native SOL. */
+  accountMint?: string;
   destinationAddress?: string;
   destinationKind?: 'lp_pool' | 'new_token_account' | 'fee_recipient' | 'output_deduction' | 'input_wallet' | 'network_priority';
   destinationNote?: string;
@@ -124,6 +126,24 @@ export interface VybeRoutePlanStepLite {
   _hopFees?: HopFeeBreakdownLite;
 }
 export const ACC_RENT_FEE_LABEL = 'Acc Rent Fee';
+
+/** Token mint for the account that received rent (WSOL, BONK, …). */
+function accRentAccountMint(item: Pick<HopFeeItemLite, 'mint' | 'accountMint' | 'destinationKind'>): string {
+  const account = item.accountMint?.trim();
+  if (account) return isSolMint(account) ? WSOL_MINT : account;
+  const legacy = item.mint.trim();
+  if (item.destinationKind === 'new_token_account' && isSolMint(legacy)) return WSOL_MINT;
+  return legacy;
+}
+
+function accRentFeeDisplayLabel(item: Pick<HopFeeItemLite, 'mint' | 'accountMint' | 'destinationKind' | 'label'>): string {
+  const sym = mintSymbolSync(accRentAccountMint(item));
+  return `${sym} Rent Fee`;
+}
+
+function accRentDestBracketLabel(item: Pick<HopFeeItemLite, 'mint' | 'accountMint' | 'destinationKind'>): string {
+  return `${mintSymbolSync(accRentAccountMint(item))} Account`;
+}
 const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
   [NATIVE_SOL_MINT]: 'SOL',
   So11111111111111111111111111111111111111112: 'SOL',
@@ -1885,7 +1905,12 @@ const PRIORITY_FEE_LABEL = 'Priority fee';
 const SLIPPAGE_SPREAD_LABEL = 'Slippage/Spread';
 
 /** User-facing fee name; renames generic route fees by destination kind. */
-function displayFeeItemLabel(item: Pick<HopFeeItemLite, 'label' | 'destinationKind'>): string {
+function displayFeeItemLabel(
+  item: Pick<HopFeeItemLite, 'label' | 'destinationKind' | 'mint' | 'accountMint'>,
+): string {
+  if (isAccRentWalletFeeItem(item as HopFeeItemLite)) {
+    return accRentFeeDisplayLabel(item);
+  }
   const base = normalizeFeeItemLabel(item.label);
   const l = base.toLowerCase();
   if (l === 'route fee' || l === 'priority fee' || l === 'slippage/spread') {
@@ -1898,8 +1923,9 @@ function displayFeeItemLabel(item: Pick<HopFeeItemLite, 'label' | 'destinationKi
 }
 
 function isAccRentFeeLabel(label: string): boolean {
-  const l = normalizeFeeItemLabel(label).toLowerCase();
-  return l === 'acc rent fee';
+  const l = label.trim().toLowerCase();
+  if (l === 'acc rent fee' || l === 'pda rent' || l === 'token acc rent') return true;
+  return l.endsWith(' rent fee') && !l.includes('priority');
 }
 
 /** SOL/token-account rent — always debited from the wallet, even when selling a non-SOL token. */
@@ -1948,7 +1974,18 @@ function isInputSideWalletFeeItem(item: HopFeeItemLite, inputMint: string): bool
 
 function formatAccRentFeeSolSubline(equiv: FeeAmountEquiv): string {
   const amt = equiv.primary !== '—' ? equiv.primary.replace(/,/g, '') : '—';
-  return `${amt} SOL`;
+  const sym = equiv.feeSym && equiv.feeSym !== '—' ? equiv.feeSym : 'WSOL';
+  return `${amt} ${sym}`;
+}
+
+function accRentFeeAmountEquiv(item: HopFeeItemLite, quote: Record<string, unknown>): FeeAmountEquiv {
+  const equiv = computeFeeEquivalents(item.amountRaw, item.mint, quote);
+  return { ...equiv, feeMint: WSOL_MINT, feeSym: 'WSOL' };
+}
+
+function feeEquivForHopItem(item: HopFeeItemLite, quote: Record<string, unknown>): FeeAmountEquiv {
+  if (isAccRentWalletFeeItem(item)) return accRentFeeAmountEquiv(item, quote);
+  return computeFeeEquivalents(item.amountRaw, item.mint, quote);
 }
 
 /** Expand legacy nested token-acc rent onto the same row as other hop fees. */
@@ -1959,6 +1996,7 @@ function flattenHopFeeItems(items: HopFeeItemLite[]): HopFeeItemLite[] {
       label: normalizeFeeItemLabel(item.label),
       amountRaw: item.amountRaw,
       mint: item.mint,
+      accountMint: item.accountMint,
       destinationAddress: item.destinationAddress,
       destinationKind: item.destinationKind,
       destinationNote: item.destinationNote,
@@ -2397,7 +2435,7 @@ function feeChipVariant(label: string): string {
   if (l.includes('slippage') || l.includes('spread')) return 'fee-pool';
   if (l.includes('route')) return 'fee-route';
   if (l.includes('pool')) return 'fee-pool';
-  if (l.includes('acc rent') || l.includes('token acc rent') || l.includes('pda rent')) {
+  if (l.includes('acc rent') || l.includes('token acc rent') || l.includes('pda rent') || l.endsWith(' rent fee')) {
     return 'fee-token-acc-rent';
   }
   return 'fee';
@@ -2412,7 +2450,7 @@ function renderRoutingFeeChip(
   const usdInChip = equiv.usd
     ? `$${stripFiatPrefixForChip(equiv.usd)} USD`
     : '—';
-  const baseBelow = isAccRentFeeLabel(label)
+  const baseBelow = isAccRentFeeLabel(label) || label.endsWith(' Rent Fee')
     ? formatAccRentFeeSolSubline(equiv)
     : equiv.inputEquiv
       ? stripApproxPrefix(equiv.inputEquiv)
@@ -2444,11 +2482,19 @@ function placeholderRoutingFeeEquiv(tokenSubline = `${ROUTING_PLACEHOLDER_DASH} 
 }
 
 function renderMockAccRentAboveBranch(): string {
+  const mockItem: HopFeeItemLite = {
+    label: ACC_RENT_FEE_LABEL,
+    amountRaw: '0',
+    mint: WSOL_MINT,
+    accountMint: WSOL_MINT,
+    destinationKind: 'new_token_account',
+  };
+  const label = accRentFeeDisplayLabel(mockItem);
   const chip = renderRoutingFeeChip(
-    ACC_RENT_FEE_LABEL,
+    label,
     placeholderRoutingFeeEquiv(),
-    feeChipVariant(ACC_RENT_FEE_LABEL),
-    ACC_RENT_FEE_LABEL,
+    feeChipVariant(label),
+    label,
   );
   return `<div class="routing-acc-rent-above" aria-label="Account rent fee at this hop">
     <div class="routing-acc-rent-cards"><div class="routing-fee-slot routing-fee-slot--acc-rent">${chip}</div></div>
@@ -2536,8 +2582,8 @@ function renderMockHopPlanFeesSection(
       walletFeeSym,
     ),
     renderMockHopFeeRow(
-      ACC_RENT_FEE_LABEL,
-      renderMockFeeDestBracketOnly('ata', 'Token Account'),
+      'WSOL Rent Fee',
+      renderMockFeeDestBracketOnly('ata', 'WSOL Account'),
       walletFeeMint,
       walletFeeSym,
     ),
@@ -2588,7 +2634,7 @@ function renderMockRouteMarketNode(
 
 function renderHopFeeChip(item: HopFeeItemLite, quote: Record<string, unknown>): string {
   const label = displayFeeItemLabel(item);
-  const equiv = computeFeeEquivalents(item.amountRaw, item.mint, quote);
+  const equiv = feeEquivForHopItem(item, quote);
   const title = formatFeeEquivDetailText(equiv);
   return renderRoutingFeeChip(label, equiv, feeChipVariant(label), title);
 }
@@ -2716,7 +2762,9 @@ function renderFeeDestinationInline(item: HopFeeItemLite, ctx?: FeeDestinationRe
 
   const mod = meta?.mod ?? 'generic';
   if (addrHtml && meta) {
-    return `<span class="hop-fee-dest hop-fee-dest--${mod}">${addrHtml} ${renderFeeDestBracketTag(meta.label)}</span>`;
+    const kindLabel =
+      item.destinationKind === 'new_token_account' ? accRentDestBracketLabel(item) : meta.label;
+    return `<span class="hop-fee-dest hop-fee-dest--${mod}">${addrHtml} ${renderFeeDestBracketTag(kindLabel)}</span>`;
   }
 
   if (addrHtml) {
@@ -2724,7 +2772,9 @@ function renderFeeDestinationInline(item: HopFeeItemLite, ctx?: FeeDestinationRe
   }
 
   if (meta && !note) {
-    return `<span class="hop-fee-dest hop-fee-dest--${mod}">${renderFeeDestBracketTag(meta.label)}</span>`;
+    const kindLabel =
+      item.destinationKind === 'new_token_account' ? accRentDestBracketLabel(item) : meta.label;
+    return `<span class="hop-fee-dest hop-fee-dest--${mod}">${renderFeeDestBracketTag(kindLabel)}</span>`;
   }
 
   const kindHtml = meta
@@ -2770,7 +2820,7 @@ function renderHopPlanFeesSection(
   };
   const rowData = flattenHopFeeItems(hopFees.items).map((item) => ({
     item,
-    equiv: computeFeeEquivalents(item.amountRaw, item.mint, quote),
+    equiv: feeEquivForHopItem(item, quote),
   }));
 
   const walletRows: string[] = [];
@@ -2812,7 +2862,7 @@ function routePlanHasHopFees(plan: VybeRoutePlanStepLite[]): boolean {
 function routePlanHasAccRentFee(plan: VybeRoutePlanStepLite[]): boolean {
   for (const step of plan) {
     for (const item of getHopFeeDisplayItems(step)) {
-      if (isAccRentFeeLabel(item.label)) return true;
+      if (isAccRentWalletFeeItem(item)) return true;
     }
   }
   return false;
@@ -2843,7 +2893,7 @@ function feeTableBaseLegUi(
   equiv: FeeAmountEquiv,
   quote: Record<string, unknown>,
 ): number | null {
-  if (isAccRentFeeLabel(item.label)) {
+  if (isAccRentWalletFeeItem(item)) {
     return feeAmountToUi(item.amountRaw, item.mint);
   }
   const fromEquiv = parseInputEquivUi(equiv.inputEquiv);
@@ -3104,7 +3154,7 @@ function partitionHopFeeDisplayItems(items: HopFeeItemLite[]): {
   const accRentItems: HopFeeItemLite[] = [];
   const routeFeeItems: HopFeeItemLite[] = [];
   for (const item of items) {
-    if (isAccRentFeeLabel(item.label)) accRentItems.push(item);
+    if (isAccRentWalletFeeItem(item)) accRentItems.push(item);
     else routeFeeItems.push(item);
   }
   return { accRentItems, routeFeeItems };
