@@ -3,6 +3,7 @@
  */
 
 import type { AxiosInstance } from 'axios';
+import { completePinnedSwapParams } from './pinned-swap-params.js';
 import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type SwapProxyRouter } from './swap-build.js';
 import {
   buildSwapForTradeCandidate,
@@ -45,6 +46,7 @@ export interface VybeQuoteParams extends BuildSwapParams {
 export type RouteViaTradesOutcome =
   | 'direct'
   | 'unpinned_vybe'
+  | 'titan_fallback'
   | 'jupiter_fallback'
   | 'skipped'
   | 'failed';
@@ -56,7 +58,7 @@ export type RouteViaTradesDisabledReason =
   | 'router_not_vybe';
 
 export interface RouteViaTradesRecoveryLogEntry {
-  step: 'unpinned_vybe' | 'jupiter';
+  step: 'unpinned_vybe' | 'titan' | 'jupiter';
   success: boolean;
   provider?: string;
   error?: string;
@@ -161,8 +163,17 @@ async function recoverAfterTradeQueueExhausted(
     lastError: routed.lastError,
   };
 
+  const unpinnedParams: VybeQuoteParams = {
+    ...vybeParams,
+    router: 'vybe',
+    poolAddress: undefined,
+    programAddress: undefined,
+    protocol: undefined,
+    routeViaTrades: false,
+  };
+
   try {
-    const unpinned = await buildSwap(http, { ...vybeParams, router: 'vybe' });
+    const unpinned = await buildSwap(http, unpinnedParams);
     const provider = String(unpinned.provider ?? unpinned.details?.quote?.provider ?? '').trim();
     if (acceptUnpinnedVybeBuild(unpinned)) {
       recoveryLog.push({ step: 'unpinned_vybe', success: true, provider: provider || undefined });
@@ -189,21 +200,42 @@ async function recoverAfterTradeQueueExhausted(
     });
   }
 
-  const build = await buildSwap(http, { ...vybeParams, router: 'jupiter' });
-  const jupiterProvider = String(build.provider ?? build.details?.quote?.provider ?? 'jupiter').trim();
-  recoveryLog.push({
-    step: 'jupiter',
-    success: true,
-    provider: jupiterProvider || 'jupiter',
-  });
-  const meta: RouteViaTradesMeta = {
-    ...routeViaTrades,
-    outcome: 'jupiter_fallback',
-    fallbackRouter: 'jupiter',
-    recoveryLog,
+  const aggregatorParams: VybeQuoteParams = {
+    ...vybeParams,
+    poolAddress: undefined,
+    programAddress: undefined,
+    protocol: undefined,
+    routeViaTrades: false,
   };
-  logRouteViaTradesMeta(meta);
-  return { build, routeViaTrades: meta };
+
+  for (const router of ['titan', 'jupiter'] as const) {
+    try {
+      const build = await buildSwap(http, { ...aggregatorParams, router });
+      const provider = String(build.provider ?? build.details?.quote?.provider ?? router).trim();
+      recoveryLog.push({
+        step: router,
+        success: true,
+        provider: provider || router,
+      });
+      const outcome = router === 'titan' ? 'titan_fallback' : 'jupiter_fallback';
+      const meta: RouteViaTradesMeta = {
+        ...routeViaTrades,
+        outcome,
+        fallbackRouter: router,
+        recoveryLog,
+      };
+      logRouteViaTradesMeta(meta);
+      return { build, routeViaTrades: meta };
+    } catch (err) {
+      recoveryLog.push({
+        step: router,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  throw new Error(routeViaTrades.lastError ?? 'Route via Trades recovery failed');
 }
 
 export interface VybeQuoteResult {
@@ -496,8 +528,14 @@ export async function buildVybeQuoteFromPriceAndSwap(
       : await buildSwapViaTradeMarkets(http, { ...vybeParams, router: 'vybe' });
     if (routed.kind === 'direct') {
       build = routed.build;
-      vybeParams.poolAddress = routed.selected.marketAddress;
-      if (routed.selected.programAddress) vybeParams.programAddress = routed.selected.programAddress;
+      Object.assign(
+        vybeParams,
+        completePinnedSwapParams({
+          poolAddress: routed.selected.marketAddress,
+          programAddress: routed.selected.programAddress,
+          protocol: routed.selected.protocol,
+        }),
+      );
       routeViaTrades = {
         enabled: true,
         outcome: 'direct',

@@ -8,6 +8,21 @@ import { Connection } from '@solana/web3.js';
 import { SOLANA_RPC_URL } from '../config.js';
 import type { VybeTrade } from '../types/api.js';
 import type { SwapProxyProtocol } from './swap-build.js';
+import {
+  completePinnedSwapParams,
+  isSupportedIxBuilderProgram,
+  IX_BUILDER_PROGRAM_IDS,
+  programAddressToIxBuilderProtocol,
+  programAddressToProtocol,
+  programLabelForAddress,
+} from './pinned-swap-params.js';
+export {
+  isSupportedIxBuilderProgram,
+  IX_BUILDER_PROGRAM_IDS,
+  programAddressToIxBuilderProtocol,
+  programAddressToProtocol,
+  programLabelForAddress,
+} from './pinned-swap-params.js';
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
 import { staticAccountKeysFromSwapTx, validateTradeRoutedBuildOnChain } from './pool-address-validation.js';
 import { toVybeSwapMint } from './sol-mints.js';
@@ -15,73 +30,12 @@ import { getTrades, type GetTradesParams } from './trades.js';
 
 export const ROUTE_VIA_TRADES_LIMIT = 1000;
 export const ROUTE_VIA_TRADES_DISPLAY_MARKETS = 15;
-/** Keep pools with tradeCount >= this fraction × busiest pool (e.g. 0.5 → top 50%). */
-export const ROUTE_VIA_TRADES_MIN_COUNT_FRACTION = 0.5;
-/** @deprecated Queue no longer capped — all markets meeting min count fraction are tried. */
-export const ROUTE_VIA_TRADES_TOP_MARKETS = 5;
-
-/**
- * ix-builder-api supported swap programs (protocol-checker PROGRAM_IDS + SANCTUM).
- * @see supplementary reference: ix-builder-api-main-nodejs/src/services/protocol-checker.js
- */
-const IX_BUILDER_SUPPORTED_PROGRAMS: Record<
-  string,
-  { protocol: SwapProxyProtocol; ixBuilderProtocol: string; label: string }
-> = {
-  'dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN': {
-    protocol: 'METEORADBC',
-    ixBuilderProtocol: 'METEORA_DBC',
-    label: 'Meteora DBC',
-  },
-  'cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG': {
-    protocol: 'METEORADAMM2',
-    ixBuilderProtocol: 'METEORA_DAMM2',
-    label: 'Meteora DAMM v2',
-  },
-  'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo': {
-    protocol: 'METEORADLMM',
-    ixBuilderProtocol: 'METEORA_DLMM',
-    label: 'Meteora DLMM',
-  },
-  'LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj': {
-    protocol: 'RAYDIUMLAUNCHLAB',
-    ixBuilderProtocol: 'RAYDIUM_LAUNCHLAB',
-    label: 'Raydium LaunchLab',
-  },
-  '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': {
-    protocol: 'RAYDIUMAMMV4',
-    ixBuilderProtocol: 'RAYDIUM_AMM_V4',
-    label: 'Raydium AMM v4',
-  },
-  'CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C': {
-    protocol: 'RAYDIUMCPMM',
-    ixBuilderProtocol: 'RAYDIUM_CPMM',
-    label: 'Raydium CPMM',
-  },
-  'CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK': {
-    protocol: 'RAYDIUMCLMM',
-    ixBuilderProtocol: 'RAYDIUM_CLMM',
-    label: 'Raydium CLMM',
-  },
-  '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P': {
-    protocol: 'PUMPFUN',
-    ixBuilderProtocol: 'PUMPFUN',
-    label: 'Pump.fun',
-  },
-  'pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA': {
-    protocol: 'PUMPSWAP',
-    ixBuilderProtocol: 'PUMPSWAP',
-    label: 'PumpSwap',
-  },
-  '5ocnV1qiCgaQR8Jb8xWnVbApfaygJ8tNoZfgPwsgx9kx': {
-    protocol: 'SANCTUM',
-    ixBuilderProtocol: 'SANCTUM',
-    label: 'Sanctum',
-  },
-};
-
-/** Supported DEX program ids (for on-chain pool state lookup). */
-export const IX_BUILDER_PROGRAM_IDS = Object.keys(IX_BUILDER_SUPPORTED_PROGRAMS);
+/** Keep pools with tradeCount >= this fraction × busiest pool (e.g. 0.05 → ≥5%). */
+export const ROUTE_VIA_TRADES_MIN_COUNT_FRACTION = 0.05;
+/** Max pinned build attempts from the eligible trade-ranked queue. */
+export const ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS = 5;
+/** @deprecated Use ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS */
+export const ROUTE_VIA_TRADES_TOP_MARKETS = ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS;
 
 export interface TradeMarketCandidate {
   marketAddress: string;
@@ -104,24 +58,6 @@ export interface RouteViaTradesMarketResolution {
   queueCandidates: TradeMarketCandidate[];
   maxTradeCount: number;
   minCountThreshold: number;
-}
-
-export function isSupportedIxBuilderProgram(programAddress: string): boolean {
-  return programAddress.trim() in IX_BUILDER_SUPPORTED_PROGRAMS;
-}
-
-export function programLabelForAddress(programAddress: string): string {
-  const addr = programAddress.trim();
-  if (!addr) return '';
-  return IX_BUILDER_SUPPORTED_PROGRAMS[addr]?.label ?? addr;
-}
-
-export function programAddressToProtocol(programAddress: string): SwapProxyProtocol | undefined {
-  return IX_BUILDER_SUPPORTED_PROGRAMS[programAddress.trim()]?.protocol;
-}
-
-export function programAddressToIxBuilderProtocol(programAddress: string): string | undefined {
-  return IX_BUILDER_SUPPORTED_PROGRAMS[programAddress.trim()]?.ixBuilderProtocol;
 }
 
 export function tradeInvolvesMintPair(t: VybeTrade, mintA: string, mintB: string): boolean {
@@ -208,7 +144,7 @@ export function rankAllMarketsFromTrades(
   return [...byPair.values()].sort((a, b) => b.tradeCount - a.tradeCount);
 }
 
-/** Apply ix-builder program filter + min 50% of max trade count; build display + queue lists. */
+/** Apply ix-builder program filter + min trade-count fraction; build display + queue lists. */
 export function resolveMarketsForRouteViaTrades(
   ranked: TradeMarketCandidate[],
   options?: { minCountFraction?: number; displayLimit?: number },
@@ -294,9 +230,9 @@ export interface RouteViaTradesBuildAttemptLog {
   error?: string;
 }
 
-/** Trade-ranked queue only — no cap; caller already filtered by 50% threshold + supported program. */
+/** Trade-ranked queue — capped at ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS after eligibility filter. */
 export function queueFromTradeCandidates(candidates: TradeMarketCandidate[]): QueuedMarketEntry[] {
-  return candidates.map((c, i) => ({
+  return candidates.slice(0, ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS).map((c, i) => ({
     ...c,
     programLabel: programLabelForAddress(c.programAddress),
     queueIndex: i + 1,
@@ -525,17 +461,13 @@ function buildSwapBodyForTradeAttempt(
 ): import('./swap-build.js').BuildSwapParams {
   const { protocol: _omitProtocol, poolAddress: _omitPool, programAddress: _omitProgram, ...rest } =
     body;
-  const programAddress = attempt.programAddress?.trim();
-  const protocol =
-    attempt.protocol ??
-    (programAddress ? programAddressToProtocol(programAddress) : undefined);
-  return {
+  return completePinnedSwapParams({
     ...rest,
     router: 'vybe',
     poolAddress: attempt.poolAddress,
-    ...(programAddress ? { programAddress } : {}),
-    ...(protocol ? { protocol } : {}),
-  };
+    programAddress: attempt.programAddress,
+    protocol: attempt.protocol,
+  });
 }
 
 function quickProbeAttemptForQueueEntry(queueEntry: QueuedMarketEntry): BuildAttempt | null {
@@ -832,7 +764,7 @@ export async function buildSwapViaTradeMarkets(
       ...queueMeta,
       tried: [],
       lastError:
-        'Route via Trades: no eligible markets (ix-builder supported program + ≥50% of top pool trade count).',
+        'Route via Trades: no eligible markets (ix-builder supported program + ≥5% of top pool trade count).',
     };
   }
 

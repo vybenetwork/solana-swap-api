@@ -5,6 +5,7 @@
 import axios, { type AxiosInstance } from 'axios';
 import { DEFAULT_SWAP_SERVICE_FEE_PCT } from '../config.js';
 import type { VybeSwapBuildResponse } from '../types/swap.js';
+import { completePinnedSwapParams } from './pinned-swap-params.js';
 import { withRetry } from './client.js';
 import { toVybeSwapMint } from './sol-mints.js';
 
@@ -55,22 +56,26 @@ export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Pro
 }
 
 function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Record<string, unknown> {
+  const pinned =
+    router === 'vybe' || body.router === 'vybe'
+      ? completePinnedSwapParams(body)
+      : body;
   const payload: Record<string, unknown> = {
-    accountAddress: body.accountAddress.trim(),
-    amount: body.amount,
-    inputMintAddress: toVybeSwapMint(body.inputMintAddress.trim()),
-    outputMintAddress: toVybeSwapMint(body.outputMintAddress.trim()),
+    accountAddress: pinned.accountAddress.trim(),
+    amount: pinned.amount,
+    inputMintAddress: toVybeSwapMint(pinned.inputMintAddress.trim()),
+    outputMintAddress: toVybeSwapMint(pinned.outputMintAddress.trim()),
   };
-  if (body.slippage != null && Number.isFinite(body.slippage)) payload.slippage = body.slippage;
+  if (pinned.slippage != null && Number.isFinite(pinned.slippage)) payload.slippage = pinned.slippage;
   if (router) payload.router = router;
-  if (body.autoCalculateSlippage != null) payload.autoCalculateSlippage = body.autoCalculateSlippage;
-  if (body.gasless != null) payload.gasless = body.gasless;
-  if (body.partner?.trim()) payload.partner = body.partner.trim();
-  if (body.poolAddress?.trim()) payload.poolAddress = body.poolAddress.trim();
-  if (body.protocol) payload.protocol = body.protocol;
-  if (body.programAddress?.trim()) payload.programAddress = body.programAddress.trim();
-  if (body.simulate != null) payload.simulate = body.simulate;
-  payload.swapFee = swapFeeParamForRouter(body.swapFee, router);
+  if (pinned.autoCalculateSlippage != null) payload.autoCalculateSlippage = pinned.autoCalculateSlippage;
+  if (pinned.gasless != null) payload.gasless = pinned.gasless;
+  if (pinned.partner?.trim()) payload.partner = pinned.partner.trim();
+  if (pinned.poolAddress?.trim()) payload.poolAddress = pinned.poolAddress.trim();
+  if (pinned.protocol) payload.protocol = pinned.protocol;
+  if (pinned.programAddress?.trim()) payload.programAddress = pinned.programAddress.trim();
+  if (pinned.simulate != null) payload.simulate = pinned.simulate;
+  payload.swapFee = swapFeeParamForRouter(pinned.swapFee, router);
   return payload;
 }
 

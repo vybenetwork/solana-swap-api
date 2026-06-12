@@ -4049,6 +4049,7 @@ const ROUTE_VIA_TRADES_DISABLED_LABELS: Record<string, string> = {
 const ROUTE_VIA_TRADES_OUTCOME_LABELS: Record<string, string> = {
   direct: 'Direct pool build succeeded',
   unpinned_vybe: 'Trade queue exhausted — unpinned Vybe auto-route',
+  titan_fallback: 'Trade queue exhausted — switched to Titan',
   jupiter_fallback: 'Trade queue exhausted — switched to Jupiter',
   skipped: 'Route via Trades not used',
   failed: 'Trade queue failed',
@@ -4084,7 +4085,7 @@ export function renderRouteViaTradesLogHtml(meta: Record<string, unknown> | null
     const tradeEligible = Number(meta.tradeMarketsEligible ?? 0);
     const queued = Array.isArray(meta.queued) ? meta.queued : [];
     parts.push(
-      `<p class="rvt-log__line"><strong>Markets:</strong> top pool ${maxCount} trades — queue ≥ ${Math.round(minThreshold)} (50% rule) · ${tradeEligible} eligible · ${queued.length} queued</p>`,
+      `<p class="rvt-log__line"><strong>Markets:</strong> top pool ${maxCount} trades — queue ≥ ${Math.round(minThreshold)} (5% rule, max 5 tries) · ${tradeEligible} eligible · ${queued.length} queued</p>`,
     );
   }
   parts.push('</div>');
@@ -4103,7 +4104,7 @@ export function renderRouteViaTradesLogHtml(meta: Record<string, unknown> | null
         `<li class="rvt-log__item${eligible ? '' : ' rvt-log__item--fail'}">` +
           `#${rank} <strong>${count}</strong> trades · ${escapeHtml(label)} ` +
           `<code class="rvt-log__addr" title="${escapeHtml(addr)}">${escapeHtml(shortSolAddress(addr, 6, 6))}</code> ` +
-          `${eligible ? '<span class="rvt-log__badge rvt-log__badge--ok">queued</span>' : supported ? '<span class="rvt-log__badge rvt-log__badge--fail">&lt;50%</span>' : '<span class="rvt-log__badge rvt-log__badge--fail">unsupported</span>'}` +
+          `${eligible ? '<span class="rvt-log__badge rvt-log__badge--ok">queued</span>' : supported ? '<span class="rvt-log__badge rvt-log__badge--fail">&lt;5%</span>' : '<span class="rvt-log__badge rvt-log__badge--fail">unsupported</span>'}` +
           `</li>`,
       );
     }
@@ -4180,7 +4181,7 @@ export function renderRouteViaTradesLogHtml(meta: Record<string, unknown> | null
     parts.push('</ul></div>');
   }
 
-  if (meta.lastError && (meta.directRouteFailed === true || outcome === 'jupiter_fallback' || outcome === 'unpinned_vybe')) {
+  if (meta.lastError && (meta.directRouteFailed === true || outcome === 'jupiter_fallback' || outcome === 'titan_fallback' || outcome === 'unpinned_vybe')) {
     const err = String(meta.lastError);
     parts.push(`<p class="rvt-log__line rvt-log__line--warn"><strong>Last queue error:</strong> ${escapeHtml(err)}</p>`);
   }

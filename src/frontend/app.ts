@@ -2188,8 +2188,32 @@ function detectVybeAggregatorFallbackRouter(
   selectedRouter: string,
 ): 'jupiter' | 'titan' | null {
   if (normalizeRouterId(selectedRouter) !== 'vybe') return null;
+  const rvtHandoff = detectRouteViaTradesAggregatorHandoff(body);
+  if (rvtHandoff) return rvtHandoff;
   if (body._routeViaTrades != null) return null;
   return resolveVybeHandoffAggregatorRouter(body);
+}
+
+function detectRouteViaTradesAggregatorHandoff(
+  body: Record<string, unknown>,
+): 'jupiter' | 'titan' | null {
+  const rvt = body._routeViaTrades as {
+    enabled?: boolean;
+    fallbackRouter?: string;
+    outcome?: string;
+  } | undefined;
+  if (!rvt?.enabled) return null;
+  if (rvt.fallbackRouter === 'jupiter' || rvt.fallbackRouter === 'titan') {
+    return rvt.fallbackRouter;
+  }
+  if (rvt.outcome === 'titan_fallback') return 'titan';
+  if (rvt.outcome === 'jupiter_fallback') return 'jupiter';
+  const build = body._build as Record<string, unknown> | undefined;
+  const provider = normalizeRouterId(String(build?.provider ?? ''));
+  if (provider === 'jupiter' || provider === 'titan') {
+    return provider;
+  }
+  return null;
 }
 
 function handoffVybeQuoteToAggregator(
@@ -3057,6 +3081,7 @@ function applyVybeQuoteBodyToUi(
   if (rvt?.directRouteFailed && rvt.lastError && swapQuoteWarning) {
     let summary = 'Route via Trades: pinned pools unavailable';
     if (rvt.fallbackRouter === 'jupiter') summary += ' — fell back to Jupiter';
+    else if (rvt.fallbackRouter === 'titan') summary += ' — fell back to Titan';
     else if (rvt.unpinnedVybeRetry) summary += ' — using Vybe auto-route';
     showInlineWarning(swapQuoteWarning, `${summary}. ${rvt.lastError}`);
   }
