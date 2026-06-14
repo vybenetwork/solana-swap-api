@@ -180,34 +180,36 @@ async function recoverAfterTradeQueueExhausted(
     routeViaTrades: false,
   };
 
-  if (!routed.tradesUnavailable) {
-    try {
-      const unpinned = await buildSwap(http, unpinnedParams);
-      const provider = String(unpinned.provider ?? unpinned.details?.quote?.provider ?? '').trim();
-      if (acceptUnpinnedVybeBuild(unpinned)) {
-        recoveryLog.push({ step: 'unpinned_vybe', success: true, provider: provider || undefined });
-        const meta: RouteViaTradesMeta = {
-          ...routeViaTrades,
-          outcome: 'unpinned_vybe',
-          unpinnedVybeRetry: true,
-          recoveryLog,
-        };
-        logRouteViaTradesMeta(meta);
-        return { build: unpinned, routeViaTrades: meta };
-      }
-      recoveryLog.push({
-        step: 'unpinned_vybe',
-        success: false,
-        provider: provider || undefined,
-        error: provider ? `Vybe returned aggregator/provider ${provider}` : 'no direct tx',
-      });
-    } catch (err) {
-      recoveryLog.push({
-        step: 'unpinned_vybe',
-        success: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
+  try {
+    const unpinned = await buildSwap(http, unpinnedParams);
+    const provider = String(unpinned.provider ?? unpinned.details?.quote?.provider ?? '').trim();
+    if (acceptUnpinnedVybeBuild(unpinned)) {
+      recoveryLog.push({ step: 'unpinned_vybe', success: true, provider: provider || undefined });
+      const meta: RouteViaTradesMeta = {
+        ...routeViaTrades,
+        outcome: 'unpinned_vybe',
+        unpinnedVybeRetry: true,
+        directRouteFailed: false,
+        recoveryLog,
+        userMessage: routed.tradesUnavailable
+          ? 'Routed via Vybe auto-route — trades API unavailable.'
+          : 'Pinned trade routes failed — using Vybe auto-route.',
+      };
+      logRouteViaTradesMeta(meta);
+      return { build: unpinned, routeViaTrades: meta };
     }
+    recoveryLog.push({
+      step: 'unpinned_vybe',
+      success: false,
+      provider: provider || undefined,
+      error: provider ? `Vybe returned aggregator/provider ${provider}` : 'no direct tx',
+    });
+  } catch (err) {
+    recoveryLog.push({
+      step: 'unpinned_vybe',
+      success: false,
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 
   const aggregatorParams: VybeQuoteParams = {

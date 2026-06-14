@@ -1112,9 +1112,10 @@ function applySellAmountPercent(percent: number): void {
     return;
   }
 
+  const maxInput = getMaxSellAmountForInput(mint) ?? sellable;
   let amount =
-    percent >= getMaxSellPercentForMint(mint) ? sellable : total * (percent / 100);
-  if (amount > sellable) amount = sellable;
+    percent >= getMaxSellPercentForMint(mint) ? maxInput : total * (percent / 100);
+  if (amount > maxInput) amount = maxInput;
   if (amount <= 0) return;
 
   if (swapQuoteError) clearInlineError(swapQuoteError);
@@ -1124,6 +1125,15 @@ function applySellAmountPercent(percent: number): void {
 function formatSwapInputAmountValue(amount: number, decimals = 9): string {
   if (!Number.isFinite(amount) || amount <= 0) return '0';
   return formatSwapAmountValue(amount).replace(/,/g, '');
+}
+
+/** Max sell amount as stored in the amount input (matches 4-decimal display rounding). */
+function getMaxSellAmountForInput(mint: string): number | null {
+  const sellable = getWalletSellableAmountUi(mint);
+  if (sellable == null || sellable <= 0) return null;
+  const formatted = formatSwapInputAmountValue(sellable, getMintDecimals(mint));
+  const parsed = Number(formatted);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : sellable;
 }
 
 function findSolBalanceItem(items: WalletBalanceListItem[]): WalletBalanceListItem | null {
@@ -1180,7 +1190,7 @@ function getSwapAmountMaxUi(): number | null {
   if (maxAttr !== '' && Number.isFinite(Number(maxAttr))) return Number(maxAttr);
   const mint = swapInputMintInput?.value.trim() ?? '';
   if (!mint || !hasValidSwapWallet()) return null;
-  return getWalletSellableAmountUi(mint);
+  return getMaxSellAmountForInput(mint);
 }
 
 function clampSwapAmountInputToMax(): boolean {
@@ -3702,14 +3712,14 @@ async function fetchSwapQuote(): Promise<void> {
     return;
   }
   if (hasValidSwapWallet()) {
-    const sellable = getWalletSellableAmountUi(inputMint);
-    if (sellable != null && amount > sellable) {
+    const maxInput = getMaxSellAmountForInput(inputMint);
+    if (maxInput != null && amount > maxInput) {
       clampSwapAmountInputToMax();
       syncSwapSellAmountUi();
       if (swapQuoteError) {
         showInlineError(
           swapQuoteError,
-          `Amount exceeds max sellable balance (${formatSwapInputAmountValue(sellable, getMintDecimals(inputMint))}).`
+          `Amount exceeds max sellable balance (${formatSwapInputAmountValue(maxInput, getMintDecimals(inputMint))}).`
         );
       }
       return;

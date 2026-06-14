@@ -3,8 +3,9 @@
  */
 
 import axios, { type AxiosInstance } from 'axios';
-import { DEFAULT_SWAP_SERVICE_FEE_PCT } from '../config.js';
+import { DEFAULT_SWAP_SERVICE_FEE_PCT, isLocalVybeApi } from '../config.js';
 import type { VybeSwapBuildResponse } from '../types/swap.js';
+import { buildSwapViaIxBuilder } from './ix-builder-swap.js';
 import { completePinnedSwapParams } from './pinned-swap-params.js';
 import { withRetry } from './client.js';
 import { toVybeSwapMint } from './sol-mints.js';
@@ -48,7 +49,11 @@ export interface BuildSwapParams {
 }
 
 export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
-  const payload = buildSwapPayload(body, body.router);
+  const router = body.router ?? 'vybe';
+  if (isLocalVybeApi() && router === 'vybe') {
+    return buildSwapViaIxBuilder(body);
+  }
+  const payload = buildSwapPayload(body, router);
   return withRetry(async () => {
     const { data } = await http.post<VybeSwapBuildResponse>('/v4/trading/swap', payload);
     return data;
@@ -107,12 +112,23 @@ export async function buildSwapWithFallback(
   body: BuildSwapParams,
 ): Promise<VybeSwapBuildResponse> {
   const preferred = body.router ?? 'vybe';
+  let lastErr: unknown;
+
+  if (isLocalVybeApi() && preferred === 'vybe') {
+    try {
+      return await buildSwapViaIxBuilder(body);
+    } catch (err) {
+      lastErr = err;
+      if (!isRetryableBuildError(err)) throw err;
+    }
+  }
+
   const routers: (SwapProxyRouter | undefined)[] = [
     preferred,
     ...(['vybe', 'jupiter', 'titan'] as const).filter((r) => r !== preferred),
     undefined,
-  ];
-  let lastErr: unknown;
+  ].filter((router) => !(isLocalVybeApi() && router === 'vybe'));
+
   for (const router of routers) {
     try {
       const payload = buildSwapPayload(body, router);

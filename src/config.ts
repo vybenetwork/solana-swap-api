@@ -32,6 +32,32 @@ export function getApiKey(): string {
 /** Vybe API base URL (no trailing slash). */
 export const VYBE_API_BASE = 'https://api.vybenetwork.xyz';
 
+export type VybeApiLocation = 'remote' | 'local';
+
+/** Read VYBE_API_LOCATION / vybe_api_location from env (`local` → ix-builder on localhost). */
+export function getVybeApiLocation(): VybeApiLocation {
+  const raw = (
+    process.env.VYBE_API_LOCATION ??
+    process.env.vybe_api_location ??
+    ''
+  )
+    .trim()
+    .toLowerCase();
+  return raw === 'local' ? 'local' : 'remote';
+}
+
+/** True when Vybe-router swap builds should hit local ix-builder instead of Vybe API. */
+export function isLocalVybeApi(): boolean {
+  return getVybeApiLocation() === 'local';
+}
+
+/** Local ix-builder base URL (no trailing slash). Used when {@link isLocalVybeApi} is true. */
+export const IX_BUILDER_LOCAL_URL = (
+  process.env.IX_BUILDER_LOCAL_URL ?? 'http://localhost:8000'
+)
+  .trim()
+  .replace(/\/$/, '');
+
 /** Request timeout for Vybe API calls (ms). */
 export const VYBE_TIMEOUT_MS = 60_000;
 

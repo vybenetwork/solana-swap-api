@@ -3,7 +3,15 @@
  */
 
 import express, { type Request, type Response } from 'express';
-import { loadEnv, getApiKey, PUBLIC_DIR, SOLANA_RPC_URL, DEFAULT_SWAP_SERVICE_FEE_PCT } from './config.js';
+import {
+  loadEnv,
+  getApiKey,
+  PUBLIC_DIR,
+  SOLANA_RPC_URL,
+  DEFAULT_SWAP_SERVICE_FEE_PCT,
+  getVybeApiLocation,
+  IX_BUILDER_LOCAL_URL,
+} from './config.js';
 import { createClient } from './api/index.js';
 import { toHumanReadableError } from './api/client.js';
 import { InsufficientBalanceError } from './api/wallet-balance.js';
@@ -28,6 +36,11 @@ import { fetchRankedTopMarketsFromTrades } from './api/route-via-trades.js';
 loadEnv();
 const apiKey = getApiKey();
 console.log('VYBE_API_KEY loaded (length %d)', apiKey.length);
+if (getVybeApiLocation() === 'local') {
+  console.log('Vybe swap builds → local ix-builder at %s', IX_BUILDER_LOCAL_URL);
+} else {
+  console.log('Vybe swap builds → Vybe API at https://api.vybenetwork.xyz');
+}
 
 const SWAP_PROTOCOL_SET = new Set<string>(VYBE_SWAP_PROTOCOLS);
 
