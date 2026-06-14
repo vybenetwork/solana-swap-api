@@ -1036,7 +1036,7 @@ function sellAmountRoughlyEqual(a: number, b: number, mint: string): boolean {
 
 function sellAmountMatchesPercent(currentUi: number, percent: number, mint: string): boolean {
   const total = getWalletBalanceAmountUi(mint);
-  const sellable = getWalletSellableAmountUi(mint);
+  const sellable = getWalletSellableForUi(mint);
   if (total == null || total <= 0 || sellable == null || sellable <= 0) return false;
   if (!Number.isFinite(currentUi) || currentUi <= 0) return false;
 
@@ -1063,7 +1063,7 @@ function syncSellPctButtonsState(): void {
   if (!container) return;
   const mint = swapInputMintInput?.value.trim() ?? '';
   const walletReady =
-    hasValidSwapWallet() && mint.length > 0 && (getWalletSellableAmountUi(mint) ?? 0) > 0;
+    hasValidSwapWallet() && mint.length > 0 && (getWalletSellableForUi(mint) ?? 0) > 0;
   const currentUi = Number(swapAmountInput?.value.trim() ?? '');
   const activePct =
     walletReady && Number.isFinite(currentUi) && currentUi > 0
@@ -1106,7 +1106,7 @@ function applySellAmountPercent(percent: number): void {
     return;
   }
 
-  const sellable = getWalletSellableAmountUi(mint);
+  const sellable = getWalletSellableForUi(mint);
   if (sellable == null || sellable <= 0) {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Balance too low to sell this token.');
     return;
@@ -1129,7 +1129,7 @@ function formatSwapInputAmountValue(amount: number, decimals = 9): string {
 
 /** Max sell amount as stored in the amount input (matches 4-decimal display rounding). */
 function getMaxSellAmountForInput(mint: string): number | null {
-  const sellable = getWalletSellableAmountUi(mint);
+  const sellable = getWalletSellableForUi(mint);
   if (sellable == null || sellable <= 0) return null;
   const formatted = formatSwapInputAmountValue(sellable, getMintDecimals(mint));
   const parsed = Number(formatted);
@@ -1171,7 +1171,7 @@ function pickDefaultSellBalance(items: WalletBalanceListItem[]): WalletBalanceLi
 function syncSwapAmountMaxFromBalance(): void {
   if (!swapAmountInput || !swapInputMintInput) return;
   const mint = swapInputMintInput.value.trim();
-  const sellable = getWalletSellableAmountUi(mint);
+  const sellable = getWalletSellableForUi(mint);
   if (sellable != null && sellable > 0) {
     swapAmountInput.max = formatSwapInputAmountValue(sellable, getMintDecimals(mint));
   } else if (hasValidSwapWallet() && mint) {
@@ -1251,7 +1251,7 @@ function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: bo
   void refreshSwapSymbols();
   syncSwapAmountMaxFromBalance();
   if (useMaxAmount) {
-    const sellable = getWalletSellableAmountUi(swapMint);
+    const sellable = getWalletSellableForUi(swapMint);
     if (sellable != null && sellable > 0) {
       setSwapSellAmountToBalance(sellable, swapMint);
     }
@@ -1483,7 +1483,7 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
   void refreshSwapSymbols();
   if (side === 'input') {
     syncSwapAmountMaxFromBalance();
-    const sellable = getWalletSellableAmountUi(resolvedMint);
+    const sellable = getWalletSellableForUi(resolvedMint);
     if (sellable != null && sellable > 0) {
       setSwapSellAmountToBalance(sellable, resolvedMint);
     }
@@ -1828,7 +1828,7 @@ function syncSellAmountInputFromInAmountRaw(
   if (!Number.isFinite(n) || n <= 0) return null;
   if (
     requestedUi != null &&
-    !shouldApplySellAmountFromQuoteInAmount(requestedUi, n, mint)
+    !shouldApplySellAmountFromQuoteInAmount(requestedUi, n, mint, getSwapSellRouterOptions())
   ) {
     return requestedUi;
   }
@@ -1838,7 +1838,7 @@ function syncSellAmountInputFromInAmountRaw(
 
 function maybeShowSplSellReducedWarning(amountUi: number, mint: string, originalAmountUi?: number): void {
   if (!swapQuoteWarning) return;
-  const sellable = getWalletSellableAmountUi(mint);
+  const sellable = getWalletSellableForUi(mint);
   if (sellable != null && amountUi >= sellable * 0.995) return;
   const balance = getWalletBalanceAmountUi(mint);
   if (balance == null) return;
@@ -1856,7 +1856,7 @@ function maybeShowSplSellReducedWarning(amountUi: number, mint: string, original
 
 /** Full wallet balance (100%) when switching routers after sim retries are exhausted. */
 function getSplRouterResetSellAmountUi(mint: string): number | null {
-  if (isSolMint(mint)) return getWalletSellableAmountUi(mint);
+  if (isSolMint(mint)) return getWalletSellableForUi(mint);
   const balance = getWalletBalanceAmountUi(mint);
   if (balance == null || balance <= 0) return null;
   return balance;
@@ -1878,7 +1878,7 @@ function nextSplSellRetryAmountUi(
 ): number | null {
   const balance = getWalletBalanceAmountUi(inputMint);
   if (balance == null) return null;
-  const sellable = getWalletSellableAmountUi(inputMint);
+  const sellable = getWalletSellableForUi(inputMint);
   if (sellable != null && currentAmountUi <= sellable * 1.001) return null;
   if (!shouldContinueSplSellSimRetry(inputMint, currentAmountUi, balance, step)) return null;
 
@@ -2148,6 +2148,14 @@ function getSwapRouter(): string {
   return swapRouterInput?.value.trim() || 'vybe';
 }
 
+function getSwapSellRouterOptions(): { router: string } {
+  return { router: getSwapRouter() };
+}
+
+function getWalletSellableForUi(mint: string): number | null {
+  return getWalletSellableAmountUi(mint, getSwapSellRouterOptions());
+}
+
 function setSwapRouter(router: string, options?: { invalidateQuote?: boolean }): void {
   const normalized = normalizeRouterId(router);
   const prev = normalizeRouterId(getSwapRouter());
@@ -2161,6 +2169,7 @@ function setSwapRouter(router: string, options?: { invalidateQuote?: boolean }):
     invalidateSwapQuoteAfterInputChange();
   }
   syncRouterFallbackToggleUi();
+  syncSwapAmountMaxFromBalance();
 }
 
 function isRouterFallbackEnabled(): boolean {

@@ -723,13 +723,14 @@ export function shouldApplySellAmountFromQuoteInAmount(
   requestedUi: number,
   quotedInUi: number,
   mint: string,
+  options?: WalletSellableOptions,
 ): boolean {
   if (!Number.isFinite(requestedUi) || requestedUi <= 0) return false;
   if (!Number.isFinite(quotedInUi) || quotedInUi <= 0) return false;
   const relDiff = Math.abs(requestedUi - quotedInUi) / requestedUi;
   if (relDiff < 0.001) return false;
 
-  const sellable = getWalletSellableAmountUi(mint);
+  const sellable = getWalletSellableAmountUi(mint, options);
   if (sellable != null && sellable > 0) {
     const atSellableCeiling =
       requestedUi <= sellable * 1.001 || isNearMaxSellAmountUi(requestedUi, sellable);
@@ -891,10 +892,20 @@ export function formatWalletTotalUsd(total: number | null): string {
   return `$${total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+export type WalletSellableOptions = {
+  /** When `vybe`, SPL max sell uses full wallet balance; aggregators leave ~2% fee headroom. */
+  router?: string;
+};
+
+function usesFullSplBalanceForMaxSell(router?: string): boolean {
+  return router?.trim().toLowerCase() === 'vybe';
+}
+
 export function computeWalletSellableAmountUi(
   total: number,
   mint: string,
   valueUsd?: number | null,
+  options?: WalletSellableOptions,
 ): number | null {
   if (!Number.isFinite(total) || total <= 0) return null;
   if (isSolMint(mint)) {
@@ -903,6 +914,9 @@ export function computeWalletSellableAmountUi(
     return sellable > 0 ? sellable : null;
   }
   if (valueUsd != null && !isSplValueTradable(valueUsd)) return null;
+  if (usesFullSplBalanceForMaxSell(options?.router)) {
+    return total;
+  }
   const learned = getSplMaxSellFraction(mint);
   if (learned != null && learned > 0 && learned < 1) {
     const sellable = total * learned;
@@ -913,11 +927,11 @@ export function computeWalletSellableAmountUi(
   return sellable > 0 ? sellable : null;
 }
 
-/** Max sellable UI amount (SOL reserve for native SOL; ~98% of balance for other tokens). */
-export function getWalletSellableAmountUi(mint: string): number | null {
+/** Max sellable UI amount (SOL reserve for native SOL; router-dependent for SPL). */
+export function getWalletSellableAmountUi(mint: string, options?: WalletSellableOptions): number | null {
   const item = getWalletBalanceListItem(mint);
   if (item == null || !(item.amountUi > 0)) return null;
-  return computeWalletSellableAmountUi(item.amountUi, mint, item.valueUsd);
+  return computeWalletSellableAmountUi(item.amountUi, mint, item.valueUsd, options);
 }
 
 export function isWalletTokenTradable(mint: string): boolean {
