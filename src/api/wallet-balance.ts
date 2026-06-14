@@ -61,6 +61,8 @@ export interface WalletBalanceListItem {
   logoUrl: string | null;
   decimals: number;
   amountUi: number;
+  /** Vybe amount string (full precision, UI units). */
+  amountExact: string;
   valueUsd: number;
   verified: boolean;
 }
@@ -156,6 +158,7 @@ export async function listWalletTokenBalances(
         logoUrl: row.logoUrl?.trim() || null,
         decimals,
         amountUi,
+        amountExact: row.amount.trim(),
         valueUsd: Number.isFinite(valueUsd) ? valueUsd : 0,
         verified: row.verified === true,
       } satisfies WalletBalanceListItem;

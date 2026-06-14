@@ -9,6 +9,7 @@ import {
   VYBE_TIMEOUT_MS,
 } from '../config.js';
 import type { VybeSwapBuildResponse } from '../types/swap.js';
+import { appendAtaHintsToPayload } from './wallet-ata-hints.js';
 import { withRetry } from './client.js';
 import { completePinnedSwapParams } from './pinned-swap-params.js';
 import type { BuildSwapParams } from './swap-build.js';
@@ -43,6 +44,18 @@ export function mapBuildSwapParamsToIxBuilder(body: BuildSwapParams): Record<str
       : DEFAULT_SWAP_SERVICE_FEE_PCT;
   if (feePct > 0) payload.fee = feePct;
 
+  appendAtaHintsToPayload(payload, {
+    closeInputAta: pinned.closeInputAta,
+    createOutputAta: pinned.createOutputAta,
+    closeWsolAta: pinned.closeWsolAta,
+  });
+  if (pinned.inputBalanceExact?.trim()) {
+    payload.inputBalanceExact = pinned.inputBalanceExact.trim();
+  }
+  if (pinned.inputDecimals != null && Number.isFinite(pinned.inputDecimals)) {
+    payload.inputDecimals = pinned.inputDecimals;
+  }
+
   return payload;
 }
 
@@ -65,8 +78,8 @@ export async function buildSwapViaIxBuilder(body: BuildSwapParams): Promise<Vybe
     );
 
     if (data && typeof data === 'object' && data.error) {
-      const msg = data.details ?? data.detail ?? String(data.error);
-      throw new Error(msg);
+      const msg = (data.details ?? data.detail ?? String(data.error)).trim();
+      throw new Error(msg || 'ix-builder swap failed');
     }
     if (!data?.tx && !data?.transaction) {
       throw new Error('ix-builder swap response missing transaction');

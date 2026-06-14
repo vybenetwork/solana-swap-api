@@ -102,7 +102,7 @@ export interface HopFeeItemLite {
   /** Mint of the token account that received rent; fee amount is native SOL. */
   accountMint?: string;
   destinationAddress?: string;
-  destinationKind?: 'lp_pool' | 'new_token_account' | 'fee_recipient' | 'output_deduction' | 'input_wallet' | 'network_priority';
+  destinationKind?: 'lp_pool' | 'new_token_account' | 'closed_token_account' | 'fee_recipient' | 'output_deduction' | 'input_wallet' | 'network_priority';
   destinationNote?: string;
   pdaRent?: {
     label: string;
@@ -142,7 +142,8 @@ function accRentFeeDisplayLabel(item: Pick<HopFeeItemLite, 'mint' | 'accountMint
 }
 
 function accRentDestBracketLabel(item: Pick<HopFeeItemLite, 'mint' | 'accountMint' | 'destinationKind'>): string {
-  return `${mintSymbolSync(accRentAccountMint(item))} Account`;
+  const sym = mintSymbolSync(accRentAccountMint(item));
+  return `${sym} Account`;
 }
 const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
   [NATIVE_SOL_MINT]: 'SOL',
@@ -238,6 +239,77 @@ export function quoteInputMint(quote: Record<string, unknown>): string {
 export function quoteOutputMint(quote: Record<string, unknown>): string {
   const fromQuote = String(quote.outputMintAddress ?? quote.outputMint ?? '').trim();
   return fromQuote || deps.getFormOutputMint().trim();
+}
+
+type WalletTokenAccountCloseCategory = 'input' | 'output' | 'wsol' | 'other';
+
+interface WalletTokenAccountCloseEntry {
+  mint: string;
+  category: WalletTokenAccountCloseCategory;
+  accountAddress?: string;
+  preBalanceRaw?: string;
+  reclaimedLamports?: string;
+}
+
+const DEFAULT_TOKEN_ACCOUNT_RENT_LAMPORTS = '2039280';
+
+const WALLET_ATA_CLOSE_CATEGORIES = new Set<WalletTokenAccountCloseCategory>([
+  'input',
+  'output',
+  'wsol',
+  'other',
+]);
+
+function getQuoteWalletTokenAccountCloses(
+  quote: Record<string, unknown>,
+): WalletTokenAccountCloseEntry[] {
+  const raw = quote._walletTokenAccountCloses;
+  if (!Array.isArray(raw)) return [];
+  const out: WalletTokenAccountCloseEntry[] = [];
+  for (const entry of raw) {
+    const row = entry as Record<string, unknown>;
+    const mint = String(row.mint ?? '').trim();
+    if (!mint) continue;
+    const categoryRaw = String(row.category ?? 'other').trim() as WalletTokenAccountCloseCategory;
+    const category = WALLET_ATA_CLOSE_CATEGORIES.has(categoryRaw) ? categoryRaw : 'other';
+    out.push({
+      mint,
+      category,
+      accountAddress:
+        typeof row.accountAddress === 'string' ? row.accountAddress.trim() : undefined,
+      preBalanceRaw: typeof row.preBalanceRaw === 'string' ? row.preBalanceRaw : undefined,
+      reclaimedLamports:
+        typeof row.reclaimedLamports === 'string' && row.reclaimedLamports.trim()
+          ? row.reclaimedLamports.trim()
+          : DEFAULT_TOKEN_ACCOUNT_RENT_LAMPORTS,
+    });
+  }
+  return out;
+}
+
+function closeEntryToReclaimFeeItem(entry: WalletTokenAccountCloseEntry): HopFeeItemLite {
+  return {
+    label: ACC_RENT_FEE_LABEL,
+    amountRaw: entry.reclaimedLamports ?? DEFAULT_TOKEN_ACCOUNT_RENT_LAMPORTS,
+    mint: WSOL_MINT,
+    accountMint: entry.mint,
+    destinationKind: 'closed_token_account',
+    destinationNote: 'Rent returned to wallet',
+  };
+}
+
+function getHopAtaRentReclaimItems(
+  quote: Record<string, unknown>,
+  planIndex: number,
+  isLastHop: boolean,
+): HopFeeItemLite[] {
+  return getQuoteWalletTokenAccountCloses(quote)
+    .filter((c) => (c.category === 'input' ? planIndex === 0 : isLastHop))
+    .map(closeEntryToReclaimFeeItem);
+}
+
+function quoteHasAtaRentReclaim(quote: Record<string, unknown>): boolean {
+  return getQuoteWalletTokenAccountCloses(quote).length > 0;
 }
 
 export function quoteUiAmount(quote: Record<string, unknown>, field: 'out' | 'min'): unknown {
@@ -1884,11 +1956,49 @@ function renderRoutePctBadge(
   title: string | null = null,
 ): string {
   const outClass = direction === 'out' ? ' routing-pct-badge--out' : '';
+  const plusClass = pct.includes('+') ? ' routing-pct-badge--with-plus' : '';
   const titleAttr = title ? ` title="${deps.escapeHtml(title)}"` : '';
   const ariaHidden = title ? '' : ' aria-hidden="true"';
   return `<div class="routing-hop-link routing-hop-link--${direction}"${ariaHidden}>
-    <span class="routing-pct-badge${outClass}"${titleAttr}>${deps.escapeHtml(pct)}</span>
+    <span class="routing-pct-badge${outClass}${plusClass}"${titleAttr}>${deps.escapeHtml(pct)}</span>
   </div>`;
+}
+
+function sumRentReclaimUsd(items: HopFeeItemLite[], quote: Record<string, unknown>): number {
+  let total = 0;
+  for (const item of items) {
+    const usd = computeFeeUsdNumeric(item, quote);
+    if (usd != null && usd > 0) total += usd;
+  }
+  return total;
+}
+
+function computeHopRentReclaimBonusPct(
+  quote: Record<string, unknown>,
+  planIndex: number,
+  isLastHop: boolean,
+): number {
+  const items = getHopAtaRentReclaimItems(quote, planIndex, isLastHop);
+  const reclaimUsd = sumRentReclaimUsd(items, quote);
+  if (!(reclaimUsd > 0)) return 0;
+  const payUsd =
+    getQuoteTotalWalletPayUsd(quote, planIndex) ?? resolveQuoteYouPayUsd(quote)?.totalUsd ?? null;
+  if (payUsd == null || payUsd <= 0) return 0;
+  const pct = (reclaimUsd / payUsd) * 100;
+  return Number.isFinite(pct) && pct > 0 ? pct : 0;
+}
+
+function renderRoutePctBadgeWithReclaim(
+  basePct: number,
+  reclaimBonusPct: number,
+  title: string | null,
+): string {
+  const totalPct = basePct + reclaimBonusPct;
+  const pctText = formatHopPctLabel(totalPct);
+  const bonusLabel = formatHopPctLabel(reclaimBonusPct);
+  const bonusTitle = `Includes +${bonusLabel} rent reclaimed to wallet`;
+  const fullTitle = title ? `${title} · ${bonusTitle}` : bonusTitle;
+  return renderRoutePctBadge(pctText, 'out', fullTitle);
 }
 
 function renderHopIndexBadge(label: string): string {
@@ -1908,7 +2018,7 @@ const SLIPPAGE_SPREAD_LABEL = 'Slippage/Spread';
 function displayFeeItemLabel(
   item: Pick<HopFeeItemLite, 'label' | 'destinationKind' | 'mint' | 'accountMint'>,
 ): string {
-  if (isAccRentWalletFeeItem(item as HopFeeItemLite)) {
+  if (isAccRentReclaimItem(item as HopFeeItemLite) || isAccRentWalletFeeItem(item as HopFeeItemLite)) {
     return accRentFeeDisplayLabel(item);
   }
   const base = normalizeFeeItemLabel(item.label);
@@ -1930,8 +2040,13 @@ function isAccRentFeeLabel(label: string): boolean {
 
 /** SOL/token-account rent — always debited from the wallet, even when selling a non-SOL token. */
 function isAccRentWalletFeeItem(item: HopFeeItemLite): boolean {
+  if (isAccRentReclaimItem(item)) return false;
   if (isAccRentFeeLabel(item.label)) return true;
   return item.destinationKind === 'new_token_account';
+}
+
+function isAccRentReclaimItem(item: HopFeeItemLite): boolean {
+  return item.destinationKind === 'closed_token_account';
 }
 
 function isOutputSideFeeDisplayItem(item: HopFeeItemLite): boolean {
@@ -1984,7 +2099,9 @@ function accRentFeeAmountEquiv(item: HopFeeItemLite, quote: Record<string, unkno
 }
 
 function feeEquivForHopItem(item: HopFeeItemLite, quote: Record<string, unknown>): FeeAmountEquiv {
-  if (isAccRentWalletFeeItem(item)) return accRentFeeAmountEquiv(item, quote);
+  if (isAccRentWalletFeeItem(item) || isAccRentReclaimItem(item)) {
+    return accRentFeeAmountEquiv(item, quote);
+  }
   return computeFeeEquivalents(item.amountRaw, item.mint, quote);
 }
 
@@ -2421,14 +2538,16 @@ function computeFeeUsdNumeric(
   return equiv.usd ? parseFeeEquivUsdNumber(equiv.usd) : null;
 }
 
-function formatFeeEquivDetailText(equiv: FeeAmountEquiv): string {
-  const parts = [`−${equiv.primary} ${equiv.feeSym}`];
+function formatFeeEquivDetailText(equiv: FeeAmountEquiv, positive = false): string {
+  const sign = positive ? '+' : '−';
+  const parts = [`${sign}${equiv.primary} ${equiv.feeSym}`];
   if (equiv.inputEquiv) parts.push(equiv.inputEquiv);
   if (equiv.usd) parts.push(equiv.usd);
   return parts.join(' · ');
 }
 
-function feeChipVariant(label: string): string {
+function feeChipVariant(label: string, reclaim = false): string {
+  if (reclaim) return 'fee-token-acc-rent-reclaim';
   const l = label.toLowerCase();
   if (l.includes('protocol')) return 'fee-protocol';
   if (l.includes('priority')) return 'fee-route';
@@ -2446,15 +2565,18 @@ function renderRoutingFeeChip(
   equiv: FeeAmountEquiv,
   variant: string,
   title: string,
+  positive = false,
 ): string {
+  const usdPrefix = positive ? '+' : '';
   const usdInChip = equiv.usd
-    ? `$${stripFiatPrefixForChip(equiv.usd)} USD`
+    ? `${usdPrefix}$${stripFiatPrefixForChip(equiv.usd)} USD`
     : '—';
   const baseBelow = isAccRentFeeLabel(label) || label.endsWith(' Rent Fee')
     ? formatAccRentFeeSolSubline(equiv)
     : equiv.inputEquiv
       ? stripApproxPrefix(equiv.inputEquiv)
       : null;
+  const basePrefix = positive && baseBelow && baseBelow !== '—' ? '+' : '';
   return `<div class="routing-chip-stack routing-chip-stack--${variant}" title="${deps.escapeHtml(title)}">
     <span class="routing-chip-top routing-chip-top--fee-label">${deps.escapeHtml(label)}</span>
     <div class="routing-pill routing-pill--chip routing-pill--chip-fee">
@@ -2462,7 +2584,7 @@ function renderRoutingFeeChip(
     </div>
     ${
       baseBelow
-        ? `<span class="routing-chip-bottom routing-chip-bottom--base">${deps.escapeHtml(baseBelow)}</span>`
+        ? `<span class="routing-chip-bottom routing-chip-bottom--base">${deps.escapeHtml(`${basePrefix}${baseBelow}`)}</span>`
         : ''
     }
   </div>`;
@@ -2635,8 +2757,9 @@ function renderMockRouteMarketNode(
 function renderHopFeeChip(item: HopFeeItemLite, quote: Record<string, unknown>): string {
   const label = displayFeeItemLabel(item);
   const equiv = feeEquivForHopItem(item, quote);
-  const title = formatFeeEquivDetailText(equiv);
-  return renderRoutingFeeChip(label, equiv, feeChipVariant(label), title);
+  const reclaim = isAccRentReclaimItem(item);
+  const title = formatFeeEquivDetailText(equiv, reclaim);
+  return renderRoutingFeeChip(label, equiv, feeChipVariant(label, reclaim), title, reclaim);
 }
 
 function isLikelySolanaPubkey(value: string | undefined): boolean {
@@ -2727,6 +2850,7 @@ function resolveFeeDestinationAddress(
 const FEE_DEST_KIND_META: Record<string, { label: string; mod: string }> = {
   lp_pool: { label: 'Pool Vault', mod: 'pool' },
   new_token_account: { label: 'Token Account', mod: 'ata' },
+  closed_token_account: { label: 'Token Account', mod: 'ata' },
   fee_recipient: { label: 'Fee Recipient', mod: 'recipient' },
   input_wallet: { label: 'Your wallet', mod: 'input-wallet' },
   network_priority: { label: 'Solana Validators/RPC', mod: 'priority' },
@@ -2751,7 +2875,9 @@ function renderFeeDestinationInline(item: HopFeeItemLite, ctx?: FeeDestinationRe
   const addr = resolveFeeDestinationAddress(item, ctx);
   const addrHtml = addr ? renderFeeDestinationAddrLine(addr) : '';
   const note =
-    item.destinationKind === 'network_priority' || item.destinationKind === 'new_token_account'
+    item.destinationKind === 'network_priority' ||
+    item.destinationKind === 'new_token_account' ||
+    item.destinationKind === 'closed_token_account'
       ? ''
       : item.destinationNote?.trim();
 
@@ -2763,7 +2889,10 @@ function renderFeeDestinationInline(item: HopFeeItemLite, ctx?: FeeDestinationRe
   const mod = meta?.mod ?? 'generic';
   if (addrHtml && meta) {
     const kindLabel =
-      item.destinationKind === 'new_token_account' ? accRentDestBracketLabel(item) : meta.label;
+      item.destinationKind === 'new_token_account' ||
+      item.destinationKind === 'closed_token_account'
+        ? accRentDestBracketLabel(item)
+        : meta.label;
     return `<span class="hop-fee-dest hop-fee-dest--${mod}">${addrHtml} ${renderFeeDestBracketTag(kindLabel)}</span>`;
   }
 
@@ -2773,7 +2902,10 @@ function renderFeeDestinationInline(item: HopFeeItemLite, ctx?: FeeDestinationRe
 
   if (meta && !note) {
     const kindLabel =
-      item.destinationKind === 'new_token_account' ? accRentDestBracketLabel(item) : meta.label;
+      item.destinationKind === 'new_token_account' ||
+      item.destinationKind === 'closed_token_account'
+        ? accRentDestBracketLabel(item)
+        : meta.label;
     return `<span class="hop-fee-dest hop-fee-dest--${mod}">${renderFeeDestBracketTag(kindLabel)}</span>`;
   }
 
@@ -2791,17 +2923,19 @@ function renderHopFeeRow(
   equiv: FeeAmountEquiv,
   destCtx?: FeeDestinationRenderCtx,
 ): string {
+  const reclaim = isAccRentReclaimItem(item);
   const label = displayFeeItemLabel(item);
-  const variant = feeChipVariant(label);
-  const titleParts = [formatFeeEquivDetailText(equiv)];
+  const variant = feeChipVariant(label, reclaim);
+  const titleParts = [formatFeeEquivDetailText(equiv, reclaim)];
   const note = item.destinationNote?.trim();
   if (note) titleParts.push(note);
   const amtHtml = renderHopFeeAmountHtml(item.mint, item.amountRaw, equiv.feeSym);
-  const usd = equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : '—';
+  const usdRaw = equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : '—';
+  const usd = reclaim && usdRaw !== '—' ? `+${usdRaw}` : usdRaw;
   return `<div class="hop-fee-row hop-fee-row--${variant}" title="${deps.escapeHtml(titleParts.join(' — '))}">
     <span class="hop-fee-row__label">${deps.escapeHtml(label)}</span>
     <span class="hop-fee-row__dest">${renderFeeDestinationInline(item, destCtx)}</span>
-    <span class="hop-fee-row__amt"><span>${amtHtml}</span></span>
+    <span class="hop-fee-row__amt"><span>${reclaim ? '+' : ''}${amtHtml}</span></span>
     <span class="hop-fee-row__usd"><span>${deps.escapeHtml(usd)}</span></span>
   </div>`;
 }
@@ -2813,6 +2947,7 @@ function renderHopPlanFeesSection(
   feeMint: string,
   feeAmt: string | null,
   ammKey?: string,
+  reclaimItems: HopFeeItemLite[] = [],
 ): string {
   const destCtx: FeeDestinationRenderCtx = {
     walletAddress: quoteWalletAddress(quote),
@@ -2834,11 +2969,18 @@ function renderHopPlanFeesSection(
     }
   }
 
+  const reclaimRows = reclaimItems.map((item) =>
+    renderHopFeeRow(item, feeEquivForHopItem(item, quote), destCtx),
+  );
+
   const group = (title: string, rows: string[]) =>
     rows.length
       ? `<div class="hop-fee-group"><div class="hop-fee-group__title">${deps.escapeHtml(title)}</div>${rows.join('')}</div>`
       : '';
-  const groupsHtml = group('Paid from wallet', walletRows) + group('Deducted from pool', poolRows);
+  const groupsHtml =
+    group('Paid from wallet', walletRows) +
+    group('Returned to wallet', reclaimRows) +
+    group('Deducted from pool', poolRows);
 
   const totalHtml = renderHopFeesTotalsChips(rowData, quote);
 
@@ -2866,6 +3008,14 @@ function routePlanHasAccRentFee(plan: VybeRoutePlanStepLite[]): boolean {
     }
   }
   return false;
+}
+
+function routePlanHasAccRentAbove(
+  plan: VybeRoutePlanStepLite[],
+  quote: Record<string, unknown>,
+): boolean {
+  if (routePlanHasAccRentFee(plan)) return true;
+  return quoteHasAtaRentReclaim(quote);
 }
 
 function stripFiatPrefixForChip(usd: string): string {
@@ -3189,6 +3339,25 @@ function renderHopAccRentAboveBranch(
   </div>`;
 }
 
+function renderHopAccRentReclaimAboveBranch(
+  reclaimItems: HopFeeItemLite[],
+  quote: Record<string, unknown>,
+): string {
+  if (reclaimItems.length === 0) return '';
+
+  const slots = reclaimItems
+    .map((item) => {
+      const chip = renderHopFeeChip(item, quote);
+      return `<div class="routing-fee-slot routing-fee-slot--acc-rent-reclaim">${chip}</div>`;
+    })
+    .join('');
+
+  return `<div class="routing-acc-rent-above routing-acc-rent-above--reclaim" aria-label="Account rent returned at this hop">
+    <div class="routing-acc-rent-cards">${slots}</div>
+    <div class="routing-acc-rent-connector" aria-hidden="true">${renderRoutingAccRentConnectorDown()}</div>
+  </div>`;
+}
+
 function renderRoutingFeeBranch(
   step: VybeRoutePlanStepLite,
   leg: RouteHopLeg,
@@ -3215,14 +3384,22 @@ function renderRouteMarketNode(
   meta: RouteHopMeta,
   leg: RouteHopLeg,
   quote: Record<string, unknown>,
+  isLastHop: boolean,
   dexLoading = false,
 ): string {
   const si = meta.step.swapInfo;
   const dexHtml = dexLoading ? deps.renderLoadingSpinner('sm') : deps.escapeHtml(si?.label ?? 'DEX');
   const sym = deps.escapeHtml(leg.outSym);
   const accRentAbove = dexLoading ? '' : renderHopAccRentAboveBranch(meta.step, quote);
+  const accRentReclaimAbove = dexLoading
+    ? ''
+    : renderHopAccRentReclaimAboveBranch(
+        getHopAtaRentReclaimItems(quote, meta.planIndex, isLastHop),
+        quote,
+      );
+  const accRentStackAbove = accRentAbove + accRentReclaimAbove;
   const feeBranchBelow = dexLoading ? '' : renderRoutingFeeBranch(meta.step, leg, quote);
-  const hasFees = Boolean(accRentAbove || feeBranchBelow);
+  const hasFees = Boolean(accRentStackAbove || feeBranchBelow);
   const railNode = `<div class="routing-market-node">
     ${renderHopIndexBadge(meta.label)}
       <div class="routing-pill routing-pill--hop">
@@ -3231,10 +3408,10 @@ function renderRouteMarketNode(
       </div>
     <div class="routing-dex-caption">${dexHtml}</div>
   </div>`;
-  const hopOnRail = accRentAbove
-    ? `<div class="routing-hop-on-rail">${accRentAbove}${railNode}</div>`
+  const hopOnRail = accRentStackAbove
+    ? `<div class="routing-hop-on-rail">${accRentStackAbove}${railNode}</div>`
     : railNode;
-  return `<div class="routing-hop-column${hasFees ? ' routing-hop-column--has-fees' : ''}${accRentAbove ? ' routing-hop-column--has-acc-rent-above' : ''}">
+  return `<div class="routing-hop-column${hasFees ? ' routing-hop-column--has-fees' : ''}${accRentStackAbove ? ' routing-hop-column--has-acc-rent-above' : ''}">
     ${hopOnRail}
     ${feeBranchBelow}
     </div>`;
@@ -3263,21 +3440,34 @@ function renderRouteTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<st
       const isLastHop = i === metas.length - 1;
       const inLink =
         i === 0 ? renderRoutePctBadge(hopPercentLabel(meta.step)) : '';
+      const reclaimBonusPct = computeHopRentReclaimBonusPct(
+        quote,
+        meta.planIndex,
+        isLastHop,
+      );
       const retention = resolveHopRetentionPctsAtHop(
         quote,
         meta.planIndex,
         meta.step,
         isLastHop,
       );
-      const outLink =
-        retention.outPct < retention.inPct - 0.001
-          ? renderRoutePctBadge(
-              formatHopPctLabel(retention.outPct),
-              'out',
-              retention.outTitle,
-            )
-          : '';
-      return inLink + renderRouteMarketNode(meta, leg, quote) + outLink;
+      const baseOutPct =
+        retention.outPct < retention.inPct - 0.001 ? retention.outPct : retention.inPct;
+      let outLink = '';
+      if (reclaimBonusPct > 0.001) {
+        outLink = renderRoutePctBadgeWithReclaim(
+          baseOutPct,
+          reclaimBonusPct,
+          retention.outTitle,
+        );
+      } else if (retention.outPct < retention.inPct - 0.001) {
+        outLink = renderRoutePctBadge(
+          formatHopPctLabel(retention.outPct),
+          'out',
+          retention.outTitle,
+        );
+      }
+      return inLink + renderRouteMarketNode(meta, leg, quote, isLastHop) + outLink;
     })
     .join('');
 
@@ -3457,7 +3647,7 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const tree = buildRouteTree(plan);
   const split = routeTreeHasFork(tree);
   const hasFees = routePlanHasHopFees(plan);
-  const hasAccRentAbove = routePlanHasAccRentFee(plan);
+  const hasAccRentAbove = routePlanHasAccRentAbove(plan, quote);
   const body = renderRouteBody(tree, legs, quote);
 
   return renderRoutingFrame(
@@ -3820,10 +4010,15 @@ function resolveHopCardRetentionPcts(
   }
 
   const retention = resolveHopRetentionPctsAtHop(quote, planIndex, step, isLastHop);
+  const reclaimBonusPct = computeHopRentReclaimBonusPct(quote, planIndex, isLastHop);
+  const baseOutPct =
+    retention.outPct < retention.inPct - 0.001 ? retention.outPct : retention.inPct;
+  const outPct =
+    reclaimBonusPct > 0.001 ? baseOutPct + reclaimBonusPct : retention.outPct;
 
   return {
     inPct: formatHopPctLabel(retention.inPct),
-    outPct: formatHopPctLabel(retention.outPct),
+    outPct: formatHopPctLabel(outPct),
     outTitle: retention.outTitle,
   };
 }
@@ -3935,9 +4130,19 @@ function renderRoutePlanStepDetail(
       })()
     : undefined;
 
+  const reclaimItems = getHopAtaRentReclaimItems(quote, planIndex, isLastHop);
+
   let feesHtml = '';
-  if (hopFees?.items.length) {
-    feesHtml = renderHopPlanFeesSection(hopFees, leg, quote, feeMint, feeAmt, si?.ammKey);
+  if (hopFees?.items.length || reclaimItems.length) {
+    feesHtml = renderHopPlanFeesSection(
+      hopFees ?? { items: [], totalAmountRaw: '0', mint: feeAmtMint },
+      leg,
+      quote,
+      feeMint,
+      feeAmt,
+      si?.ammKey,
+      reclaimItems,
+    );
   } else if (placeholder) {
     const mockWalletFeeSym = feeSym !== '—' ? feeSym : leg.inSym;
     const mockOutputFeeSym = leg.outSym !== '—' ? leg.outSym : 'USDT';

@@ -77,12 +77,118 @@ export interface SwapSimulationResult {
   networkFeeLamports: bigint;
   /** Pool state addresses inferred from token balance deltas (Vybe has no swap-quote ammKey). */
   inferredPoolAddressesByHop: InferredHopPoolEntry[];
+  /** Wallet-owned token accounts closed in this transaction. */
+  walletTokenAccountCloses: WalletTokenAccountCloseEntry[];
+}
+
+export type WalletTokenAccountCloseCategory = 'input' | 'output' | 'wsol' | 'other';
+
+export interface WalletTokenAccountCloseEntry {
+  mint: string;
+  category: WalletTokenAccountCloseCategory;
+  accountAddress?: string;
+  /** Token balance in the account immediately before close (raw integer string). */
+  preBalanceRaw?: string;
+  /** SOL lamports returned to the wallet when the account is closed. */
+  reclaimedLamports?: string;
 }
 
 const SYSTEM_PROGRAM_ID = '11111111111111111111111111111111';
 const COMPUTE_BUDGET_PROGRAM_ID = 'ComputeBudget111111111111111111111111111111';
 const SPL_TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const SPL_TOKEN_2022_PROGRAM_ID = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+
+const SPL_TOKEN_PROGRAM_IDS = new Set([SPL_TOKEN_PROGRAM_ID, SPL_TOKEN_2022_PROGRAM_ID]);
+
+function normalizeSimMint(mint: string): string {
+  const m = mint.trim();
+  return isSolMint(m) ? WSOL_MINT : m;
+}
+
+function detectWalletTokenAccountCloses(
+  prepared: VersionedTransaction,
+  accountKeyStrings: string[],
+  preTokenBalances: TokenBalanceEntry[] | null | undefined,
+  ownerAddress: string,
+  inputMint: string,
+  outputMint: string,
+  preBalances?: number[],
+): WalletTokenAccountCloseEntry[] {
+  const owner = ownerAddress.trim();
+  if (!owner) return [];
+
+  const mintByAccountIndex = new Map<number, { mint: string; amount: string }>();
+  for (const pre of preTokenBalances ?? []) {
+    if (pre.owner?.trim() !== owner || pre.accountIndex == null) continue;
+    const mint = pre.mint?.trim();
+    if (!mint) continue;
+    mintByAccountIndex.set(pre.accountIndex, {
+      mint,
+      amount: pre.uiTokenAmount?.amount ?? '0',
+    });
+  }
+
+  const normInput = normalizeSimMint(inputMint);
+  const normOutput = normalizeSimMint(outputMint);
+  const closes: WalletTokenAccountCloseEntry[] = [];
+  const seenAccounts = new Set<string>();
+
+  for (const ix of prepared.message.compiledInstructions) {
+    const programId = accountKeyStrings[ix.programIdIndex];
+    if (!SPL_TOKEN_PROGRAM_IDS.has(programId)) continue;
+    if (ix.data.length < 1 || ix.data[0] !== 9) continue;
+
+    const accountIdx = ix.accountKeyIndexes[0];
+    const authorityIdx = ix.accountKeyIndexes[2];
+    if (accountIdx == null || authorityIdx == null) continue;
+    if (accountKeyStrings[authorityIdx]?.trim() !== owner) continue;
+
+    const accountAddress = accountKeyStrings[accountIdx]?.trim();
+    if (!accountAddress || seenAccounts.has(accountAddress)) continue;
+    seenAccounts.add(accountAddress);
+
+    const meta = mintByAccountIndex.get(accountIdx);
+    const mint = meta?.mint ?? '';
+    if (!mint) continue;
+
+    const normMint = normalizeSimMint(mint);
+    let category: WalletTokenAccountCloseCategory = 'other';
+    if (normMint === WSOL_MINT) category = 'wsol';
+    else if (normMint === normInput) category = 'input';
+    else if (normMint === normOutput) category = 'output';
+
+    closes.push({
+      mint: normMint,
+      category,
+      accountAddress,
+      preBalanceRaw: meta?.amount,
+      reclaimedLamports:
+        preBalances?.[accountIdx] != null && preBalances[accountIdx]! > 0
+          ? String(preBalances[accountIdx])
+          : TOKEN_ACCOUNT_RENT_LAMPORTS.toString(),
+    });
+  }
+
+  return closes;
+}
+
+export function mergeBuildAtaCloseHints(
+  closes: WalletTokenAccountCloseEntry[],
+  buildDetails: Record<string, unknown> | undefined,
+  inputMint: string,
+): WalletTokenAccountCloseEntry[] {
+  const merged = [...closes];
+  const closeIx =
+    buildDetails?.closeAccountIX === true || buildDetails?.closeAccountIx === true;
+  if (closeIx && !merged.some((c) => c.category === 'input')) {
+    merged.push({
+      mint: inputMint.trim(),
+      category: 'input',
+      reclaimedLamports: TOKEN_ACCOUNT_RENT_LAMPORTS.toString(),
+    });
+  }
+  return merged;
+}
 
 const EXCLUDED_POOL_OWNER_ADDRESSES = new Set([
   SYSTEM_PROGRAM_ID,
@@ -762,6 +868,7 @@ export async function simulateSwapEffects(
     walletPayDebitRaw: null,
     networkFeeLamports: 0n,
     inferredPoolAddressesByHop: [],
+    walletTokenAccountCloses: [],
   };
   const trimmed = base64Tx.trim();
   if (!trimmed || !ownerAddress.trim() || !outputMint.trim()) {
@@ -865,6 +972,16 @@ export async function simulateSwapEffects(
     else inferredPoolAddressesByHop.unshift({ hopIndex: hopIdx, poolAddress: dexPoolState });
   }
 
+  const walletTokenAccountCloses = detectWalletTokenAccountCloses(
+    prepared,
+    accountKeyStrings,
+    value.preTokenBalances,
+    ownerAddress.trim(),
+    inputMint?.trim() ?? '',
+    outputMint.trim(),
+    value.preBalances,
+  );
+
   return {
     simulationErr: null,
     outputDeltaRaw: extractWalletOutputDeltaRaw(
@@ -884,6 +1001,7 @@ export async function simulateSwapEffects(
     walletPayDebitRaw,
     networkFeeLamports: computeNetworkFeeLamports(prepared, accountKeyStrings),
     inferredPoolAddressesByHop,
+    walletTokenAccountCloses,
   };
 }
 

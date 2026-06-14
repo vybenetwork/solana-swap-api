@@ -16,7 +16,10 @@ import {
   getCachedTokenMeta,
   getTokenDecimalsFromCache,
   getWalletSellableAmountUi,
+  buildSwapAtaHintsFromWalletCache,
+  isWalletBalanceCacheReady,
   getWalletBalanceAmountUi,
+  getWalletBalanceListItem,
   getWalletTotalBalanceUsd,
   formatWalletTotalUsd,
   isSplValueTradable,
@@ -102,6 +105,7 @@ interface TokenSymbolResponse {
 
 const MAX_FETCH_RETRIES = 5;
 const FETCH_RETRY_DELAY_MS = 2000;
+const FETCH_TIMEOUT_MS = 90_000;
 const VYBE_QUOTE_TX_REUSE_MS = 45_000;
 /** Default service fee % on build for Vybe, Jupiter, and Titan (0 = none). */
 const DEFAULT_SWAP_SERVICE_FEE_PCT = 0;
@@ -313,8 +317,7 @@ function isSwapQuoteInputReady(): boolean {
   const amount = Number(swapAmountInput?.value);
   if (!sellMint || !Number.isFinite(amount) || amount <= 0) return false;
 
-  const price = lookupMintPriceUsd(sellMint, lastSwapQuoteOk ?? {});
-  return Number.isFinite(price) && price > 0;
+  return true;
 }
 
 function syncSwapQuoteButtonState(): void {
@@ -533,7 +536,10 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
   let lastErr: unknown;
   for (let attempt = 0; attempt <= MAX_FETCH_RETRIES; attempt++) {
     try {
-      const res = await fetch(url, init);
+      const res = await fetch(url, {
+        ...init,
+        signal: init?.signal ?? AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
       if (res.status === 502 || res.status === 503 || res.status === 504) {
         throw new Error(`HTTP ${res.status}`);
       }
@@ -1115,6 +1121,17 @@ function applySellAmountPercent(percent: number): void {
   const maxInput = getMaxSellAmountForInput(mint) ?? sellable;
   let amount =
     percent >= getMaxSellPercentForMint(mint) ? maxInput : total * (percent / 100);
+  if (percent >= getMaxSellPercentForMint(mint) && getSwapRouter() === 'vybe') {
+    const item = getWalletBalanceListItem(mint);
+    const exact = item?.amountExact?.trim();
+    if (exact) {
+      if (swapQuoteError) clearInlineError(swapQuoteError);
+      swapAmountInput!.value = exact.replace(/,/g, '');
+      syncSwapAmountMaxFromBalance();
+      swapAmountInput!.dispatchEvent(new Event('input', { bubbles: true }));
+      return;
+    }
+  }
   if (amount > maxInput) amount = maxInput;
   if (amount <= 0) return;
 
@@ -2366,6 +2383,12 @@ function applyFeeEnrichmentToQuote(
     next._walletPayDebitRaw = walletPayDebitRaw;
   }
 
+  const walletTokenAccountCloses =
+    buildPayload?._walletTokenAccountCloses ?? quote._walletTokenAccountCloses;
+  if (Array.isArray(walletTokenAccountCloses)) {
+    next._walletTokenAccountCloses = walletTokenAccountCloses;
+  }
+
   if (typeof simulatedOutRaw === 'string' && simulatedOutRaw.length > 0) {
     const outMint = quoteOutputMint(next);
     next.outAmount = simulatedOutRaw;
@@ -3009,9 +3032,48 @@ function resolveSwapServiceFeePct(): number {
   return Number.isFinite(n) && n >= 0 ? n : DEFAULT_SWAP_SERVICE_FEE_PCT;
 }
 
+function isVybeMaxSellSelected(mint: string): boolean {
+  if (getSwapRouter() !== 'vybe' || !mint) return false;
+  const total = getWalletBalanceAmountUi(mint);
+  const maxInput = getMaxSellAmountForInput(mint);
+  const currentUi = Number(swapAmountInput?.value.trim() ?? '');
+  if (total == null || maxInput == null || !Number.isFinite(currentUi) || currentUi <= 0) {
+    return false;
+  }
+  const item = getWalletBalanceListItem(mint);
+  if (item?.amountExact && swapAmountInput?.value.trim() === item.amountExact.replace(/,/g, '')) {
+    return true;
+  }
+  return (
+    sellAmountRoughlyEqual(currentUi, maxInput, mint) ||
+    isNearMaxSellAmountUi(currentUi, total)
+  );
+}
+
 function collectSwapBuildOptions(): Record<string, unknown> {
   const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : undefined;
   const router = getSwapRouter();
+  const inputMint = swapInputMintInput?.value.trim() ?? '';
+  const outputMint = swapOutputMintInput?.value.trim() ?? '';
+  const wallet = swapWalletAddressInput?.value.trim() ?? '';
+  const amountUi = Number(swapAmountInput?.value);
+  const maxSellSelected = router === 'vybe' && isVybeMaxSellSelected(inputMint);
+  const ataFromCache =
+    router === 'vybe' &&
+    isWalletBalanceCacheReady(wallet) &&
+    inputMint &&
+    outputMint &&
+    Number.isFinite(amountUi) &&
+    amountUi > 0
+      ? buildSwapAtaHintsFromWalletCache({
+          inputMint,
+          outputMint,
+          amountUi,
+          router,
+          maxSellSelected,
+        })
+      : null;
+
   return {
     slippage: Number.isFinite(slippage) ? slippage : undefined,
     router,
@@ -3033,6 +3095,18 @@ function collectSwapBuildOptions(): Record<string, unknown> {
       swapEnablePoolAddressCheckbox?.checked !== true &&
       swapEnableProtocolCheckbox?.checked !== true,
     swapFee: resolveSwapServiceFeePct(),
+    ...(ataFromCache
+      ? {
+          closeWsolAta: ataFromCache.closeWsolAta,
+          ...(typeof ataFromCache.createOutputAta === 'boolean'
+            ? { createOutputAta: ataFromCache.createOutputAta }
+            : {}),
+        }
+      : {}),
+    ...(ataFromCache?.closeInputAta ? { closeInputAta: true } : {}),
+    ...(ataFromCache?.inputBalanceExact ? { inputBalanceExact: ataFromCache.inputBalanceExact } : {}),
+    ...(ataFromCache?.inputDecimals != null ? { inputDecimals: ataFromCache.inputDecimals } : {}),
+    ...(ataFromCache && ataFromCache.amountUi !== amountUi ? { amount: ataFromCache.amountUi } : {}),
   };
 }
 
@@ -3646,26 +3720,6 @@ async function resolvePairTokenPrices(
   return stats;
 }
 
-async function assertVybeSellBalance(
-  wallet: string,
-  inputMint: string,
-  amount: number,
-  symbol?: string,
-): Promise<void> {
-  const params = new URLSearchParams({
-    mint: inputMint,
-    amount: String(amount),
-  });
-  if (symbol?.trim()) params.set('symbol', symbol.trim());
-  const res = await fetchWithRetry(
-    `/api/wallets/${encodeURIComponent(wallet)}/sell-balance-check?${params.toString()}`,
-  );
-  const body = (await res.json().catch(() => ({}))) as { error?: string };
-  if (!res.ok) {
-    throw new Error(body.error || `Balance check failed (${res.status})`);
-  }
-}
-
 function stripVybeQuoteMetadata(body: Record<string, unknown>): Record<string, unknown> {
   const { _build, _builtAt, _tokenStats, _buildUnavailable, ...quote } = body;
   return quote;
@@ -3765,60 +3819,65 @@ async function fetchSwapQuote(): Promise<void> {
   if (swapQuoteWarning) clearInlineWarning(swapQuoteWarning);
   applyQuoteLoadingUi();
 
-  const buildOpts = collectSwapBuildOptions();
-  const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
-
   try {
+    const buildOpts = collectSwapBuildOptions();
+    const quoteAmount =
+      typeof buildOpts.amount === 'number' && Number.isFinite(buildOpts.amount)
+        ? buildOpts.amount
+        : amount;
+    void refreshLowSolTradeWarning();
+
     if (router === 'vybe') {
+      // Vybe quote builds on the server (balance check, prices, ix-builder) — no preflight.
       try {
-        await assertVybeSellBalance(wallet, inputMint, amount, getSwapInSym());
-      } catch (balanceErr) {
+        await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+      } catch (quoteErr) {
         if (swapQuoteError) {
           showInlineError(
             swapQuoteError,
-            balanceErr instanceof Error ? balanceErr.message : String(balanceErr),
+            quoteErr instanceof Error ? quoteErr.message : String(quoteErr),
+          );
+        }
+        invalidateSwapQuoteUi();
+      }
+    } else {
+      const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
+      try {
+        const pairStats = await resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMints);
+        updateSwapPairCards(pairStats, swapQuoteFetching);
+      } catch (priceErr) {
+        if (swapQuoteError) {
+          showInlineError(
+            swapQuoteError,
+            priceErr instanceof Error ? priceErr.message : String(priceErr),
           );
         }
         invalidateSwapQuoteUi();
         return;
       }
-    }
-    void refreshLowSolTradeWarning();
-
-    try {
-      const pairStats = await resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMints);
-      updateSwapPairCards(pairStats, swapQuoteFetching);
-    } catch (priceErr) {
-      if (swapQuoteError) {
-        showInlineError(
-          swapQuoteError,
-          priceErr instanceof Error ? priceErr.message : String(priceErr),
-        );
+      try {
+        await requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+      } catch (quoteErr) {
+        if (swapQuoteError) {
+          showInlineError(
+            swapQuoteError,
+            quoteErr instanceof Error ? quoteErr.message : String(quoteErr),
+          );
+        }
+        invalidateSwapQuoteUi();
       }
-      invalidateSwapQuoteUi();
-      return;
-    }
-
-    try {
-      if (router === 'vybe') {
-        await requestVybeQuote(wallet, inputMint, outputMint, amount, buildOpts);
-      } else {
-        await requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, buildOpts);
-      }
-    } catch (quoteErr) {
-      if (swapQuoteError) {
-        showInlineError(
-          swapQuoteError,
-          quoteErr instanceof Error ? quoteErr.message : String(quoteErr),
-        );
-      }
-      invalidateSwapQuoteUi();
     }
   } catch (err) {
     if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+    invalidateSwapQuoteUi();
   } finally {
     swapQuoteFetching = false;
     setSwapQuoteButtonLoading(false);
+    if (!lastSwapQuoteOk) {
+      setBuyReadoutLoading(false);
+      setBuyFiatLoading(false);
+      setFooterStatsLoading(false);
+    }
     if (swapQuoteLoading) {
       swapQuoteLoading.hidden = true;
       swapQuoteLoading.setAttribute('aria-hidden', 'true');

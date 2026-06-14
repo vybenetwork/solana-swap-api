@@ -4,12 +4,14 @@
 
 import type { AxiosInstance } from 'axios';
 import { completePinnedSwapParams } from './pinned-swap-params.js';
+import { enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
 import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type SwapProxyRouter } from './swap-build.js';
 import {
   buildSwapForTradeCandidate,
   buildSwapViaTradeMarkets,
   formatRouteViaTradesServerLog,
   isAggregatorSwapProvider,
+  normalizeBuildErrorMessage,
   ROUTE_VIA_TRADES_LIMIT,
   TRADES_API_UNAVAILABLE_MESSAGE,
   type QueuedMarketEntry,
@@ -32,6 +34,8 @@ import {
   type WalletFeeTransferEntry,
   type TokenFeeCreditEntry,
   type InferredHopPoolEntry,
+  type WalletTokenAccountCloseEntry,
+  mergeBuildAtaCloseHints,
 } from './simulate-swap-output.js';
 import { enrichRoutePlanFees } from './enrich-route-fees.js';
 import { DEFAULT_SWAP_SLIPPAGE_PCT } from '../config.js';
@@ -257,7 +261,12 @@ async function recoverAfterTradeQueueExhausted(
     }
   }
 
-  throw new Error(routeViaTrades.lastError ?? 'Route via Trades recovery failed');
+  throw new Error(
+    normalizeBuildErrorMessage(
+      routeViaTrades.lastError ?? '',
+      'Route via Trades recovery failed',
+    ),
+  );
 }
 
 export interface VybeQuoteResult {
@@ -335,6 +344,7 @@ function synthesizeQuoteFromBuild(
     walletPayDebitRaw?: string | null;
     networkFeeLamports?: bigint;
     inferredPoolAddressesByHop?: InferredHopPoolEntry[];
+    walletTokenAccountCloses?: WalletTokenAccountCloseEntry[];
   },
 ): VybeSwapQuote {
   const inAmount = build.details.quote.inAmount;
@@ -434,6 +444,7 @@ function synthesizeQuoteFromBuild(
     _totalFeeRaw: feeEnrichment.totalFeeRaw,
     _simulatedOutAmount: feeEnrichment.simulatedOutRaw,
     _walletPayDebitRaw: feeOpts?.walletPayDebitRaw ?? null,
+    _walletTokenAccountCloses: feeOpts?.walletTokenAccountCloses ?? [],
   };
 }
 
@@ -484,15 +495,25 @@ export async function buildVybeQuoteFromPriceAndSwap(
 ): Promise<VybeQuoteResult> {
   const uiInputMint = params.inputMintAddress.trim();
   const uiOutputMint = params.outputMintAddress.trim();
+  const selected = normalizeRouterId(params.router ?? 'vybe') as SwapProxyRouter;
+
+  const enriched = await enrichBuildParamsWithAtaHints(http, {
+    ...params,
+    router: selected,
+    inputMintAddress: uiInputMint,
+    outputMintAddress: uiOutputMint,
+  });
+
   const vybeInputMint = toVybeSwapMint(uiInputMint);
   const vybeOutputMint = toVybeSwapMint(uiOutputMint);
 
-  const inputSymbolHint = params.tokenHints?.[uiInputMint]?.symbol ?? params.tokenHints?.[vybeInputMint]?.symbol;
+  const inputSymbolHint =
+    params.tokenHints?.[uiInputMint]?.symbol ?? params.tokenHints?.[vybeInputMint]?.symbol;
   await assertWalletHasSellAmount(
     http,
-    params.accountAddress,
+    enriched.accountAddress,
     uiInputMint,
-    params.amount,
+    enriched.amount,
     inputSymbolHint,
   );
 
@@ -524,10 +545,10 @@ export async function buildVybeQuoteFromPriceAndSwap(
 
   const vybeParams: VybeQuoteParams = {
     ...params,
+    ...enriched,
     inputMintAddress: vybeInputMint,
     outputMintAddress: vybeOutputMint,
   };
-  const selected = normalizeRouterId(params.router ?? 'vybe') as SwapProxyRouter;
   const manualPool = params.poolAddress?.trim();
   const manualProgram = params.programAddress?.trim();
   const useRouteViaTrades =
@@ -604,6 +625,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
   let tokenFeeCredits: TokenFeeCreditEntry[] = [];
   let networkFeeLamports = 0n;
   let inferredPoolAddressesByHop: InferredHopPoolEntry[] = [];
+  let walletTokenAccountCloses: WalletTokenAccountCloseEntry[] = [];
   const preSimRoutePlan: VybeRoutePlanStep[] = [
     {
       percent: 100,
@@ -641,7 +663,13 @@ export async function buildVybeQuoteFromPriceAndSwap(
     tokenFeeCredits = sim.tokenFeeCredits;
     networkFeeLamports = sim.networkFeeLamports;
     inferredPoolAddressesByHop = sim.inferredPoolAddressesByHop;
+    walletTokenAccountCloses = sim.walletTokenAccountCloses;
   }
+  walletTokenAccountCloses = mergeBuildAtaCloseHints(
+    walletTokenAccountCloses,
+    build.details as unknown as Record<string, unknown>,
+    uiInputMint,
+  );
 
   const tradeRouteFallback = routeViaTrades?.fallbackRouter;
   const effective = tradeRouteFallback
@@ -668,6 +696,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
         walletPayDebitRaw,
         networkFeeLamports,
         inferredPoolAddressesByHop,
+        walletTokenAccountCloses,
       },
     ),
     selected,

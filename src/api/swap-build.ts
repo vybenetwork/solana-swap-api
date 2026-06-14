@@ -5,10 +5,13 @@
 import axios, { type AxiosInstance } from 'axios';
 import { DEFAULT_SWAP_SERVICE_FEE_PCT, isLocalVybeApi } from '../config.js';
 import type { VybeSwapBuildResponse } from '../types/swap.js';
+import { appendAtaHintsToPayload, enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
 import { buildSwapViaIxBuilder } from './ix-builder-swap.js';
 import { completePinnedSwapParams } from './pinned-swap-params.js';
 import { withRetry } from './client.js';
 import { toVybeSwapMint } from './sol-mints.js';
+
+export type { SwapWalletAtaHints } from './wallet-ata-hints.js';
 
 export type SwapProxyRouter = 'titan' | 'jupiter' | 'vybe';
 
@@ -46,14 +49,27 @@ export interface BuildSwapParams {
   swapFee?: number;
   /** When true (Vybe router, no manual pool), rank markets from recent trades and try top pools. */
   routeViaTrades?: boolean;
+  /** Append input SPL ATA close after full-balance sell (Vybe / ix-builder). */
+  closeInputAta?: boolean;
+  /** Create output SPL ATA idempotently before swap (buy when wallet has no output ATA). */
+  createOutputAta?: boolean;
+  /** Ephemeral WSOL path on sell: create WSOL ATA, sync, close (when wallet has no WSOL ATA). */
+  closeWsolAta?: boolean;
+  /** Exact input balance string from wallet token-balance (UI units); used with closeInputAta. */
+  inputBalanceExact?: string;
+  inputDecimals?: number;
 }
 
 export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
   const router = body.router ?? 'vybe';
-  if (isLocalVybeApi() && router === 'vybe') {
-    return buildSwapViaIxBuilder(body);
+  let enriched = body;
+  if (router === 'vybe') {
+    enriched = await enrichBuildParamsWithAtaHints(http, body);
   }
-  const payload = buildSwapPayload(body, router);
+  if (isLocalVybeApi() && router === 'vybe') {
+    return buildSwapViaIxBuilder(enriched);
+  }
+  const payload = buildSwapPayload(enriched, router);
   return withRetry(async () => {
     const { data } = await http.post<VybeSwapBuildResponse>('/v4/trading/swap', payload);
     return data;
@@ -81,6 +97,11 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
   if (pinned.programAddress?.trim()) payload.programAddress = pinned.programAddress.trim();
   if (pinned.simulate != null) payload.simulate = pinned.simulate;
   payload.swapFee = swapFeeParamForRouter(pinned.swapFee, router);
+  appendAtaHintsToPayload(payload, {
+    closeInputAta: pinned.closeInputAta,
+    createOutputAta: pinned.createOutputAta,
+    closeWsolAta: pinned.closeWsolAta,
+  });
   return payload;
 }
 
@@ -116,7 +137,8 @@ export async function buildSwapWithFallback(
 
   if (isLocalVybeApi() && preferred === 'vybe') {
     try {
-      return await buildSwapViaIxBuilder(body);
+      const enriched = await enrichBuildParamsWithAtaHints(http, body);
+      return await buildSwapViaIxBuilder(enriched);
     } catch (err) {
       lastErr = err;
       if (!isRetryableBuildError(err)) throw err;

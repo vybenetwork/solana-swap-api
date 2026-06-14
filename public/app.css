@@ -2578,6 +2578,32 @@ tr:hover td {
   font-weight: 600;
 }
 
+.routing-acc-rent-above--reclaim .routing-chip-stack--fee-token-acc-rent-reclaim .routing-chip-top--fee-label,
+.routing-chip-stack--fee-token-acc-rent-reclaim .routing-chip-top--fee-label {
+  color: #86efac;
+}
+
+.routing-chip-stack--fee-token-acc-rent-reclaim .routing-chip-amt--usd,
+.routing-chip-stack--fee-token-acc-rent-reclaim .routing-chip-bottom--base {
+  color: #86efac;
+}
+
+.routing-fee-slot--acc-rent-reclaim .routing-pill--chip-fee {
+  border-color: rgba(134, 239, 172, 0.35);
+  background: rgba(134, 239, 172, 0.08);
+}
+
+.routing-pct-badge--with-plus {
+  min-width: 3.75rem;
+  letter-spacing: -0.02em;
+}
+
+.hop-fee-row--fee-token-acc-rent-reclaim .hop-fee-row__label,
+.hop-fee-row--fee-token-acc-rent-reclaim .hop-fee-row__amt,
+.hop-fee-row--fee-token-acc-rent-reclaim .hop-fee-row__usd {
+  color: #86efac;
+}
+
 .routing-endpoint--out {
   justify-content: flex-end;
   padding-right: var(--routing-endpoint-inset);

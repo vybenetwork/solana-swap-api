@@ -26,7 +26,7 @@ import {
 } from './token-icon-cache.js';
 import { Connection } from '@solana/web3.js';
 import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
-import { simulateSwapEffects, type TokenAccRentEntry, type EmbeddedPoolFeeEntry, type WalletFeeTransferEntry, type TokenFeeCreditEntry } from './api/simulate-swap-output.js';
+import { simulateSwapEffects, type TokenAccRentEntry, type EmbeddedPoolFeeEntry, type WalletFeeTransferEntry, type TokenFeeCreditEntry, type WalletTokenAccountCloseEntry, mergeBuildAtaCloseHints } from './api/simulate-swap-output.js';
 import { enrichRoutePlanFees, estimateWalletPayDebitRaw } from './api/enrich-route-fees.js';
 import type { VybeRoutePlanStep } from './types/swap.js';
 import { createHttpClient } from './api/client.js';
@@ -48,6 +48,17 @@ const app = express();
 const client = createClient(apiKey);
 
 app.use(express.json());
+app.use((req, res, next) => {
+  if (!req.path.startsWith('/api/')) {
+    next();
+    return;
+  }
+  const start = Date.now();
+  res.on('finish', () => {
+    console.log(`[api] ${req.method} ${req.path} → ${res.statusCode} (${Date.now() - start}ms)`);
+  });
+  next();
+});
 app.use('/cached/token-icons', express.static(getRuntimeIconDir()));
 app.use(express.static(PUBLIC_DIR));
 
@@ -297,6 +308,11 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
   simulate?: boolean;
   swapFee?: number;
   routeViaTrades?: boolean;
+  closeInputAta?: boolean;
+  createOutputAta?: boolean;
+  closeWsolAta?: boolean;
+  inputBalanceExact?: string;
+  inputDecimals?: number;
 } | { error: string } {
   const accountAddress = typeof body.accountAddress === 'string' ? body.accountAddress.trim() : '';
   const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount);
@@ -335,6 +351,15 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
         ? Number(body.swapFee)
         : DEFAULT_SWAP_SERVICE_FEE_PCT,
     routeViaTrades: typeof body.routeViaTrades === 'boolean' ? body.routeViaTrades : undefined,
+    closeInputAta: typeof body.closeInputAta === 'boolean' ? body.closeInputAta : undefined,
+    createOutputAta: typeof body.createOutputAta === 'boolean' ? body.createOutputAta : undefined,
+    closeWsolAta: typeof body.closeWsolAta === 'boolean' ? body.closeWsolAta : undefined,
+    inputBalanceExact:
+      typeof body.inputBalanceExact === 'string' ? body.inputBalanceExact.trim() || undefined : undefined,
+    inputDecimals:
+      body.inputDecimals != null && Number.isFinite(Number(body.inputDecimals))
+        ? Number(body.inputDecimals)
+        : undefined,
   };
 }
 
@@ -527,6 +552,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
     let tokenFeeCredits: TokenFeeCreditEntry[] = [];
     let networkFeeLamports = 0n;
     let inferredPoolAddressesByHop: { hopIndex: number; poolAddress: string }[] = [];
+    let walletTokenAccountCloses: WalletTokenAccountCloseEntry[] = [];
     if (typeof buildTx === 'string' && buildTx.length > 0) {
       const sim = await simulateSwapEffects(
         buildTx,
@@ -544,7 +570,13 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
       tokenFeeCredits = sim.tokenFeeCredits;
       networkFeeLamports = sim.networkFeeLamports;
       inferredPoolAddressesByHop = sim.inferredPoolAddressesByHop;
+      walletTokenAccountCloses = sim.walletTokenAccountCloses;
     }
+    walletTokenAccountCloses = mergeBuildAtaCloseHints(
+      walletTokenAccountCloses,
+      data.details as unknown as Record<string, unknown>,
+      parsed.inputMintAddress,
+    );
 
     const feeEnrichment = enrichRoutePlanFees(
       routePlan,
@@ -584,6 +616,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
       _simulatedOutAmount: simulatedOutRaw,
       _quotedOutAmount: feeEnrichment.quotedOutRaw,
       _walletPayDebitRaw: walletPayDebitRaw,
+      _walletTokenAccountCloses: walletTokenAccountCloses,
     });
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;

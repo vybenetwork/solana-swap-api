@@ -49,6 +49,7 @@ export interface WalletBalanceListItem {
   logoUrl: string | null;
   decimals: number;
   amountUi: number;
+  amountExact?: string;
   valueUsd: number;
   verified: boolean;
 }
@@ -874,7 +875,90 @@ export function getWalletBalanceAmountUi(mint: string): number | null {
   return item && item.amountUi > 0 ? item.amountUi : null;
 }
 
-/** Sum USD value of all cached wallet token rows (API returns per-mint valueUsd). */
+/** True when wallet cache has a token-balance row for this mint (ATA assumed to exist). */
+function walletHasMintInCache(mint: string): boolean {
+  if (!walletBalanceCache) return false;
+  const m = mint.trim();
+  return walletBalanceCache.items.some((i) => i.mintAddress === m);
+}
+
+function isFullSellAgainstWalletRow(amountUi: number, row: WalletBalanceListItem): boolean {
+  const exact = row.amountExact?.trim().replace(/,/g, '');
+  if (exact) {
+    const exactUi = Number(exact);
+    if (Number.isFinite(exactUi) && exactUi > 0) {
+      return isNearMaxSellAmountUi(amountUi, exactUi);
+    }
+  }
+  return isNearMaxSellAmountUi(amountUi, row.amountUi);
+}
+
+/**
+ * Build Vybe ATA action flags from the cached wallet token-balance fetch (no extra API call).
+ */
+export function buildSwapAtaHintsFromWalletCache(params: {
+  inputMint: string;
+  outputMint: string;
+  amountUi: number;
+  router?: string;
+  maxSellSelected?: boolean;
+}): {
+  closeInputAta?: boolean;
+  createOutputAta?: boolean;
+  closeWsolAta?: boolean;
+  amountUi: number;
+  inputBalanceExact?: string;
+  inputDecimals?: number;
+} | null {
+  if (!walletBalanceCache) return null;
+  const router = params.router?.trim().toLowerCase() ?? '';
+  if (router !== 'vybe') return null;
+
+  const inputMint = params.inputMint.trim();
+  const outputMint = params.outputMint.trim();
+  const closeWsolAta = !walletHasMintInCache(WSOL_MINT);
+
+  let amountUi = params.amountUi;
+  let closeInputAta: boolean | undefined;
+  let inputBalanceExact: string | undefined;
+  let inputDecimals: number | undefined;
+
+  if (!isSolMint(inputMint)) {
+    const inputRow = walletBalanceCache.items.find((i) => i.mintAddress === inputMint);
+    if (inputRow) {
+      inputBalanceExact = inputRow.amountExact?.trim().replace(/,/g, '') || undefined;
+      inputDecimals = inputRow.decimals;
+      const isFullSell =
+        params.maxSellSelected === true || isFullSellAgainstWalletRow(params.amountUi, inputRow);
+      if (isFullSell && inputBalanceExact) {
+        closeInputAta = true;
+        const exactUi = Number(inputBalanceExact);
+        if (Number.isFinite(exactUi) && exactUi > 0) amountUi = exactUi;
+      }
+    }
+  }
+
+  let createOutputAta: boolean | undefined;
+  if (!isSolMint(outputMint) && outputMint !== WSOL_MINT) {
+    createOutputAta = !walletHasMintInCache(outputMint);
+  }
+
+  return {
+    closeWsolAta,
+    createOutputAta,
+    amountUi,
+    closeInputAta,
+    inputBalanceExact,
+    inputDecimals,
+  };
+}
+
+/** True when wallet balance cache matches this wallet (fresh enough to attach ATA hints). */
+export function isWalletBalanceCacheReady(wallet: string): boolean {
+  const w = wallet.trim();
+  return Boolean(w && walletBalanceCache && walletBalanceCache.wallet === w);
+}
+
 export function getWalletTotalBalanceUsd(): number | null {
   if (!walletBalanceCache?.items.length) return null;
   let total = 0;

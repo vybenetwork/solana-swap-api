@@ -38,8 +38,12 @@ export function toHumanReadableError(err: unknown): string {
     if (msg && typeof msg === 'string') return msg;
     if (status) return `API returned ${status} for ${endpoint}.`;
   }
-  if (err instanceof Error) return err.message;
-  return String(err);
+  if (err instanceof Error) {
+    const msg = err.message.trim();
+    return msg || 'An unexpected error occurred.';
+  }
+  const s = String(err).trim();
+  return s || 'An unexpected error occurred.';
 }
 
 /** True when Vybe API responded 404 (e.g. /v4/trades not enabled for this key). */

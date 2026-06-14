@@ -315,8 +315,13 @@ async function validateTradeBuild(
   return { ok: true, reason: '' };
 }
 
+export function normalizeBuildErrorMessage(message: string, fallback: string): string {
+  const trimmed = message.trim();
+  return trimmed || fallback;
+}
+
 function describeTradeBuildRejectReasonFromValidation(reason: string): string {
-  return reason;
+  return normalizeBuildErrorMessage(reason, 'Built tx failed validation');
 }
 
 export function acceptTradeRoutedBuild(
@@ -597,8 +602,10 @@ async function trySingleBuildAttempt(
       ],
     };
   } catch (err) {
-    const lastError =
-      err instanceof Error ? err.message : err != null ? String(err) : 'unknown error';
+    const lastError = normalizeBuildErrorMessage(
+      err instanceof Error ? err.message : err != null ? String(err) : 'unknown error',
+      'Swap build failed',
+    );
     return {
       ok: false,
       lastError,
