@@ -89,6 +89,73 @@ export function isSupportedIxBuilderProgram(programAddress: string): boolean {
   return programAddress.trim() in IX_BUILDER_SUPPORTED_PROGRAMS;
 }
 
+/** CLMM/DLMM (tick/bin arrays) — exclude from route queue below this USD liquidity. */
+export const TICK_ARRAY_IX_BUILDER_PROTOCOLS = new Set(['METEORA_DLMM', 'RAYDIUM_CLMM']);
+export const MIN_TICK_ARRAY_LIQUIDITY_USD = 500;
+
+export function isTickArrayProgram(programAddress: string): boolean {
+  const proto = programAddressToIxBuilderProtocol(programAddress);
+  return proto != null && TICK_ARRAY_IX_BUILDER_PROTOCOLS.has(proto);
+}
+
+export function poolLiquidityUsd(entry: {
+  marketScore?: number;
+  totalValueUsd?: number;
+}): number {
+  return Number(entry.marketScore ?? entry.totalValueUsd ?? 0);
+}
+
+export function passesTickArrayLiquidityFloor(entry: {
+  programAddress: string;
+  marketScore?: number;
+  totalValueUsd?: number;
+}): boolean {
+  if (!isTickArrayProgram(entry.programAddress)) return true;
+  return poolLiquidityUsd(entry) >= MIN_TICK_ARRAY_LIQUIDITY_USD;
+}
+
+export function enrichCandidatesWithMarketScores<
+  T extends { marketAddress: string; programAddress: string; marketScore?: number },
+>(tradeCandidates: T[], marketCandidates: T[]): T[] {
+  const marketByKey = new Map<string, number>();
+  for (const m of marketCandidates) {
+    if (m.marketScore != null) {
+      marketByKey.set(`${m.marketAddress.trim()}\0${m.programAddress.trim()}`, m.marketScore);
+    }
+  }
+  return tradeCandidates.map((c) => {
+    const key = `${c.marketAddress.trim()}\0${c.programAddress.trim()}`;
+    const marketScore = c.marketScore ?? marketByKey.get(key);
+    return marketScore != null ? { ...c, marketScore } : c;
+  });
+}
+
+export function filterRouteQueueByLiquidity<
+  T extends { marketAddress?: string; programAddress: string; marketScore?: number; totalValueUsd?: number },
+>(entries: T[], label = 'queue'): T[] {
+  const kept: T[] = [];
+  let dropped = 0;
+  for (const entry of entries) {
+    if (passesTickArrayLiquidityFloor(entry)) {
+      kept.push(entry);
+    } else {
+      dropped += 1;
+      const addr = (entry.marketAddress ?? '').slice(0, 8);
+      const proto = programAddressToIxBuilderProtocol(entry.programAddress) ?? '?';
+      console.info(
+        `[route-discovery] skip ${label} ${proto} ${addr}… ` +
+          `($${poolLiquidityUsd(entry).toFixed(2)} < $${MIN_TICK_ARRAY_LIQUIDITY_USD} tick-array floor)`,
+      );
+    }
+  }
+  if (dropped > 0) {
+    console.info(
+      `[route-discovery] tick-array liquidity floor: excluded ${dropped} below $${MIN_TICK_ARRAY_LIQUIDITY_USD}`,
+    );
+  }
+  return kept;
+}
+
 /** Fill missing protocol or programAddress when a pool pin is partially specified. */
 export function completePinnedSwapParams<T extends {
   poolAddress?: string;

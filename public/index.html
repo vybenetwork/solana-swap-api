@@ -364,6 +364,36 @@
 
           <div class="swap-build-toggles swap-quote-route-options">
             <div class="swap-build-toggles-row">
+              <div class="swap-toggle-row swap-toggle-row--market-fetch">
+                <div class="swap-toggle-row__text">
+                  <span class="swap-adv-label-row">
+                    <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
+                    <span>Market fetch</span>
+                  </span>
+                  <span class="swap-toggle-row__hint">Trades vs RPC discovery</span>
+                </div>
+                <select id="swapMarketFetchMode" class="swap-protocol-select swap-toggle-field__input" aria-label="Market fetch mode">
+                  <option value="full" selected>Full</option>
+                  <option value="trades">Trades</option>
+                  <option value="markets">Markets</option>
+                  <option value="rpc">RPC</option>
+                </select>
+              </div>
+              <div class="swap-toggle-row swap-toggle-row--enumerate-routes">
+                <div class="swap-toggle-row__text">
+                  <span class="swap-adv-label-row">
+                    <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
+                    <span>Enumerate routes</span>
+                  </span>
+                  <span class="swap-toggle-row__hint">Up to 10 pool builds</span>
+                </div>
+                <label class="swap-pill-switch" title="Build all discovered routes (trades + RPC) instead of stopping at the first pool">
+                  <input type="checkbox" id="swapEnumerateRoutes" class="swap-pill-switch__input" checked />
+                  <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                </label>
+              </div>
+            </div>
+            <div class="swap-build-toggles-row">
               <div class="swap-toggle-row swap-toggle-row--expandable swap-toggle-row--pool">
                 <div class="swap-toggle-row__text">
                   <span class="swap-adv-label-row">
@@ -431,34 +461,6 @@
                       </div>
                       <label class="swap-pill-switch" title="Simulate only — no transaction build">
                         <input type="checkbox" id="swapSimulate" class="swap-pill-switch__input" />
-                        <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
-                      </label>
-                    </div>
-                    <div class="swap-toggle-row swap-toggle-row--market-fetch">
-                      <div class="swap-toggle-row__text">
-                        <span class="swap-adv-label-row">
-                          <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
-                          <span>Market fetch</span>
-                        </span>
-                        <span class="swap-toggle-row__hint">Trades vs RPC discovery</span>
-                      </div>
-                      <select id="swapMarketFetchMode" class="swap-protocol-select swap-toggle-field__input" aria-label="Market fetch mode">
-                        <option value="full" selected>Full (trades → markets → RPC)</option>
-                        <option value="trades">Trades only</option>
-                        <option value="markets">Markets snapshot only</option>
-                        <option value="rpc">RPC scan only</option>
-                      </select>
-                    </div>
-                    <div class="swap-toggle-row swap-toggle-row--enumerate-routes">
-                      <div class="swap-toggle-row__text">
-                        <span class="swap-adv-label-row">
-                          <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
-                          <span>Enumerate routes</span>
-                        </span>
-                        <span class="swap-toggle-row__hint">Up to 10 pool builds</span>
-                      </div>
-                      <label class="swap-pill-switch" title="Build all discovered routes (trades + RPC) instead of stopping at the first pool">
-                        <input type="checkbox" id="swapEnumerateRoutes" class="swap-pill-switch__input" />
                         <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
                       </label>
                     </div>

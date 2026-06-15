@@ -23,6 +23,8 @@ import {
   programAddressToIxBuilderProtocol,
   programAddressToProtocol,
   programLabelForAddress,
+  enrichCandidatesWithMarketScores,
+  filterRouteQueueByLiquidity,
 } from './pinned-swap-params.js';
 export {
   isSupportedIxBuilderProgram,
@@ -30,6 +32,9 @@ export {
   programAddressToIxBuilderProtocol,
   programAddressToProtocol,
   programLabelForAddress,
+  enrichCandidatesWithMarketScores,
+  filterRouteQueueByLiquidity,
+  MIN_TICK_ARRAY_LIQUIDITY_USD,
 } from './pinned-swap-params.js';
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
 import { staticAccountKeysFromSwapTx, validateTradeRoutedBuildOnChain } from './pool-address-validation.js';
@@ -887,10 +892,35 @@ export async function discoverRouteCandidates(
   }
 
   const tradeQueued = includeTrades
-    ? toQueuedMarketEntries(tradeData.candidates)
+    ? toQueuedMarketEntries(
+        filterRouteQueueByLiquidity(
+          enrichCandidatesWithMarketScores(tradeData.candidates, marketCandidates),
+          'trades',
+        ),
+      )
     : [];
-  const marketQueued = includeMarkets ? toQueuedMarketEntries(marketCandidates) : [];
-  const candidates = mergeDiscoveryCandidates(tradeQueued, marketQueued, rpcPools);
+  const marketQueued = includeMarkets
+    ? toQueuedMarketEntries(filterRouteQueueByLiquidity(marketCandidates, 'markets'))
+    : [];
+  const marketScoreByKey = new Map(
+    marketCandidates.map((m) => [
+      candidatePairKey(m.marketAddress, m.programAddress),
+      m.marketScore,
+    ]),
+  );
+  const filteredRpcPools = filterRouteQueueByLiquidity(
+    rpcPools.map((p) => {
+      const market = p.marketAddress?.trim() ?? '';
+      const program = p.programAddress?.trim() ?? '';
+      return {
+        ...p,
+        programAddress: program,
+        marketScore: marketScoreByKey.get(candidatePairKey(market, program)),
+      };
+    }),
+    'rpc',
+  );
+  const candidates = mergeDiscoveryCandidates(tradeQueued, marketQueued, filteredRpcPools);
 
   const tradeInTop5 =
     marketQueued.length > 0 &&
@@ -909,11 +939,11 @@ export async function discoverRouteCandidates(
     `[route-discovery] mode=${marketFetchMode} ` +
       `${inputMint.slice(0, 8)}…→${outputMint.slice(0, 8)}… ` +
       `trades=${tradeData.candidates.length} markets=${marketCandidates.length} ` +
-      `rpc=${rpcPools.length} merged=${candidates.length}` +
+      `rpc=${filteredRpcPools.length} merged=${candidates.length}` +
       (tradeData.tradesSource ? ` tradesSource=${tradeData.tradesSource}` : ''),
   );
 
-  return { tradeData, marketCandidates, marketsSnapshotFetched, marketsSnapshotSource, rpcPools, candidates };
+  return { tradeData, marketCandidates, marketsSnapshotFetched, marketsSnapshotSource, rpcPools: filteredRpcPools, candidates };
 }
 
 function quoteOutAmountRawFromBuild(build: import('../types/swap.js').VybeSwapBuildResponse): bigint {
