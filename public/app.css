@@ -3313,14 +3313,14 @@ tr:hover td {
 }
 
 .routing-acc-rent-above--2 {
-  --routing-fee-connector-h: 3.35rem;
-  width: 21rem;
+  --routing-fee-connector-h: 3rem;
+  width: max-content;
 }
 
 .routing-acc-rent-above--3,
 .routing-acc-rent-above--many {
-  --routing-fee-connector-h: 3.75rem;
-  width: 25.5rem;
+  --routing-fee-connector-h: 3.15rem;
+  width: max-content;
 }
 
 .routing-acc-rent-cards {
@@ -3328,20 +3328,21 @@ tr:hover td {
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.45rem;
-  width: 100%;
+  justify-content: center;
+  gap: 0.5rem;
+  width: max-content;
+  max-width: calc(100vw - 2.5rem);
   position: relative;
   z-index: 1;
 }
 
 .routing-acc-rent-cards--2 {
-  gap: 0.85rem;
+  gap: 0.55rem;
 }
 
 .routing-acc-rent-cards--3,
 .routing-acc-rent-cards--many {
-  gap: 0.65rem;
+  gap: 0.45rem;
 }
 
 .routing-acc-rent-above--2 .routing-fee-slot--acc-rent,
@@ -3356,12 +3357,22 @@ tr:hover td {
 
 .routing-acc-rent-connectors {
   width: 100%;
+  min-width: 9.5rem;
   height: var(--routing-fee-connector-h);
   flex-shrink: 0;
   position: relative;
   z-index: 0;
   pointer-events: none;
   transform: scaleY(-1);
+}
+
+.routing-acc-rent-above--2 .routing-acc-rent-connectors {
+  min-width: 11rem;
+}
+
+.routing-acc-rent-above--3 .routing-acc-rent-connectors,
+.routing-acc-rent-above--many .routing-acc-rent-connectors {
+  min-width: 13rem;
 }
 
 .routing-canvas--has-acc-rent-above .routing-path {
@@ -3373,23 +3384,23 @@ tr:hover td {
 }
 
 .routing-canvas--has-acc-rent-above.routing-canvas--flow.routing-frame--multi-acc-rent-above .routing-path {
-  --routing-path-pad-top: 3.55rem;
+  --routing-path-pad-top: 3.2rem;
 }
 
 .routing-canvas--acc-rent-above-2 .routing-path {
-  --routing-path-pad-top: 3.95rem;
+  --routing-path-pad-top: 3.35rem;
 }
 
 .routing-canvas--acc-rent-above-2.routing-canvas--has-fees .routing-path {
-  --routing-path-pad-top: 4.2rem;
+  --routing-path-pad-top: 3.5rem;
 }
 
 .routing-canvas--acc-rent-above-3 .routing-path {
-  --routing-path-pad-top: 4.45rem;
+  --routing-path-pad-top: 3.55rem;
 }
 
 .routing-canvas--acc-rent-above-3.routing-canvas--has-fees .routing-path {
-  --routing-path-pad-top: 4.7rem;
+  --routing-path-pad-top: 3.7rem;
 }
 
 .routing-fee-branch {

@@ -549,13 +549,8 @@ export function sumInputSideWalletFeesInSellMintUi(quote: Record<string, unknown
     const fees = getHopFeeBreakdown(step);
     for (const item of fees?.items ?? []) {
       if (!isWalletCostFeeItem(item, quote)) continue;
-      if (
-        isAccRentWalletFeeItem(item) &&
-        routeLegMintMatches(item.mint, sellMint) &&
-        hasInputMintRentReclaim(quote, sellMint)
-      ) {
-        continue;
-      }
+      /* Acc rent is shown in its own rent row(s) — never fold into sell-mint fee. */
+      if (isAccRentWalletFeeItem(item)) continue;
       const feeUi = feeAmountToUi(item.amountRaw, item.mint);
       if (feeUi == null || feeUi <= 0) continue;
       let sellUi: number | null = null;
@@ -1582,6 +1577,37 @@ export interface QuotePayHeroCostStackItem {
   count?: number;
 }
 
+/** Pool/output-side fees (LP cuts) rolled into You pay fee totals — expressed in sell mint. */
+function sumQuotePoolFeesInSellMintUi(
+  quote: Record<string, unknown>,
+): { ui: number; count: number } | null {
+  const sellMint = quoteInputMint(quote);
+  if (!sellMint) return null;
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  let total = 0;
+  let count = 0;
+  for (const step of plan) {
+    const hopOutMint = swapInfoOutputMint(step.swapInfo) ?? '';
+    for (const item of getHopFeeDisplayItems(step)) {
+      if (isAccRentWalletFeeItem(item) || isAccRentReclaimItem(item)) continue;
+      if (!isDeductedFromPoolFeeItem(item, quote, hopOutMint)) continue;
+      const feeUi = feeAmountToUi(item.amountRaw, item.mint);
+      if (feeUi == null || feeUi <= 0) continue;
+      let sellUi: number | null = null;
+      if (routeLegMintMatches(item.mint, sellMint)) {
+        sellUi = feeUi;
+      } else {
+        sellUi = convertFeeUiToSellLeg(feeUi, item.mint, quote);
+      }
+      if (sellUi != null && sellUi > 0) {
+        total += sellUi;
+        count += 1;
+      }
+    }
+  }
+  return count > 0 && total > 0 ? { ui: total, count } : null;
+}
+
 export function getQuotePayHeroCostStack(
   quote: Record<string, unknown>,
   sellSym: string,
@@ -1664,6 +1690,13 @@ export function getQuotePayHeroCostStack(
       foundFee = true;
       if (feeItemCount === 0) feeItemCount = 1;
     }
+  }
+
+  const poolFees = sumQuotePoolFeesInSellMintUi(quote);
+  if (poolFees) {
+    feeUi += poolFees.ui;
+    feeItemCount += poolFees.count;
+    foundFee = true;
   }
 
   const stack: QuotePayHeroCostStackItem[] = [];
@@ -3616,7 +3649,10 @@ function sumHopPlanFeeTableTotals(
   };
 }
 
-function renderRoutingFeeConnectors(feeCount: number): string {
+function renderRoutingFeeConnectors(
+  feeCount: number,
+  spread: 'default' | 'compact' = 'default',
+): string {
   const vbW = 248;
   const vbH = 72;
   const cx = vbW / 2;
@@ -3625,13 +3661,21 @@ function renderRoutingFeeConnectors(feeCount: number): string {
   const r = 8;
 
   const dropXs =
-    feeCount === 2
-      ? [vbW * 0.18, vbW * 0.82]
-      : feeCount === 3
-        ? [vbW / 6, vbW / 2, (vbW * 5) / 6]
-        : feeCount >= 4
-          ? [vbW * 0.12, vbW * 0.38, vbW * 0.62, vbW * 0.88].slice(0, feeCount)
-          : [cx];
+    spread === 'compact'
+      ? feeCount === 2
+        ? [vbW * 0.4, vbW * 0.6]
+        : feeCount === 3
+          ? [vbW * 0.32, vbW * 0.5, vbW * 0.68]
+          : feeCount >= 4
+            ? [vbW * 0.26, vbW * 0.42, vbW * 0.58, vbW * 0.74].slice(0, feeCount)
+            : [cx]
+      : feeCount === 2
+        ? [vbW * 0.25, vbW * 0.75]
+        : feeCount === 3
+          ? [vbW / 6, vbW / 2, (vbW * 5) / 6]
+          : feeCount >= 4
+            ? [vbW * 0.12, vbW * 0.38, vbW * 0.62, vbW * 0.88].slice(0, feeCount)
+            : [cx];
 
   const segments: string[] = [];
 
@@ -3698,7 +3742,7 @@ function renderHopFeesAboveBranch(
 
   return `<div class="routing-acc-rent-above routing-acc-rent-above--${countMod}${hasReclaim ? ' routing-acc-rent-above--reclaim' : ''}" aria-label="Account rent fees at this hop">
     <div class="routing-acc-rent-cards routing-acc-rent-cards--${countMod}">${slots}</div>
-    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(feeCount)}</div>
+    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(feeCount, 'compact')}</div>
   </div>`;
 }
 
