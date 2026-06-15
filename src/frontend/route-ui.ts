@@ -22,6 +22,8 @@ import {
   getCachedTokenMeta,
   effectiveTokenIconSrc,
   renderTokenIconImgHtml,
+  TOKEN_ICON_PLACEHOLDER_PATH,
+  routingTokenDotClass,
   isSolMint,
   NATIVE_SOL_MINT,
   WSOL_MINT,
@@ -2213,9 +2215,14 @@ export function formatRouteChipLabel(plan: VybeRoutePlanStepLite[]): string {
   }
   return hopCount === 1 ? '1 Hop' : `${hopCount} Hops`;
 }
-function renderRoutingTokenIcon(mint: string, _sym: string): string {
-  const meta = getCachedTokenMeta(mint);
-  return renderTokenIconImgHtml(effectiveTokenIconSrc(meta?.logoUrl), 'routing-token-img');
+function renderRoutingTokenIcon(mint: string, sym: string): string {
+  const m = mint.trim();
+  const meta = m ? getCachedTokenMeta(m) : null;
+  const iconSrc = effectiveTokenIconSrc(meta?.logoUrl);
+  if (iconSrc !== TOKEN_ICON_PLACEHOLDER_PATH) {
+    return renderTokenIconImgHtml(iconSrc, 'routing-token-img');
+  }
+  return `<span class="${routingTokenDotClass(m, sym)}" aria-hidden="true"></span>`;
 }
 
 function renderRouteEndpointPill(
@@ -2223,13 +2230,15 @@ function renderRouteEndpointPill(
   sym: string,
   title?: string,
   amtLoading = false,
+  mintOverride = '',
 ): string {
   const mint =
-    sym === deps.getSwapInSym()
+    mintOverride.trim() ||
+    (sym === deps.getSwapInSym()
       ? (deps.getFormInputMint())
       : sym === deps.getSwapOutSym()
         ? (deps.getFormOutputMint())
-        : '';
+        : '');
   const boxCls = mint ? tokenBoxColorClass(mint, sym) : '';
   const symCls = tokenSymColorClass(mint, sym);
   const titleAttr = title ? ` title="${deps.escapeHtml(title)}"` : '';
@@ -3982,7 +3991,7 @@ function renderRoutingFrame(
       <div class="routing-endpoint routing-endpoint--in">
         <div class="routing-endpoint-stack">
           ${inputAddonHtml}
-          ${renderRouteEndpointPill(inDisplay, inSym, undefined, loading && inDisplay === '—')}
+          ${renderRouteEndpointPill(inDisplay, inSym, undefined, loading && inDisplay === '—', deps.getFormInputMint())}
           ${inputTotalHtml}
         </div>
       </div>
@@ -3990,7 +3999,7 @@ function renderRoutingFrame(
         <div class="routing-endpoint-stack">
           ${outputFeeSpacerHtml}
           ${outputFeesUsdHtml}
-          ${renderRouteEndpointPill(outDisplay, outSym, outTitle, loading)}
+          ${renderRouteEndpointPill(outDisplay, outSym, outTitle, loading, deps.getFormOutputMint())}
           ${outputUsdHtml}
         </div>
       </div>

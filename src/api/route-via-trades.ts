@@ -39,6 +39,7 @@ export {
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
 import { staticAccountKeysFromSwapTx, validateTradeRoutedBuildOnChain } from './pool-address-validation.js';
 import { simulateSwapEffects } from './simulate-swap-output.js';
+import { evaluateQuoteBridgeSimEligibility } from './quote-bridge-sim.js';
 import { toVybeSwapMint } from './sol-mints.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams } from './trades.js';
 
@@ -266,6 +267,7 @@ export type RouteCandidateSource =
 export interface RouteRpcMeta {
   liquidity?: string;
   preSwapNeeded?: boolean;
+  quoteBridge?: ScannedPoolCandidate['quoteBridge'];
 }
 
 export interface EnumeratedRouteCandidate extends QueuedMarketEntry {
@@ -364,6 +366,21 @@ async function validateTradeBuild(
   const tx = build.tx ?? build.transaction;
   if (typeof tx !== 'string' || !tx.trim()) {
     return { ok: false, reason: 'Built tx missing' };
+  }
+
+  const bridgeSim = await evaluateQuoteBridgeSimEligibility(
+    connection,
+    swapParams.accountAddress.trim(),
+    build,
+  );
+  if (!bridgeSim.canSimulate) {
+    console.info(
+      `[quote-bridge] ${bridgeSim.reason}` +
+        (bridgeSim.intermediateMint
+          ? ` mint=${bridgeSim.intermediateMint.slice(0, 8)}… need=${bridgeSim.requiredIntermediateRaw} have=${bridgeSim.availableIntermediateRaw}`
+          : ''),
+    );
+    return { ok: true, reason: '', simulation: undefined };
   }
 
   const sim = await simulateSwapEffects(
@@ -688,7 +705,11 @@ export function mergeDiscoveryCandidates(
       queueIndex,
       source,
       rpcMeta: rpc
-        ? { liquidity: rpc.liquidity, preSwapNeeded: rpc.preSwapNeeded }
+        ? {
+            liquidity: rpc.liquidity,
+            preSwapNeeded: rpc.preSwapNeeded,
+            quoteBridge: rpc.quoteBridge ?? undefined,
+          }
         : undefined,
     };
   };
@@ -734,6 +755,25 @@ export function mergeDiscoveryCandidates(
     }
   } else if (tradeSlots.length > 0) {
     for (const entry of tradeSlots.slice(0, ROUTE_ENUMERATE_CANDIDATE_POOL)) pushUnique(entry);
+  }
+
+  // Surface Pumpswap quote-bridge routes (e.g. WSOL→USDC→token) even when trades/markets
+  // already found direct WSOL pools — they are a distinct execution path.
+  for (const pool of rpcPools) {
+    if (ordered.length >= ROUTE_ENUMERATE_CANDIDATE_POOL) break;
+    if (!pool.quoteBridge && !pool.preSwapNeeded) continue;
+    const market = pool.marketAddress?.trim();
+    const program = pool.programAddress?.trim();
+    if (!market || !program || !isSupportedIxBuilderProgram(program)) continue;
+    pushUnique({
+      marketAddress: market,
+      programAddress: program,
+      protocol: programAddressToProtocol(program),
+      ixBuilderProtocol: programAddressToIxBuilderProtocol(program),
+      tradeCount: 0,
+      programLabel: programLabelForAddress(program),
+      queueIndex: ordered.length + 1,
+    });
   }
 
   if (ordered.length === 0) {
@@ -889,6 +929,19 @@ export async function discoverRouteCandidates(
       );
       return [] as ScannedPoolCandidate[];
     });
+  } else if (includeRpc) {
+    // Trades/markets may satisfy the RPC skip threshold — still fetch quote-bridge pools.
+    rpcPools = await fetchScanPoolsViaIxBuilder(inputMint, outputMint)
+      .then((pools) => pools.filter((p) => p.quoteBridge || p.preSwapNeeded))
+      .catch((err) => {
+        console.warn(
+          `[route-via-trades] quote-bridge scan failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return [] as ScannedPoolCandidate[];
+      });
+    if (rpcPools.length > 0) {
+      console.info(`[route-discovery] quote-bridge-only rpc=${rpcPools.length} (full RPC scan skipped)`);
+    }
   }
 
   const tradeQueued = includeTrades

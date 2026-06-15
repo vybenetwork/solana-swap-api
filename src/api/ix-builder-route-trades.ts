@@ -81,6 +81,11 @@ export interface ScannedPoolCandidate {
   preSwapNeeded?: boolean;
   baseMint?: string;
   quoteMint?: string;
+  quoteBridge?: {
+    bridgeMint: string;
+    userVettedMint: string;
+    isBuyingToken: boolean;
+  } | null;
 }
 
 export async function fetchScanPoolsViaIxBuilder(
