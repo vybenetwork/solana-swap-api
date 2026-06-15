@@ -6,7 +6,7 @@
   "main": "dist/server.js",
   "scripts": {
     "start": "tsx src/server.ts",
-    "dev": "tsx src/server.ts",
+    "dev": "npm run build:frontend && tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc",
     "build:frontend": "node tools/bundle-frontend.mjs",

@@ -32,6 +32,7 @@ import {
   SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER,
   isSolMint,
   isNearMaxSellAmountUi,
+  isAtMaxSellAmountUi,
   preferNativeSolMint,
   NATIVE_SOL_MINT,
   SOL_MIN_AUTO_PICK_TOTAL_UI,
@@ -195,6 +196,7 @@ const swapMarketFetchModeSelect = document.getElementById('swapMarketFetchMode')
 const swapEnumerateRoutesCheckbox = document.getElementById('swapEnumerateRoutes') as HTMLInputElement | null;
 const swapRouteOptionsEl = document.getElementById('swapRouteOptions') as HTMLElement | null;
 const swapQuoteBtn = document.getElementById('swapQuoteBtn') as HTMLButtonElement | null;
+const swapQuoteBtnDebugEl = document.getElementById('swapQuoteBtnDebug') as HTMLElement | null;
 const swapBuildBtn = document.getElementById('swapBuildBtn') as HTMLButtonElement | null;
 const swapBuildResultEl = document.getElementById('swapBuildResult') as HTMLElement | null;
 const swapTxBase64El = document.getElementById('swapTxBase64') as HTMLTextAreaElement | null;
@@ -239,6 +241,7 @@ type WindowWithSolana = Window & {
   phantom?: { solana?: SolanaWalletProvider };
   bs58?: { decode(source: string): Uint8Array };
   __swapBrowserConnection?: Connection;
+  __swapQuoteBtnDebug?: SwapQuoteBtnDiagnostics;
 };
 
 function getSolanaWindow(): WindowWithSolana {
@@ -312,25 +315,135 @@ function isPartnerConfigValid(): boolean {
   return Boolean(swapPartnerInput?.value.trim());
 }
 
-function isSwapQuoteInputReady(): boolean {
-  if (swapQuoteFetching || swapBuildMode === 'paste-sign') return false;
+function isWalletBalancesGateOpen(wallet: string): boolean {
+  if (walletBalancesFetching) return false;
+  if (walletBalancesReadyFor === wallet) return true;
+  // Race: cache populated but ready flag not set yet (superseded fetch gen, etc.).
+  return isWalletBalanceCacheReady(wallet);
+}
 
+type SwapQuoteBtnDiagnostics = {
+  ready: boolean;
+  blockReason: string | null;
+  swapQuoteFetching: boolean;
+  swapBuildMode: SwapBuildMode;
+  wallet: string;
+  walletValid: boolean;
+  connectedWallet: string;
+  vybeWalletErr: string | null;
+  partnerValid: boolean;
+  partnerEnabled: boolean;
+  walletBalancesFetching: boolean;
+  walletBalancesReadyFor: string;
+  walletCacheReady: boolean;
+  balancesGateOpen: boolean;
+  sellMint: string;
+  amountRaw: string;
+  amount: number;
+  amountMaxAttr: string;
+  sellable: number | null;
+  maxSell: number | null;
+  buttonHidden: boolean;
+  syncSkippedQuoteFetching: boolean;
+};
+
+function getSwapQuoteDisabledReason(): string | null {
+  if (swapQuoteFetching) return 'Quote fetch in progress (swapQuoteFetching=true)';
+  if (swapBuildMode === 'paste-sign') return 'Paste & Sign mode — use Sign pasted tx instead';
   const wallet = swapWalletAddressInput?.value.trim() ?? '';
-  if (!hasValidSwapWallet()) return false;
-  if (!isPartnerConfigValid()) return false;
-  if (walletBalancesFetching || walletBalancesReadyFor !== wallet) return false;
-
+  if (!hasValidSwapWallet()) {
+    return wallet ? `Invalid wallet address: "${truncate(wallet, 6, 4)}"` : 'No wallet address';
+  }
+  if (!isPartnerConfigValid()) return 'Partner enabled but Partner ID is empty';
+  if (!isWalletBalancesGateOpen(wallet)) {
+    if (walletBalancesFetching) return 'Wallet balances still loading';
+    return `Balances not ready (readyFor=${walletBalancesReadyFor ? truncate(walletBalancesReadyFor, 4, 4) : '—'}, cache=${isWalletBalanceCacheReady(wallet)})`;
+  }
   const sellMint = swapInputMintInput?.value.trim() ?? '';
-  const amount = Number(swapAmountInput?.value);
-  if (!sellMint || !Number.isFinite(amount) || amount <= 0) return false;
+  if (!sellMint) return 'No sell mint selected';
+  const amountRaw = swapAmountInput?.value ?? '';
+  const amount = Number(amountRaw);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    const maxAttr = swapAmountInput?.max ?? '';
+    const sellable = getWalletSellableForUi(sellMint);
+    return `Sell amount invalid: raw="${amountRaw}" parsed=${amount} maxAttr="${maxAttr}" sellable=${sellable ?? 'null'}`;
+  }
+  if (getSwapRouter() === 'vybe') {
+    const vybeErr = validateVybeQuoteWallet();
+    if (vybeErr) return vybeErr;
+  }
+  return null;
+}
 
-  return true;
+function collectSwapQuoteBtnDiagnostics(): SwapQuoteBtnDiagnostics {
+  const wallet = swapWalletAddressInput?.value.trim() ?? '';
+  const sellMint = swapInputMintInput?.value.trim() ?? '';
+  const amountRaw = swapAmountInput?.value ?? '';
+  const amount = Number(amountRaw);
+  const blockReason = getSwapQuoteDisabledReason();
+  return {
+    ready: blockReason === null,
+    blockReason,
+    swapQuoteFetching,
+    swapBuildMode,
+    wallet,
+    walletValid: hasValidSwapWallet(),
+    connectedWallet: getBrowserWalletAddress(),
+    vybeWalletErr: getSwapRouter() === 'vybe' ? validateVybeQuoteWallet() : null,
+    partnerValid: isPartnerConfigValid(),
+    partnerEnabled: swapEnablePartnerCheckbox?.checked === true,
+    walletBalancesFetching,
+    walletBalancesReadyFor,
+    walletCacheReady: isWalletBalanceCacheReady(wallet),
+    balancesGateOpen: isWalletBalancesGateOpen(wallet),
+    sellMint,
+    amountRaw,
+    amount,
+    amountMaxAttr: swapAmountInput?.max ?? '',
+    sellable: sellMint ? getWalletSellableForUi(sellMint) : null,
+    maxSell: sellMint ? getMaxSellAmountForInput(sellMint) : null,
+    buttonHidden: swapQuoteBtn?.hidden === true,
+    syncSkippedQuoteFetching: false,
+  };
+}
+
+function renderSwapQuoteBtnDebug(diag: SwapQuoteBtnDiagnostics): void {
+  if (!swapQuoteBtnDebugEl) return;
+  if (diag.ready) {
+    swapQuoteBtnDebugEl.hidden = true;
+    swapQuoteBtnDebugEl.textContent = '';
+    if (swapQuoteBtn) swapQuoteBtn.removeAttribute('title');
+    return;
+  }
+  swapQuoteBtnDebugEl.hidden = false;
+  swapQuoteBtnDebugEl.innerHTML = [
+    `<strong>Get quote blocked:</strong> ${diag.blockReason ?? 'unknown'}`,
+    `<br />wallet=${diag.walletValid ? truncate(diag.wallet, 4, 4) : 'invalid'}`,
+    ` connected=${diag.connectedWallet ? truncate(diag.connectedWallet, 4, 4) : '—'}`,
+    ` balances=${diag.balancesGateOpen ? 'ready' : diag.walletBalancesFetching ? 'loading' : 'not-ready'}`,
+    ` amount=${diag.amountRaw || '—'} sellable=${diag.sellable ?? '—'}`,
+    ` mode=${diag.swapBuildMode} router=${getSwapRouter()}`,
+  ].join('');
+  if (swapQuoteBtn) swapQuoteBtn.title = diag.blockReason ?? '';
+}
+
+function isSwapQuoteInputReady(): boolean {
+  return getSwapQuoteDisabledReason() === null;
 }
 
 function syncSwapQuoteButtonState(): void {
-  if (!swapQuoteBtn || swapQuoteBtn.hidden) return;
-  if (swapQuoteFetching) return;
-  swapQuoteBtn.disabled = !isSwapQuoteInputReady();
+  const diag = collectSwapQuoteBtnDiagnostics();
+  if (!swapQuoteBtn || swapQuoteBtn.hidden) {
+    console.debug('[swap-quote-btn]', { ...diag, note: 'button missing or hidden' });
+    renderSwapQuoteBtnDebug(diag);
+    return;
+  }
+  const ready = diag.blockReason === null;
+  swapQuoteBtn.disabled = !ready;
+  renderSwapQuoteBtnDebug(diag);
+  console.debug('[swap-quote-btn]', diag);
+  const w = getSolanaWindow();
+  w.__swapQuoteBtnDebug = diag;
 }
 
 function setSwapQuoteButtonLoading(loading: boolean): void {
@@ -1049,6 +1162,14 @@ function sellAmountRoughlyEqual(a: number, b: number, mint: string): boolean {
   return Math.abs(a - b) <= eps;
 }
 
+function sellAmountMatchesVybeExactBalance(mint: string): boolean {
+  if (!swapAmountInput) return false;
+  const item = getWalletBalanceListItem(mint);
+  const exact = item?.amountExact?.trim().replace(/,/g, '');
+  if (!exact) return false;
+  return swapAmountInput.value.trim() === exact;
+}
+
 function sellAmountMatchesPercent(currentUi: number, percent: number, mint: string): boolean {
   const total = getWalletBalanceAmountUi(mint);
   const sellable = getWalletSellableForUi(mint);
@@ -1057,7 +1178,10 @@ function sellAmountMatchesPercent(currentUi: number, percent: number, mint: stri
 
   const maxPct = getMaxSellPercentForMint(mint);
   if (percent >= maxPct) {
-    return isNearMaxSellAmountUi(currentUi, sellable) || sellAmountRoughlyEqual(currentUi, sellable, mint);
+    if (sellAmountMatchesVybeExactBalance(mint)) return true;
+    const maxInput = getMaxSellAmountForInput(mint);
+    if (maxInput == null || maxInput <= 0) return false;
+    return sellAmountRoughlyEqual(currentUi, maxInput, mint);
   }
 
   const target = Math.min(total * (percent / 100), sellable);
@@ -1065,11 +1189,11 @@ function sellAmountMatchesPercent(currentUi: number, percent: number, mint: stri
 }
 
 function resolveActiveSellPercent(currentUi: number, mint: string): number | null {
-  const maxPct = getMaxSellPercentForMint(mint);
-  if (sellAmountMatchesPercent(currentUi, maxPct, mint)) return maxPct;
-  for (const pct of [50, 25]) {
+  for (const pct of [25, 50]) {
     if (sellAmountMatchesPercent(currentUi, pct, mint)) return pct;
   }
+  const maxPct = getMaxSellPercentForMint(mint);
+  if (sellAmountMatchesPercent(currentUi, maxPct, mint)) return maxPct;
   return null;
 }
 
@@ -1197,10 +1321,12 @@ function pickDefaultSellBalance(items: WalletBalanceListItem[]): WalletBalanceLi
 function syncSwapAmountMaxFromBalance(): void {
   if (!swapAmountInput || !swapInputMintInput) return;
   const mint = swapInputMintInput.value.trim();
+  const wallet = swapWalletAddressInput?.value.trim() ?? '';
+  const balancesReady = isWalletBalancesGateOpen(wallet);
   const sellable = getWalletSellableForUi(mint);
   if (sellable != null && sellable > 0) {
     swapAmountInput.max = formatSwapInputAmountValue(sellable, getMintDecimals(mint));
-  } else if (hasValidSwapWallet() && mint) {
+  } else if (hasValidSwapWallet() && mint && balancesReady) {
     swapAmountInput.max = '0';
   } else {
     swapAmountInput.removeAttribute('max');
@@ -1226,7 +1352,7 @@ function clampSwapAmountInputToMax(): boolean {
   const amount = Number(raw);
   if (!Number.isFinite(amount)) return false;
   const max = getSwapAmountMaxUi();
-  if (max == null || amount <= max) return false;
+  if (max == null || max <= 0 || amount <= max) return false;
   const mint = swapInputMintInput.value.trim();
   const formatted = formatSwapInputAmountValue(max, getMintDecimals(mint));
   if (swapAmountInput.value === formatted) return false;
@@ -1270,18 +1396,15 @@ function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: bo
     HARDCODED_MINT_SYMBOLS[item.mintAddress] ||
     item.mintAddress.slice(0, 6);
   if (swapInputSymbolEl) swapInputSymbolEl.textContent = sym === 'WSOL' ? 'SOL' : sym;
-  void syncSwapSideLabels();
   if (item.decimals != null) routeMintDecimalsCache[swapMint] = item.decimals;
-  updateSwapTokenIcons();
-  updateSwapPairCards();
-  void refreshSwapSymbols();
   syncSwapAmountMaxFromBalance();
   if (useMaxAmount) {
     const sellable = getWalletSellableForUi(swapMint);
     if (sellable != null && sellable > 0) {
-      setSwapSellAmountToBalance(sellable, swapMint);
+      setSwapSellAmountToBalance(sellable, swapMint, true);
     }
   }
+  void refreshSwapSymbols();
 }
 
 async function refreshWalletBalancesForSwap(wallet: string, applyDefaults: boolean): Promise<void> {
@@ -1290,6 +1413,7 @@ async function refreshWalletBalancesForSwap(wallet: string, applyDefaults: boole
   syncSwapQuoteButtonState();
   updateWalletTotalUsdUi();
   const force = wallet !== lastWalletBalanceFetchAddress;
+  let markReady = false;
   try {
     const items = await prefetchWalletBalances(wallet, force);
     if (gen !== walletBalanceFetchGen) return;
@@ -1306,20 +1430,24 @@ async function refreshWalletBalancesForSwap(wallet: string, applyDefaults: boole
           forceFullDetails: true,
           mints: [preferNativeSolMint(pick.mintAddress)],
         });
-        walletBalancesReadyFor = wallet;
+        markReady = true;
         return;
       }
     }
 
     syncSwapAmountMaxFromBalance();
     await prefetchSwapPairPrices({ forceFullDetails: true });
-    walletBalancesReadyFor = wallet;
+    markReady = true;
   } catch {
     if (gen !== walletBalanceFetchGen) return;
     refreshWalletBalancesPanel();
+    // Allow quoting with manual amount even when balance fetch fails.
+    markReady = true;
   } finally {
     if (gen === walletBalanceFetchGen) {
       walletBalancesFetching = false;
+      if (markReady) walletBalancesReadyFor = wallet;
+      syncSwapAmountMaxFromBalance();
       syncSwapQuoteButtonState();
       updateWalletTotalUsdUi();
     }
@@ -1358,6 +1486,16 @@ function onWalletAddressReady(immediate = false): void {
   }
 
   const applyDefaults = wallet !== lastAutoAppliedWalletAddress;
+  if (
+    !applyDefaults &&
+    walletBalancesReadyFor === wallet &&
+    isWalletBalanceCacheReady(wallet)
+  ) {
+    syncSwapAmountMaxFromBalance();
+    syncSwapQuoteButtonState();
+    return;
+  }
+
   const run = (): void => {
     void refreshWalletBalancesForSwap(wallet, applyDefaults);
   };
@@ -3044,20 +3182,11 @@ function resolveSwapServiceFeePct(): number {
 
 function isVybeMaxSellSelected(mint: string): boolean {
   if (getSwapRouter() !== 'vybe' || !mint) return false;
-  const total = getWalletBalanceAmountUi(mint);
   const maxInput = getMaxSellAmountForInput(mint);
   const currentUi = Number(swapAmountInput?.value.trim() ?? '');
-  if (total == null || maxInput == null || !Number.isFinite(currentUi) || currentUi <= 0) {
-    return false;
-  }
-  const item = getWalletBalanceListItem(mint);
-  if (item?.amountExact && swapAmountInput?.value.trim() === item.amountExact.replace(/,/g, '')) {
-    return true;
-  }
-  return (
-    sellAmountRoughlyEqual(currentUi, maxInput, mint) ||
-    isNearMaxSellAmountUi(currentUi, total)
-  );
+  if (maxInput == null || !Number.isFinite(currentUi) || currentUi <= 0) return false;
+  if (sellAmountMatchesVybeExactBalance(mint)) return true;
+  return sellAmountRoughlyEqual(currentUi, maxInput, mint);
 }
 
 function vybeMarketDiscoveryActive(): boolean {

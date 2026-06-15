@@ -2120,6 +2120,14 @@ function sumRentReclaimUsd(items: HopFeeItemLite[], quote: Record<string, unknow
   return total;
 }
 
+/** Sum USD value of all ATA-close / WSOL rent returned to wallet on this quote. */
+function sumQuoteRentReclaimUsd(quote: Record<string, unknown>): number {
+  return sumRentReclaimUsd(
+    getQuoteWalletTokenAccountCloses(quote).map(closeEntryToReclaimFeeItem),
+    quote,
+  );
+}
+
 function computeHopRentReclaimBonusPct(
   quote: Record<string, unknown>,
   planIndex: number,
@@ -2276,9 +2284,27 @@ function flattenHopFeeItems(items: HopFeeItemLite[]): HopFeeItemLite[] {
   return flat;
 }
 
+function dedupeHopFeeDisplayItems(items: HopFeeItemLite[]): HopFeeItemLite[] {
+  const seen = new Set<string>();
+  const out: HopFeeItemLite[] = [];
+  for (const item of items) {
+    const key = [
+      item.label,
+      item.amountRaw,
+      item.mint,
+      item.destinationAddress ?? '',
+      item.accountMint ?? '',
+    ].join('|');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 function getHopFeeDisplayItems(step: VybeRoutePlanStepLite): HopFeeItemLite[] {
   const fees = getHopFeeBreakdown(step);
-  return fees?.items.length ? flattenHopFeeItems(fees.items) : [];
+  return fees?.items.length ? dedupeHopFeeDisplayItems(flattenHopFeeItems(fees.items)) : [];
 }
 
 function getHopFeeBreakdown(step: VybeRoutePlanStepLite): HopFeeBreakdownLite | null {
@@ -2609,10 +2635,27 @@ function getQuoteDiagramWalletFeesUsdLabel(quote: Record<string, unknown>): stri
 }
 
 function getQuoteDiagramOutputUsdSubline(quote: Record<string, unknown>): string | null {
-  const usd = deps.getQuoteReceiveUsd(quote);
-  if (usd == null) return null;
-  const label = deps.formatSwapReceiveUsdLabel(usd);
+  const swapUsd = deps.getQuoteReceiveUsd(quote);
+  const reclaimUsd = sumQuoteRentReclaimUsd(quote);
+  const totalUsd =
+    swapUsd != null ? swapUsd + reclaimUsd : reclaimUsd > 0 ? reclaimUsd : null;
+  if (totalUsd == null || !(totalUsd > 0)) return null;
+  const label = deps.formatSwapReceiveUsdLabel(totalUsd);
   return label ? `≈ ${label}` : null;
+}
+
+function getQuoteDiagramOutputUsdTitle(quote: Record<string, unknown>): string | null {
+  const reclaimUsd = sumQuoteRentReclaimUsd(quote);
+  const baseTitle = deps.quoteOutputPriceSourceTitle(quote);
+  if (!(reclaimUsd > 0.001)) return baseTitle;
+  const swapUsd = deps.getQuoteReceiveUsd(quote);
+  const swapLabel = swapUsd != null ? deps.formatSwapReceiveUsdLabel(swapUsd) : null;
+  const reclaimLabel = deps.formatSwapReceiveUsdLabel(reclaimUsd);
+  const parts: string[] = [];
+  if (baseTitle) parts.push(baseTitle);
+  if (swapLabel) parts.push(`swap output ${swapLabel}`);
+  if (reclaimLabel) parts.push(`+ ATA/WSOL rent reclaimed ${reclaimLabel}`);
+  return parts.join(' · ');
 }
 
 function computeFeeEquivalents(
@@ -2767,7 +2810,7 @@ function renderMockAccRentAboveBranch(): string {
   );
   return `<div class="routing-acc-rent-above" aria-label="Account rent fee at this hop">
     <div class="routing-acc-rent-cards"><div class="routing-fee-slot routing-fee-slot--acc-rent">${chip}</div></div>
-    <div class="routing-acc-rent-connector" aria-hidden="true">${renderRoutingAccRentConnectorDown()}</div>
+    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(1)}</div>
   </div>`;
 }
 
@@ -3469,29 +3512,6 @@ function partitionHopFeeDisplayItems(items: HopFeeItemLite[]): {
   return { accRentItems, routeFeeItems };
 }
 
-function renderRoutingAccRentConnectorDown(feeCount = 1): string {
-  const vbH = 28;
-  if (feeCount <= 1) {
-    const vbW = 48;
-    const cx = vbW / 2;
-    return `<svg class="routing-acc-rent-connector-svg" viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none">
-    <path d="M ${cx} 0 L ${cx} ${vbH}" fill="none" stroke="#3f3f46" stroke-width="1" vector-effect="non-scaling-stroke" stroke-linecap="butt"/>
-  </svg>`;
-  }
-  const vbW = feeCount >= 3 ? 200 : 140;
-  const cx = vbW / 2;
-  const spread = feeCount >= 3 ? vbW * 0.38 : vbW * 0.32;
-  const leftX = cx - spread;
-  const rightX = cx + spread;
-  const segments =
-    feeCount === 2
-      ? `M ${leftX} 0 L ${leftX} ${vbH} M ${rightX} 0 L ${rightX} ${vbH}`
-      : `M ${leftX} 0 L ${leftX} ${vbH} M ${cx} 0 L ${cx} ${vbH} M ${rightX} 0 L ${rightX} ${vbH}`;
-  return `<svg class="routing-acc-rent-connector-svg routing-acc-rent-connector-svg--fan" viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none">
-    <path d="${segments}" fill="none" stroke="#3f3f46" stroke-width="1" vector-effect="non-scaling-stroke" stroke-linecap="butt"/>
-  </svg>`;
-}
-
 function renderHopFeesAboveBranch(
   step: VybeRoutePlanStepLite,
   quote: Record<string, unknown>,
@@ -3515,7 +3535,7 @@ function renderHopFeesAboveBranch(
 
   return `<div class="routing-acc-rent-above routing-acc-rent-above--${countMod}${hasReclaim ? ' routing-acc-rent-above--reclaim' : ''}" aria-label="Account rent fees at this hop">
     <div class="routing-acc-rent-cards routing-acc-rent-cards--${countMod}">${slots}</div>
-    <div class="routing-acc-rent-connector" aria-hidden="true">${renderRoutingAccRentConnectorDown(feeCount)}</div>
+    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(feeCount)}</div>
   </div>`;
 }
 
@@ -3780,7 +3800,7 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const inputTotalLabel = getQuoteDiagramInputTotalLabel(quote);
   const outputFeesUsdLabel = getQuoteDiagramWalletFeesUsdLabel(quote);
   const outputUsdSubline = getQuoteDiagramOutputUsdSubline(quote);
-  const outputUsdTitle = deps.quoteOutputPriceSourceTitle(quote);
+  const outputUsdTitle = getQuoteDiagramOutputUsdTitle(quote);
 
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   const legs = resolveRouteHopLegs(plan, quote);
@@ -3851,7 +3871,7 @@ export function renderRoutingDiagramPlaceholder(loading = false): string {
   const inputTotalLabel = lastQuote ? getQuoteDiagramInputTotalLabel(lastQuote) : null;
   const outputFeesUsdLabel = lastQuote ? getQuoteDiagramWalletFeesUsdLabel(lastQuote) : null;
   const outputUsdSubline = lastQuote ? getQuoteDiagramOutputUsdSubline(lastQuote) : null;
-  const outputUsdTitle = lastQuote ? deps.quoteOutputPriceSourceTitle(lastQuote) : null;
+  const outputUsdTitle = lastQuote ? getQuoteDiagramOutputUsdTitle(lastQuote) : null;
   const outPctLabel =
     lastQuote != null
       ? computeFinalReceivePctBreakdown(lastQuote)?.pctLabel ?? `${ROUTING_PLACEHOLDER_DASH}%`

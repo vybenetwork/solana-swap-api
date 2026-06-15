@@ -671,6 +671,46 @@ function hasProtocolFeeOnMint(items: HopFeeItem[], mint: string): boolean {
   );
 }
 
+function isPoolOrProtocolFeeLabel(label: string): boolean {
+  const l = label.trim().toLowerCase();
+  return (
+    l === 'pool fee' ||
+    l === 'protocol fee' ||
+    l === 'lp fee' ||
+    l.includes('creator fee') ||
+    l.includes('platform fee') ||
+    l.includes('share fee')
+  );
+}
+
+/** swapInfo.feeAmount is often the protocol-fee total — skip when quote items already cover it. */
+function feeAmountAlreadyAccounted(
+  items: HopFeeItem[],
+  feeAmount: string,
+  feeMint: string,
+): boolean {
+  const feeMintNorm = feeMint.trim();
+  if (
+    items.some(
+      (it) => it.amountRaw === feeAmount && mintMatches(it.mint, feeMintNorm),
+    )
+  ) {
+    return true;
+  }
+  try {
+    const target = BigInt(feeAmount);
+    let sum = 0n;
+    for (const it of items) {
+      if (!isPoolOrProtocolFeeLabel(it.label)) continue;
+      if (!mintMatches(it.mint, feeMintNorm)) continue;
+      sum += BigInt(it.amountRaw);
+    }
+    return sum === target && sum > 0n;
+  } catch {
+    return false;
+  }
+}
+
 function buildRentByHopIndex(
   plan: VybeRoutePlanStep[],
   outputMint: string,
@@ -884,6 +924,7 @@ export function enrichRoutePlanFees(
         : 0n;
 
     if (si.feeAmount && si.feeAmount !== '0') {
+      const feeMintForAmount = si.feeMintAddress || si.inputMintAddress || inputMint || outputMint;
       let skipJupiterFeeAmount = false;
       if (isLast && hopRent > 0n && hopProtocolFeeEstimate > 0n) {
         try {
@@ -895,14 +936,17 @@ export function enrichRoutePlanFees(
         }
       }
 
-      if (!skipJupiterFeeAmount) {
+      if (
+        !skipJupiterFeeAmount &&
+        !feeAmountAlreadyAccounted(items, si.feeAmount, feeMintForAmount)
+      ) {
         const hopOut = si.outAmount?.trim() || (isLast ? quotedOutRaw : '');
         const isProtocol =
           isLast && feeAmountLooksLikeProtocolFee(si.feeAmount, hopOut, swapFeePct);
         items.push({
           label: isProtocol ? 'Protocol fee' : 'Pool fee',
           amountRaw: si.feeAmount,
-          mint: si.feeMintAddress || si.outputMintAddress || outputMint,
+          mint: feeMintForAmount,
         });
       }
     }

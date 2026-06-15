@@ -315,8 +315,16 @@ export function ensureTokenIconErrorHandling(): void {
 
 function needsRemoteLogoResolve(meta: TokenMeta | null | undefined): boolean {
   if (!meta) return true;
+  // Already fetched from /api/token — do not re-hit on every label/icon refresh.
+  if (meta.source === 'search') return false;
+  const sym = meta.symbol?.trim();
+  if (!sym || sym === truncateMint(meta.mint)) return true;
+  if (meta.decimals == null) return true;
   const u = meta.logoUrl.trim();
-  return !u || u.startsWith('http://') || u.startsWith('https://');
+  if (!u) return true;
+  if (u.startsWith('/')) return false;
+  // Catalog / wallet rows may keep remote icon URLs; browser loads them directly.
+  return false;
 }
 
 function saveTokenMeta(meta: TokenMeta): void {
@@ -692,6 +700,18 @@ export function isNearMaxSellAmountUi(amountUi: number, balanceUi: number): bool
   return amountUi >= balanceUi * 0.9;
 }
 
+/** Strict max-sell match for 100% button highlight and Vybe exact-balance sells (not the 90% sim-retry heuristic). */
+export function isAtMaxSellAmountUi(amountUi: number, maxUi: number, mint?: string): boolean {
+  if (!Number.isFinite(amountUi) || !Number.isFinite(maxUi) || maxUi <= 0) return false;
+  if (amountUi > maxUi * 1.000001) return false;
+  if (mint) {
+    const decimals = getTokenDecimalsFromCache(mint) ?? 9;
+    const eps = Math.pow(10, -Math.min(Math.max(decimals, 0), 12)) * 1.5;
+    return Math.abs(amountUi - maxUi) <= eps;
+  }
+  return amountUi >= maxUi * 0.9995;
+}
+
 function quotedBuildOutAmountRaw(buildPayload?: Record<string, unknown> | null): string | null {
   if (!buildPayload) return null;
   const details = buildPayload.details as Record<string, unknown> | undefined;
@@ -734,7 +754,8 @@ export function shouldApplySellAmountFromQuoteInAmount(
   const sellable = getWalletSellableAmountUi(mint, options);
   if (sellable != null && sellable > 0) {
     const atSellableCeiling =
-      requestedUi <= sellable * 1.001 || isNearMaxSellAmountUi(requestedUi, sellable);
+      isAtMaxSellAmountUi(requestedUi, sellable, mint) ||
+      (requestedUi <= sellable * 1.001 && quotedInUi <= sellable * 1.001);
     if (atSellableCeiling && quotedInUi <= sellable * 1.001) return false;
   }
 
@@ -882,17 +903,6 @@ function walletHasMintInCache(mint: string): boolean {
   return walletBalanceCache.items.some((i) => i.mintAddress === m);
 }
 
-function isFullSellAgainstWalletRow(amountUi: number, row: WalletBalanceListItem): boolean {
-  const exact = row.amountExact?.trim().replace(/,/g, '');
-  if (exact) {
-    const exactUi = Number(exact);
-    if (Number.isFinite(exactUi) && exactUi > 0) {
-      return isNearMaxSellAmountUi(amountUi, exactUi);
-    }
-  }
-  return isNearMaxSellAmountUi(amountUi, row.amountUi);
-}
-
 /**
  * Build Vybe ATA action flags from the cached wallet token-balance fetch (no extra API call).
  */
@@ -928,8 +938,7 @@ export function buildSwapAtaHintsFromWalletCache(params: {
     if (inputRow) {
       inputBalanceExact = inputRow.amountExact?.trim().replace(/,/g, '') || undefined;
       inputDecimals = inputRow.decimals;
-      const isFullSell =
-        params.maxSellSelected === true || isFullSellAgainstWalletRow(params.amountUi, inputRow);
+      const isFullSell = params.maxSellSelected === true;
       if (isFullSell && inputBalanceExact) {
         closeInputAta = true;
         const exactUi = Number(inputBalanceExact);
@@ -1411,17 +1420,27 @@ export async function ensureTokenCatalogLoaded(): Promise<void> {
   await loadCatalog();
 }
 
+const pendingMetaFetches = new Map<string, Promise<TokenMeta | null>>();
+
 export async function ensureTokenMetaForMint(mint: string): Promise<TokenMeta | null> {
   await loadCatalog();
   const m = mint.trim();
   if (!m) return null;
   const existing = getCachedTokenMeta(m);
   if (existing && !needsRemoteLogoResolve(existing)) return existing;
-  if (BASE58_RE.test(m)) {
-    const fetched = await fetchTokenByMint(m);
-    return fetched ?? existing ?? null;
-  }
-  return existing;
+  const pending = pendingMetaFetches.get(m);
+  if (pending) return pending;
+  const promise = (async (): Promise<TokenMeta | null> => {
+    if (BASE58_RE.test(m)) {
+      const fetched = await fetchTokenByMint(m);
+      return fetched ?? existing ?? null;
+    }
+    return existing;
+  })().finally(() => {
+    pendingMetaFetches.delete(m);
+  });
+  pendingMetaFetches.set(m, promise);
+  return promise;
 }
 
 export async function prefetchTokenMetas(mints: string[]): Promise<void> {

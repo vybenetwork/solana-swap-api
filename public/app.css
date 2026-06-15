@@ -3291,6 +3291,7 @@ tr:hover td {
 }
 
 .routing-acc-rent-above {
+  --routing-fee-connector-h: 2.7rem;
   position: absolute;
   left: 50%;
   bottom: 100%;
@@ -3298,21 +3299,17 @@ tr:hover td {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: max-content;
-  max-width: 9rem;
+  width: min(100%, 15.5rem);
   z-index: 3;
 }
 
 .routing-acc-rent-above--2 {
-  max-width: 14rem;
+  width: min(100%, 15.5rem);
 }
 
-.routing-acc-rent-above--3 {
-  max-width: 18.5rem;
-}
-
+.routing-acc-rent-above--3,
 .routing-acc-rent-above--many {
-  max-width: 22rem;
+  width: min(100%, 18rem);
 }
 
 .routing-acc-rent-cards {
@@ -3320,51 +3317,33 @@ tr:hover td {
   flex-direction: row;
   flex-wrap: nowrap;
   align-items: flex-start;
-  justify-content: center;
+  justify-content: space-between;
   gap: 0.45rem;
-  width: max-content;
-  max-width: 100%;
-}
-
-.routing-acc-rent-cards--2 {
-  min-width: 11rem;
-}
-
-.routing-acc-rent-cards--3,
-.routing-acc-rent-cards--many {
-  min-width: 15.5rem;
-}
-
-.routing-acc-rent-connector {
   width: 100%;
-  min-width: 3rem;
-  height: 1.1rem;
+  position: relative;
+  z-index: 1;
+}
+
+.routing-acc-rent-connectors {
+  width: 100%;
+  height: var(--routing-fee-connector-h);
   flex-shrink: 0;
   position: relative;
   z-index: 0;
-}
-
-.routing-acc-rent-connector-svg--fan {
-  width: 100%;
-}
-
-.routing-acc-rent-connector-svg {
-  display: block;
-  width: 1px;
-  height: 100%;
-  overflow: visible;
+  pointer-events: none;
+  transform: scaleY(-1);
 }
 
 .routing-canvas--has-acc-rent-above .routing-path {
-  --routing-path-pad-top: 1.35rem;
+  --routing-path-pad-top: 2.85rem;
 }
 
 .routing-canvas--has-acc-rent-above.routing-canvas--has-fees .routing-path {
-  --routing-path-pad-top: 1.5rem;
+  --routing-path-pad-top: 3.1rem;
 }
 
 .routing-canvas--has-acc-rent-above.routing-canvas--flow.routing-frame--multi-acc-rent-above .routing-path {
-  --routing-path-pad-top: 1.65rem;
+  --routing-path-pad-top: 3.35rem;
 }
 
 .routing-fee-branch {
@@ -6632,6 +6611,23 @@ tr:hover td {
   opacity: 0.48;
   filter: none;
   box-shadow: none;
+}
+
+.swap-quote-btn-debug {
+  margin: 0.35rem 0 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+  border: 1px dashed #3f3f46;
+  background: rgba(255, 196, 64, 0.06);
+  color: #fbbf24;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.swap-quote-btn-debug code {
+  font-size: 0.68rem;
+  color: #fde68a;
 }
 
 .swap-action-btn--loading {
