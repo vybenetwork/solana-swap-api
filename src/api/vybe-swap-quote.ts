@@ -43,7 +43,7 @@ import {
   type WalletTokenAccountCloseEntry,
   mergeBuildAtaCloseHints,
 } from './simulate-swap-output.js';
-import { evaluateQuoteBridgeSimEligibility } from './quote-bridge-sim.js';
+import { evaluateQuoteBridgeSimEligibility, simulateQuoteBridgePreSwapLeg, type QuoteBridgeBuildDetails } from './quote-bridge-sim.js';
 import { createSolanaConnection } from './solana-connection.js';
 import { enrichRoutePlanFees, sumProtocolFeeAmountRaw } from './enrich-route-fees.js';
 import { DEFAULT_SWAP_SLIPPAGE_PCT } from '../config.js';
@@ -367,13 +367,8 @@ function normalizeRoutePlan(raw: unknown): VybeRoutePlanStep[] {
   });
 }
 
-type QuoteBridgeBuildDetails = VybeSwapBuildResponse['details'] & {
-  preSwapNeeded?: boolean;
-  postSwapNeeded?: boolean;
-  preSwapQuote?: { inAmount: string; outAmount: string; provider?: string };
+type LocalQuoteBridgeBuildDetails = QuoteBridgeBuildDetails & {
   postSwapQuote?: { inAmount: string; outAmount: string; provider?: string };
-  quoteBridge?: { bridgeMint: string; userVettedMint: string; isBuyingToken: boolean };
-  bridgePool?: { type: string; address: string };
 };
 
 function quoteBridgeRoutePlanFromBuild(
@@ -386,7 +381,7 @@ function quoteBridgeRoutePlanFromBuild(
   protocolFeeMint: string,
   quotedOutAmount: string,
 ): VybeRoutePlanStep[] | null {
-  const ext = build.details as QuoteBridgeBuildDetails;
+  const ext = build.details as LocalQuoteBridgeBuildDetails;
   const preSwapNeeded =
     ext.preSwapNeeded === true || (build as { preSwapNeeded?: boolean }).preSwapNeeded === true;
   const postSwapNeeded = ext.postSwapNeeded === true;
@@ -399,6 +394,12 @@ function quoteBridgeRoutePlanFromBuild(
       ext.preSwapQuote.provider ??
       (bridgePool?.type ? bridgePool.type.replace(/_/g, ' ') : 'Raydium');
     const bridgePoolKey = bridgePool?.address?.trim() || 'bridge';
+    const preSwapFeeAmount = sumProtocolFeeAmountRaw(ext.preSwapQuote);
+    const preSwapFeeMint =
+      ext.preSwapQuote.protocolFees?.[0]?.mint ??
+      ext.preSwapQuote.feeMint ??
+      ext.preSwapQuote.platformFee?.feeMint ??
+      inputMint;
     return [
       {
         percent: 100,
@@ -410,8 +411,8 @@ function quoteBridgeRoutePlanFromBuild(
           outputMintAddress: bridgeMint,
           inAmount: ext.preSwapQuote.inAmount,
           outAmount: ext.preSwapQuote.outAmount,
-          feeAmount: '0',
-          feeMintAddress: inputMint,
+          feeAmount: preSwapFeeAmount,
+          feeMintAddress: preSwapFeeMint,
         },
       },
       {
@@ -675,6 +676,31 @@ const EMPTY_ROUTE_SIMULATION: RouteSimulationBundle = {
   walletTokenAccountCloses: [],
 };
 
+function routeSimBundleFromPreSwapSim(
+  preSwapSim: import('./simulate-swap-output.js').SwapSimulationResult,
+  build: VybeSwapBuildResponse,
+  uiInputMint: string,
+): RouteSimulationBundle {
+  const walletTokenAccountCloses = mergeBuildAtaCloseHints(
+    preSwapSim.walletTokenAccountCloses,
+    build.details as unknown as Record<string, unknown>,
+    uiInputMint,
+  );
+  return {
+    simulatedOutRaw: null,
+    simulationErr: preSwapSim.simulationErr,
+    walletPayDebitRaw: preSwapSim.walletPayDebitRaw,
+    pdaRentLamports: preSwapSim.pdaRentLamports,
+    tokenAccRentByMint: preSwapSim.tokenAccRentByMint,
+    embeddedPoolFeesByHop: preSwapSim.embeddedPoolFeesByHop,
+    walletSolTransfers: preSwapSim.walletSolTransfers,
+    tokenFeeCredits: preSwapSim.tokenFeeCredits,
+    networkFeeLamports: preSwapSim.networkFeeLamports,
+    inferredPoolAddressesByHop: preSwapSim.inferredPoolAddressesByHop,
+    walletTokenAccountCloses,
+  };
+}
+
 async function simulateRouteBuild(
   build: VybeSwapBuildResponse,
   params: VybeQuoteParams,
@@ -695,6 +721,14 @@ async function simulateRouteBuild(
   );
   if (!bridgeSim.canSimulate) {
     console.info(`[quote-bridge] route sim skipped: ${bridgeSim.reason}`);
+    const preSwapSim = await simulateQuoteBridgePreSwapLeg(
+      build,
+      params.accountAddress,
+      vybeInputMint,
+    );
+    if (preSwapSim) {
+      return routeSimBundleFromPreSwapSim(preSwapSim, build, uiInputMint);
+    }
     return empty;
   }
 
@@ -1303,6 +1337,23 @@ export async function buildVybeQuoteFromPriceAndSwap(
       walletTokenAccountCloses = sim.walletTokenAccountCloses;
     } else {
       console.info(`[quote-bridge] primary quote sim skipped: ${bridgeSim.reason}`);
+      const preSwapSim = await simulateQuoteBridgePreSwapLeg(
+        build,
+        params.accountAddress,
+        vybeInputMint,
+      );
+      if (preSwapSim) {
+        walletPayDebitRaw = preSwapSim.walletPayDebitRaw;
+        pdaRentLamports = preSwapSim.pdaRentLamports;
+        tokenAccRentByMint = preSwapSim.tokenAccRentByMint;
+        embeddedPoolFeesByHop = preSwapSim.embeddedPoolFeesByHop;
+        walletSolTransfers = preSwapSim.walletSolTransfers;
+        tokenFeeCredits = preSwapSim.tokenFeeCredits;
+        networkFeeLamports = preSwapSim.networkFeeLamports;
+        inferredPoolAddressesByHop = preSwapSim.inferredPoolAddressesByHop;
+        walletTokenAccountCloses = preSwapSim.walletTokenAccountCloses;
+        simulationErr = preSwapSim.simulationErr;
+      }
     }
   }
   walletTokenAccountCloses = mergeBuildAtaCloseHints(

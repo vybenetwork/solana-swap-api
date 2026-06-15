@@ -89,9 +89,12 @@ export function isSupportedIxBuilderProgram(programAddress: string): boolean {
   return programAddress.trim() in IX_BUILDER_SUPPORTED_PROGRAMS;
 }
 
-/** CLMM/DLMM (tick/bin arrays) — exclude from route queue below this USD liquidity. */
+/** CLMM/DLMM (tick/bin arrays) — used for logging labels only. */
 export const TICK_ARRAY_IX_BUILDER_PROTOCOLS = new Set(['METEORA_DLMM', 'RAYDIUM_CLMM']);
-export const MIN_TICK_ARRAY_LIQUIDITY_USD = 500;
+/** Exclude route candidates below this USD liquidity when a market score is known. */
+export const MIN_ROUTE_POOL_LIQUIDITY_USD = 1000;
+/** @deprecated Use MIN_ROUTE_POOL_LIQUIDITY_USD */
+export const MIN_TICK_ARRAY_LIQUIDITY_USD = MIN_ROUTE_POOL_LIQUIDITY_USD;
 
 export function isTickArrayProgram(programAddress: string): boolean {
   const proto = programAddressToIxBuilderProtocol(programAddress);
@@ -105,13 +108,29 @@ export function poolLiquidityUsd(entry: {
   return Number(entry.marketScore ?? entry.totalValueUsd ?? 0);
 }
 
+function hasKnownPoolLiquidityUsd(entry: {
+  marketScore?: number;
+  totalValueUsd?: number;
+}): boolean {
+  return entry.marketScore != null || entry.totalValueUsd != null;
+}
+
+export function passesRouteLiquidityFloor(entry: {
+  programAddress: string;
+  marketScore?: number;
+  totalValueUsd?: number;
+}): boolean {
+  if (!hasKnownPoolLiquidityUsd(entry)) return true;
+  return poolLiquidityUsd(entry) >= MIN_ROUTE_POOL_LIQUIDITY_USD;
+}
+
+/** @deprecated Use passesRouteLiquidityFloor */
 export function passesTickArrayLiquidityFloor(entry: {
   programAddress: string;
   marketScore?: number;
   totalValueUsd?: number;
 }): boolean {
-  if (!isTickArrayProgram(entry.programAddress)) return true;
-  return poolLiquidityUsd(entry) >= MIN_TICK_ARRAY_LIQUIDITY_USD;
+  return passesRouteLiquidityFloor(entry);
 }
 
 export function enrichCandidatesWithMarketScores<
@@ -136,7 +155,7 @@ export function filterRouteQueueByLiquidity<
   const kept: T[] = [];
   let dropped = 0;
   for (const entry of entries) {
-    if (passesTickArrayLiquidityFloor(entry)) {
+    if (passesRouteLiquidityFloor(entry)) {
       kept.push(entry);
     } else {
       dropped += 1;
@@ -144,13 +163,13 @@ export function filterRouteQueueByLiquidity<
       const proto = programAddressToIxBuilderProtocol(entry.programAddress) ?? '?';
       console.info(
         `[route-discovery] skip ${label} ${proto} ${addr}… ` +
-          `($${poolLiquidityUsd(entry).toFixed(2)} < $${MIN_TICK_ARRAY_LIQUIDITY_USD} tick-array floor)`,
+          `($${poolLiquidityUsd(entry).toFixed(2)} < $${MIN_ROUTE_POOL_LIQUIDITY_USD} liquidity floor)`,
       );
     }
   }
   if (dropped > 0) {
     console.info(
-      `[route-discovery] tick-array liquidity floor: excluded ${dropped} below $${MIN_TICK_ARRAY_LIQUIDITY_USD}`,
+      `[route-discovery] liquidity floor: excluded ${dropped} below $${MIN_ROUTE_POOL_LIQUIDITY_USD}`,
     );
   }
   return kept;

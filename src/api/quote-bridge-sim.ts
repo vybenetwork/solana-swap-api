@@ -6,19 +6,26 @@
 
 import { PublicKey } from '@solana/web3.js';
 import type { Connection } from '@solana/web3.js';
-import type { VybeSwapBuildResponse } from '../types/swap.js';
+import type { VybeRoutePlanStep, VybeSwapBuildResponse } from '../types/swap.js';
+import { sumProtocolFeeAmountRaw } from './enrich-route-fees.js';
+import { simulateSwapEffects, type SwapSimulationResult } from './simulate-swap-output.js';
 import { isSolMint } from './wallet-balance.js';
+
+export type QuoteBridgeHopQuote = VybeSwapBuildResponse['details']['quote'];
 
 export type QuoteBridgeBuildDetails = VybeSwapBuildResponse['details'] & {
   preSwapNeeded?: boolean;
   postSwapNeeded?: boolean;
+  preSwapTransaction?: string;
   quoteBridge?: {
     bridgeMint: string;
     userVettedMint: string;
     isBuyingToken: boolean;
     protocol?: string;
   };
-  preSwapQuote?: { inAmount: string; outAmount: string; provider?: string };
+  bridgePool?: { type?: string; address?: string };
+  preSwapQuote?: QuoteBridgeHopQuote;
+  postSwapQuote?: QuoteBridgeHopQuote;
 };
 
 export interface QuoteBridgeSimContext {
@@ -127,4 +134,82 @@ export async function evaluateQuoteBridgeSimEligibility(
     requiredIntermediateRaw: ctx.requiredIntermediateRaw.toString(),
     availableIntermediateRaw: available.toString(),
   };
+}
+
+function preSwapTransactionFromBuild(build: VybeSwapBuildResponse): string | null {
+  const ext = build.details as QuoteBridgeBuildDetails;
+  const fromDetails = ext.preSwapTransaction?.trim();
+  if (fromDetails) return fromDetails;
+  const topLevel = (build as { preSwapTransaction?: string }).preSwapTransaction?.trim();
+  return topLevel || null;
+}
+
+/** Single-hop route plan for the bridge (pre-swap) leg — used for fee attribution in simulation. */
+export function quoteBridgePreSwapRoutePlan(
+  build: VybeSwapBuildResponse,
+  inputMint: string,
+): VybeRoutePlanStep[] | null {
+  const ext = build.details as QuoteBridgeBuildDetails;
+  const preSwapNeeded =
+    ext.preSwapNeeded === true || (build as { preSwapNeeded?: boolean }).preSwapNeeded === true;
+  if (!preSwapNeeded || !ext.preSwapQuote) return null;
+
+  const bridgeMint = ext.quoteBridge?.bridgeMint?.trim();
+  if (!bridgeMint) return null;
+
+  const bridgePool = ext.bridgePool?.address?.trim();
+  const preSwapQuote = ext.preSwapQuote;
+  const preSwapFeeAmount = sumProtocolFeeAmountRaw(preSwapQuote);
+  const preSwapFeeMint =
+    preSwapQuote.protocolFees?.[0]?.mint ??
+    preSwapQuote.feeMint ??
+    preSwapQuote.platformFee?.feeMint ??
+    inputMint;
+
+  return [
+    {
+      percent: 100,
+      bps: null,
+      swapInfo: {
+        ammKey: bridgePool || 'bridge',
+        label:
+          preSwapQuote.provider ??
+          (ext.bridgePool?.type ? ext.bridgePool.type.replace(/_/g, ' ') : 'Raydium'),
+        inputMintAddress: inputMint,
+        outputMintAddress: bridgeMint,
+        inAmount: preSwapQuote.inAmount,
+        outAmount: preSwapQuote.outAmount,
+        feeAmount: preSwapFeeAmount,
+        feeMintAddress: preSwapFeeMint,
+      },
+    },
+  ];
+}
+
+/**
+ * When the main quote-bridge leg cannot be simulated (wallet lacks intermediate mint),
+ * simulate only the pre-swap tx so hop-1 fees, rent, and wallet debits are still known.
+ */
+export async function simulateQuoteBridgePreSwapLeg(
+  build: VybeSwapBuildResponse,
+  ownerAddress: string,
+  inputMint: string,
+): Promise<SwapSimulationResult | null> {
+  const preSwapTx = preSwapTransactionFromBuild(build);
+  const routePlan = quoteBridgePreSwapRoutePlan(build, inputMint);
+  if (!preSwapTx || !routePlan?.[0]) return null;
+
+  const hop = routePlan[0].swapInfo;
+  const bridgeMint = hop.outputMintAddress?.trim();
+  if (!bridgeMint) return null;
+
+  const bridgePool = (build.details as QuoteBridgeBuildDetails).bridgePool?.address?.trim();
+  return simulateSwapEffects(
+    preSwapTx,
+    ownerAddress,
+    bridgeMint,
+    inputMint,
+    routePlan,
+    bridgePool ? { pinnedPoolAddress: bridgePool } : undefined,
+  );
 }

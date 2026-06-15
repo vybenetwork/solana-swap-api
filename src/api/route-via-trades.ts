@@ -39,7 +39,7 @@ export {
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
 import { staticAccountKeysFromSwapTx, validateTradeRoutedBuildOnChain } from './pool-address-validation.js';
 import { simulateSwapEffects } from './simulate-swap-output.js';
-import { evaluateQuoteBridgeSimEligibility } from './quote-bridge-sim.js';
+import { evaluateQuoteBridgeSimEligibility, simulateQuoteBridgePreSwapLeg } from './quote-bridge-sim.js';
 import { toVybeSwapMint } from './sol-mints.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams } from './trades.js';
 
@@ -380,7 +380,17 @@ async function validateTradeBuild(
           ? ` mint=${bridgeSim.intermediateMint.slice(0, 8)}… need=${bridgeSim.requiredIntermediateRaw} have=${bridgeSim.availableIntermediateRaw}`
           : ''),
     );
-    return { ok: true, reason: '', simulation: undefined };
+    const vybeInputMint = toVybeSwapMint(swapParams.inputMintAddress.trim());
+    const preSwapSim = await simulateQuoteBridgePreSwapLeg(
+      build,
+      swapParams.accountAddress.trim(),
+      vybeInputMint,
+    );
+    return {
+      ok: true,
+      reason: '',
+      simulation: preSwapSim ? { ...preSwapSim, outputDeltaRaw: null } : undefined,
+    };
   }
 
   const sim = await simulateSwapEffects(

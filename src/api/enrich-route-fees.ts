@@ -960,8 +960,23 @@ export function enrichRoutePlanFees(
     }
     const items: HopFeeItem[] = [];
     const isLast = i === lastIdx;
+    const extDetails = build.details as {
+      preSwapQuote?: {
+        protocolFees?: QuoteProtocolFeeEntry[];
+        platformFee?: { amount?: string; feeBps?: number; feeMint?: string };
+        feeAmount?: string;
+        feeMint?: string;
+      };
+    };
+    const isBridgeFirstHop = i === 0 && !isLast && extDetails.preSwapQuote;
     if (isLast) {
       applyQuoteProtocolFees(items, build.details.quote, si.inputMintAddress || inputMint);
+    } else if (isBridgeFirstHop) {
+      applyQuoteProtocolFees(
+        items,
+        extDetails.preSwapQuote,
+        si.inputMintAddress || inputMint,
+      );
     }
     const nextStep = isLast ? undefined : basePlan[i + 1];
     const hopRent = rentByHopIdx.get(i) ?? 0n;
@@ -1002,9 +1017,10 @@ export function enrichRoutePlanFees(
     if (i === 0 && inputMint) {
       let totalRentLamports = 0n;
       for (const rent of rentByHopIdx.values()) totalRentLamports += rent;
+      const hopInAmountRaw = si.inAmount?.trim() || inAmountRaw;
       attachFirstHopInputSideFees(
         items,
-        inAmountRaw,
+        hopInAmountRaw,
         inputMint,
         walletPayDebitRaw,
         swapFeePct,
@@ -1124,6 +1140,8 @@ export function enrichRoutePlanFees(
     });
     if (isLast) {
       mergeProtocolFeeMetadataFromQuote(items, build.details.quote);
+    } else if (isBridgeFirstHop) {
+      mergeProtocolFeeMetadataFromQuote(items, extDetails.preSwapQuote);
     }
 
     const hopQuotedOut = hopQuotedOutRaw(step, isLast ? quotedOut : 0n);
