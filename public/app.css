@@ -3619,6 +3619,10 @@ tr:hover td {
   color: #f87171;
 }
 
+.routing-chip-stack--fee-creator .routing-chip-top--fee-label {
+  color: #f87171;
+}
+
 .routing-chip-stack--fee-route .routing-chip-top--fee-label {
   color: #f87171;
 }
@@ -3649,12 +3653,14 @@ tr:hover td {
 
 .routing-chip-stack--fee-protocol .routing-chip-amt--usd,
 .routing-chip-stack--fee-route .routing-chip-amt--usd,
-.routing-chip-stack--fee-pool .routing-chip-amt--usd {
+.routing-chip-stack--fee-pool .routing-chip-amt--usd,
+.routing-chip-stack--fee-creator .routing-chip-amt--usd,
+.routing-chip-stack--fee-token-acc-rent .routing-chip-amt--usd {
   color: #f87171;
 }
 
 .routing-chip-stack--fee .routing-chip-amt--usd {
-  color: #86efac;
+  color: #f87171;
 }
 
 .routing-canvas--hops-2 .routing-chip-stack,
@@ -3993,13 +3999,13 @@ tr:hover td {
 }
 
 .hop-fees-total-chip--usd {
-  border-color: rgba(74, 222, 128, 0.28);
-  background: linear-gradient(145deg, rgba(74, 222, 128, 0.12) 0%, rgba(74, 222, 128, 0.04) 42%, #12121a 100%);
+  border-color: rgba(248, 113, 113, 0.28);
+  background: linear-gradient(145deg, rgba(248, 113, 113, 0.12) 0%, rgba(248, 113, 113, 0.04) 42%, #12121a 100%);
 }
 
 .hop-fees-total-chip--usd .hop-fees-total-chip__amt,
 .hop-fees-total-chip--usd .hop-fees-total-chip__sym {
-  color: #4ade80;
+  color: #f87171;
 }
 
 .swap-hop-fee-dest__addr {
@@ -4077,7 +4083,8 @@ tr:hover td {
 
 .hop-fee-row--fee-protocol .hop-fee-row__label,
 .hop-fee-row--fee-route .hop-fee-row__label,
-.hop-fee-row--fee-pool .hop-fee-row__label {
+.hop-fee-row--fee-pool .hop-fee-row__label,
+.hop-fee-row--fee-creator .hop-fee-row__label {
   color: #f87171;
 }
 
@@ -4196,8 +4203,15 @@ tr:hover td {
 
 .hop-fee-row__usd {
   font-size: 0.62rem;
-  color: #4ade80;
   font-variant-numeric: tabular-nums;
+}
+
+.hop-fee-row__usd--debit {
+  color: #f87171;
+}
+
+.hop-fee-row__usd--credit {
+  color: #86efac;
 }
 
 /* Hop technical details — single compact row list */

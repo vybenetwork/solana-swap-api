@@ -284,8 +284,15 @@ function accRentAccountMint(item: Pick<HopFeeItemLite, 'mint' | 'accountMint' | 
   return legacy;
 }
 
+/** Fee table labels: symbols longer than 5 chars show as ABCDE… */
+function truncateFeeTableTokenSymbol(sym: string): string {
+  const s = sym.trim();
+  if (s.length <= 5) return s;
+  return `${s.slice(0, 5)}...`;
+}
+
 function accRentFeeDisplayLabel(item: Pick<HopFeeItemLite, 'mint' | 'accountMint' | 'destinationKind' | 'label'>): string {
-  const sym = mintSymbolSync(accRentAccountMint(item));
+  const sym = truncateFeeTableTokenSymbol(mintSymbolSync(accRentAccountMint(item)));
   return `${sym} Rent Fee`;
 }
 
@@ -2883,6 +2890,8 @@ function feeChipVariant(label: string, reclaim = false): string {
   if (reclaim) return 'fee-token-acc-rent-reclaim';
   const l = label.toLowerCase();
   if (l.includes('protocol')) return 'fee-protocol';
+  if (l.includes('creator')) return 'fee-creator';
+  if (l.includes('lp fee') || l === 'lp fee') return 'fee-pool';
   if (l.includes('priority')) return 'fee-route';
   if (l.includes('slippage') || l.includes('spread')) return 'fee-pool';
   if (l.includes('route')) return 'fee-route';
@@ -2993,13 +3002,15 @@ function renderHopFeeAmountHtml(
   amountRaw: string,
   sym: string,
   placeholder = false,
+  positive = false,
 ): string {
   const symCls = tokenSymColorClass(mint, sym);
   const safeSym = deps.escapeHtml(sym);
   const display = placeholder
     ? ROUTING_PLACEHOLDER_DASH
     : deps.escapeHtml(formatHopFeeTableAmount(amountRaw, mint));
-  return `<span class="hop-fee-row__amt-val ${symCls}">−${display} ${safeSym}</span>`;
+  const sign = positive ? '+' : '−';
+  return `<span class="hop-fee-row__amt-val ${symCls}">${sign}${display} ${safeSym}</span>`;
 }
 
 function renderMockHopFeeRow(
@@ -3262,14 +3273,15 @@ function renderHopFeeRow(
   const titleParts = [formatFeeEquivDetailText(equiv, reclaim)];
   const note = item.destinationNote?.trim();
   if (note) titleParts.push(note);
-  const amtHtml = renderHopFeeAmountHtml(item.mint, item.amountRaw, equiv.feeSym);
+  const amtHtml = renderHopFeeAmountHtml(item.mint, item.amountRaw, equiv.feeSym, false, reclaim);
   const usdRaw = equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : '—';
   const usd = reclaim && usdRaw !== '—' ? `+${usdRaw}` : usdRaw;
+  const usdMod = reclaim ? 'hop-fee-row__usd--credit' : 'hop-fee-row__usd--debit';
   return `<div class="hop-fee-row hop-fee-row--${variant}" title="${deps.escapeHtml(titleParts.join(' — '))}">
     <span class="hop-fee-row__label">${deps.escapeHtml(label)}</span>
     <span class="hop-fee-row__dest">${renderFeeDestinationInline(item, destCtx)}</span>
-    <span class="hop-fee-row__amt"><span>${reclaim ? '+' : ''}${amtHtml}</span></span>
-    <span class="hop-fee-row__usd"><span>${deps.escapeHtml(usd)}</span></span>
+    <span class="hop-fee-row__amt"><span>${amtHtml}</span></span>
+    <span class="hop-fee-row__usd ${usdMod}"><span>${deps.escapeHtml(usd)}</span></span>
   </div>`;
 }
 
@@ -3473,7 +3485,6 @@ function renderHopFeeTotalChip(
 function sumHopPlanFeeTotalUsd(
   rowData: Array<{ item: HopFeeItemLite; equiv: FeeAmountEquiv }>,
   quote: Record<string, unknown>,
-  reclaimItems: HopFeeItemLite[] = [],
 ): number | null {
   let totalUsd = 0;
   let found = false;
@@ -3485,12 +3496,7 @@ function sumHopPlanFeeTotalUsd(
       found = true;
     }
   }
-  const reclaimUsd = sumRentReclaimUsd(reclaimItems, quote);
-  if (reclaimUsd > 0) {
-    totalUsd -= reclaimUsd;
-    found = true;
-  }
-  if (!found || totalUsd <= 0.001) return null;
+  if (!found || totalUsd <= 0) return null;
   return totalUsd;
 }
 
@@ -3514,7 +3520,7 @@ function renderHopFeesTotalsChips(
   const currencyChips = totals
     .map(({ mint, sym, display, feeCount }) => renderHopFeeTotalChip(mint, sym, display, feeCount))
     .join('');
-  const usdChip = renderHopFeeUsdTotalChip(sumHopPlanFeeTotalUsd(rowData, quote, reclaimItems));
+  const usdChip = renderHopFeeUsdTotalChip(sumHopPlanFeeTotalUsd(rowData, quote));
   if (!currencyChips && !usdChip) return '';
   return `<div class="hop-fees-totals" aria-label="Fee totals by currency">${currencyChips}${usdChip}</div>`;
 }
