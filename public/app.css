@@ -4078,7 +4078,7 @@ tr:hover td {
   display: flex;
   align-items: center;
   line-height: 1.2;
-  min-width: 90px;
+  min-width: 104px;
 }
 
 .hop-fee-row--fee-protocol .hop-fee-row__label,

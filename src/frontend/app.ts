@@ -825,20 +825,25 @@ function roundToSigFigs(abs: number, sigFigs: number): number {
   return Math.round(abs * scale) / scale;
 }
 
-/** Small fee/rent amounts — 3 sig figs after leading fractional zeros; rounds the 3rd digit. */
-function formatFeeStackAmount(n: number): string {
+/** Small fee/rent amounts — sig figs after leading fractional zeros; rounds the last digit. */
+function formatFeeStackAmount(n: number, sigFigs = 3): string {
   const sign = n < 0 ? '-' : '';
   const abs = Math.abs(n);
   if (!Number.isFinite(abs) || abs === 0) return '0';
   if (abs >= 1) return sign + trimUsdTrailingZeros(abs.toFixed(4));
 
-  const rounded = roundToSigFigs(abs, 3);
+  const rounded = roundToSigFigs(abs, sigFigs);
   if (rounded === 0) return '0';
   const exp = Math.floor(Math.log10(rounded));
-  const decPlaces = Math.max(0, -exp + 2);
+  const decPlaces = Math.max(0, -exp + (sigFigs - 1));
   let out = rounded.toFixed(Math.min(decPlaces, 14));
   out = out.replace(/(\.\d*?)0+$/, '$1');
   return sign + out;
+}
+
+/** Hop fee table USD column — 2 sig figs (e.g. $0.0082, $0.00043). */
+function formatHopFeeTableUsdAmount(n: number): string {
+  return formatFeeStackAmount(n, 2);
 }
 
 /**
@@ -4921,6 +4926,7 @@ initRouteUi({
   formatFeeStackAmount,
   formatFeeEquivSmallAmount,
   formatFeeEquivUsdFiatDisplay,
+  formatHopFeeTableUsdAmount,
   formatSwapPayUsdAmount,
   formatSwapReceiveUsdLabel,
   getQuoteSwapUsdValue,

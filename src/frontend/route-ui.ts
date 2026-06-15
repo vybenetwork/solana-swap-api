@@ -50,6 +50,7 @@ export interface RouteUiDeps {
   formatFeeStackAmount: (n: number) => string;
   formatFeeEquivSmallAmount: (n: number) => string;
   formatFeeEquivUsdFiatDisplay: (n: number) => string;
+  formatHopFeeTableUsdAmount: (n: number) => string;
   formatSwapPayUsdAmount: (n: number) => string;
   formatSwapReceiveUsdLabel: (v: unknown) => string | null;
   getQuoteSwapUsdValue: (quote: Record<string, unknown>) => number | null;
@@ -1835,13 +1836,16 @@ export function getQuoteYouReceiveSubLabel(quote: Record<string, unknown>): stri
   const receiveUsd = deps.getQuoteReceiveUsd(quote);
   const reclaimUsd = sumInputQuoteRentReclaimUsd(quote);
   if (receiveUsd == null && reclaimUsd <= 0) return null;
-  const parts: string[] = [];
+  let valuePart = '';
   if (receiveUsd != null && receiveUsd > 0) {
-    parts.push(`≈ ${deps.formatSwapReceiveUsdLabel(receiveUsd)}`);
+    valuePart = `≈ ${deps.formatSwapReceiveUsdLabel(receiveUsd)}`;
   }
   if (reclaimUsd > 0.001) {
-    parts.push(`+ ${deps.formatSwapReceiveUsdLabel(reclaimUsd)} reclaim`);
+    const reclaimPart = `+ ${deps.formatSwapReceiveUsdLabel(reclaimUsd)} reclaim`;
+    valuePart = valuePart ? `${valuePart} ${reclaimPart}` : reclaimPart;
   }
+  const parts: string[] = [];
+  if (valuePart) parts.push(valuePart);
   parts.push('from quote');
   return parts.join(' · ');
 }
@@ -3184,8 +3188,13 @@ function resolveFeeDestinationAddress(
   const ammKey = ctx?.ammKey?.trim() ?? '';
   if (item.destinationKind === 'lp_pool' && isLikelySolanaPubkey(ammKey)) return ammKey;
   const wallet = ctx?.walletAddress?.trim() ?? '';
-  /* network_priority goes to validators — never show the user's wallet as its destination. */
-  if (item.destinationKind === 'input_wallet' && isLikelySolanaPubkey(wallet)) {
+  const label = normalizeFeeItemLabel(item.label).toLowerCase();
+  if (
+    item.destinationKind === 'input_wallet' &&
+    isLikelySolanaPubkey(wallet) &&
+    label !== 'route fee' &&
+    label !== 'priority fee'
+  ) {
     return wallet;
   }
   return '';
@@ -3261,11 +3270,22 @@ function renderFeeDestinationInline(item: HopFeeItemLite, ctx?: FeeDestinationRe
   return `<span class="hop-fee-dest hop-fee-dest--${mod}">${kindHtml}${sep}${tail}</span>`;
 }
 
+function formatHopFeeRowUsdDisplay(
+  item: HopFeeItemLite,
+  equiv: FeeAmountEquiv,
+  quote: Record<string, unknown>,
+): string {
+  const usdNum = computeFeeUsdNumeric(item, quote) ?? parseFeeEquivUsdNumber(equiv.usd);
+  if (usdNum == null || usdNum <= 0) return '—';
+  return `$${deps.formatHopFeeTableUsdAmount(usdNum)}`;
+}
+
 /** Compact fee row: label · destination · token amount · USD. */
 function renderHopFeeRow(
   item: HopFeeItemLite,
   equiv: FeeAmountEquiv,
   destCtx?: FeeDestinationRenderCtx,
+  quote?: Record<string, unknown>,
 ): string {
   const reclaim = isAccRentReclaimItem(item);
   const label = displayFeeItemLabel(item);
@@ -3274,7 +3294,7 @@ function renderHopFeeRow(
   const note = item.destinationNote?.trim();
   if (note) titleParts.push(note);
   const amtHtml = renderHopFeeAmountHtml(item.mint, item.amountRaw, equiv.feeSym, false, reclaim);
-  const usdRaw = equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : '—';
+  const usdRaw = quote ? formatHopFeeRowUsdDisplay(item, equiv, quote) : equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : '—';
   const usd = reclaim && usdRaw !== '—' ? `+${usdRaw}` : usdRaw;
   const usdMod = reclaim ? 'hop-fee-row__usd--credit' : 'hop-fee-row__usd--debit';
   return `<div class="hop-fee-row hop-fee-row--${variant}" title="${deps.escapeHtml(titleParts.join(' — '))}">
@@ -3306,7 +3326,7 @@ function renderHopPlanFeesSection(
   const walletRows: string[] = [];
   const poolRows: string[] = [];
   for (const { item, equiv } of rowData) {
-    const row = renderHopFeeRow(item, equiv, destCtx);
+    const row = renderHopFeeRow(item, equiv, destCtx, quote);
     if (isDeductedFromPoolFeeItem(item, quote, leg.outMint)) {
       poolRows.push(row);
     } else {
@@ -3315,7 +3335,7 @@ function renderHopPlanFeesSection(
   }
 
   const reclaimRows = reclaimItems.map((item) =>
-    renderHopFeeRow(item, feeEquivForHopItem(item, quote), destCtx),
+    renderHopFeeRow(item, feeEquivForHopItem(item, quote), destCtx, quote),
   );
 
   const group = (title: string, rows: string[]) =>
@@ -3501,7 +3521,8 @@ function sumHopPlanFeeTotalUsd(
 }
 
 function formatHopFeeUsdTotalDisplay(usd: number): string {
-  if (usd < 0.01) return '< $0.01';
+  if (usd < 0.000001) return '< $0.01';
+  if (usd < 0.01) return `−$${deps.formatHopFeeTableUsdAmount(usd)}`;
   return `−$${deps.formatSwapPayUsdAmount(usd)}`;
 }
 
