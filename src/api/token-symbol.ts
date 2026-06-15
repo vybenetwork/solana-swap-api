@@ -4,9 +4,9 @@
  * Caller should fallback to Vybe GET /v4/tokens/{mint} when this returns mint.
  */
 
-import { Connection, PublicKey } from '@solana/web3.js';
+import { PublicKey } from '@solana/web3.js';
+import { createSolanaConnection } from './solana-connection.js';
 
-const RPC_URL = process.env.SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com';
 const METADATA_PROGRAM_ID = new PublicKey('metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s');
 
 const RPC_RETRY_DELAY_MS = 2000;
@@ -28,7 +28,7 @@ export async function getTokenSymbol(mintAddress: string): Promise<string> {
   if (!mint) return '';
   if (HARDCODED_SYMBOLS[mint]) return HARDCODED_SYMBOLS[mint]!;
 
-  const connection = new Connection(RPC_URL);
+  const connection = createSolanaConnection('token-symbol');
   for (let attempt = 0; attempt <= RPC_MAX_RETRIES; attempt++) {
     try {
       const mintPubkey = new PublicKey(mint);

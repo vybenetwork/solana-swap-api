@@ -108,6 +108,30 @@ function shortPoolId(address: string | undefined): string {
   return `${a.slice(0, 4)}…${a.slice(-4)}`;
 }
 
+/** Route-card liquidity USD: integers ≥$1; $0.01–$0.99 with 2 decimals; <$0.01 → 0.01; $0 → 0. */
+export function formatLiquidityUsd(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '0';
+  if (n < 0.01) return '0.01';
+  if (n < 1) {
+    const rounded = Math.round(n * 100) / 100;
+    if (rounded >= 1) {
+      return Math.round(rounded).toLocaleString(undefined, {
+        maximumFractionDigits: 0,
+        useGrouping: true,
+      });
+    }
+    return rounded.toLocaleString(undefined, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+      useGrouping: false,
+    });
+  }
+  return Math.round(n).toLocaleString(undefined, {
+    maximumFractionDigits: 0,
+    useGrouping: true,
+  });
+}
+
 function sourceBadgeLabel(source: string | undefined): string {
   if (source === 'both' || source === 'trades+rpc' || source === 'trades') return 'trades';
   if (source === 'markets+rpc' || source === 'markets') return 'markets';
@@ -146,7 +170,7 @@ export function renderRouteOptionsPanel(): void {
     const source = sourceBadgeLabel(route.source);
     const metaParts: string[] = [];
     if (marketScore != null && marketScore > 0) {
-      metaParts.push(`$${deps.formatSwapAmountValue(marketScore)} liq`);
+      metaParts.push(`$${formatLiquidityUsd(marketScore)} liq`);
     }
     if (trades > 0) {
       metaParts.push(`${trades} trades`);

@@ -81,7 +81,7 @@ export interface BuildSwapParams {
    * - `rpc` — RPC pool scan only
    */
   marketFetchMode?: MarketFetchMode;
-  /** Build up to 10 routes (5 trade + 5 RPC-only) instead of stopping at the first success. */
+  /** Build up to 6 routes (top liquidity + trade overlap) instead of stopping at the first success. */
   enumerateRoutes?: boolean;
   /** Append input SPL ATA close after full-balance sell (Vybe / ix-builder). */
   closeInputAta?: boolean;

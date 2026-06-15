@@ -81,22 +81,11 @@ export async function validateTradeRoutedBuildOnChain(
   }
 
   if (pool) {
-    let owner: string | undefined;
-    try {
-      const info = await connection.getAccountInfo(new PublicKey(pool));
-      owner = info?.owner?.toBase58();
-    } catch {
-      owner = undefined;
-    }
-    if (owner !== program) {
-      return {
-        ok: false,
-        reason: `Pool ${pool} is not owned by program ${program} (on-chain owner: ${owner ?? 'missing'})`,
-      };
-    }
     if (!keys.has(pool)) {
       return { ok: false, reason: `Built tx missing pool ${pool}` };
     }
+    // Pinned pool is in the tx — skip scanning every static account (N× getAccountInfo).
+    return { ok: true, poolStateInTx: pool };
   }
 
   const poolStateInTx = await findProgramOwnedPoolStateInTx(connection, keys, [program]);
@@ -108,4 +97,28 @@ export async function validateTradeRoutedBuildOnChain(
   }
 
   return { ok: true, poolStateInTx };
+}
+
+/** Static tx key checks only — no RPC (for enumerate route list entries). */
+export function validateTradeBuildStatic(
+  build: VybeSwapBuildResponse,
+  candidate: TradePoolCandidate,
+): TradeBuildValidationResult {
+  const tx = build.tx ?? build.transaction;
+  if (typeof tx !== 'string' || !tx.trim()) {
+    return { ok: false, reason: 'Built tx missing' };
+  }
+
+  const keys = staticAccountKeysFromSwapTx(tx);
+  const program = candidate.programAddress.trim();
+  const pool = candidate.marketAddress.trim();
+
+  if (program && !keys.has(program)) {
+    return { ok: false, reason: `Built tx missing program ${program}` };
+  }
+  if (pool && !keys.has(pool)) {
+    return { ok: false, reason: `Built tx missing pool ${pool}` };
+  }
+
+  return { ok: true, poolStateInTx: pool || undefined };
 }

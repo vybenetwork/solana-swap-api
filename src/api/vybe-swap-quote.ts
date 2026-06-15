@@ -531,6 +531,20 @@ interface RouteSimulationBundle {
   walletTokenAccountCloses: WalletTokenAccountCloseEntry[];
 }
 
+const EMPTY_ROUTE_SIMULATION: RouteSimulationBundle = {
+  simulatedOutRaw: null,
+  simulationErr: null,
+  walletPayDebitRaw: null,
+  pdaRentLamports: 0n,
+  tokenAccRentByMint: [],
+  embeddedPoolFeesByHop: [],
+  walletSolTransfers: [],
+  tokenFeeCredits: [],
+  networkFeeLamports: 0n,
+  inferredPoolAddressesByHop: [],
+  walletTokenAccountCloses: [],
+};
+
 async function simulateRouteBuild(
   build: VybeSwapBuildResponse,
   params: VybeQuoteParams,
@@ -539,19 +553,7 @@ async function simulateRouteBuild(
   uiInputMint: string,
   poolAddress?: string,
 ): Promise<RouteSimulationBundle> {
-  const empty: RouteSimulationBundle = {
-    simulatedOutRaw: null,
-    simulationErr: null,
-    walletPayDebitRaw: null,
-    pdaRentLamports: 0n,
-    tokenAccRentByMint: [],
-    embeddedPoolFeesByHop: [],
-    walletSolTransfers: [],
-    tokenFeeCredits: [],
-    networkFeeLamports: 0n,
-    inferredPoolAddressesByHop: [],
-    walletTokenAccountCloses: [],
-  };
+  const empty: RouteSimulationBundle = { ...EMPTY_ROUTE_SIMULATION };
   const buildTx = build.tx ?? build.transaction;
   if (typeof buildTx !== 'string' || buildTx.length === 0) return empty;
 
@@ -684,14 +686,16 @@ async function buildEnumeratedRouteQuotes(
           inferredPoolAddressesByHop: entry.simulation.inferredPoolAddressesByHop,
           walletTokenAccountCloses: entry.simulation.walletTokenAccountCloses,
         }
-      : await simulateRouteBuild(
-          entry.build,
-          params,
-          vybeInputMint,
-          vybeOutputMint,
-          uiInputMint,
-          entry.selected.marketAddress,
-        );
+      : i === 0
+        ? await simulateRouteBuild(
+            entry.build,
+            params,
+            vybeInputMint,
+            vybeOutputMint,
+            uiInputMint,
+            entry.selected.marketAddress,
+          )
+        : EMPTY_ROUTE_SIMULATION;
     const sim = simBundle;
     let quote = attachRouterMetadata(
       synthesizeQuoteFromBuild(

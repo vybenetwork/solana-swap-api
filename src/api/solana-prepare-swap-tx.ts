@@ -3,8 +3,7 @@
  * Moonbags Trade-Sol-Debug CustomSign does the same so Phantom can simulate balance changes.
  */
 
-import { Connection } from '@solana/web3.js';
-import { SOLANA_RPC_URL } from '../config.js';
+import { createSolanaConnection } from './solana-connection.js';
 import { prepareVersionedSwapTransaction } from './prepare-versioned-swap-tx.js';
 
 export interface PrepareSwapTxResult {
@@ -14,7 +13,7 @@ export interface PrepareSwapTxResult {
 }
 
 export async function prepareSwapTransactionForSigning(base64Tx: string): Promise<PrepareSwapTxResult> {
-  const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
+  const connection = createSolanaConnection('prepareSwapTx');
   const prepared = await prepareVersionedSwapTransaction(connection, base64Tx);
   const blockhash = prepared.message.recentBlockhash;
 

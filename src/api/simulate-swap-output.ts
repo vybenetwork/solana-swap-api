@@ -9,7 +9,7 @@ import {
   VersionedTransaction,
   type AddressLookupTableAccount,
 } from '@solana/web3.js';
-import { SOLANA_RPC_URL } from '../config.js';
+import { createSolanaConnection } from './solana-connection.js';
 import { findProgramOwnedPoolStateInTx } from './pool-address-validation.js';
 import { IX_BUILDER_PROGRAM_IDS } from './route-via-trades.js';
 import { prepareVersionedSwapTransactionWithAlts } from './prepare-versioned-swap-tx.js';
@@ -881,7 +881,12 @@ export async function simulateSwapEffects(
     return empty;
   }
 
-  const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
+  const connection = createSolanaConnection('simulateSwapEffects');
+  console.info(
+    `[solana-rpc] simulateSwapEffects owner=${ownerAddress.slice(0, 8)}… ` +
+      `output=${outputMint.trim().slice(0, 8)}…` +
+      `${options?.pinnedPoolAddress ? ` pool=${options.pinnedPoolAddress.slice(0, 8)}…` : ''}`,
+  );
   let prepared: import('@solana/web3.js').VersionedTransaction;
   let altAccounts: import('@solana/web3.js').AddressLookupTableAccount[] = [];
   try {

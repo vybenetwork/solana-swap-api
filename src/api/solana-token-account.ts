@@ -3,7 +3,7 @@
  */
 
 import { Connection, PublicKey } from '@solana/web3.js';
-import { SOLANA_RPC_URL } from '../config.js';
+import { createSolanaConnection } from './solana-connection.js';
 
 export const NATIVE_SOL_MINT = '11111111111111111111111111111111';
 
@@ -11,7 +11,7 @@ let connection: Connection | null = null;
 
 function getConnection(): Connection {
   if (!connection) {
-    connection = new Connection(SOLANA_RPC_URL, 'confirmed');
+    connection = createSolanaConnection('solana-token-account');
   }
   return connection;
 }

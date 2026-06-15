@@ -12,6 +12,7 @@ import {
   getVybeApiLocation,
   IX_BUILDER_LOCAL_URL,
 } from './config.js';
+import { getSolanaRpcHost, logBrowserRpc429 } from './api/solana-connection.js';
 import { createClient } from './api/index.js';
 import { toHumanReadableError } from './api/client.js';
 import { InsufficientBalanceError } from './api/wallet-balance.js';
@@ -24,7 +25,6 @@ import {
   getCachedTokenMetaFromDisk,
   getRuntimeIconDir,
 } from './token-icon-cache.js';
-import { Connection } from '@solana/web3.js';
 import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
 import { simulateSwapEffects, type TokenAccRentEntry, type EmbeddedPoolFeeEntry, type WalletFeeTransferEntry, type TokenFeeCreditEntry, type WalletTokenAccountCloseEntry, mergeBuildAtaCloseHints } from './api/simulate-swap-output.js';
 import { enrichRoutePlanFees, estimateWalletPayDebitRaw } from './api/enrich-route-fees.js';
@@ -633,11 +633,15 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
 /** POST /api/solana/rpc — browser Connection proxy (Moonbags uses in-page Connection for blockhash + send) */
 app.post('/api/solana/rpc', async (req: Request, res: Response) => {
   try {
+    const rpcMethod = typeof req.body?.method === 'string' ? req.body.method : 'unknown';
     const upstream = await fetch(SOLANA_RPC_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(req.body),
     });
+    if (upstream.status === 429) {
+      logBrowserRpc429(rpcMethod);
+    }
     const text = await upstream.text();
     res.status(upstream.status).type('application/json').send(text);
   } catch (err) {
@@ -648,7 +652,8 @@ app.post('/api/solana/rpc', async (req: Request, res: Response) => {
 /** GET /api/solana/latest-blockhash — fresh blockhash for wallet simulation before sign (Moonbags CustomSign) */
 app.get('/api/solana/latest-blockhash', async (_req: Request, res: Response) => {
   try {
-    const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
+    const { createSolanaConnection } = await import('./api/solana-connection.js');
+    const connection = createSolanaConnection('latest-blockhash');
     const latest = await connection.getLatestBlockhash('confirmed');
     res.json(latest);
   } catch (err) {
@@ -674,5 +679,6 @@ app.get('/api/health', (_req: Request, res: Response) => {
 const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Solana RPC for sim/validate: ${getSolanaRpcHost()}`);
   console.log('Open in browser for swap quote and build.');
 });

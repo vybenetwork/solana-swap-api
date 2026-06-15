@@ -4,8 +4,8 @@
  */
 
 import type { AxiosInstance } from 'axios';
-import { Connection } from '@solana/web3.js';
-import { isLocalVybeApi, SOLANA_RPC_URL } from '../config.js';
+import { isLocalVybeApi } from '../config.js';
+import { createSolanaConnection } from './solana-connection.js';
 import {
   fetchRouteTradesViaIxBuilder,
   fetchRouteMarketsViaIxBuilder,
@@ -32,7 +32,7 @@ export {
   programLabelForAddress,
 } from './pinned-swap-params.js';
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
-import { staticAccountKeysFromSwapTx, validateTradeRoutedBuildOnChain } from './pool-address-validation.js';
+import { staticAccountKeysFromSwapTx, validateTradeBuildStatic, validateTradeRoutedBuildOnChain } from './pool-address-validation.js';
 import { simulateSwapEffects } from './simulate-swap-output.js';
 import { toVybeSwapMint } from './sol-mints.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams } from './trades.js';
@@ -42,11 +42,15 @@ export const ROUTE_VIA_TRADES_DISPLAY_MARKETS = 15;
 /** Keep pools with tradeCount >= this fraction × busiest pool (e.g. 0.05 → ≥5%). */
 export const ROUTE_VIA_TRADES_MIN_COUNT_FRACTION = 0.05;
 /** Max pinned build attempts from the eligible trade-ranked queue. */
-export const ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS = 5;
+export const ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS = 6;
+export const ROUTE_ENUMERATE_LIQUIDITY_SLOTS = 5;
+export const ROUTE_ENUMERATE_MAX_ROUTES = 6;
+/** @deprecated Use ROUTE_ENUMERATE_LIQUIDITY_SLOTS */
 export const ROUTE_ENUMERATE_TRADE_SLOTS = 5;
+/** @deprecated Merged into liquidity-first top 6 */
 export const ROUTE_ENUMERATE_MARKETS_SLOTS = 5;
+/** @deprecated RPC enriches candidates only; no dedicated slots */
 export const ROUTE_ENUMERATE_RPC_ONLY_SLOTS = 5;
-export const ROUTE_ENUMERATE_MAX_ROUTES = 10;
 export const ROUTE_OPTIONS_UI_INITIAL = 6;
 /** Skip RPC scan in full mode when trades, markets, or combined unique count reaches this. */
 export const ROUTE_DISCOVERY_RPC_SKIP_MIN = 3;
@@ -280,11 +284,19 @@ export interface RouteViaTradesBuildAttemptLog {
   error?: string;
 }
 
-/** Trade-ranked queue — capped at ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS after eligibility filter. */
+/** Trade-ranked queue — capped after eligibility filter (build attempts / legacy queue). */
 export function queueFromTradeCandidates(candidates: TradeMarketCandidate[]): QueuedMarketEntry[] {
-  return candidates.slice(0, ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS).map((c, i) => ({
+  return toQueuedMarketEntries(candidates, ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS);
+}
+
+/** Discovery merge input — keep enough liquidity + trade rows for top-6 selection. */
+export function toQueuedMarketEntries(
+  candidates: TradeMarketCandidate[],
+  limit = ROUTE_ENUMERATE_MAX_ROUTES + 44,
+): QueuedMarketEntry[] {
+  return candidates.slice(0, limit).map((c, i) => ({
     ...c,
-    programLabel: programLabelForAddress(c.programAddress),
+    programLabel: c.programLabel ?? programLabelForAddress(c.programAddress),
     queueIndex: i + 1,
   }));
 }
@@ -328,7 +340,11 @@ async function validateTradeBuild(
     'accountAddress' | 'inputMintAddress' | 'outputMintAddress'
   >,
 ): Promise<{ ok: boolean; reason: string; simulation?: import('./simulate-swap-output.js').SwapSimulationResult }> {
-  const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
+  const connection = createSolanaConnection('validateTradeBuild');
+  console.info(
+    `[solana-rpc] validateTradeBuild pool=${candidate.marketAddress.slice(0, 8)}… ` +
+      `program=${candidate.programAddress.slice(0, 8)}…`,
+  );
   const result = await validateTradeRoutedBuildOnChain(connection, build, {
     marketAddress: candidate.marketAddress,
     programAddress: candidate.programAddress,
@@ -629,15 +645,11 @@ export function mergeDiscoveryCandidates(
   marketQueued: QueuedMarketEntry[],
   rpcPools: ScannedPoolCandidate[],
 ): EnumeratedRouteCandidate[] {
-  const tradeSlots = tradeQueued.slice(0, ROUTE_ENUMERATE_TRADE_SLOTS);
-  const marketSlots = marketQueued.slice(0, ROUTE_ENUMERATE_MARKETS_SLOTS);
-  const marketByKey = new Map<string, QueuedMarketEntry>();
-  for (const entry of marketSlots) {
-    marketByKey.set(candidatePairKey(entry.marketAddress, entry.programAddress), entry);
+  const tradeByKey = new Map<string, QueuedMarketEntry>();
+  for (const entry of tradeQueued) {
+    if (!isSupportedIxBuilderProgram(entry.programAddress)) continue;
+    tradeByKey.set(candidatePairKey(entry.marketAddress, entry.programAddress), entry);
   }
-  const seen = new Set(
-    tradeSlots.map((e) => candidatePairKey(e.marketAddress, e.programAddress)),
-  );
 
   const rpcByKey = new Map<string, ScannedPoolCandidate>();
   for (const pool of rpcPools) {
@@ -647,65 +659,101 @@ export function mergeDiscoveryCandidates(
     rpcByKey.set(candidatePairKey(market, program), pool);
   }
 
-  const result: EnumeratedRouteCandidate[] = [];
-
-  for (const entry of tradeSlots) {
+  const toCandidate = (
+    entry: QueuedMarketEntry,
+    baseSource: RouteCandidateSource,
+    queueIndex: number,
+  ): EnumeratedRouteCandidate => {
     const key = candidatePairKey(entry.marketAddress, entry.programAddress);
-    const marketEntry = marketByKey.get(key);
+    const tradeEntry = tradeByKey.get(key);
     const rpc = rpcByKey.get(key);
-    result.push({
+    let source: RouteCandidateSource = baseSource;
+    if (rpc) {
+      source =
+        baseSource === 'markets' ? 'markets+rpc' : baseSource === 'trades' ? 'trades+rpc' : baseSource;
+    }
+    return {
       ...entry,
-      marketScore: entry.marketScore ?? marketEntry?.marketScore,
-      source: rpc ? 'trades+rpc' : 'trades',
+      tradeCount: tradeEntry?.tradeCount ?? entry.tradeCount ?? 0,
+      marketScore: entry.marketScore ?? tradeEntry?.marketScore,
+      programLabel: entry.programLabel ?? programLabelForAddress(entry.programAddress),
+      queueIndex,
+      source,
       rpcMeta: rpc
         ? { liquidity: rpc.liquidity, preSwapNeeded: rpc.preSwapNeeded }
         : undefined,
-    });
-  }
+    };
+  };
 
-  for (const entry of marketSlots) {
+  const marketSlots = marketQueued.filter((e) => isSupportedIxBuilderProgram(e.programAddress));
+  const tradeSlots = tradeQueued.filter((e) => isSupportedIxBuilderProgram(e.programAddress));
+
+  const top5Liq = marketSlots.slice(0, ROUTE_ENUMERATE_LIQUIDITY_SLOTS);
+  const top6Liq = marketSlots.slice(0, ROUTE_ENUMERATE_MAX_ROUTES);
+  const top5Keys = new Set(
+    top5Liq.map((e) => candidatePairKey(e.marketAddress, e.programAddress)),
+  );
+
+  const tradeInTop5 = tradeSlots.some((e) =>
+    top5Keys.has(candidatePairKey(e.marketAddress, e.programAddress)),
+  );
+
+  const ordered: QueuedMarketEntry[] = [];
+  const seen = new Set<string>();
+  const pushUnique = (entry: QueuedMarketEntry) => {
     const key = candidatePairKey(entry.marketAddress, entry.programAddress);
-    if (seen.has(key)) continue;
-    if (!isSupportedIxBuilderProgram(entry.programAddress)) continue;
+    if (seen.has(key)) return;
     seen.add(key);
-    const rpc = rpcByKey.get(key);
-    result.push({
-      ...entry,
-      source: rpc ? 'markets+rpc' : 'markets',
-      rpcMeta: rpc
-        ? { liquidity: rpc.liquidity, preSwapNeeded: rpc.preSwapNeeded }
-        : undefined,
-    });
+    ordered.push(entry);
+  };
+
+  if (marketSlots.length > 0) {
+    if (tradeInTop5) {
+      for (const entry of top6Liq) pushUnique(entry);
+    } else {
+      for (const entry of top5Liq) pushUnique(entry);
+      const topTrade = tradeSlots[0];
+      if (topTrade) {
+        const tradeKey = candidatePairKey(topTrade.marketAddress, topTrade.programAddress);
+        if (!top5Keys.has(tradeKey)) {
+          pushUnique(topTrade);
+        } else if (top6Liq[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]) {
+          pushUnique(top6Liq[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]!);
+        }
+      } else if (top6Liq[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]) {
+        pushUnique(top6Liq[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]!);
+      }
+    }
+  } else if (tradeSlots.length > 0) {
+    for (const entry of tradeSlots.slice(0, ROUTE_ENUMERATE_MAX_ROUTES)) pushUnique(entry);
   }
 
-  let rpcOnlyCount = 0;
-  for (const pool of rpcPools) {
-    if (rpcOnlyCount >= ROUTE_ENUMERATE_RPC_ONLY_SLOTS) break;
-    const market = pool.marketAddress?.trim();
-    const program = pool.programAddress?.trim();
-    if (!market || !program) continue;
-    const key = candidatePairKey(market, program);
-    if (seen.has(key)) continue;
-    if (!isSupportedIxBuilderProgram(program)) continue;
-    seen.add(key);
-    rpcOnlyCount++;
-    result.push({
-      marketAddress: market,
-      programAddress: program,
-      protocol: programAddressToProtocol(program),
-      ixBuilderProtocol: programAddressToIxBuilderProtocol(program),
-      tradeCount: 0,
-      programLabel: programLabelForAddress(program),
-      queueIndex: result.length + 1,
-      source: 'rpc',
-      rpcMeta: {
-        liquidity: pool.liquidity,
-        preSwapNeeded: pool.preSwapNeeded,
-      },
-    });
+  if (ordered.length === 0) {
+    for (const pool of rpcPools) {
+      if (ordered.length >= ROUTE_ENUMERATE_MAX_ROUTES) break;
+      const market = pool.marketAddress?.trim();
+      const program = pool.programAddress?.trim();
+      if (!market || !program || !isSupportedIxBuilderProgram(program)) continue;
+      pushUnique({
+        marketAddress: market,
+        programAddress: program,
+        protocol: programAddressToProtocol(program),
+        ixBuilderProtocol: programAddressToIxBuilderProtocol(program),
+        tradeCount: 0,
+        programLabel: programLabelForAddress(program),
+        queueIndex: ordered.length + 1,
+      });
+    }
   }
 
-  return result.slice(0, ROUTE_ENUMERATE_MAX_ROUTES);
+  return ordered.slice(0, ROUTE_ENUMERATE_MAX_ROUTES).map((entry, i) => {
+    const key = candidatePairKey(entry.marketAddress, entry.programAddress);
+    const fromMarkets = marketSlots.some(
+      (m) => candidatePairKey(m.marketAddress, m.programAddress) === key,
+    );
+    const baseSource: RouteCandidateSource = fromMarkets ? 'markets' : 'trades';
+    return toCandidate(entry, baseSource, i + 1);
+  });
 }
 
 /** @deprecated Use mergeDiscoveryCandidates */
@@ -835,9 +883,24 @@ export async function discoverRouteCandidates(
     });
   }
 
-  const tradeQueued = includeTrades ? queueFromTradeCandidates(tradeData.candidates) : [];
-  const marketQueued = includeMarkets ? queueFromTradeCandidates(marketCandidates) : [];
+  const tradeQueued = includeTrades
+    ? toQueuedMarketEntries(tradeData.candidates)
+    : [];
+  const marketQueued = includeMarkets ? toQueuedMarketEntries(marketCandidates) : [];
   const candidates = mergeDiscoveryCandidates(tradeQueued, marketQueued, rpcPools);
+
+  const tradeInTop5 =
+    marketQueued.length > 0 &&
+    tradeQueued.some((t) => {
+      const top5 = marketQueued
+        .slice(0, ROUTE_ENUMERATE_LIQUIDITY_SLOTS)
+        .map((m) => candidatePairKey(m.marketAddress, m.programAddress));
+      return top5.includes(candidatePairKey(t.marketAddress, t.programAddress));
+    });
+  console.info(
+    `[route-discovery] merged=${candidates.length} strategy=` +
+      `${marketQueued.length === 0 ? 'trades-only' : tradeInTop5 ? 'top6-liquidity' : 'top5-liquidity+top-trade'}`,
+  );
 
   console.info(
     `[route-discovery] mode=${marketFetchMode} ` +
@@ -934,15 +997,38 @@ async function buildRoutesForCandidates(
   }
 
   quoteProbes.sort((a, b) => Number(b.outAmount - a.outAmount));
-  const benchmarkSlots = quoteProbes.slice(0, ROUTE_OPTIONS_UI_INITIAL);
+  const benchmarkSlots = quoteProbes.slice(0, ROUTE_ENUMERATE_MAX_ROUTES);
 
   console.info(
     `[route-discovery] quote-probe ranked=${quoteProbes.length} ` +
-      `benchmarking top ${benchmarkSlots.length} by quoted outAmount`,
+      `validating top ${benchmarkSlots.length} (full sim on #1 only, static on rest)`,
   );
 
-  for (const probe of benchmarkSlots) {
-    const validation = await validateTradeBuild(probe.build, probe.queueEntry, body);
+  for (let i = 0; i < benchmarkSlots.length; i++) {
+    const probe = benchmarkSlots[i]!;
+    const fullSim = i === 0;
+    let validation: {
+      ok: boolean;
+      reason: string;
+      simulation?: import('./simulate-swap-output.js').SwapSimulationResult;
+    };
+
+    if (fullSim) {
+      console.info(
+        `[solana-rpc] quote-probe full validate rank=${i + 1} ` +
+          `pool=${probe.queueEntry.marketAddress.slice(0, 8)}…`,
+      );
+      validation = await validateTradeBuild(probe.build, probe.queueEntry, body);
+    } else {
+      const staticResult = validateTradeBuildStatic(probe.build, {
+        marketAddress: probe.queueEntry.marketAddress,
+        programAddress: probe.queueEntry.programAddress,
+      });
+      validation = staticResult.ok
+        ? { ok: true, reason: '' }
+        : { ok: false, reason: staticResult.reason ?? 'Built tx failed static validation' };
+    }
+
     if (!validation.ok) {
       lastError = describeTradeBuildRejectReasonFromValidation(validation.reason);
       buildLog.push({
@@ -950,7 +1036,7 @@ async function buildRoutesForCandidates(
         marketAddress: probe.queueEntry.marketAddress,
         programLabel: probe.queueEntry.programLabel,
         tradeCount: probe.queueEntry.tradeCount,
-        attempt: 'quote-probe validate',
+        attempt: fullSim ? 'quote-probe validate' : 'quote-probe static',
         success: false,
         error: lastError,
       });
@@ -967,7 +1053,7 @@ async function buildRoutesForCandidates(
       marketAddress: probe.queueEntry.marketAddress,
       programLabel: probe.queueEntry.programLabel,
       tradeCount: probe.queueEntry.tradeCount,
-      attempt: 'quote-probe validate',
+      attempt: fullSim ? 'quote-probe validate' : 'quote-probe static',
       success: true,
     });
   }
