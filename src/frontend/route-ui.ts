@@ -3391,6 +3391,15 @@ function routePlanMaxAccRentAboveCount(
   return max;
 }
 
+function routePlanMaxRouteFeeBelowCount(plan: VybeRoutePlanStepLite[]): number {
+  let max = 0;
+  for (const step of plan) {
+    const { routeFeeItems } = partitionHopFeeDisplayItems(getHopFeeDisplayItems(step));
+    if (routeFeeItems.length > max) max = routeFeeItems.length;
+  }
+  return max;
+}
+
 function routePlanHasAccRentAbove(
   plan: VybeRoutePlanStepLite[],
   quote: Record<string, unknown>,
@@ -3744,6 +3753,7 @@ function renderRoutingFeeBranch(
   if (routeFeeItems.length === 0) return '';
 
   const feeCount = routeFeeItems.length;
+  const countMod = feeCount >= 4 ? 'many' : String(feeCount);
   const slots = routeFeeItems
     .map((item) => {
       const chip = renderHopFeeChip(item, quote);
@@ -3751,9 +3761,9 @@ function renderRoutingFeeBranch(
     })
     .join('');
 
-  return `<div class="routing-fee-branch routing-fee-branch--${feeCount}" aria-label="Fees deducted at this hop">
+  return `<div class="routing-fee-branch routing-fee-branch--${countMod}" aria-label="Fees deducted at this hop">
     <div class="routing-fee-connectors" aria-hidden="true">${renderRoutingFeeConnectors(feeCount)}</div>
-    <div class="routing-fee-cards">${slots}</div>
+    <div class="routing-fee-cards routing-fee-cards--${countMod}">${slots}</div>
   </div>`;
 }
 
@@ -3908,6 +3918,7 @@ function renderRoutingFrame(
   outputUsdTitle: string | null = null,
   showAllEndpointLabels = false,
   maxAccRentAbove = 1,
+  maxRouteFeeBelow = 1,
 ): string {
   const placeholderClass = placeholder ? ' routing-canvas--placeholder' : '';
   const loadingClass = loading ? ' routing-canvas--loading' : '';
@@ -3953,6 +3964,7 @@ function renderRoutingFrame(
       : maxAccRentAbove >= 2
         ? ' routing-canvas--acc-rent-above-2'
         : '';
+  const feeBranchSpreadClass = maxRouteFeeBelow >= 4 ? ' routing-canvas--fee-branch-many' : '';
   const inputTotalHtml =
     showAllEndpointLabels || (inputTotalLabel && inputTotalLabel !== '—')
       ? `<span class="routing-input-total">Total: <span class="routing-input-total__val">${deps.escapeHtml(inputTotalVal)}</span></span>`
@@ -3965,7 +3977,7 @@ function renderRoutingFrame(
     showAllEndpointLabels || (outputUsdSubline && outputUsdSubline !== '—')
       ? `<span class="routing-output-usd"${outputUsdTitle ? ` title="${deps.escapeHtml(outputUsdTitle)}"` : ''}>USD Output: <span class="routing-output-usd__val">${deps.escapeHtml(outputUsdVal)}</span></span>`
       : '';
-  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${accRentSpreadClass}${placeholderClass}${loadingClass}">
+  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${accRentSpreadClass}${feeBranchSpreadClass}${placeholderClass}${loadingClass}">
     <div class="routing-frame${multiInputFeesClass}${multiAccRentClass}">
       <div class="routing-endpoint routing-endpoint--in">
         <div class="routing-endpoint-stack">
@@ -4034,6 +4046,7 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const hasFees = routePlanHasHopFees(plan);
   const hasAccRentAbove = routePlanHasAccRentAbove(plan, quote);
   const maxAccRentAbove = routePlanMaxAccRentAboveCount(plan, quote);
+  const maxRouteFeeBelow = routePlanMaxRouteFeeBelowCount(plan);
   const body = renderRouteBody(tree, legs, quote);
 
   return renderRoutingFrame(
@@ -4056,6 +4069,7 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
     outputUsdTitle,
     false,
     maxAccRentAbove,
+    maxRouteFeeBelow,
   );
 }
 

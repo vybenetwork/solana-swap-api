@@ -3268,6 +3268,11 @@ tr:hover td {
   overflow: visible;
 }
 
+.routing-canvas--has-fees.routing-canvas--fee-branch-many .routing-path {
+  min-height: 4.35rem;
+  padding-bottom: 0.65rem;
+}
+
 .routing-canvas--has-fees .routing-rail-row {
   min-height: 3rem;
   overflow: visible;
@@ -3422,6 +3427,12 @@ tr:hover td {
   --routing-fee-connector-h: 3.45rem;
 }
 
+.routing-fee-branch--many {
+  --routing-fee-connector-h: 3.65rem;
+  width: max-content;
+  max-width: calc(100vw - 2.5rem);
+}
+
 .routing-fee-connectors {
   position: absolute;
   top: 0;
@@ -3441,6 +3452,32 @@ tr:hover td {
 .routing-fee-branch--3 .routing-fee-connectors,
 .routing-fee-branch--3 .routing-fee-cards {
   width: min(100%, 25.5rem);
+}
+
+.routing-fee-branch--many .routing-fee-connectors,
+.routing-fee-branch--many .routing-fee-cards {
+  width: min(100%, 32rem);
+}
+
+.routing-fee-cards--many {
+  justify-content: center;
+  gap: 0.35rem;
+}
+
+.routing-fee-branch--many .routing-fee-slot {
+  flex: 0 0 auto;
+  max-width: 7.25rem;
+}
+
+.routing-fee-branch--many .routing-fee-cards .routing-chip-stack {
+  max-width: 6.75rem;
+}
+
+.routing-fee-branch--many .routing-chip-top--fee-label {
+  font-size: 0.58rem;
+  line-height: 1.15;
+  white-space: normal;
+  max-width: 6.75rem;
 }
 
 .routing-fee-svg {
