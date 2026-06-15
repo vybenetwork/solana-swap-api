@@ -5,7 +5,15 @@
 
 import type { AxiosInstance } from 'axios';
 import { Connection } from '@solana/web3.js';
-import { SOLANA_RPC_URL } from '../config.js';
+import { isLocalVybeApi, SOLANA_RPC_URL } from '../config.js';
+import {
+  fetchRouteTradesViaIxBuilder,
+  fetchRouteMarketsViaIxBuilder,
+  fetchScanPoolsViaIxBuilder,
+  type ScannedPoolCandidate,
+  type IxBuilderRouteMarketRow,
+} from './ix-builder-route-trades.js';
+import { normalizeMarketFetchMode, type MarketFetchMode } from './swap-build.js';
 import type { VybeTrade } from '../types/api.js';
 import type { SwapProxyProtocol } from './swap-build.js';
 import {
@@ -35,6 +43,11 @@ export const ROUTE_VIA_TRADES_DISPLAY_MARKETS = 15;
 export const ROUTE_VIA_TRADES_MIN_COUNT_FRACTION = 0.05;
 /** Max pinned build attempts from the eligible trade-ranked queue. */
 export const ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS = 5;
+export const ROUTE_ENUMERATE_TRADE_SLOTS = 5;
+export const ROUTE_ENUMERATE_MARKETS_SLOTS = 5;
+export const ROUTE_ENUMERATE_RPC_ONLY_SLOTS = 5;
+export const ROUTE_ENUMERATE_MAX_ROUTES = 10;
+export const ROUTE_OPTIONS_UI_INITIAL = 6;
 
 export const TRADES_API_UNAVAILABLE_MESSAGE =
   'Vybe GET /v4/trades unavailable (404). Falling back to Jupiter.';
@@ -47,6 +60,10 @@ export interface TradeMarketCandidate {
   protocol?: SwapProxyProtocol;
   ixBuilderProtocol?: string;
   tradeCount: number;
+  /** Human-readable DEX name (Raydium AMM v4, Meteora DLMM, …). */
+  programLabel?: string;
+  /** Liquidity score from PG markets snapshot (markets discovery only). */
+  marketScore?: number;
 }
 
 /** Ranked row included in `_routeViaTrades.topMarkets` on quote responses. */
@@ -223,6 +240,31 @@ export interface QueuedMarketEntry extends TradeMarketCandidate {
   queueIndex: number;
 }
 
+export type RouteCandidateSource =
+  | 'trades'
+  | 'markets'
+  | 'rpc'
+  | 'trades+rpc'
+  | 'markets+rpc'
+  /** @deprecated Use trades+rpc or markets+rpc */
+  | 'both';
+
+export interface RouteRpcMeta {
+  liquidity?: string;
+  preSwapNeeded?: boolean;
+}
+
+export interface EnumeratedRouteCandidate extends QueuedMarketEntry {
+  source: RouteCandidateSource;
+  rpcMeta?: RouteRpcMeta;
+}
+
+export interface RouteBuildSuccess {
+  candidate: EnumeratedRouteCandidate;
+  build: import('../types/swap.js').VybeSwapBuildResponse;
+  selected: TradeMarketCandidate;
+}
+
 export interface RouteViaTradesBuildAttemptLog {
   queueIndex: number;
   marketAddress: string;
@@ -373,6 +415,7 @@ export interface TradesFetchResult {
   fetchParams: GetTradesParams;
   /** Set when GET /v4/trades returns 404 — caller should fall back to Jupiter. */
   tradesUnavailable?: boolean;
+  tradesSource?: 'clickhouse' | 'vybe_api' | 'vybe_remote';
 }
 
 /** Single Vybe fetch with ix-builder quote-token mint selection, then filter pair client-side. */
@@ -383,11 +426,36 @@ async function fetchTradesForPair(
   limit: number,
 ): Promise<TradesFetchResult> {
   const fetchParams = buildTradesFetchParams(inputMint, outputMint, limit);
+
+  if (isLocalVybeApi()) {
+    try {
+      const res = await fetchRouteTradesViaIxBuilder(inputMint, outputMint, limit);
+      const raw = res.data ?? [];
+      const trades = raw.filter((t) => tradeMatchesSellInputDirection(t, inputMint, outputMint));
+      return {
+        trades,
+        rawCount: res.rawCount,
+        fetchParams,
+        tradesUnavailable: false,
+        tradesSource: res.source,
+      };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[route-via-trades] ix-builder /route-trades failed, falling back to Vybe API: ${msg}`);
+    }
+  }
+
   try {
     const res = await getTrades(http, fetchParams);
     const raw = res.data ?? [];
     const trades = raw.filter((t) => tradeMatchesSellInputDirection(t, inputMint, outputMint));
-    return { trades, rawCount: raw.length, fetchParams, tradesUnavailable: false };
+    return {
+      trades,
+      rawCount: raw.length,
+      fetchParams,
+      tradesUnavailable: false,
+      tradesSource: 'vybe_remote',
+    };
   } catch (err) {
     if (isVybeApiNotFoundError(err)) {
       console.warn(`[route-via-trades] ${TRADES_API_UNAVAILABLE_MESSAGE}`);
@@ -423,12 +491,13 @@ export async function fetchTopMarketsFromTrades(
   tradesFetchedInverse: number;
   pairTradeCount: number;
   tradesUnavailable?: boolean;
+  tradesSource?: TradesFetchResult['tradesSource'];
 }> {
   const inputMint = params.inputMintAddress.trim();
   const outputMint = params.outputMintAddress.trim();
   const limit = params.limit ?? ROUTE_VIA_TRADES_LIMIT;
 
-  const { trades, rawCount, tradesUnavailable } = await fetchTradesForPair(
+  const { trades, rawCount, tradesUnavailable, tradesSource } = await fetchTradesForPair(
     http,
     inputMint,
     outputMint,
@@ -446,6 +515,44 @@ export async function fetchTopMarketsFromTrades(
     tradesFetchedInverse: 0,
     pairTradeCount: resolved.pairTradeCount,
     tradesUnavailable: tradesUnavailable === true,
+    tradesSource,
+  };
+}
+
+export async function fetchTopMarketsFromMarketsSnapshot(
+  inputMint: string,
+  outputMint: string,
+  limit = 50,
+): Promise<{
+  candidates: TradeMarketCandidate[];
+  marketsFetched: number;
+  marketsSource?: 'clickhouse_markets' | 'vybe_api';
+}> {
+  if (!isLocalVybeApi()) {
+    return { candidates: [], marketsFetched: 0 };
+  }
+  const res = await fetchRouteMarketsViaIxBuilder(inputMint, outputMint, limit);
+  const candidates: TradeMarketCandidate[] = [];
+  for (const row of res.data ?? []) {
+    const marketAddress = row.marketAddress?.trim();
+    const programAddress = row.programAddress?.trim();
+    if (!marketAddress || !programAddress) continue;
+    if (!isSupportedIxBuilderProgram(programAddress)) continue;
+    const score = Number(row.rankScore ?? row.totalValueUsd ?? 0);
+    candidates.push({
+      marketAddress,
+      programAddress,
+      protocol: programAddressToProtocol(programAddress),
+      ixBuilderProtocol: programAddressToIxBuilderProtocol(programAddress),
+      tradeCount: 0,
+      marketScore: score,
+    });
+  }
+  candidates.sort((a, b) => (b.marketScore ?? 0) - (a.marketScore ?? 0));
+  return {
+    candidates,
+    marketsFetched: res.rawCount ?? candidates.length,
+    marketsSource: res.source,
   };
 }
 
@@ -467,6 +574,12 @@ export interface RouteViaTradesQueueMeta {
   buildLog: RouteViaTradesBuildAttemptLog[];
   /** GET /v4/trades returned 404 — queue empty, use Jupiter fallback. */
   tradesUnavailable?: boolean;
+  tradesSource?: TradesFetchResult['tradesSource'];
+  /** PG snapshot rows from GET /route-markets (0 when skipped or failed). */
+  marketsSnapshotFetched?: number;
+  marketsSnapshotEligible?: number;
+  marketsSnapshotSource?: 'clickhouse_markets' | 'vybe_api';
+  rpcPoolsScanned?: number;
   timingsMs?: {
     fetchTrades?: number;
     /** Time spent building + simulating queue candidates one at a time. */
@@ -488,9 +601,255 @@ export interface RouteViaTradesExhaustedResult extends RouteViaTradesQueueMeta {
   lastError: string;
 }
 
+export interface RouteViaTradesMultiResult extends RouteViaTradesQueueMeta {
+  kind: 'multi';
+  routes: RouteBuildSuccess[];
+  build: import('../types/swap.js').VybeSwapBuildResponse;
+  selected: TradeMarketCandidate;
+}
+
 export type BuildSwapViaTradeMarketsResult =
   | ({ kind: 'direct' } & RouteViaTradesBuildResult)
+  | RouteViaTradesMultiResult
   | RouteViaTradesExhaustedResult;
+
+function candidatePairKey(marketAddress: string, programAddress: string): string {
+  return `${marketAddress.trim()}\0${programAddress.trim()}`;
+}
+
+export function mergeDiscoveryCandidates(
+  tradeQueued: QueuedMarketEntry[],
+  marketQueued: QueuedMarketEntry[],
+  rpcPools: ScannedPoolCandidate[],
+): EnumeratedRouteCandidate[] {
+  const tradeSlots = tradeQueued.slice(0, ROUTE_ENUMERATE_TRADE_SLOTS);
+  const marketSlots = marketQueued.slice(0, ROUTE_ENUMERATE_MARKETS_SLOTS);
+  const seen = new Set(
+    tradeSlots.map((e) => candidatePairKey(e.marketAddress, e.programAddress)),
+  );
+
+  const rpcByKey = new Map<string, ScannedPoolCandidate>();
+  for (const pool of rpcPools) {
+    const market = pool.marketAddress?.trim();
+    const program = pool.programAddress?.trim();
+    if (!market || !program) continue;
+    rpcByKey.set(candidatePairKey(market, program), pool);
+  }
+
+  const result: EnumeratedRouteCandidate[] = [];
+
+  for (const entry of tradeSlots) {
+    const rpc = rpcByKey.get(candidatePairKey(entry.marketAddress, entry.programAddress));
+    result.push({
+      ...entry,
+      source: rpc ? 'trades+rpc' : 'trades',
+      rpcMeta: rpc
+        ? { liquidity: rpc.liquidity, preSwapNeeded: rpc.preSwapNeeded }
+        : undefined,
+    });
+  }
+
+  for (const entry of marketSlots) {
+    const key = candidatePairKey(entry.marketAddress, entry.programAddress);
+    if (seen.has(key)) continue;
+    if (!isSupportedIxBuilderProgram(entry.programAddress)) continue;
+    seen.add(key);
+    const rpc = rpcByKey.get(key);
+    result.push({
+      ...entry,
+      source: rpc ? 'markets+rpc' : 'markets',
+      rpcMeta: rpc
+        ? { liquidity: rpc.liquidity, preSwapNeeded: rpc.preSwapNeeded }
+        : undefined,
+    });
+  }
+
+  let rpcOnlyCount = 0;
+  for (const pool of rpcPools) {
+    if (rpcOnlyCount >= ROUTE_ENUMERATE_RPC_ONLY_SLOTS) break;
+    const market = pool.marketAddress?.trim();
+    const program = pool.programAddress?.trim();
+    if (!market || !program) continue;
+    const key = candidatePairKey(market, program);
+    if (seen.has(key)) continue;
+    if (!isSupportedIxBuilderProgram(program)) continue;
+    seen.add(key);
+    rpcOnlyCount++;
+    result.push({
+      marketAddress: market,
+      programAddress: program,
+      protocol: programAddressToProtocol(program),
+      ixBuilderProtocol: programAddressToIxBuilderProtocol(program),
+      tradeCount: 0,
+      programLabel: programLabelForAddress(program),
+      queueIndex: result.length + 1,
+      source: 'rpc',
+      rpcMeta: {
+        liquidity: pool.liquidity,
+        preSwapNeeded: pool.preSwapNeeded,
+      },
+    });
+  }
+
+  return result.slice(0, ROUTE_ENUMERATE_MAX_ROUTES);
+}
+
+/** @deprecated Use mergeDiscoveryCandidates */
+export function mergeTradeAndRpcCandidates(
+  tradeQueued: QueuedMarketEntry[],
+  rpcPools: ScannedPoolCandidate[],
+): EnumeratedRouteCandidate[] {
+  return mergeDiscoveryCandidates(tradeQueued, [], rpcPools);
+}
+
+const EMPTY_TRADE_DISCOVERY = {
+  candidates: [] as TradeMarketCandidate[],
+  topMarkets: [] as RankedTradeMarket[],
+  maxTradeCount: 0,
+  minCountThreshold: 0,
+  tradesFetched: 0,
+  tradesFetchedForward: 0,
+  tradesFetchedInverse: 0,
+  pairTradeCount: 0,
+  tradesUnavailable: undefined as boolean | undefined,
+  tradesSource: undefined as TradesFetchResult['tradesSource'],
+};
+
+export async function discoverRouteCandidates(
+  http: AxiosInstance,
+  inputMint: string,
+  outputMint: string,
+  marketFetchMode: MarketFetchMode,
+): Promise<{
+  tradeData: Awaited<ReturnType<typeof fetchTopMarketsFromTrades>> | typeof EMPTY_TRADE_DISCOVERY;
+  marketCandidates: TradeMarketCandidate[];
+  marketsSnapshotFetched: number;
+  marketsSnapshotSource?: 'clickhouse_markets' | 'vybe_api';
+  rpcPools: ScannedPoolCandidate[];
+  candidates: EnumeratedRouteCandidate[];
+}> {
+  const includeTrades = marketFetchMode === 'full' || marketFetchMode === 'trades';
+  const includeMarkets =
+    (marketFetchMode === 'full' || marketFetchMode === 'markets') && isLocalVybeApi();
+  const includeRpc =
+    (marketFetchMode === 'full' || marketFetchMode === 'rpc') && isLocalVybeApi();
+
+  console.info(
+    `[route-discovery] start mode=${marketFetchMode} steps=` +
+      `[${includeTrades ? 'trades' : ''}${includeTrades && (includeMarkets || includeRpc) ? '→' : ''}` +
+      `${includeMarkets ? 'markets' : ''}${includeMarkets && includeRpc ? '→' : ''}` +
+      `${includeRpc ? 'rpc' : ''}] local=${isLocalVybeApi()}`,
+  );
+
+  let tradeData: Awaited<ReturnType<typeof fetchTopMarketsFromTrades>> | typeof EMPTY_TRADE_DISCOVERY =
+    { ...EMPTY_TRADE_DISCOVERY };
+  let marketCandidates: TradeMarketCandidate[] = [];
+  let marketsSnapshotFetched = 0;
+  let marketsSnapshotSource: 'clickhouse_markets' | 'vybe_api' | undefined;
+  let rpcPools: ScannedPoolCandidate[] = [];
+
+  if (includeTrades) {
+    tradeData = await fetchTopMarketsFromTrades(http, {
+      inputMintAddress: inputMint,
+      outputMintAddress: outputMint,
+    });
+  }
+
+  if (includeMarkets) {
+    try {
+      const marketsData = await fetchTopMarketsFromMarketsSnapshot(inputMint, outputMint);
+      marketCandidates = marketsData.candidates;
+      marketsSnapshotFetched = marketsData.marketsFetched;
+      marketsSnapshotSource = marketsData.marketsSource;
+      console.info(
+        `[route-discovery] markets source=${marketsData.marketsSource ?? 'unknown'} ` +
+          `raw=${marketsData.marketsFetched} eligible=${marketCandidates.length}`,
+      );
+    } catch (err) {
+      console.warn(
+        `[route-via-trades] route-markets failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      if (marketFetchMode === 'markets') throw err;
+    }
+  }
+
+  if (includeRpc) {
+    rpcPools = await fetchScanPoolsViaIxBuilder(inputMint, outputMint).catch((err) => {
+      console.warn(
+        `[route-via-trades] scan-pools failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return [] as ScannedPoolCandidate[];
+    });
+  }
+
+  const tradeQueued = includeTrades ? queueFromTradeCandidates(tradeData.candidates) : [];
+  const marketQueued = includeMarkets ? queueFromTradeCandidates(marketCandidates) : [];
+  const candidates = mergeDiscoveryCandidates(tradeQueued, marketQueued, rpcPools);
+
+  console.info(
+    `[route-discovery] mode=${marketFetchMode} ` +
+      `${inputMint.slice(0, 8)}…→${outputMint.slice(0, 8)}… ` +
+      `trades=${tradeData.candidates.length} markets=${marketCandidates.length} ` +
+      `rpc=${rpcPools.length} merged=${candidates.length}` +
+      (tradeData.tradesSource ? ` tradesSource=${tradeData.tradesSource}` : ''),
+  );
+
+  return { tradeData, marketCandidates, marketsSnapshotFetched, marketsSnapshotSource, rpcPools, candidates };
+}
+
+async function buildRoutesForCandidates(
+  http: AxiosInstance,
+  body: import('./swap-build.js').BuildSwapParams,
+  candidates: EnumeratedRouteCandidate[],
+  buildSwap: typeof import('./swap-build.js').buildSwap,
+  options: { stopOnFirst: boolean },
+): Promise<{
+  successes: RouteBuildSuccess[];
+  tried: TradeMarketCandidate[];
+  buildLog: RouteViaTradesBuildAttemptLog[];
+  lastError: string;
+}> {
+  const successes: RouteBuildSuccess[] = [];
+  const tried: TradeMarketCandidate[] = [];
+  const buildLog: RouteViaTradesBuildAttemptLog[] = [];
+  let lastError = 'unknown error';
+
+  for (const queueEntry of candidates) {
+    const attempt = quickProbeAttemptForQueueEntry(queueEntry);
+    if (!attempt) continue;
+    const result = await trySingleBuildAttempt(http, body, queueEntry, attempt, buildSwap);
+    buildLog.push(...result.buildLog);
+    tried.push(result.queueEntry);
+    if (result.ok) {
+      successes.push({
+        candidate: queueEntry,
+        build: result.build,
+        selected: result.selected,
+      });
+      if (options.stopOnFirst) break;
+    } else {
+      lastError = result.lastError;
+    }
+  }
+
+  return { successes, tried, buildLog, lastError };
+}
+
+function pickPrimaryRouteSuccess(successes: RouteBuildSuccess[]): RouteBuildSuccess | undefined {
+  if (successes.length === 0) return undefined;
+  const tradeSlot = successes.find(
+    (r) =>
+      r.candidate.source === 'trades' ||
+      r.candidate.source === 'trades+rpc' ||
+      r.candidate.source === 'both',
+  );
+  if (tradeSlot) return tradeSlot;
+  const marketSlot = successes.find(
+    (r) => r.candidate.source === 'markets' || r.candidate.source === 'markets+rpc',
+  );
+  if (marketSlot) return marketSlot;
+  return successes[0];
+}
 
 function describeBuildAttempt(attempt: BuildAttempt): string {
   const pool = Boolean(attempt.poolAddress?.trim());
@@ -711,6 +1070,98 @@ export async function buildSwapForTradeCandidate(
   };
 }
 
+export async function buildSwapViaRpcPools(
+  http: AxiosInstance,
+  body: import('./swap-build.js').BuildSwapParams,
+): Promise<BuildSwapViaTradeMarketsResult> {
+  const { buildSwap } = await import('./swap-build.js');
+  const inputMint = body.inputMintAddress.trim();
+  const outputMint = body.outputMintAddress.trim();
+  const totalStart = Date.now();
+  const timingsMs: NonNullable<RouteViaTradesQueueMeta['timingsMs']> = {};
+  const enumerateRoutes = body.enumerateRoutes === true;
+
+  const rpcStart = Date.now();
+  const { candidates, rpcPools } = await discoverRouteCandidates(http, inputMint, outputMint, 'rpc');
+  timingsMs.fetchTrades = 0;
+  timingsMs.sequentialProbe = Date.now() - rpcStart;
+
+  const queued: QueuedMarketEntry[] = candidates.map((c) => ({
+    marketAddress: c.marketAddress,
+    programAddress: c.programAddress,
+    protocol: c.protocol,
+    ixBuilderProtocol: c.ixBuilderProtocol,
+    tradeCount: c.tradeCount,
+    programLabel: c.programLabel,
+    queueIndex: c.queueIndex,
+  }));
+
+  const queueMeta = {
+    topMarkets: [] as RankedTradeMarket[],
+    maxTradeCount: 0,
+    minCountThreshold: 0,
+    tried: [] as TradeMarketCandidate[],
+    tradesFetched: 0,
+    tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+    tradesFetchOk: false,
+    tradesFetchedForward: 0,
+    tradesFetchedInverse: 0,
+    pairTradeCount: 0,
+    tradeMarketsEligible: rpcPools.length,
+    queued,
+    buildLog: [] as RouteViaTradesBuildAttemptLog[],
+    timingsMs,
+    tradesUnavailable: false,
+    tradesSource: undefined,
+  };
+
+  if (candidates.length === 0) {
+    timingsMs.total = Date.now() - totalStart;
+    return {
+      kind: 'exhausted',
+      ...queueMeta,
+      lastError: 'RPC scan found no eligible pools for this pair.',
+    };
+  }
+
+  const probeStart = Date.now();
+  const probe = await buildRoutesForCandidates(http, body, candidates, buildSwap, {
+    stopOnFirst: !enumerateRoutes,
+  });
+  timingsMs.sequentialProbe = Date.now() - probeStart;
+  timingsMs.parallelProbe = timingsMs.sequentialProbe;
+  timingsMs.total = Date.now() - totalStart;
+
+  const queueMetaWithLog = { ...queueMeta, buildLog: probe.buildLog, tried: probe.tried };
+
+  if (probe.successes.length === 0) {
+    return {
+      kind: 'exhausted',
+      ...queueMetaWithLog,
+      lastError: probe.lastError,
+    };
+  }
+
+  const primary = pickPrimaryRouteSuccess(probe.successes)!;
+
+  if (enumerateRoutes && probe.successes.length > 0) {
+    return {
+      kind: 'multi',
+      routes: probe.successes,
+      build: primary.build,
+      selected: primary.selected,
+      ...queueMetaWithLog,
+    };
+  }
+
+  return {
+    kind: 'direct',
+    build: primary.build,
+    selected: primary.selected,
+    ...queueMetaWithLog,
+  };
+}
+
 export async function buildSwapViaTradeMarkets(
   http: AxiosInstance,
   body: import('./swap-build.js').BuildSwapParams,
@@ -720,18 +1171,24 @@ export async function buildSwapViaTradeMarkets(
   const outputMint = body.outputMintAddress.trim();
   const totalStart = Date.now();
   const timingsMs: NonNullable<RouteViaTradesQueueMeta['timingsMs']> = {};
+  const enumerateRoutes = body.enumerateRoutes === true;
+  const marketFetchMode = normalizeMarketFetchMode(body.marketFetchMode);
 
-  const tradesStart = Date.now();
-  const tradeData = await fetchTopMarketsFromTrades(http, {
-    inputMintAddress: inputMint,
-    outputMintAddress: outputMint,
-  });
-  timingsMs.fetchTrades = Date.now() - tradesStart;
+  const discoverStart = Date.now();
+  const discovered = await discoverRouteCandidates(http, inputMint, outputMint, marketFetchMode);
+  const tradeData = discovered.tradeData;
+  const candidates = discovered.candidates;
+  timingsMs.fetchTrades = Date.now() - discoverStart;
 
-  const queued = queueFromTradeCandidates(tradeData.candidates);
-  const tried: TradeMarketCandidate[] = [];
-  const buildLog: RouteViaTradesBuildAttemptLog[] = [];
-  let lastError = 'unknown error';
+  const queued: QueuedMarketEntry[] = candidates.map((c) => ({
+    marketAddress: c.marketAddress,
+    programAddress: c.programAddress,
+    protocol: c.protocol,
+    ixBuilderProtocol: c.ixBuilderProtocol,
+    tradeCount: c.tradeCount,
+    programLabel: c.programLabel,
+    queueIndex: c.queueIndex,
+  }));
 
   const tradesUnavailable = tradeData.tradesUnavailable === true;
 
@@ -746,56 +1203,72 @@ export async function buildSwapViaTradeMarkets(
     tradesFetchedInverse: tradeData.tradesFetchedInverse,
     pairTradeCount: tradeData.pairTradeCount,
     tradeMarketsEligible: tradeData.candidates.length,
+    marketsSnapshotFetched: discovered.marketsSnapshotFetched,
+    marketsSnapshotEligible: discovered.marketCandidates.length,
+    marketsSnapshotSource: discovered.marketsSnapshotSource,
+    rpcPoolsScanned: discovered.rpcPools.length,
     queued,
-    buildLog,
+    buildLog: [] as RouteViaTradesBuildAttemptLog[],
     timingsMs,
     tradesUnavailable,
+    tradesSource: tradeData.tradesSource,
   };
 
-  if (queued.length === 0) {
+  if (candidates.length === 0) {
     timingsMs.total = Date.now() - totalStart;
+    const noTradesOnly =
+      marketFetchMode === 'trades' ||
+      marketFetchMode === 'markets' ||
+      (!enumerateRoutes && marketFetchMode !== 'rpc' && marketFetchMode !== 'full');
     return {
       kind: 'exhausted',
       ...queueMeta,
       tried: [],
       lastError: tradesUnavailable
         ? TRADES_API_UNAVAILABLE_MESSAGE
-        : 'Route via Trades: no eligible markets (ix-builder supported program + ≥5% of top pool trade count).',
+        : marketFetchMode === 'markets'
+          ? 'Markets snapshot: no eligible pools for this pair.'
+          : noTradesOnly
+            ? 'Route via Trades: no eligible markets (ix-builder supported program + ≥5% of top pool trade count).'
+            : 'No eligible route candidates from discovery.',
     };
   }
 
   const probeStart = Date.now();
-  for (const queueEntry of queued) {
-    const attempt = quickProbeAttemptForQueueEntry(queueEntry);
-    if (!attempt) continue;
-    const result = await trySingleBuildAttempt(http, body, queueEntry, attempt, buildSwap);
-    buildLog.push(...result.buildLog);
-    tried.push(result.queueEntry);
-    if (result.ok) {
-      timingsMs.sequentialProbe = Date.now() - probeStart;
-      timingsMs.parallelProbe = timingsMs.sequentialProbe;
-      timingsMs.total = Date.now() - totalStart;
-      return {
-        kind: 'direct',
-        build: result.build,
-        selected: result.selected,
-        tried,
-        ...queueMeta,
-        buildLog,
-      };
-    }
-    lastError = result.lastError;
-  }
+  const probe = await buildRoutesForCandidates(http, body, candidates, buildSwap, {
+    stopOnFirst: !enumerateRoutes,
+  });
   timingsMs.sequentialProbe = Date.now() - probeStart;
   timingsMs.parallelProbe = timingsMs.sequentialProbe;
   timingsMs.total = Date.now() - totalStart;
 
+  const queueMetaWithLog = { ...queueMeta, buildLog: probe.buildLog, tried: probe.tried };
+
+  if (probe.successes.length === 0) {
+    return {
+      kind: 'exhausted',
+      ...queueMetaWithLog,
+      lastError: probe.lastError,
+    };
+  }
+
+  const primary = pickPrimaryRouteSuccess(probe.successes)!;
+
+  if (enumerateRoutes) {
+    return {
+      kind: 'multi',
+      routes: probe.successes,
+      build: primary.build,
+      selected: primary.selected,
+      ...queueMetaWithLog,
+    };
+  }
+
   return {
-    kind: 'exhausted',
-    tried,
-    lastError,
-    ...queueMeta,
-    buildLog,
+    kind: 'direct',
+    build: primary.build,
+    selected: primary.selected,
+    ...queueMetaWithLog,
   };
 }
 
@@ -831,9 +1304,27 @@ export function formatRouteViaTradesServerLog(
   lines.push(
     `Trades fetch: ${meta.tradesFetched} rows (limit ${meta.tradesFetchLimit}) — ${meta.pairTradeCount} matched sell→buy pair for ranking`,
   );
+  const tradesSource = (meta as { tradesSource?: string }).tradesSource;
+  if (tradesSource) {
+    lines.push(`Trades source: ${tradesSource}`);
+  }
   lines.push(
-    `Markets: max ${meta.maxTradeCount} trades — queue ≥${Math.round(meta.minCountThreshold)} (${meta.tradeMarketsEligible} eligible, ${meta.queued.length} queued)`,
+    `Trade-ranked pools: max ${meta.maxTradeCount} trades — queue ≥${Math.round(meta.minCountThreshold)} (${meta.tradeMarketsEligible} eligible)`,
   );
+  const marketsFetched = (meta as { marketsSnapshotFetched?: number }).marketsSnapshotFetched;
+  const marketsEligible = (meta as { marketsSnapshotEligible?: number }).marketsSnapshotEligible;
+  const marketsSource = (meta as { marketsSnapshotSource?: string }).marketsSnapshotSource;
+  if (marketsFetched != null) {
+    lines.push(
+      `PG markets snapshot: raw=${marketsFetched} eligible=${marketsEligible ?? 0}` +
+        (marketsSource ? ` source=${marketsSource}` : ''),
+    );
+  }
+  const rpcScanned = (meta as { rpcPoolsScanned?: number }).rpcPoolsScanned;
+  if (rpcScanned != null && rpcScanned > 0) {
+    lines.push(`RPC scan: ${rpcScanned} pool(s) merged into route list`);
+  }
+  lines.push(`Merged queue: ${meta.queued.length} route(s)`);
   for (const q of meta.queued) {
     lines.push(`  #${q.queueIndex} ${q.programLabel} ${q.marketAddress} (${q.tradeCount} trades)`);
   }

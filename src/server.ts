@@ -307,7 +307,8 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
   protocol?: SwapProxyProtocol;
   simulate?: boolean;
   swapFee?: number;
-  routeViaTrades?: boolean;
+  marketFetchMode?: 'full' | 'trades' | 'markets' | 'rpc';
+  enumerateRoutes?: boolean;
   closeInputAta?: boolean;
   createOutputAta?: boolean;
   closeWsolAta?: boolean;
@@ -350,7 +351,12 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
       body.swapFee != null && Number.isFinite(Number(body.swapFee))
         ? Number(body.swapFee)
         : DEFAULT_SWAP_SERVICE_FEE_PCT,
-    routeViaTrades: typeof body.routeViaTrades === 'boolean' ? body.routeViaTrades : undefined,
+    marketFetchMode:
+      typeof body.marketFetchMode === 'string' &&
+      ['full', 'trades', 'markets', 'rpc'].includes(body.marketFetchMode.trim().toLowerCase())
+        ? (body.marketFetchMode.trim().toLowerCase() as 'full' | 'trades' | 'markets' | 'rpc')
+        : undefined,
+    enumerateRoutes: typeof body.enumerateRoutes === 'boolean' ? body.enumerateRoutes : undefined,
     closeInputAta: typeof body.closeInputAta === 'boolean' ? body.closeInputAta : undefined,
     createOutputAta: typeof body.createOutputAta === 'boolean' ? body.createOutputAta : undefined,
     closeWsolAta: typeof body.closeWsolAta === 'boolean' ? body.closeWsolAta : undefined,

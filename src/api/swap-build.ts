@@ -31,6 +31,32 @@ export const VYBE_SWAP_PROTOCOLS = [
 
 export type SwapProxyProtocol = (typeof VYBE_SWAP_PROTOCOLS)[number];
 
+/** How market discovery runs: trades history, markets snapshot, RPC scan, or combinations. */
+export type MarketFetchMode = 'full' | 'trades' | 'markets' | 'rpc';
+
+export function normalizeMarketFetchMode(value: unknown): MarketFetchMode {
+  const raw = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (raw === 'trades' || raw === 'rpc' || raw === 'markets') return raw;
+  return 'full';
+}
+
+/** True when `marketFetchMode` is set (`full` | `trades` | `markets` | `rpc`). */
+export function isMarketDiscoveryEnabled(
+  params: Pick<BuildSwapParams, 'marketFetchMode'>,
+): boolean {
+  const mode = typeof params.marketFetchMode === 'string' ? params.marketFetchMode.trim().toLowerCase() : '';
+  return mode === 'full' || mode === 'trades' || mode === 'rpc' || mode === 'markets';
+}
+
+export function resolveMarketFetchMode(
+  params: Pick<BuildSwapParams, 'marketFetchMode'>,
+): MarketFetchMode {
+  if (isMarketDiscoveryEnabled(params)) {
+    return normalizeMarketFetchMode(params.marketFetchMode);
+  }
+  return 'full';
+}
+
 export interface BuildSwapParams {
   accountAddress: string;
   amount: number;
@@ -47,8 +73,16 @@ export interface BuildSwapParams {
   programAddress?: string;
   simulate?: boolean;
   swapFee?: number;
-  /** When true (Vybe router, no manual pool), rank markets from recent trades and try top pools. */
-  routeViaTrades?: boolean;
+  /**
+   * Market discovery mode (Vybe router, no manual pool):
+   * - `full` — trades, then markets snapshot, then RPC
+   * - `trades` — recent trades only
+   * - `markets` — ClickHouse markets snapshot only
+   * - `rpc` — RPC pool scan only
+   */
+  marketFetchMode?: MarketFetchMode;
+  /** Build up to 10 routes (5 trade + 5 RPC-only) instead of stopping at the first success. */
+  enumerateRoutes?: boolean;
   /** Append input SPL ATA close after full-balance sell (Vybe / ix-builder). */
   closeInputAta?: boolean;
   /** Create output SPL ATA idempotently before swap (buy when wallet has no output ATA). */
@@ -102,6 +136,8 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
     createOutputAta: pinned.createOutputAta,
     closeWsolAta: pinned.closeWsolAta,
   });
+  if (pinned.marketFetchMode) payload.marketFetchMode = pinned.marketFetchMode;
+  if (pinned.enumerateRoutes != null) payload.enumerateRoutes = pinned.enumerateRoutes;
   return payload;
 }
 

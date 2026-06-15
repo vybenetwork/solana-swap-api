@@ -62,7 +62,11 @@ export interface RouteUiDeps {
   displaySymbol: (sym: string) => string;
   renderLoadingSpinner: (size?: 'sm' | 'md' | 'lg') => string;
   syncRoutePlanStepsUi: () => void;
+  getEnumeratedRoutesState: () => EnumeratedRoutesUiState | null;
+  setEnumeratedRoutesExpanded: (expanded: boolean) => void;
+  selectEnumeratedRoute: (index: number) => void;
   dom: {
+    swapRouteOptionsEl: HTMLElement | null;
     swapQuoteDetailsRoutingEl: HTMLElement | null;
     swapQuoteDetailsRouteStepsEl: HTMLElement | null;
     routingDialogBodyEl: HTMLElement | null;
@@ -75,6 +79,110 @@ let deps: RouteUiDeps;
 
 export function initRouteUi(d: RouteUiDeps): void {
   deps = d;
+}
+
+export interface EnumeratedRouteUiEntry {
+  index: number;
+  source?: string;
+  candidate?: {
+    marketAddress?: string;
+    programAddress?: string;
+    programLabel?: string;
+    tradeCount?: number;
+    marketScore?: number;
+  };
+  quote?: Record<string, unknown>;
+}
+
+export interface EnumeratedRoutesUiState {
+  routes: EnumeratedRouteUiEntry[];
+  selectedIndex: number;
+  expanded: boolean;
+}
+
+const ROUTE_OPTIONS_UI_INITIAL = 6;
+
+function shortPoolId(address: string | undefined): string {
+  const a = (address ?? '').trim();
+  if (a.length <= 12) return a || '—';
+  return `${a.slice(0, 4)}…${a.slice(-4)}`;
+}
+
+function sourceBadgeLabel(source: string | undefined): string {
+  if (source === 'both' || source === 'trades+rpc') return 'trades+rpc';
+  if (source === 'markets+rpc') return 'markets+rpc';
+  if (source === 'markets') return 'markets';
+  if (source === 'rpc') return 'rpc';
+  return 'trades';
+}
+
+export function renderRouteOptionsPanel(): void {
+  const el = deps.dom.swapRouteOptionsEl;
+  if (!el) return;
+  const state = deps.getEnumeratedRoutesState();
+  if (!state || state.routes.length === 0) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  el.hidden = false;
+  const visibleCount = state.expanded
+    ? state.routes.length
+    : Math.min(ROUTE_OPTIONS_UI_INITIAL, state.routes.length);
+  const hiddenCount = state.routes.length - visibleCount;
+  const cards = state.routes.slice(0, visibleCount).map((route) => {
+    const idx = route.index;
+    const active = idx === state.selectedIndex;
+    const quote = route.quote ?? {};
+    const outUi = deps.quoteOutputUiAmount(quote);
+    const outLabel = outUi != null ? deps.formatSwapAmountValue(outUi) : '—';
+    const sym = deps.getSwapOutSym();
+    const pool = shortPoolId(route.candidate?.marketAddress);
+    const programAddr = route.candidate?.programAddress ?? '';
+    const programLabel =
+      route.candidate?.programLabel?.trim() || programShort || '—';
+    const programShort = shortPoolId(programAddr);
+    const trades = route.candidate?.tradeCount ?? 0;
+    const marketScore = route.candidate?.marketScore;
+    const source = sourceBadgeLabel(route.source);
+    const metaDetail =
+      route.source === 'markets' && marketScore != null && marketScore > 0
+        ? `<span class="swap-route-option__trades">$${deps.formatSwapAmountValue(marketScore)} liq</span>`
+        : trades > 0
+          ? `<span class="swap-route-option__trades">${trades} trades</span>`
+          : '';
+    return `<button type="button" class="swap-route-option${active ? ' swap-route-option--active' : ''}" data-route-index="${idx}" aria-pressed="${active ? 'true' : 'false'}">
+      <span class="swap-route-option__rank">#${idx + 1}</span>
+      <span class="swap-route-option__program">
+        <span class="swap-route-option__program-name">${deps.escapeHtml(programLabel || '—')}</span>
+        <span class="swap-route-option__program-id" title="${deps.escapeHtml(programAddr)}">${deps.escapeHtml(programShort)}</span>
+      </span>
+      <span class="swap-route-option__pool" title="${deps.escapeHtml(route.candidate?.marketAddress ?? '')}">${deps.escapeHtml(pool)}</span>
+      <span class="swap-route-option__out">${deps.escapeHtml(outLabel)} ${deps.escapeHtml(sym)}</span>
+      <span class="swap-route-option__meta">
+        <span class="swap-route-option__badge swap-route-option__badge--${deps.escapeHtml(source.replaceAll('+', '-'))}">${deps.escapeHtml(source)}</span>
+        ${metaDetail}
+      </span>
+    </button>`;
+  });
+  const moreBtn =
+    !state.expanded && hiddenCount > 0
+      ? `<button type="button" class="swap-route-options__more" data-route-expand="1">Show ${hiddenCount} more route${hiddenCount === 1 ? '' : 's'}</button>`
+      : state.expanded && state.routes.length > ROUTE_OPTIONS_UI_INITIAL
+        ? `<button type="button" class="swap-route-options__more" data-route-expand="0">Show fewer</button>`
+        : '';
+  el.innerHTML = `<div class="swap-route-options__grid">${cards.join('')}</div>${moreBtn}`;
+  el.querySelectorAll<HTMLButtonElement>('[data-route-index]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const index = Number(btn.dataset.routeIndex);
+      if (Number.isFinite(index)) deps.selectEnumeratedRoute(index);
+    });
+  });
+  const expandBtn = el.querySelector<HTMLButtonElement>('[data-route-expand]');
+  expandBtn?.addEventListener('click', () => {
+    deps.setEnumeratedRoutesExpanded(expandBtn.dataset.routeExpand === '1');
+    renderRouteOptionsPanel();
+  });
 }
 
 export function clearRouteMintCaches(): void {
@@ -3827,6 +3935,7 @@ export function updateRouteDiagramTitle(quote: Record<string, unknown>): void {
 }
 export function renderRoutePanels(quote: Record<string, unknown>): void {
   updateRouteDiagramTitle(quote);
+  renderRouteOptionsPanel();
   if (deps.dom.swapQuoteDetailsRoutingEl) deps.dom.swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagram(quote);
   if (deps.dom.swapQuoteDetailsRouteStepsEl) deps.dom.swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanSteps(quote);
   deps.syncRoutePlanStepsUi();
@@ -4295,7 +4404,7 @@ function shortSolAddress(addr: string, head = 4, tail = 4): string {
 }
 
 const ROUTE_VIA_TRADES_DISABLED_LABELS: Record<string, string> = {
-  toggle_off: 'Route via Trades toggle is off',
+  discovery_off: 'Market fetch mode not set',
   manual_pool: 'Manual pool pin — trade routing skipped',
   manual_protocol: 'Manual protocol set — trade routing skipped',
   router_not_vybe: 'Router is not Vybe — trade routing skipped',
@@ -4303,7 +4412,9 @@ const ROUTE_VIA_TRADES_DISABLED_LABELS: Record<string, string> = {
 
 const ROUTE_VIA_TRADES_OUTCOME_LABELS: Record<string, string> = {
   direct: 'Direct pool build succeeded',
-  unpinned_vybe: 'Trade queue exhausted — unpinned Vybe auto-route',
+  multi: 'Multiple routes enumerated',
+  unpinned_vybe: 'Trade queue exhausted — unpinned Vybe RPC scan',
+  rpc_only: 'Vybe RPC pool scan (trades skipped)',
   titan_fallback: 'Trade queue exhausted — switched to Titan',
   jupiter_fallback: 'Trade queue exhausted — switched to Jupiter',
   skipped: 'Route via Trades not used',

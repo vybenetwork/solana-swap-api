@@ -434,16 +434,31 @@
                         <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
                       </label>
                     </div>
-                    <div class="swap-toggle-row swap-toggle-row--route-via-trades">
+                    <div class="swap-toggle-row swap-toggle-row--market-fetch">
                       <div class="swap-toggle-row__text">
                         <span class="swap-adv-label-row">
                           <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
-                          <span>Route via Trades</span>
+                          <span>Market fetch</span>
                         </span>
-                        <span class="swap-toggle-row__hint">Top market counts</span>
+                        <span class="swap-toggle-row__hint">Trades vs RPC discovery</span>
                       </div>
-                      <label class="swap-pill-switch" title="Rank pools from recent Vybe trades and try top markets">
-                        <input type="checkbox" id="swapRouteViaTrades" class="swap-pill-switch__input" checked />
+                      <select id="swapMarketFetchMode" class="swap-protocol-select swap-toggle-field__input" aria-label="Market fetch mode">
+                        <option value="full" selected>Full (trades → markets → RPC)</option>
+                        <option value="trades">Trades only</option>
+                        <option value="markets">Markets snapshot only</option>
+                        <option value="rpc">RPC scan only</option>
+                      </select>
+                    </div>
+                    <div class="swap-toggle-row swap-toggle-row--enumerate-routes">
+                      <div class="swap-toggle-row__text">
+                        <span class="swap-adv-label-row">
+                          <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
+                          <span>Enumerate routes</span>
+                        </span>
+                        <span class="swap-toggle-row__hint">Up to 10 pool builds</span>
+                      </div>
+                      <label class="swap-pill-switch" title="Build all discovered routes (trades + RPC) instead of stopping at the first pool">
+                        <input type="checkbox" id="swapEnumerateRoutes" class="swap-pill-switch__input" />
                         <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
                       </label>
                     </div>
@@ -562,6 +577,7 @@
                 <div id="swapQuoteSummary" class="swap-quote-summary" aria-live="polite"></div>
                 <section class="swap-quote-details-routing-section">
                   <h4 class="swap-quote-details-subtitle" id="swapQuoteRouteSubtitle">Route</h4>
+                  <div id="swapRouteOptions" class="swap-route-options" hidden></div>
                   <div id="swapQuoteDetailsRouting" class="swap-quote-details-routing"></div>
                 </section>
                 <details class="swap-quote-details-collapsible" id="swapQuoteRoutePlanDetails" open>

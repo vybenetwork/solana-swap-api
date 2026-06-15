@@ -55,6 +55,8 @@ export function mapBuildSwapParamsToIxBuilder(body: BuildSwapParams): Record<str
   if (pinned.inputDecimals != null && Number.isFinite(pinned.inputDecimals)) {
     payload.inputDecimals = pinned.inputDecimals;
   }
+  if (body.marketFetchMode) payload.marketFetchMode = body.marketFetchMode;
+  if (body.enumerateRoutes != null) payload.enumerateRoutes = body.enumerateRoutes;
 
   return payload;
 }

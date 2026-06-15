@@ -86,6 +86,7 @@ import {
   renderRoutingDiagramPlaceholder,
   renderQuoteRoutePlanStepsPlaceholder,
   renderRoutePanels,
+  renderRouteOptionsPanel,
   bindRoutingDiagramZoomListeners,
   scheduleRoutingDiagramZoom,
   normalizeRouterId,
@@ -94,6 +95,7 @@ import {
   getQuoteYouPaySubLabel,
   renderQuotePayHeroValueHtml,
   renderRouteViaTradesLogHtml,
+  type EnumeratedRoutesUiState,
 } from './route-ui.js';
 
 interface TokenSymbolResponse {
@@ -189,7 +191,9 @@ const swapProtocolSelect = document.getElementById('swapProtocol') as HTMLSelect
 const swapEnableServiceFeeCheckbox = document.getElementById('swapEnableServiceFee') as HTMLInputElement | null;
 const swapServiceFeeFieldEl = document.getElementById('swapServiceFeeField') as HTMLElement | null;
 const swapServiceFeeInput = document.getElementById('swapServiceFee') as HTMLInputElement | null;
-const swapRouteViaTradesCheckbox = document.getElementById('swapRouteViaTrades') as HTMLInputElement | null;
+const swapMarketFetchModeSelect = document.getElementById('swapMarketFetchMode') as HTMLSelectElement | null;
+const swapEnumerateRoutesCheckbox = document.getElementById('swapEnumerateRoutes') as HTMLInputElement | null;
+const swapRouteOptionsEl = document.getElementById('swapRouteOptions') as HTMLElement | null;
 const swapQuoteBtn = document.getElementById('swapQuoteBtn') as HTMLButtonElement | null;
 const swapBuildBtn = document.getElementById('swapBuildBtn') as HTMLButtonElement | null;
 const swapBuildResultEl = document.getElementById('swapBuildResult') as HTMLElement | null;
@@ -287,6 +291,8 @@ let lastSwapQuoteOk: Record<string, unknown> | null = null;
 let lastRawQuoteResponse: unknown = null;
 let lastRawSwapResponse: unknown = null;
 let lastVybeBuild: { tx: string; builtAt: number; paramsKey: string; buildPayload: unknown } | null = null;
+let enumeratedRoutesUiState: EnumeratedRoutesUiState | null = null;
+let lastVybeQuoteBodyForRoutes: Record<string, unknown> | null = null;
 const quotedMintSession = new Set<string>();
 let pairTokenStats: Record<string, TokenPriceStats> = {};
 
@@ -856,6 +862,8 @@ function resetSwapQuoteToMock(): void {
   lastSwapQuoteOk = null;
   lastVybeBuild = null;
   lastRawQuoteResponse = null;
+  enumeratedRoutesUiState = null;
+  lastVybeQuoteBodyForRoutes = null;
   swapQuoteWalletSnapshot = '';
   if (swapBuildBtn) syncBuildButtonState();
   setFooterStatsLoading(false);
@@ -2683,6 +2691,7 @@ function renderRawResponsePanels(): void {
     'Build a swap to see the raw swap response.',
   );
   renderRouteViaTradesLogPanel();
+  renderRouteOptionsPanel();
 }
 
 function renderSwapQuoteDetailsPanel(quote: Record<string, unknown>): void {
@@ -3050,6 +3059,14 @@ function isVybeMaxSellSelected(mint: string): boolean {
   );
 }
 
+function vybeMarketDiscoveryActive(): boolean {
+  return (
+    getSwapRouter() === 'vybe' &&
+    swapEnablePoolAddressCheckbox?.checked !== true &&
+    swapEnableProtocolCheckbox?.checked !== true
+  );
+}
+
 function collectSwapBuildOptions(): Record<string, unknown> {
   const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : undefined;
   const router = getSwapRouter();
@@ -3090,10 +3107,11 @@ function collectSwapBuildOptions(): Record<string, unknown> {
       swapEnableProtocolCheckbox?.checked === true
         ? swapProtocolSelect?.value.trim() || undefined
         : undefined,
-    routeViaTrades:
-      swapRouteViaTradesCheckbox?.checked === true &&
-      swapEnablePoolAddressCheckbox?.checked !== true &&
-      swapEnableProtocolCheckbox?.checked !== true,
+    marketFetchMode: vybeMarketDiscoveryActive()
+      ? (swapMarketFetchModeSelect?.value.trim() as 'full' | 'trades' | 'markets' | 'rpc' | undefined) || 'full'
+      : undefined,
+    enumerateRoutes:
+      vybeMarketDiscoveryActive() && swapEnumerateRoutesCheckbox?.checked === true ? true : undefined,
     swapFee: resolveSwapServiceFeePct(),
     ...(ataFromCache
       ? {
@@ -3158,6 +3176,100 @@ function cacheVybeQuoteBuild(
   return null;
 }
 
+function syncEnumeratedRoutesFromBody(body: Record<string, unknown>): void {
+  const rvt = body._routeViaTrades as { routes?: Array<Record<string, unknown>> } | undefined;
+  if (!Array.isArray(rvt?.routes) || rvt.routes.length === 0) {
+    enumeratedRoutesUiState = null;
+    lastVybeQuoteBodyForRoutes = null;
+    return;
+  }
+  lastVybeQuoteBodyForRoutes = body;
+  enumeratedRoutesUiState = {
+    routes: rvt.routes.map((r, i) => ({
+      index: Number(r.index ?? i),
+      source: typeof r.source === 'string' ? r.source : undefined,
+      candidate: r.candidate as EnumeratedRoutesUiState['routes'][0]['candidate'],
+      quote: (r.quote as Record<string, unknown> | undefined) ?? undefined,
+    })),
+    selectedIndex: 0,
+    expanded: false,
+  };
+}
+
+function getQuoteBodyForActiveRoute(body: Record<string, unknown>): Record<string, unknown> {
+  if (!enumeratedRoutesUiState?.routes.length) return body;
+  const route =
+    enumeratedRoutesUiState.routes.find((r) => r.index === enumeratedRoutesUiState!.selectedIndex) ??
+    enumeratedRoutesUiState.routes[0];
+  if (!route?.quote) return body;
+  const routesMeta = (body._routeViaTrades as { routes?: Array<{ build?: unknown }> } | undefined)?.routes;
+  const routeBuild = routesMeta?.find((r) => Number((r as { index?: number }).index) === route.index)?.build
+    ?? routesMeta?.[route.index]?.build;
+  return {
+    ...body,
+    ...route.quote,
+    _build: routeBuild ?? body._build,
+  };
+}
+
+function applyActiveRouteQuoteToUi(
+  body: Record<string, unknown>,
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): void {
+  const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  let quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(body), selectedRouter);
+  quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
+  if (!quote._walletPayDebitRaw) {
+    const estimatedPay = estimateInputSideWalletPayDebitFromQuote(quote);
+    if (estimatedPay) quote = { ...quote, _walletPayDebitRaw: estimatedPay };
+  }
+  lastSwapQuoteOk = quote;
+  lastRawQuoteResponse = body;
+  const buildTx = extractSwapBuildTransaction(body._build as Record<string, unknown> | undefined);
+  if (buildTx && typeof body._builtAt === 'number') {
+    lastRawSwapResponse = body._build;
+    lastVybeBuild = {
+      tx: buildTx,
+      builtAt: body._builtAt as number,
+      paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, amount, {
+        ...buildOpts,
+        routeIndex: enumeratedRoutesUiState?.selectedIndex ?? 0,
+      }),
+      buildPayload: body._build,
+    };
+  }
+  renderRawResponsePanels();
+  renderSwapQuoteUI(quote);
+  renderRouteOptionsPanel();
+  void enrichRouteLabels(quote);
+  if (swapBuildBtn) syncBuildButtonState();
+  syncSwapBuildResultFromQuote();
+}
+
+function selectEnumeratedRoute(index: number): void {
+  if (!enumeratedRoutesUiState || !lastVybeQuoteBodyForRoutes) return;
+  if (!enumeratedRoutesUiState.routes.some((r) => r.index === index)) return;
+  enumeratedRoutesUiState = { ...enumeratedRoutesUiState, selectedIndex: index };
+  const wallet = swapQuoteWalletSnapshot ?? swapWalletAddressInput?.value.trim() ?? '';
+  const inputMint = swapInputMintInput?.value.trim() ?? '';
+  const outputMint = swapOutputMintInput?.value.trim() ?? '';
+  const amount = Number(swapAmountInput?.value);
+  if (!wallet || !inputMint || !outputMint || !Number.isFinite(amount)) return;
+  const buildOpts = collectSwapBuildOptions();
+  applyActiveRouteQuoteToUi(
+    getQuoteBodyForActiveRoute(lastVybeQuoteBodyForRoutes),
+    wallet,
+    inputMint,
+    outputMint,
+    amount,
+    buildOpts,
+  );
+}
+
 function applyVybeQuoteBodyToUi(
   body: VybeQuoteApiBody,
   wallet: string,
@@ -3175,11 +3287,13 @@ function applyVybeQuoteBodyToUi(
   }
   quotedMintSession.add(inputMint);
   quotedMintSession.add(outputMint);
+  syncEnumeratedRoutesFromBody(body);
+  const activeBody = getQuoteBodyForActiveRoute(body);
   const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
-  let quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(body), selectedRouter);
+  let quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(activeBody), selectedRouter);
   quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
   let effectiveAmount = amount;
-  const inRaw = parseRawAmountDigits(body.inAmount ?? quote.inAmount);
+  const inRaw = parseRawAmountDigits(activeBody.inAmount ?? quote.inAmount);
   if (inRaw) {
     quote = { ...quote, inAmount: inRaw };
     const synced = syncSellAmountInputFromInAmountRaw(inRaw, inputMint, amount);
@@ -3195,7 +3309,10 @@ function applyVybeQuoteBodyToUi(
       lastSwapQuoteOk = quote;
     }
   }
-  cacheVybeQuoteBuild(body, wallet, inputMint, outputMint, effectiveAmount, buildOpts);
+  cacheVybeQuoteBuild(activeBody, wallet, inputMint, outputMint, effectiveAmount, {
+    ...buildOpts,
+    routeIndex: enumeratedRoutesUiState?.selectedIndex ?? 0,
+  });
   if (swapQuoteError) clearInlineError(swapQuoteError);
   const rvt = body._routeViaTrades as {
     directRouteFailed?: boolean;
@@ -3218,6 +3335,7 @@ function applyVybeQuoteBodyToUi(
   }
   renderRawResponsePanels();
   renderSwapQuoteUI(quote);
+  renderRouteOptionsPanel();
   openRoutePlanPanelIfClosed();
   void enrichRouteLabels(quote);
   if (swapBuildBtn) syncBuildButtonState();
@@ -4458,7 +4576,15 @@ initRouteUi({
   displaySymbol,
   renderLoadingSpinner,
   syncRoutePlanStepsUi,
+  getEnumeratedRoutesState: () => enumeratedRoutesUiState,
+  setEnumeratedRoutesExpanded: (expanded: boolean) => {
+    if (enumeratedRoutesUiState) {
+      enumeratedRoutesUiState = { ...enumeratedRoutesUiState, expanded };
+    }
+  },
+  selectEnumeratedRoute,
   dom: {
+    swapRouteOptionsEl,
     swapQuoteDetailsRoutingEl,
     swapQuoteDetailsRouteStepsEl,
     routingDialogBodyEl,
@@ -4477,7 +4603,8 @@ swapPartnerInput?.addEventListener('input', syncSwapQuoteButtonState);
 swapPartnerInput?.addEventListener('change', syncSwapQuoteButtonState);
 wireBuildOptionToggle(swapEnablePoolAddressCheckbox, swapPoolAddressFieldEl, swapPoolAddressInput);
 wireBuildOptionToggle(swapEnableProtocolCheckbox, swapProtocolFieldEl, swapProtocolSelect);
-swapRouteViaTradesCheckbox?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
+swapMarketFetchModeSelect?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
+swapEnumerateRoutesCheckbox?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
 
 function syncServiceFeePartnerGate(walletValid = hasValidSwapWallet()): void {
   const partnerOn = swapEnablePartnerCheckbox?.checked === true;

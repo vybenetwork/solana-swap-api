@@ -1800,6 +1800,134 @@ tr:hover td {
   margin-bottom: 0.55rem;
 }
 
+.swap-route-options {
+  margin-bottom: 0.75rem;
+}
+
+.swap-route-options__grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+@media (max-width: 900px) {
+  .swap-route-options__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .swap-route-options__grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.swap-route-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0.55rem 0.65rem;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.12));
+  border-radius: 0.55rem;
+  background: var(--surface-elevated, rgba(255, 255, 255, 0.04));
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+
+.swap-route-option:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.swap-route-option--active {
+  border-color: var(--accent, #7c9cff);
+  box-shadow: 0 0 0 1px var(--accent, #7c9cff);
+}
+
+.swap-route-option__rank {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.swap-route-option__program {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 0.4rem;
+  width: 100%;
+}
+
+.swap-route-option__program-name {
+  font-size: 0.74rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.swap-route-option__program-id {
+  font-family: ui-monospace, monospace;
+  font-size: 0.68rem;
+  opacity: 0.72;
+}
+
+.swap-route-option__pool {
+  font-family: ui-monospace, monospace;
+  font-size: 0.78rem;
+}
+
+.swap-route-option__out {
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.swap-route-option__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.swap-route-option__badge {
+  font-size: 0.65rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+  background: rgba(255, 255, 255, 0.08);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.swap-route-option__badge--trades-rpc {
+  background: rgba(124, 156, 255, 0.18);
+}
+
+.swap-route-option__badge--markets {
+  background: rgba(120, 220, 160, 0.2);
+}
+
+.swap-route-option__badge--markets-rpc {
+  background: rgba(120, 200, 255, 0.2);
+}
+
+.swap-route-option__badge--rpc {
+  background: rgba(255, 190, 120, 0.15);
+}
+
+.swap-route-option__trades {
+  font-size: 0.65rem;
+  opacity: 0.75;
+}
+
+.swap-route-options__more {
+  margin-top: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--accent, #7c9cff);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
 .swap-quote-details-routing-section .swap-quote-details-routing {
   width: 100%;
 }
