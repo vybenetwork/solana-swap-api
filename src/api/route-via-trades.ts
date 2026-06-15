@@ -44,14 +44,17 @@ export const ROUTE_VIA_TRADES_MIN_COUNT_FRACTION = 0.05;
 /** Max pinned build attempts from the eligible trade-ranked queue. */
 export const ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS = 6;
 export const ROUTE_ENUMERATE_LIQUIDITY_SLOTS = 5;
-export const ROUTE_ENUMERATE_MAX_ROUTES = 6;
+/** Max sim-valid routes returned to the client after quote ranking. */
+export const ROUTE_ENUMERATE_MAX_ROUTES = 3;
+/** Discovery + quote-probe pool; sim failures backfill from lower ranks until MAX_ROUTES pass. */
+export const ROUTE_ENUMERATE_CANDIDATE_POOL = 10;
 /** @deprecated Use ROUTE_ENUMERATE_LIQUIDITY_SLOTS */
 export const ROUTE_ENUMERATE_TRADE_SLOTS = 5;
-/** @deprecated Merged into liquidity-first top 6 */
+/** @deprecated Merged into liquidity-first candidate pool */
 export const ROUTE_ENUMERATE_MARKETS_SLOTS = 5;
 /** @deprecated RPC enriches candidates only; no dedicated slots */
 export const ROUTE_ENUMERATE_RPC_ONLY_SLOTS = 5;
-export const ROUTE_OPTIONS_UI_INITIAL = 6;
+export const ROUTE_OPTIONS_UI_INITIAL = 3;
 /** Skip RPC scan in full mode when trades, markets, or combined unique count reaches this. */
 export const ROUTE_DISCOVERY_RPC_SKIP_MIN = 3;
 
@@ -292,7 +295,7 @@ export function queueFromTradeCandidates(candidates: TradeMarketCandidate[]): Qu
 /** Discovery merge input — keep enough liquidity + trade rows for top-6 selection. */
 export function toQueuedMarketEntries(
   candidates: TradeMarketCandidate[],
-  limit = ROUTE_ENUMERATE_MAX_ROUTES + 44,
+  limit = ROUTE_ENUMERATE_CANDIDATE_POOL + 44,
 ): QueuedMarketEntry[] {
   return candidates.slice(0, limit).map((c, i) => ({
     ...c,
@@ -689,7 +692,7 @@ export function mergeDiscoveryCandidates(
   const tradeSlots = tradeQueued.filter((e) => isSupportedIxBuilderProgram(e.programAddress));
 
   const top5Liq = marketSlots.slice(0, ROUTE_ENUMERATE_LIQUIDITY_SLOTS);
-  const top6Liq = marketSlots.slice(0, ROUTE_ENUMERATE_MAX_ROUTES);
+  const topMarketLiqPool = marketSlots.slice(0, ROUTE_ENUMERATE_CANDIDATE_POOL);
   const top5Keys = new Set(
     top5Liq.map((e) => candidatePairKey(e.marketAddress, e.programAddress)),
   );
@@ -709,7 +712,7 @@ export function mergeDiscoveryCandidates(
 
   if (marketSlots.length > 0) {
     if (tradeInTop5) {
-      for (const entry of top6Liq) pushUnique(entry);
+      for (const entry of topMarketLiqPool) pushUnique(entry);
     } else {
       for (const entry of top5Liq) pushUnique(entry);
       const topTrade = tradeSlots[0];
@@ -717,20 +720,20 @@ export function mergeDiscoveryCandidates(
         const tradeKey = candidatePairKey(topTrade.marketAddress, topTrade.programAddress);
         if (!top5Keys.has(tradeKey)) {
           pushUnique(topTrade);
-        } else if (top6Liq[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]) {
-          pushUnique(top6Liq[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]!);
+        } else if (topMarketLiqPool[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]) {
+          pushUnique(topMarketLiqPool[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]!);
         }
-      } else if (top6Liq[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]) {
-        pushUnique(top6Liq[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]!);
+      } else if (topMarketLiqPool[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]) {
+        pushUnique(topMarketLiqPool[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]!);
       }
     }
   } else if (tradeSlots.length > 0) {
-    for (const entry of tradeSlots.slice(0, ROUTE_ENUMERATE_MAX_ROUTES)) pushUnique(entry);
+    for (const entry of tradeSlots.slice(0, ROUTE_ENUMERATE_CANDIDATE_POOL)) pushUnique(entry);
   }
 
   if (ordered.length === 0) {
     for (const pool of rpcPools) {
-      if (ordered.length >= ROUTE_ENUMERATE_MAX_ROUTES) break;
+      if (ordered.length >= ROUTE_ENUMERATE_CANDIDATE_POOL) break;
       const market = pool.marketAddress?.trim();
       const program = pool.programAddress?.trim();
       if (!market || !program || !isSupportedIxBuilderProgram(program)) continue;
@@ -746,7 +749,7 @@ export function mergeDiscoveryCandidates(
     }
   }
 
-  return ordered.slice(0, ROUTE_ENUMERATE_MAX_ROUTES).map((entry, i) => {
+  return ordered.slice(0, ROUTE_ENUMERATE_CANDIDATE_POOL).map((entry, i) => {
     const key = candidatePairKey(entry.marketAddress, entry.programAddress);
     const fromMarkets = marketSlots.some(
       (m) => candidatePairKey(m.marketAddress, m.programAddress) === key,
@@ -997,15 +1000,15 @@ async function buildRoutesForCandidates(
   }
 
   quoteProbes.sort((a, b) => Number(b.outAmount - a.outAmount));
-  const benchmarkSlots = quoteProbes.slice(0, ROUTE_ENUMERATE_MAX_ROUTES);
 
   console.info(
     `[route-discovery] quote-probe ranked=${quoteProbes.length} ` +
-      `validating top ${benchmarkSlots.length} (full on-chain sim each)`,
+      `sim-validating until ${ROUTE_ENUMERATE_MAX_ROUTES} pass (full on-chain sim each)`,
   );
 
-  for (let i = 0; i < benchmarkSlots.length; i++) {
-    const probe = benchmarkSlots[i]!;
+  for (let i = 0; i < quoteProbes.length; i++) {
+    if (successes.length >= ROUTE_ENUMERATE_MAX_ROUTES) break;
+    const probe = quoteProbes[i]!;
     console.info(
       `[solana-rpc] quote-probe full validate rank=${i + 1} ` +
         `pool=${probe.queueEntry.marketAddress.slice(0, 8)}…`,

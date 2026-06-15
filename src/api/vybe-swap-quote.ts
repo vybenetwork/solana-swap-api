@@ -764,7 +764,7 @@ export interface EnrichVybeRouteQuoteParams {
   router?: SwapProxyRouter;
 }
 
-/** Full simulate + fee enrichment for one enumerated route (background route #2…#6). */
+/** Full simulate + fee enrichment for one enumerated route (background route #2…#3). */
 export async function enrichVybeEnumeratedRouteQuote(
   http: AxiosInstance,
   params: EnrichVybeRouteQuoteParams,

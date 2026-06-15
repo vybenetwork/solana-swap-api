@@ -104,7 +104,7 @@ export interface EnumeratedRoutesUiState {
   expanded: boolean;
 }
 
-const ROUTE_OPTIONS_UI_INITIAL = 6;
+const ROUTE_OPTIONS_UI_INITIAL = 3;
 
 function shortPoolId(address: string | undefined): string {
   const a = (address ?? '').trim();
@@ -1577,37 +1577,6 @@ export interface QuotePayHeroCostStackItem {
   count?: number;
 }
 
-/** Pool/output-side fees (LP cuts) rolled into You pay fee totals — expressed in sell mint. */
-function sumQuotePoolFeesInSellMintUi(
-  quote: Record<string, unknown>,
-): { ui: number; count: number } | null {
-  const sellMint = quoteInputMint(quote);
-  if (!sellMint) return null;
-  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
-  let total = 0;
-  let count = 0;
-  for (const step of plan) {
-    const hopOutMint = swapInfoOutputMint(step.swapInfo) ?? '';
-    for (const item of getHopFeeDisplayItems(step)) {
-      if (isAccRentWalletFeeItem(item) || isAccRentReclaimItem(item)) continue;
-      if (!isDeductedFromPoolFeeItem(item, quote, hopOutMint)) continue;
-      const feeUi = feeAmountToUi(item.amountRaw, item.mint);
-      if (feeUi == null || feeUi <= 0) continue;
-      let sellUi: number | null = null;
-      if (routeLegMintMatches(item.mint, sellMint)) {
-        sellUi = feeUi;
-      } else {
-        sellUi = convertFeeUiToSellLeg(feeUi, item.mint, quote);
-      }
-      if (sellUi != null && sellUi > 0) {
-        total += sellUi;
-        count += 1;
-      }
-    }
-  }
-  return count > 0 && total > 0 ? { ui: total, count } : null;
-}
-
 export function getQuotePayHeroCostStack(
   quote: Record<string, unknown>,
   sellSym: string,
@@ -1690,13 +1659,6 @@ export function getQuotePayHeroCostStack(
       foundFee = true;
       if (feeItemCount === 0) feeItemCount = 1;
     }
-  }
-
-  const poolFees = sumQuotePoolFeesInSellMintUi(quote);
-  if (poolFees) {
-    feeUi += poolFees.ui;
-    feeItemCount += poolFees.count;
-    foundFee = true;
   }
 
   const stack: QuotePayHeroCostStackItem[] = [];
