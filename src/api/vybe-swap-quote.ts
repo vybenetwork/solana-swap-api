@@ -920,6 +920,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
   };
   const manualPool = params.poolAddress?.trim();
   const manualProgram = params.programAddress?.trim();
+  const manualProtocol = params.protocol;
   const useMarketDiscovery =
     isMarketDiscoveryEnabled(params) &&
     selected === 'vybe' &&
@@ -929,7 +930,9 @@ export async function buildVybeQuoteFromPriceAndSwap(
   const marketFetchMode = resolveMarketFetchMode(params);
   const enumerateRoutes = params.enumerateRoutes === true;
   const bothCommonQuotes = isCommonQuotePair(uiInputMint, uiOutputMint);
-  const useTradeCandidatePin = useMarketDiscovery && Boolean(manualPool && manualProgram);
+  const useTradeCandidatePin = Boolean(
+    manualPool && (manualProgram || manualProtocol) && !useMarketDiscovery,
+  );
   const useDiscoveryFetch =
     useMarketDiscovery && !manualPool && marketFetchMode !== 'rpc';
 
@@ -1024,7 +1027,8 @@ export async function buildVybeQuoteFromPriceAndSwap(
     const routed = useTradeCandidatePin
       ? await buildSwapForTradeCandidate(http, { ...vybeParams, router: 'vybe' }, {
           marketAddress: manualPool!,
-          programAddress: manualProgram!,
+          ...(manualProgram ? { programAddress: manualProgram } : {}),
+          ...(manualProtocol ? { protocol: manualProtocol } : {}),
         })
       : await buildSwapViaTradeMarkets(http, { ...vybeParams, router: 'vybe' });
     if (routed.kind === 'direct' || routed.kind === 'multi') {

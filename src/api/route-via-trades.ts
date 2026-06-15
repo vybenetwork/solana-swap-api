@@ -32,7 +32,7 @@ export {
   programLabelForAddress,
 } from './pinned-swap-params.js';
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
-import { staticAccountKeysFromSwapTx, validateTradeBuildStatic, validateTradeRoutedBuildOnChain } from './pool-address-validation.js';
+import { staticAccountKeysFromSwapTx, validateTradeRoutedBuildOnChain } from './pool-address-validation.js';
 import { simulateSwapEffects } from './simulate-swap-output.js';
 import { toVybeSwapMint } from './sol-mints.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams } from './trades.js';
@@ -1001,33 +1001,16 @@ async function buildRoutesForCandidates(
 
   console.info(
     `[route-discovery] quote-probe ranked=${quoteProbes.length} ` +
-      `validating top ${benchmarkSlots.length} (full sim on #1 only, static on rest)`,
+      `validating top ${benchmarkSlots.length} (full on-chain sim each)`,
   );
 
   for (let i = 0; i < benchmarkSlots.length; i++) {
     const probe = benchmarkSlots[i]!;
-    const fullSim = i === 0;
-    let validation: {
-      ok: boolean;
-      reason: string;
-      simulation?: import('./simulate-swap-output.js').SwapSimulationResult;
-    };
-
-    if (fullSim) {
-      console.info(
-        `[solana-rpc] quote-probe full validate rank=${i + 1} ` +
-          `pool=${probe.queueEntry.marketAddress.slice(0, 8)}…`,
-      );
-      validation = await validateTradeBuild(probe.build, probe.queueEntry, body);
-    } else {
-      const staticResult = validateTradeBuildStatic(probe.build, {
-        marketAddress: probe.queueEntry.marketAddress,
-        programAddress: probe.queueEntry.programAddress,
-      });
-      validation = staticResult.ok
-        ? { ok: true, reason: '' }
-        : { ok: false, reason: staticResult.reason ?? 'Built tx failed static validation' };
-    }
+    console.info(
+      `[solana-rpc] quote-probe full validate rank=${i + 1} ` +
+        `pool=${probe.queueEntry.marketAddress.slice(0, 8)}…`,
+    );
+    const validation = await validateTradeBuild(probe.build, probe.queueEntry, body);
 
     if (!validation.ok) {
       lastError = describeTradeBuildRejectReasonFromValidation(validation.reason);
@@ -1036,7 +1019,7 @@ async function buildRoutesForCandidates(
         marketAddress: probe.queueEntry.marketAddress,
         programLabel: probe.queueEntry.programLabel,
         tradeCount: probe.queueEntry.tradeCount,
-        attempt: fullSim ? 'quote-probe validate' : 'quote-probe static',
+        attempt: 'quote-probe validate',
         success: false,
         error: lastError,
       });
@@ -1053,7 +1036,7 @@ async function buildRoutesForCandidates(
       marketAddress: probe.queueEntry.marketAddress,
       programLabel: probe.queueEntry.programLabel,
       tradeCount: probe.queueEntry.tradeCount,
-      attempt: fullSim ? 'quote-probe validate' : 'quote-probe static',
+      attempt: 'quote-probe validate',
       success: true,
     });
   }
@@ -1279,18 +1262,28 @@ async function trySingleBuildAttempt(
 export async function buildSwapForTradeCandidate(
   http: AxiosInstance,
   body: import('./swap-build.js').BuildSwapParams,
-  candidate: { marketAddress: string; programAddress: string; tradeCount?: number },
+  candidate: {
+    marketAddress: string;
+    programAddress?: string;
+    protocol?: import('./swap-build.js').BuildSwapParams['protocol'];
+    tradeCount?: number;
+  },
 ): Promise<BuildSwapViaTradeMarketsResult> {
   const { buildSwap } = await import('./swap-build.js');
   const marketAddress = candidate.marketAddress.trim();
-  const programAddress = candidate.programAddress.trim();
+  const pinned = completePinnedSwapParams({
+    poolAddress: marketAddress,
+    programAddress: candidate.programAddress?.trim(),
+    protocol: candidate.protocol,
+  });
+  const programAddress = pinned.programAddress?.trim() ?? '';
   const tradeCount = candidate.tradeCount ?? 1;
   const totalStart = Date.now();
 
   const entry: QueuedMarketEntry = {
     marketAddress,
     programAddress,
-    protocol: programAddressToProtocol(programAddress),
+    protocol: pinned.protocol ?? programAddressToProtocol(programAddress),
     ixBuilderProtocol: programAddressToIxBuilderProtocol(programAddress),
     tradeCount,
     programLabel: programLabelForAddress(programAddress),

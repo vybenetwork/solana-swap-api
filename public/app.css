@@ -2152,6 +2152,14 @@ tr:hover td {
   align-items: center;
 }
 
+.swap-quote-summary-tile--receive .swap-quote-summary-value:has(.swap-quote-summary-fee-stack) {
+  align-items: center;
+}
+
+.swap-quote-summary-amt--reclaim {
+  color: #4ade80;
+}
+
 .swap-quote-summary-fee-part {
   display: inline-flex;
   align-items: baseline;
@@ -3299,17 +3307,20 @@ tr:hover td {
   display: flex;
   flex-direction: column;
   align-items: center;
-  width: min(100%, 15.5rem);
+  width: 15.5rem;
+  max-width: calc(100vw - 2.5rem);
   z-index: 3;
 }
 
 .routing-acc-rent-above--2 {
-  width: min(100%, 15.5rem);
+  --routing-fee-connector-h: 3.35rem;
+  width: 21rem;
 }
 
 .routing-acc-rent-above--3,
 .routing-acc-rent-above--many {
-  width: min(100%, 18rem);
+  --routing-fee-connector-h: 3.75rem;
+  width: 25.5rem;
 }
 
 .routing-acc-rent-cards {
@@ -3322,6 +3333,25 @@ tr:hover td {
   width: 100%;
   position: relative;
   z-index: 1;
+}
+
+.routing-acc-rent-cards--2 {
+  gap: 0.85rem;
+}
+
+.routing-acc-rent-cards--3,
+.routing-acc-rent-cards--many {
+  gap: 0.65rem;
+}
+
+.routing-acc-rent-above--2 .routing-fee-slot--acc-rent,
+.routing-acc-rent-above--2 .routing-fee-slot--acc-rent-reclaim,
+.routing-acc-rent-above--3 .routing-fee-slot--acc-rent,
+.routing-acc-rent-above--3 .routing-fee-slot--acc-rent-reclaim,
+.routing-acc-rent-above--many .routing-fee-slot--acc-rent,
+.routing-acc-rent-above--many .routing-fee-slot--acc-rent-reclaim {
+  flex: 0 0 auto;
+  max-width: 9.75rem;
 }
 
 .routing-acc-rent-connectors {
@@ -3343,7 +3373,23 @@ tr:hover td {
 }
 
 .routing-canvas--has-acc-rent-above.routing-canvas--flow.routing-frame--multi-acc-rent-above .routing-path {
-  --routing-path-pad-top: 3.35rem;
+  --routing-path-pad-top: 3.55rem;
+}
+
+.routing-canvas--acc-rent-above-2 .routing-path {
+  --routing-path-pad-top: 3.95rem;
+}
+
+.routing-canvas--acc-rent-above-2.routing-canvas--has-fees .routing-path {
+  --routing-path-pad-top: 4.2rem;
+}
+
+.routing-canvas--acc-rent-above-3 .routing-path {
+  --routing-path-pad-top: 4.45rem;
+}
+
+.routing-canvas--acc-rent-above-3.routing-canvas--has-fees .routing-path {
+  --routing-path-pad-top: 4.7rem;
 }
 
 .routing-fee-branch {
@@ -3357,6 +3403,14 @@ tr:hover td {
   z-index: 2;
 }
 
+.routing-fee-branch--2 {
+  --routing-fee-connector-h: 3.1rem;
+}
+
+.routing-fee-branch--3 {
+  --routing-fee-connector-h: 3.45rem;
+}
+
 .routing-fee-connectors {
   position: absolute;
   top: 0;
@@ -3366,6 +3420,16 @@ tr:hover td {
   height: var(--routing-fee-connector-h);
   pointer-events: none;
   z-index: 0;
+}
+
+.routing-fee-branch--2 .routing-fee-connectors,
+.routing-fee-branch--2 .routing-fee-cards {
+  width: min(100%, 21rem);
+}
+
+.routing-fee-branch--3 .routing-fee-connectors,
+.routing-fee-branch--3 .routing-fee-cards {
+  width: min(100%, 25.5rem);
 }
 
 .routing-fee-svg {

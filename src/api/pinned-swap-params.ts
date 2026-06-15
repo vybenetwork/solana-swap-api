@@ -1,6 +1,6 @@
 /**
  * Vybe pinned swap: program id ↔ OpenAPI protocol name.
- * Production Vybe API requires poolAddress + programAddress + protocol together (DATA-2515).
+ * Pinned swaps accept poolAddress + programAddress and/or protocol; missing fields are derived.
  */
 
 import type { SwapProxyProtocol } from './swap-build.js';

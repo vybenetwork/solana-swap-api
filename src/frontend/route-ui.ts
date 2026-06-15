@@ -89,6 +89,7 @@ export interface EnumeratedRouteUiEntry {
   candidate?: {
     marketAddress?: string;
     programAddress?: string;
+    protocol?: string;
     programLabel?: string;
     tradeCount?: number;
     marketScore?: number;
@@ -455,6 +456,22 @@ function getHopAtaRentReclaimItems(
     .map(closeEntryToReclaimFeeItem);
 }
 
+function hasInputMintRentReclaim(quote: Record<string, unknown>, mint: string): boolean {
+  return getQuoteWalletTokenAccountCloses(quote).some(
+    (c) => c.category === 'input' && routeLegMintMatches(c.mint, mint),
+  );
+}
+
+/** USD value of input ATA rent returned to wallet (WSOL) on full-balance sells. */
+function sumInputQuoteRentReclaimUsd(quote: Record<string, unknown>): number {
+  return sumRentReclaimUsd(
+    getQuoteWalletTokenAccountCloses(quote)
+      .filter((c) => c.category === 'input')
+      .map(closeEntryToReclaimFeeItem),
+    quote,
+  );
+}
+
 function quoteHasAtaRentReclaim(quote: Record<string, unknown>): boolean {
   return getQuoteWalletTokenAccountCloses(quote).length > 0;
 }
@@ -532,6 +549,13 @@ export function sumInputSideWalletFeesInSellMintUi(quote: Record<string, unknown
     const fees = getHopFeeBreakdown(step);
     for (const item of fees?.items ?? []) {
       if (!isWalletCostFeeItem(item, quote)) continue;
+      if (
+        isAccRentWalletFeeItem(item) &&
+        routeLegMintMatches(item.mint, sellMint) &&
+        hasInputMintRentReclaim(quote, sellMint)
+      ) {
+        continue;
+      }
       const feeUi = feeAmountToUi(item.amountRaw, item.mint);
       if (feeUi == null || feeUi <= 0) continue;
       let sellUi: number | null = null;
@@ -1016,6 +1040,10 @@ export function getQuoteWalletCostBucketsUsd(
       const usd = computeFeeUsdNumeric(item, quote);
       if (usd == null || usd <= 0) continue;
       if (isAccRentWalletFeeItem(item)) {
+        const sellMint = quoteInputMint(quote);
+        if (sellMint && routeLegMintMatches(item.mint, sellMint) && hasInputMintRentReclaim(quote, sellMint)) {
+          continue;
+        }
         rentUsd += usd;
         foundRent = true;
       } else {
@@ -1044,6 +1072,8 @@ function resolveQuoteYouPayFeeUsd(
   if (buckets.feeUsd != null && buckets.feeUsd > 0) return buckets.feeUsd;
 
   const mint = quoteInputMint(quote);
+  if (mint && hasInputMintRentReclaim(quote, mint)) return null;
+
   const payRaw = quoteWalletPayRaw(quote);
   const swapRaw = quoteInAmountRaw(quote);
   if (payRaw && swapRaw && mint) {
@@ -1075,11 +1105,30 @@ export function resolveQuoteYouPayUsd(quote: Record<string, unknown>): QuoteYouP
   const swapUsd = deps.getQuoteSwapUsdValue(quote);
   if (swapUsd == null || swapUsd <= 0) return null;
 
-  const buckets = getQuoteWalletCostBucketsUsd(quote);
-  const feeUsd = resolveQuoteYouPayFeeUsd(quote, buckets);
-  const rentUsd = buckets.rentUsd ?? null;
-  const totalUsd = swapUsd + (feeUsd ?? 0) + (rentUsd ?? 0);
-  return { swapUsd, feeUsd, rentUsd, totalUsd };
+  const stack = getQuotePayHeroCostStack(quote, deps.getSwapInSym());
+  let feeUsd = 0;
+  let rentUsd = 0;
+  let hasFee = false;
+  let hasRent = false;
+  for (const row of stack) {
+    const price = lookupMintPriceUsd(row.mint, quote);
+    if (!Number.isFinite(price) || price <= 0) continue;
+    const usd = row.ui * price;
+    if (row.kind === 'fee') {
+      feeUsd += usd;
+      hasFee = true;
+    } else {
+      rentUsd += usd;
+      hasRent = true;
+    }
+  }
+  const totalUsd = swapUsd + (hasFee ? feeUsd : 0) + (hasRent ? rentUsd : 0);
+  return {
+    swapUsd,
+    feeUsd: hasFee ? feeUsd : null,
+    rentUsd: hasRent ? rentUsd : null,
+    totalUsd,
+  };
 }
 
 /** Same string as the You pay hero sub-label, e.g. `≈ $1.24 + $0.01 (fee) + $0.13 (rent)`. */
@@ -1557,6 +1606,7 @@ export function getQuotePayHeroCostStack(
 
       const sameMint = routeLegMintMatches(item.mint, mint);
       if (isAccRentWalletFeeItem(item)) {
+        if (sameMint && hasInputMintRentReclaim(quote, mint)) continue;
         if (sameMint) {
           sameMintRentUi += ui;
           foundSameMintRent = true;
@@ -1578,7 +1628,7 @@ export function getQuotePayHeroCostStack(
   if (!foundFee) {
     const payRaw = quoteWalletPayRaw(quote);
     const swapRaw = quoteInAmountRaw(quote);
-    if (payRaw && swapRaw) {
+    if (payRaw && swapRaw && !hasInputMintRentReclaim(quote, mint)) {
       try {
         const pay = BigInt(String(payRaw).replace(/,/g, ''));
         const swap = BigInt(String(swapRaw).replace(/,/g, ''));
@@ -1588,13 +1638,13 @@ export function getQuotePayHeroCostStack(
             deps.getMintDecimals(mint),
           );
           if (Number.isFinite(deltaUi) && deltaUi > 0) {
-            const rentTotal = (foundSameMintRent ? sameMintRentUi : 0) + (foundForeignRent ? foreignRentUi : 0);
-            const impliedFee = deltaUi - rentTotal;
+            const sameMintRentOnly = foundSameMintRent ? sameMintRentUi : 0;
+            const impliedFee = deltaUi - sameMintRentOnly;
             if (impliedFee > 0) {
               feeUi = impliedFee;
               foundFee = true;
               if (feeItemCount === 0) feeItemCount = 1;
-            } else if (!foundSameMintRent && !foundForeignRent) {
+            } else if (!foundSameMintRent) {
               feeUi = deltaUi;
               foundFee = true;
               if (feeItemCount === 0) feeItemCount = 1;
@@ -1704,6 +1754,94 @@ export function renderQuotePayHeroValueHtml(
       <span class="swap-quote-summary-sym ${inputSymCls}">${deps.escapeHtml(inSym)}</span>
       <span class="swap-quote-summary-plus">+</span>
       <span class="swap-quote-summary-fee-stack">${stackRows.join('')}</span>`;
+}
+
+export interface QuoteReceiveHeroReclaimItem {
+  ui: number;
+  sym: string;
+  mint: string;
+  label: string;
+}
+
+/** Input ATA rent returned to wallet (shown on You receive, not You pay). */
+export function getQuoteReceiveHeroReclaimStack(
+  quote: Record<string, unknown>,
+): QuoteReceiveHeroReclaimItem[] {
+  const out: QuoteReceiveHeroReclaimItem[] = [];
+  for (const entry of getQuoteWalletTokenAccountCloses(quote)) {
+    if (entry.category !== 'input') continue;
+    const item = closeEntryToReclaimFeeItem(entry);
+    const ui = feeAmountToUi(item.amountRaw, item.mint);
+    if (ui == null || ui <= 0) continue;
+    const accountSym = mintSymbolSync(entry.mint);
+    out.push({
+      ui,
+      sym: 'WSOL',
+      mint: WSOL_MINT,
+      label: `${accountSym} Rent Reclaim`,
+    });
+  }
+  return out;
+}
+
+function renderReceiveReclaimRow(item: QuoteReceiveHeroReclaimItem): string {
+  const symCls = tokenSymColorClass(item.mint, item.sym);
+  return `<span class="swap-quote-summary-fee-part swap-quote-summary-fee-part--reclaim">
+        <span class="swap-quote-summary-amt swap-quote-summary-amt--reclaim">${deps.escapeHtml(formatPayHeroCostDisplay(item.ui))}</span>
+        <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(item.sym)}</span><span class="swap-quote-summary-fee-kind"> (${deps.escapeHtml(item.label)})</span>
+      </span>`;
+}
+
+/** You receive hero value HTML — swap output plus rent reclaimed from closed input ATAs. */
+export function renderQuoteReceiveHeroValueHtml(
+  quote: Record<string, unknown> | null,
+  outSym: string,
+  fallbackAmt: string,
+  placeholder = false,
+  loading = false,
+): string {
+  const amtCls = placeholder ? ' swap-quote-summary-amt--placeholder' : '';
+  const outputMint = (
+    quote ? quoteOutputMint(quote) : deps.getFormOutputMint().trim()
+  ).trim();
+  const outSymCls = tokenSymColorClass(outputMint, outSym);
+  if (loading && placeholder) {
+    return `<span class="swap-quote-summary-amt${amtCls}">${deps.renderLoadingSpinner('md')}</span>`;
+  }
+
+  const outAmt = fallbackAmt;
+  if (outAmt === '—') {
+    return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(fallbackAmt)}</span>
+        <span class="swap-quote-summary-sym ${outSymCls}">${deps.escapeHtml(outSym)}</span>`;
+  }
+
+  const reclaimStack = quote ? getQuoteReceiveHeroReclaimStack(quote) : [];
+  if (reclaimStack.length === 0) {
+    return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(outAmt)}</span>
+        <span class="swap-quote-summary-sym ${outSymCls}">${deps.escapeHtml(outSym)}</span>`;
+  }
+
+  const reclaimRows = reclaimStack.map((row) => renderReceiveReclaimRow(row));
+  return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(outAmt)}</span>
+      <span class="swap-quote-summary-sym ${outSymCls}">${deps.escapeHtml(outSym)}</span>
+      <span class="swap-quote-summary-plus">+</span>
+      <span class="swap-quote-summary-fee-stack">${reclaimRows.join('')}</span>`;
+}
+
+/** Sub-label under You receive — swap output USD plus input rent reclaim when present. */
+export function getQuoteYouReceiveSubLabel(quote: Record<string, unknown>): string | null {
+  const receiveUsd = deps.getQuoteReceiveUsd(quote);
+  const reclaimUsd = sumInputQuoteRentReclaimUsd(quote);
+  if (receiveUsd == null && reclaimUsd <= 0) return null;
+  const parts: string[] = [];
+  if (receiveUsd != null && receiveUsd > 0) {
+    parts.push(`≈ ${deps.formatSwapReceiveUsdLabel(receiveUsd)}`);
+  }
+  if (reclaimUsd > 0.001) {
+    parts.push(`+ ${deps.formatSwapReceiveUsdLabel(reclaimUsd)} reclaim`);
+  }
+  parts.push('from quote');
+  return parts.join(' · ');
 }
 
 /** Input-mint wallet debit for the route diagram chip: swap leg + same-mint fee/rent. */
@@ -2627,11 +2765,21 @@ function getQuoteOutputFeeDeltaUi(quote: Record<string, unknown>): number | null
   }
 }
 
-function getQuoteDiagramWalletFeesUsdLabel(quote: Record<string, unknown>): string | null {
+/** Net wallet fees in USD: paid fees + rent deposits minus ATA/WSOL rent returned to wallet. */
+function getQuoteNetWalletFeesUsd(quote: Record<string, unknown>): number | null {
   const buckets = getQuoteWalletCostBucketsUsd(quote);
-  const total = (buckets.feeUsd ?? 0) + (buckets.rentUsd ?? 0);
-  if (!(total > 0)) return null;
-  return `-$${deps.formatSwapPayUsdAmount(total)}`;
+  const gross = (buckets.feeUsd ?? 0) + (buckets.rentUsd ?? 0);
+  const reclaimUsd = sumQuoteRentReclaimUsd(quote);
+  if (gross <= 0 && reclaimUsd <= 0) return null;
+  const net = gross - reclaimUsd;
+  if (net <= 0.001) return null;
+  return net;
+}
+
+function getQuoteDiagramWalletFeesUsdLabel(quote: Record<string, unknown>): string | null {
+  const netUsd = getQuoteNetWalletFeesUsd(quote);
+  if (netUsd == null) return null;
+  return formatHopFeeUsdTotalDisplay(netUsd);
 }
 
 function getQuoteDiagramOutputUsdSubline(quote: Record<string, unknown>): string | null {
@@ -3172,7 +3320,7 @@ function renderHopPlanFeesSection(
     group('Returned to wallet', reclaimRows) +
     group('Deducted from pool', poolRows);
 
-  const totalHtml = renderHopFeesTotalsChips(rowData, quote);
+  const totalHtml = renderHopFeesTotalsChips(rowData, quote, reclaimItems);
 
   return `<section class="swap-hop-panel swap-hop-panel--fees" aria-label="Hop fees">
     <div class="swap-hop-panel__head">
@@ -3204,10 +3352,14 @@ function routePlanMaxAccRentAboveCount(
   plan: VybeRoutePlanStepLite[],
   quote: Record<string, unknown>,
 ): number {
-  let max = quoteHasAtaRentReclaim(quote) ? 1 : 0;
-  for (const step of plan) {
+  let max = 0;
+  for (let i = 0; i < plan.length; i++) {
+    const step = plan[i]!;
+    const isLastHop = i === plan.length - 1;
     const { accRentItems } = partitionHopFeeDisplayItems(getHopFeeDisplayItems(step));
-    if (accRentItems.length > max) max = accRentItems.length;
+    const reclaimItems = getHopAtaRentReclaimItems(quote, i, isLastHop);
+    const count = accRentItems.length + reclaimItems.length;
+    if (count > max) max = count;
   }
   return max;
 }
@@ -3326,17 +3478,25 @@ function renderHopFeeTotalChip(
 function sumHopPlanFeeTotalUsd(
   rowData: Array<{ item: HopFeeItemLite; equiv: FeeAmountEquiv }>,
   quote: Record<string, unknown>,
+  reclaimItems: HopFeeItemLite[] = [],
 ): number | null {
   let totalUsd = 0;
   let found = false;
   for (const { item, equiv } of rowData) {
+    if (isAccRentReclaimItem(item)) continue;
     const usdN = computeFeeUsdNumeric(item, quote) ?? parseFeeEquivUsdNumber(equiv.usd);
     if (usdN != null && usdN > 0) {
       totalUsd += usdN;
       found = true;
     }
   }
-  return found ? totalUsd : null;
+  const reclaimUsd = sumRentReclaimUsd(reclaimItems, quote);
+  if (reclaimUsd > 0) {
+    totalUsd -= reclaimUsd;
+    found = true;
+  }
+  if (!found || totalUsd <= 0.001) return null;
+  return totalUsd;
 }
 
 function formatHopFeeUsdTotalDisplay(usd: number): string {
@@ -3353,12 +3513,13 @@ function renderHopFeeUsdTotalChip(usd: number | null, placeholder = false): stri
 function renderHopFeesTotalsChips(
   rowData: Array<{ item: HopFeeItemLite; equiv: FeeAmountEquiv }>,
   quote: Record<string, unknown>,
+  reclaimItems: HopFeeItemLite[] = [],
 ): string {
   const totals = sumHopPlanFeeTotalsByMint(rowData);
   const currencyChips = totals
     .map(({ mint, sym, display, feeCount }) => renderHopFeeTotalChip(mint, sym, display, feeCount))
     .join('');
-  const usdChip = renderHopFeeUsdTotalChip(sumHopPlanFeeTotalUsd(rowData, quote));
+  const usdChip = renderHopFeeUsdTotalChip(sumHopPlanFeeTotalUsd(rowData, quote, reclaimItems));
   if (!currencyChips && !usdChip) return '';
   return `<div class="hop-fees-totals" aria-label="Fee totals by currency">${currencyChips}${usdChip}</div>`;
 }
@@ -3465,10 +3626,12 @@ function renderRoutingFeeConnectors(feeCount: number): string {
 
   const dropXs =
     feeCount === 2
-      ? [vbW * 0.25, vbW * 0.75]
+      ? [vbW * 0.18, vbW * 0.82]
       : feeCount === 3
         ? [vbW / 6, vbW / 2, (vbW * 5) / 6]
-        : [cx];
+        : feeCount >= 4
+          ? [vbW * 0.12, vbW * 0.38, vbW * 0.62, vbW * 0.88].slice(0, feeCount)
+          : [cx];
 
   const segments: string[] = [];
 
@@ -3751,6 +3914,12 @@ function renderRoutingFrame(
   const multiInputFeesClass = feeRows.length > 1 ? ' routing-frame--multi-input-fees' : '';
   const multiAccRentClass =
     maxAccRentAbove >= 2 ? ' routing-frame--multi-acc-rent-above' : '';
+  const accRentSpreadClass =
+    maxAccRentAbove >= 3
+      ? ' routing-canvas--acc-rent-above-3'
+      : maxAccRentAbove >= 2
+        ? ' routing-canvas--acc-rent-above-2'
+        : '';
   const inputTotalHtml =
     showAllEndpointLabels || (inputTotalLabel && inputTotalLabel !== '—')
       ? `<span class="routing-input-total">Total: <span class="routing-input-total__val">${deps.escapeHtml(inputTotalVal)}</span></span>`
@@ -3763,7 +3932,7 @@ function renderRoutingFrame(
     showAllEndpointLabels || (outputUsdSubline && outputUsdSubline !== '—')
       ? `<span class="routing-output-usd"${outputUsdTitle ? ` title="${deps.escapeHtml(outputUsdTitle)}"` : ''}>USD Output: <span class="routing-output-usd__val">${deps.escapeHtml(outputUsdVal)}</span></span>`
       : '';
-  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${placeholderClass}${loadingClass}">
+  return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${accRentSpreadClass}${placeholderClass}${loadingClass}">
     <div class="routing-frame${multiInputFeesClass}${multiAccRentClass}">
       <div class="routing-endpoint routing-endpoint--in">
         <div class="routing-endpoint-stack">

@@ -95,6 +95,8 @@ import {
   getQuoteWalletCostBucketsUsd,
   getQuoteYouPaySubLabel,
   renderQuotePayHeroValueHtml,
+  renderQuoteReceiveHeroValueHtml,
+  getQuoteYouReceiveSubLabel,
   renderRouteViaTradesLogHtml,
   type EnumeratedRoutesUiState,
 } from './route-ui.js';
@@ -850,11 +852,14 @@ function formatFeeEquivUsdFiatDisplay(n: number): string {
   return `~$${formatFeeEquivSmallAmount(n)}`;
 }
 
-/** Sell / you-pay USD — always 2 decimal places. */
+/** Sell / you-pay USD — 2 dp when ≥ $0.01; otherwise show first significant sub-cent digits. */
 function formatSwapPayUsdAmount(n: number): string {
   const abs = Math.abs(n);
-  if (!Number.isFinite(abs)) return '0.00';
-  return abs.toFixed(2);
+  if (!Number.isFinite(abs) || abs === 0) return '0.00';
+  const twoDp = abs.toFixed(2);
+  if (Number(twoDp) > 0) return twoDp;
+  const small = formatFeeStackAmount(abs);
+  return small === '0' ? '0.00' : small;
 }
 
 function formatSwapPayFiatDisplay(v: unknown): string {
@@ -2736,12 +2741,13 @@ function renderQuoteSummary(quote: Record<string, unknown>): string {
   const receiveUsdLabel = receiveUsd != null ? formatSwapReceiveUsdLabel(receiveUsd) : null;
   const paySub = buildQuotePaySubLabel(quote);
   const payValueHtml = renderQuotePayHeroValueHtml(quote, inSym, payAmt);
-  const receiveSub = receiveUsdLabel ? `≈ ${receiveUsdLabel} · from quote` : null;
+  const receiveValueHtml = renderQuoteReceiveHeroValueHtml(quote, outSym, outAmt.display);
+  const receiveSub = getQuoteYouReceiveSubLabel(quote);
 
   return `<div class="swap-quote-summary-primary">
       ${renderQuoteSummaryHeroTile('You pay', payAmt, inSym, 'pay', inMint, paySub, false, false, payValueHtml)}
       <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
-      ${renderQuoteSummaryHeroTile('You receive', outAmt.display, outSym, 'receive', outMint, receiveSub)}
+      ${renderQuoteSummaryHeroTile('You receive', outAmt.display, outSym, 'receive', outMint, receiveSub, false, false, receiveValueHtml)}
     </div>`;
 }
 
@@ -4378,6 +4384,61 @@ function syncBuildButtonState(): void {
   swapBuildBtn.disabled = !lastSwapQuoteOk;
 }
 
+function getSelectedEnumeratedRouteCandidate():
+  | NonNullable<EnumeratedRoutesUiState['routes'][0]['candidate']>
+  | null {
+  if (!enumeratedRoutesUiState?.routes.length) return null;
+  const route =
+    enumeratedRoutesUiState.routes.find((r) => r.index === enumeratedRoutesUiState!.selectedIndex) ??
+    enumeratedRoutesUiState.routes[0];
+  return route?.candidate ?? null;
+}
+
+/** Pin the selected enumerated route and disable market discovery for the sign/build step. */
+function pinSelectedEnumeratedRouteToBuildUi(): void {
+  const candidate = getSelectedEnumeratedRouteCandidate();
+  if (!candidate?.marketAddress?.trim()) return;
+
+  if (swapPoolAddressInput) swapPoolAddressInput.value = candidate.marketAddress.trim();
+  if (swapEnablePoolAddressCheckbox) swapEnablePoolAddressCheckbox.checked = true;
+  if (swapPoolAddressFieldEl) swapPoolAddressFieldEl.hidden = false;
+
+  const protocol = candidate.protocol?.trim();
+  if (protocol && swapProtocolSelect) {
+    swapProtocolSelect.value = protocol;
+    if (swapEnableProtocolCheckbox) swapEnableProtocolCheckbox.checked = true;
+    if (swapProtocolFieldEl) swapProtocolFieldEl.hidden = false;
+  }
+
+  if (swapEnumerateRoutesCheckbox) swapEnumerateRoutesCheckbox.checked = false;
+}
+
+function mergeSelectedRoutePinIntoBuildOpts(opts: Record<string, unknown>): Record<string, unknown> {
+  const candidate = getSelectedEnumeratedRouteCandidate();
+  if (!candidate?.marketAddress?.trim()) return opts;
+  const next: Record<string, unknown> = {
+    ...opts,
+    poolAddress: candidate.marketAddress.trim(),
+    marketFetchMode: undefined,
+    enumerateRoutes: undefined,
+  };
+  if (candidate.programAddress?.trim()) next.programAddress = candidate.programAddress.trim();
+  if (candidate.protocol?.trim()) next.protocol = candidate.protocol.trim();
+  return next;
+}
+
+function tryCachedVybeBuildTxForSelectedRoute(): {
+  tx: string;
+  buildPayload: Record<string, unknown>;
+} | null {
+  if (!lastVybeQuoteBodyForRoutes) return null;
+  const activeBody = getQuoteBodyForActiveRoute(lastVybeQuoteBodyForRoutes);
+  const buildPayload = activeBody._build as Record<string, unknown> | undefined;
+  const tx = extractSwapBuildTransaction(buildPayload);
+  if (!tx || !buildPayload) return null;
+  return { tx, buildPayload };
+}
+
 async function postBuildSwap(): Promise<void> {
   if (swapBuildMode === 'paste-sign') {
     return postPasteSignSwap();
@@ -4398,6 +4459,7 @@ async function postBuildSwap(): Promise<void> {
     }
     const confirmed = await promptSignSwapConfirm(lastSwapQuoteOk);
     if (!confirmed) return;
+    pinSelectedEnumeratedRouteToBuildUi();
   } else if (!wallet) {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Wallet (accountAddress) is required to build the transaction.');
     return;
@@ -4405,7 +4467,7 @@ async function postBuildSwap(): Promise<void> {
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
   const amount = swapAmountInput ? Number(swapAmountInput.value) : NaN;
-  const buildOpts = collectSwapBuildOptions();
+  const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
 
   if (!swapBuildResultEl || !swapTxBase64El) return;
@@ -4414,10 +4476,31 @@ async function postBuildSwap(): Promise<void> {
   if (swapBuildBtn) swapBuildBtn.disabled = true;
 
   try {
-    const { tx: buildTx, buildPayload } =
-      router === 'vybe'
-        ? await resolveVybeBuildTx(wallet, inputMint, outputMint, amount, buildOpts)
-        : await resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
+    let buildTx: string;
+    let buildPayload: Record<string, unknown>;
+    if (router === 'vybe') {
+      const cached = tryCachedVybeBuildTxForSelectedRoute();
+      if (cached) {
+        buildTx = cached.tx;
+        buildPayload = cached.buildPayload;
+        lastRawSwapResponse = buildPayload;
+        lastVybeBuild = {
+          tx: buildTx,
+          builtAt: Date.now(),
+          paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts),
+          buildPayload,
+        };
+        renderRawResponsePanels();
+      } else {
+        const resolved = await resolveVybeBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
+        buildTx = resolved.tx;
+        buildPayload = resolved.buildPayload;
+      }
+    } else {
+      const resolved = await resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
+      buildTx = resolved.tx;
+      buildPayload = resolved.buildPayload;
+    }
     if (swapBuildMode === 'build-sign') {
       swapTxBase64El.value = await signSwapTransactionBase64(buildTx, true);
       syncSwapBuildResultPanel();
