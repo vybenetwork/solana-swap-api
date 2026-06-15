@@ -68,6 +68,8 @@ export interface VybeSwapDetails {
         | 'output_deduction'
         | 'input_wallet'
         | 'network_priority';
+      destinationAddress?: string;
+      destinationNote?: string;
     }>;
     feeAmount?: string;
     feeMint?: string;

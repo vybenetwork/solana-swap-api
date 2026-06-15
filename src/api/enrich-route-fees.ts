@@ -375,7 +375,7 @@ function enrichHopFeeItemDestinations(
       continue;
     }
 
-    if (item.label === 'Protocol fee' || item.label === 'Route fee') {
+    if (item.label === 'Protocol fee' || item.label === 'Route fee' || item.label === 'Creator fee') {
       let amount = 0n;
       try {
         amount = BigInt(item.amountRaw);
@@ -741,6 +741,38 @@ export interface QuoteProtocolFeeEntry {
   mint: string;
   feeBps?: number;
   destinationKind?: HopFeeItem['destinationKind'];
+  destinationAddress?: string;
+  destinationNote?: string;
+}
+
+function mergeProtocolFeeMetadataFromQuote(
+  items: HopFeeItem[],
+  quote:
+    | {
+        protocolFees?: QuoteProtocolFeeEntry[];
+      }
+    | undefined,
+): void {
+  if (!quote?.protocolFees?.length) return;
+  for (const pf of quote.protocolFees) {
+    if (!pf.amountRaw || pf.amountRaw === '0') continue;
+    const match = items.find(
+      (it) =>
+        it.label === pf.label &&
+        it.amountRaw === pf.amountRaw &&
+        mintMatches(it.mint, pf.mint),
+    );
+    if (!match) continue;
+    if (pf.destinationAddress?.trim()) {
+      match.destinationAddress = pf.destinationAddress.trim();
+    }
+    if (pf.destinationKind) {
+      match.destinationKind = pf.destinationKind;
+    }
+    if (pf.destinationNote?.trim()) {
+      match.destinationNote = pf.destinationNote.trim();
+    }
+  }
 }
 
 export function sumProtocolFeeAmountRaw(quote: {
@@ -789,6 +821,10 @@ function applyQuoteProtocolFees(
         destinationKind:
           pf.destinationKind ??
           (pf.label.toLowerCase().includes('lp') ? 'lp_pool' : 'fee_recipient'),
+        ...(pf.destinationAddress?.trim()
+          ? { destinationAddress: pf.destinationAddress.trim() }
+          : {}),
+        ...(pf.destinationNote?.trim() ? { destinationNote: pf.destinationNote.trim() } : {}),
       });
     }
     return;
@@ -1074,6 +1110,9 @@ export function enrichRoutePlanFees(
       usedSolTransfers,
       usedTokenCredits,
     });
+    if (isLast) {
+      mergeProtocolFeeMetadataFromQuote(items, build.details.quote);
+    }
 
     const hopQuotedOut = hopQuotedOutRaw(step, isLast ? quotedOut : 0n);
     const hopQuotedStr =
