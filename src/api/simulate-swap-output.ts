@@ -12,7 +12,7 @@ import {
 import { SOLANA_RPC_URL } from '../config.js';
 import { findProgramOwnedPoolStateInTx } from './pool-address-validation.js';
 import { IX_BUILDER_PROGRAM_IDS } from './route-via-trades.js';
-import { prepareVersionedSwapTransaction } from './prepare-versioned-swap-tx.js';
+import { prepareVersionedSwapTransactionWithAlts } from './prepare-versioned-swap-tx.js';
 import { WSOL_MINT, isSolMint } from './sol-mints.js';
 import type { VybeRoutePlanStep } from '../types/swap.js';
 
@@ -849,6 +849,11 @@ function detectTokenAccRentByMint(
   }));
 }
 
+export interface SimulateSwapEffectsOptions {
+  /** Skip scanning tx accounts for pool state when pool is already pinned. */
+  pinnedPoolAddress?: string;
+}
+
 /** Returns simulation effects, or null values if simulation fails. */
 export async function simulateSwapEffects(
   base64Tx: string,
@@ -856,6 +861,7 @@ export async function simulateSwapEffects(
   outputMint: string,
   inputMint?: string,
   routePlan?: VybeRoutePlanStep[],
+  options?: SimulateSwapEffectsOptions,
 ): Promise<SwapSimulationResult> {
   const empty: SwapSimulationResult = {
     outputDeltaRaw: null,
@@ -876,9 +882,12 @@ export async function simulateSwapEffects(
   }
 
   const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
-  let prepared: VersionedTransaction;
+  let prepared: import('@solana/web3.js').VersionedTransaction;
+  let altAccounts: import('@solana/web3.js').AddressLookupTableAccount[] = [];
   try {
-    prepared = await prepareVersionedSwapTransaction(connection, trimmed);
+    const ctx = await prepareVersionedSwapTransactionWithAlts(connection, trimmed);
+    prepared = ctx.prepared;
+    altAccounts = ctx.altAccounts;
   } catch {
     return empty;
   }
@@ -902,7 +911,6 @@ export async function simulateSwapEffects(
   };
   if (value.err) return { ...empty, simulationErr: value.err };
 
-  const altAccounts = await loadAltAccounts(connection, prepared);
   const accountKeyStrings = listAccountKeyStrings(prepared, altAccounts);
   const walletPayDebitRaw =
     inputMint?.trim()
@@ -960,11 +968,10 @@ export async function simulateSwapEffects(
     outputMint.trim(),
   );
 
-  const dexPoolState = await findProgramOwnedPoolStateInTx(
-    connection,
-    accountKeyStrings,
-    IX_BUILDER_PROGRAM_IDS,
-  );
+  const pinnedPool = options?.pinnedPoolAddress?.trim();
+  const dexPoolState = pinnedPool
+    ? pinnedPool
+    : await findProgramOwnedPoolStateInTx(connection, accountKeyStrings, IX_BUILDER_PROGRAM_IDS);
   if (dexPoolState) {
     const hopIdx = 0;
     const existing = inferredPoolAddressesByHop.findIndex((e) => e.hopIndex === hopIdx);

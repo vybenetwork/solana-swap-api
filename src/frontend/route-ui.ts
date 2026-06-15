@@ -109,9 +109,8 @@ function shortPoolId(address: string | undefined): string {
 }
 
 function sourceBadgeLabel(source: string | undefined): string {
-  if (source === 'both' || source === 'trades+rpc') return 'trades+rpc';
-  if (source === 'markets+rpc') return 'markets+rpc';
-  if (source === 'markets') return 'markets';
+  if (source === 'both' || source === 'trades+rpc' || source === 'trades') return 'trades';
+  if (source === 'markets+rpc' || source === 'markets') return 'markets';
   if (source === 'rpc') return 'rpc';
   return 'trades';
 }
@@ -139,18 +138,23 @@ export function renderRouteOptionsPanel(): void {
     const sym = deps.getSwapOutSym();
     const pool = shortPoolId(route.candidate?.marketAddress);
     const programAddr = route.candidate?.programAddress ?? '';
+    const programShort = shortPoolId(programAddr);
     const programLabel =
       route.candidate?.programLabel?.trim() || programShort || '—';
-    const programShort = shortPoolId(programAddr);
     const trades = route.candidate?.tradeCount ?? 0;
     const marketScore = route.candidate?.marketScore;
     const source = sourceBadgeLabel(route.source);
+    const metaParts: string[] = [];
+    if (marketScore != null && marketScore > 0) {
+      metaParts.push(`$${deps.formatSwapAmountValue(marketScore)} liq`);
+    }
+    if (trades > 0) {
+      metaParts.push(`${trades} trades`);
+    }
     const metaDetail =
-      route.source === 'markets' && marketScore != null && marketScore > 0
-        ? `<span class="swap-route-option__trades">$${deps.formatSwapAmountValue(marketScore)} liq</span>`
-        : trades > 0
-          ? `<span class="swap-route-option__trades">${trades} trades</span>`
-          : '';
+      metaParts.length > 0
+        ? `<span class="swap-route-option__trades">${metaParts.join(' · ')}</span>`
+        : '';
     return `<button type="button" class="swap-route-option${active ? ' swap-route-option--active' : ''}" data-route-index="${idx}" aria-pressed="${active ? 'true' : 'false'}">
       <span class="swap-route-option__rank">#${idx + 1}</span>
       <span class="swap-route-option__program">

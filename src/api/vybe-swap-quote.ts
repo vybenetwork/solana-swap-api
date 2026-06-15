@@ -577,6 +577,7 @@ async function simulateRouteBuild(
     vybeOutputMint,
     uiInputMint,
     preSimRoutePlan,
+    { pinnedPoolAddress: poolAddress },
   );
   let walletTokenAccountCloses = mergeBuildAtaCloseHints(
     sim.walletTokenAccountCloses,
@@ -629,6 +630,31 @@ function baseRouteViaTradesMetaFromRouted(
   };
 }
 
+function quoteOutputRawFromEntry(entry: RouteViaTradesRouteEntry): bigint {
+  const sim = entry.simulatedOutRaw?.trim();
+  if (sim) {
+    try {
+      return BigInt(sim);
+    } catch {
+      /* fall through */
+    }
+  }
+  const fromQuote = String(entry.quote?.outAmount ?? entry.quote?._quotedOutAmount ?? '').trim();
+  if (fromQuote) {
+    try {
+      return BigInt(fromQuote);
+    } catch {
+      /* fall through */
+    }
+  }
+  return 0n;
+}
+
+function sortRouteEntriesByOutput(routes: RouteViaTradesRouteEntry[]): RouteViaTradesRouteEntry[] {
+  const sorted = [...routes].sort((a, b) => Number(quoteOutputRawFromEntry(b) - quoteOutputRawFromEntry(a)));
+  return sorted.map((route, i) => ({ ...route, index: i }));
+}
+
 async function buildEnumeratedRouteQuotes(
   routeBuilds: RouteBuildSuccess[],
   params: VybeQuoteParams,
@@ -644,14 +670,29 @@ async function buildEnumeratedRouteQuotes(
   const routes: RouteViaTradesRouteEntry[] = [];
   for (let i = 0; i < routeBuilds.length; i++) {
     const entry = routeBuilds[i]!;
-    const sim = await simulateRouteBuild(
-      entry.build,
-      params,
-      vybeInputMint,
-      vybeOutputMint,
-      uiInputMint,
-      entry.selected.marketAddress,
-    );
+    const simBundle = entry.simulation
+      ? {
+          simulatedOutRaw: entry.simulation.outputDeltaRaw,
+          simulationErr: entry.simulation.simulationErr,
+          walletPayDebitRaw: entry.simulation.walletPayDebitRaw,
+          pdaRentLamports: entry.simulation.pdaRentLamports,
+          tokenAccRentByMint: entry.simulation.tokenAccRentByMint,
+          embeddedPoolFeesByHop: entry.simulation.embeddedPoolFeesByHop,
+          walletSolTransfers: entry.simulation.walletSolTransfers,
+          tokenFeeCredits: entry.simulation.tokenFeeCredits,
+          networkFeeLamports: entry.simulation.networkFeeLamports,
+          inferredPoolAddressesByHop: entry.simulation.inferredPoolAddressesByHop,
+          walletTokenAccountCloses: entry.simulation.walletTokenAccountCloses,
+        }
+      : await simulateRouteBuild(
+          entry.build,
+          params,
+          vybeInputMint,
+          vybeOutputMint,
+          uiInputMint,
+          entry.selected.marketAddress,
+        );
+    const sim = simBundle;
     let quote = attachRouterMetadata(
       synthesizeQuoteFromBuild(
         vybeParams,
@@ -696,7 +737,7 @@ async function buildEnumeratedRouteQuotes(
       simulatedOutRaw: sim.simulatedOutRaw ?? undefined,
     });
   }
-  return routes;
+  return sortRouteEntriesByOutput(routes);
 }
 
 function aliasNativeSolPriceStats(

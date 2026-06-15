@@ -70,6 +70,11 @@ function clientAtaHintsAreComplete(body: BuildSwapParams): boolean {
   return true;
 }
 
+/** True when wallet ATA flags are set — skip wallet-balance RPC on repeated builds. */
+export function buildParamsHaveCompleteAtaHints(body: BuildSwapParams): boolean {
+  return clientAtaHintsAreComplete(body);
+}
+
 function applyClientProvidedAtaHints(body: BuildSwapParams): BuildSwapParams {
   let amount = body.amount;
   let closeInputAta = body.closeInputAta === true;

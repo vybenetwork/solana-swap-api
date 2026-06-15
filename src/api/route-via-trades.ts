@@ -48,6 +48,8 @@ export const ROUTE_ENUMERATE_MARKETS_SLOTS = 5;
 export const ROUTE_ENUMERATE_RPC_ONLY_SLOTS = 5;
 export const ROUTE_ENUMERATE_MAX_ROUTES = 10;
 export const ROUTE_OPTIONS_UI_INITIAL = 6;
+/** Skip RPC scan in full mode when trades, markets, or combined unique count reaches this. */
+export const ROUTE_DISCOVERY_RPC_SKIP_MIN = 3;
 
 export const TRADES_API_UNAVAILABLE_MESSAGE =
   'Vybe GET /v4/trades unavailable (404). Falling back to Jupiter.';
@@ -263,6 +265,8 @@ export interface RouteBuildSuccess {
   candidate: EnumeratedRouteCandidate;
   build: import('../types/swap.js').VybeSwapBuildResponse;
   selected: TradeMarketCandidate;
+  /** Populated during enumerate validate — reused for route card quotes (no second sim). */
+  simulation?: import('./simulate-swap-output.js').SwapSimulationResult;
 }
 
 export interface RouteViaTradesBuildAttemptLog {
@@ -323,7 +327,7 @@ async function validateTradeBuild(
     import('./swap-build.js').BuildSwapParams,
     'accountAddress' | 'inputMintAddress' | 'outputMintAddress'
   >,
-): Promise<{ ok: boolean; reason: string }> {
+): Promise<{ ok: boolean; reason: string; simulation?: import('./simulate-swap-output.js').SwapSimulationResult }> {
   const connection = new Connection(SOLANA_RPC_URL, 'confirmed');
   const result = await validateTradeRoutedBuildOnChain(connection, build, {
     marketAddress: candidate.marketAddress,
@@ -343,6 +347,8 @@ async function validateTradeBuild(
     swapParams.accountAddress.trim(),
     swapParams.outputMintAddress.trim(),
     swapParams.inputMintAddress.trim(),
+    undefined,
+    { pinnedPoolAddress: candidate.marketAddress },
   );
   if (sim.simulationErr) {
     return {
@@ -354,7 +360,7 @@ async function validateTradeBuild(
     return { ok: false, reason: 'Swap simulation returned zero output' };
   }
 
-  return { ok: true, reason: '' };
+  return { ok: true, reason: '', simulation: sim };
 }
 
 export function normalizeBuildErrorMessage(message: string, fallback: string): string {
@@ -544,6 +550,7 @@ export async function fetchTopMarketsFromMarketsSnapshot(
       programAddress,
       protocol: programAddressToProtocol(programAddress),
       ixBuilderProtocol: programAddressToIxBuilderProtocol(programAddress),
+      programLabel: programLabelForAddress(programAddress),
       tradeCount: 0,
       marketScore: score,
     });
@@ -551,7 +558,7 @@ export async function fetchTopMarketsFromMarketsSnapshot(
   candidates.sort((a, b) => (b.marketScore ?? 0) - (a.marketScore ?? 0));
   return {
     candidates,
-    marketsFetched: res.rawCount ?? candidates.length,
+    marketsFetched: candidates.length,
     marketsSource: res.source,
   };
 }
@@ -624,6 +631,10 @@ export function mergeDiscoveryCandidates(
 ): EnumeratedRouteCandidate[] {
   const tradeSlots = tradeQueued.slice(0, ROUTE_ENUMERATE_TRADE_SLOTS);
   const marketSlots = marketQueued.slice(0, ROUTE_ENUMERATE_MARKETS_SLOTS);
+  const marketByKey = new Map<string, QueuedMarketEntry>();
+  for (const entry of marketSlots) {
+    marketByKey.set(candidatePairKey(entry.marketAddress, entry.programAddress), entry);
+  }
   const seen = new Set(
     tradeSlots.map((e) => candidatePairKey(e.marketAddress, e.programAddress)),
   );
@@ -639,9 +650,12 @@ export function mergeDiscoveryCandidates(
   const result: EnumeratedRouteCandidate[] = [];
 
   for (const entry of tradeSlots) {
-    const rpc = rpcByKey.get(candidatePairKey(entry.marketAddress, entry.programAddress));
+    const key = candidatePairKey(entry.marketAddress, entry.programAddress);
+    const marketEntry = marketByKey.get(key);
+    const rpc = rpcByKey.get(key);
     result.push({
       ...entry,
+      marketScore: entry.marketScore ?? marketEntry?.marketScore,
       source: rpc ? 'trades+rpc' : 'trades',
       rpcMeta: rpc
         ? { liquidity: rpc.liquidity, preSwapNeeded: rpc.preSwapNeeded }
@@ -715,6 +729,20 @@ const EMPTY_TRADE_DISCOVERY = {
   tradesSource: undefined as TradesFetchResult['tradesSource'],
 };
 
+function countUniqueDiscoveryPairs(
+  tradeCandidates: TradeMarketCandidate[],
+  marketCandidates: TradeMarketCandidate[],
+): number {
+  const seen = new Set<string>();
+  for (const c of tradeCandidates) {
+    seen.add(candidatePairKey(c.marketAddress, c.programAddress));
+  }
+  for (const c of marketCandidates) {
+    seen.add(candidatePairKey(c.marketAddress, c.programAddress));
+  }
+  return seen.size;
+}
+
 export async function discoverRouteCandidates(
   http: AxiosInstance,
   inputMint: string,
@@ -736,8 +764,8 @@ export async function discoverRouteCandidates(
 
   console.info(
     `[route-discovery] start mode=${marketFetchMode} steps=` +
-      `[${includeTrades ? 'trades' : ''}${includeTrades && (includeMarkets || includeRpc) ? '→' : ''}` +
-      `${includeMarkets ? 'markets' : ''}${includeMarkets && includeRpc ? '→' : ''}` +
+      `[${includeTrades ? 'trades' : ''}${includeTrades && includeMarkets ? '+' : ''}` +
+      `${includeMarkets ? 'markets' : ''}${(includeTrades || includeMarkets) && includeRpc ? '→' : ''}` +
       `${includeRpc ? 'rpc' : ''}] local=${isLocalVybeApi()}`,
   );
 
@@ -748,32 +776,57 @@ export async function discoverRouteCandidates(
   let marketsSnapshotSource: 'clickhouse_markets' | 'vybe_api' | undefined;
   let rpcPools: ScannedPoolCandidate[] = [];
 
+  const tradesPromise = includeTrades
+    ? fetchTopMarketsFromTrades(http, {
+        inputMintAddress: inputMint,
+        outputMintAddress: outputMint,
+      })
+    : Promise.resolve({ ...EMPTY_TRADE_DISCOVERY });
+
+  const marketsPromise = includeMarkets
+    ? fetchTopMarketsFromMarketsSnapshot(inputMint, outputMint).catch((err) => {
+        console.warn(
+          `[route-via-trades] route-markets failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        if (marketFetchMode === 'markets') throw err;
+        return null;
+      })
+    : Promise.resolve(null);
+
+  const [tradesResult, marketsResult] = await Promise.all([tradesPromise, marketsPromise]);
+
   if (includeTrades) {
-    tradeData = await fetchTopMarketsFromTrades(http, {
-      inputMintAddress: inputMint,
-      outputMintAddress: outputMint,
-    });
+    tradeData = tradesResult;
   }
 
-  if (includeMarkets) {
-    try {
-      const marketsData = await fetchTopMarketsFromMarketsSnapshot(inputMint, outputMint);
-      marketCandidates = marketsData.candidates;
-      marketsSnapshotFetched = marketsData.marketsFetched;
-      marketsSnapshotSource = marketsData.marketsSource;
+  if (marketsResult) {
+    marketCandidates = marketsResult.candidates;
+    marketsSnapshotFetched = marketsResult.marketsFetched;
+    marketsSnapshotSource = marketsResult.marketsSource;
+    console.info(
+      `[route-discovery] markets source=${marketsResult.marketsSource ?? 'unknown'} ` +
+        `eligible=${marketCandidates.length}`,
+    );
+  }
+
+  let shouldIncludeRpc = includeRpc;
+  if (marketFetchMode === 'full' && includeRpc) {
+    const tradeEligible = tradeData.candidates.length;
+    const marketEligible = marketCandidates.length;
+    const combinedUnique = countUniqueDiscoveryPairs(tradeData.candidates, marketCandidates);
+    if (
+      tradeEligible >= ROUTE_DISCOVERY_RPC_SKIP_MIN ||
+      marketEligible >= ROUTE_DISCOVERY_RPC_SKIP_MIN ||
+      combinedUnique >= ROUTE_DISCOVERY_RPC_SKIP_MIN
+    ) {
+      shouldIncludeRpc = false;
       console.info(
-        `[route-discovery] markets source=${marketsData.marketsSource ?? 'unknown'} ` +
-          `raw=${marketsData.marketsFetched} eligible=${marketCandidates.length}`,
+        `[route-discovery] skipping RPC scan (trades=${tradeEligible} markets=${marketEligible} combined=${combinedUnique})`,
       );
-    } catch (err) {
-      console.warn(
-        `[route-via-trades] route-markets failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      if (marketFetchMode === 'markets') throw err;
     }
   }
 
-  if (includeRpc) {
+  if (shouldIncludeRpc) {
     rpcPools = await fetchScanPoolsViaIxBuilder(inputMint, outputMint).catch((err) => {
       console.warn(
         `[route-via-trades] scan-pools failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -797,6 +850,23 @@ export async function discoverRouteCandidates(
   return { tradeData, marketCandidates, marketsSnapshotFetched, marketsSnapshotSource, rpcPools, candidates };
 }
 
+function quoteOutAmountRawFromBuild(build: import('../types/swap.js').VybeSwapBuildResponse): bigint {
+  const raw = String(build.details?.quote?.outAmount ?? '').trim();
+  if (!raw) return 0n;
+  try {
+    return BigInt(raw);
+  } catch {
+    return 0n;
+  }
+}
+
+function sortRouteBuildSuccessesByQuotedOutput(successes: RouteBuildSuccess[]): RouteBuildSuccess[] {
+  return [...successes].sort(
+    (a, b) =>
+      Number(quoteOutAmountRawFromBuild(b.build) - quoteOutAmountRawFromBuild(a.build)),
+  );
+}
+
 async function buildRoutesForCandidates(
   http: AxiosInstance,
   body: import('./swap-build.js').BuildSwapParams,
@@ -814,41 +884,105 @@ async function buildRoutesForCandidates(
   const buildLog: RouteViaTradesBuildAttemptLog[] = [];
   let lastError = 'unknown error';
 
+  if (options.stopOnFirst) {
+    for (const queueEntry of candidates) {
+      const attempt = quickProbeAttemptForQueueEntry(queueEntry);
+      if (!attempt) continue;
+      const result = await trySingleBuildAttempt(http, body, queueEntry, attempt, buildSwap);
+      buildLog.push(...result.buildLog);
+      tried.push(result.queueEntry);
+      if (result.ok) {
+        successes.push({
+          candidate: queueEntry,
+          build: result.build,
+          selected: result.selected,
+        });
+        break;
+      }
+      lastError = result.lastError;
+    }
+    return { successes, tried, buildLog, lastError };
+  }
+
+  type QuoteProbe = {
+    queueEntry: EnumeratedRouteCandidate;
+    build: import('../types/swap.js').VybeSwapBuildResponse;
+    selected: TradeMarketCandidate;
+    outAmount: bigint;
+    buildLog: RouteViaTradesBuildAttemptLog[];
+  };
+
+  const quoteProbes: QuoteProbe[] = [];
+
   for (const queueEntry of candidates) {
     const attempt = quickProbeAttemptForQueueEntry(queueEntry);
     if (!attempt) continue;
-    const result = await trySingleBuildAttempt(http, body, queueEntry, attempt, buildSwap);
-    buildLog.push(...result.buildLog);
-    tried.push(result.queueEntry);
-    if (result.ok) {
-      successes.push({
-        candidate: queueEntry,
-        build: result.build,
-        selected: result.selected,
+    const probe = await tryQuoteProbeAttempt(http, body, queueEntry, attempt, buildSwap);
+    buildLog.push(...probe.buildLog);
+    tried.push(probe.queueEntry);
+    if (probe.ok) {
+      quoteProbes.push({
+        queueEntry,
+        build: probe.build,
+        selected: probe.selected,
+        outAmount: probe.outAmount,
+        buildLog: probe.buildLog,
       });
-      if (options.stopOnFirst) break;
     } else {
-      lastError = result.lastError;
+      lastError = probe.lastError;
     }
   }
 
-  return { successes, tried, buildLog, lastError };
+  quoteProbes.sort((a, b) => Number(b.outAmount - a.outAmount));
+  const benchmarkSlots = quoteProbes.slice(0, ROUTE_OPTIONS_UI_INITIAL);
+
+  console.info(
+    `[route-discovery] quote-probe ranked=${quoteProbes.length} ` +
+      `benchmarking top ${benchmarkSlots.length} by quoted outAmount`,
+  );
+
+  for (const probe of benchmarkSlots) {
+    const validation = await validateTradeBuild(probe.build, probe.queueEntry, body);
+    if (!validation.ok) {
+      lastError = describeTradeBuildRejectReasonFromValidation(validation.reason);
+      buildLog.push({
+        queueIndex: probe.queueEntry.queueIndex,
+        marketAddress: probe.queueEntry.marketAddress,
+        programLabel: probe.queueEntry.programLabel,
+        tradeCount: probe.queueEntry.tradeCount,
+        attempt: 'quote-probe validate',
+        success: false,
+        error: lastError,
+      });
+      continue;
+    }
+    successes.push({
+      candidate: probe.queueEntry,
+      build: probe.build,
+      selected: probe.selected,
+      simulation: validation.simulation,
+    });
+    buildLog.push({
+      queueIndex: probe.queueEntry.queueIndex,
+      marketAddress: probe.queueEntry.marketAddress,
+      programLabel: probe.queueEntry.programLabel,
+      tradeCount: probe.queueEntry.tradeCount,
+      attempt: 'quote-probe validate',
+      success: true,
+    });
+  }
+
+  return {
+    successes: sortRouteBuildSuccessesByQuotedOutput(successes),
+    tried,
+    buildLog,
+    lastError,
+  };
 }
 
 function pickPrimaryRouteSuccess(successes: RouteBuildSuccess[]): RouteBuildSuccess | undefined {
   if (successes.length === 0) return undefined;
-  const tradeSlot = successes.find(
-    (r) =>
-      r.candidate.source === 'trades' ||
-      r.candidate.source === 'trades+rpc' ||
-      r.candidate.source === 'both',
-  );
-  if (tradeSlot) return tradeSlot;
-  const marketSlot = successes.find(
-    (r) => r.candidate.source === 'markets' || r.candidate.source === 'markets+rpc',
-  );
-  if (marketSlot) return marketSlot;
-  return successes[0];
+  return sortRouteBuildSuccessesByQuotedOutput(successes)[0];
 }
 
 function describeBuildAttempt(attempt: BuildAttempt): string {
@@ -909,6 +1043,80 @@ type BuildProbeResult =
       buildLog: RouteViaTradesBuildAttemptLog[];
       queueEntry: QueuedMarketEntry;
     };
+
+async function tryQuoteProbeAttempt(
+  http: AxiosInstance,
+  body: import('./swap-build.js').BuildSwapParams,
+  queueEntry: QueuedMarketEntry,
+  attempt: BuildAttempt,
+  buildSwap: typeof import('./swap-build.js').buildSwap,
+): Promise<
+  | {
+      ok: true;
+      build: import('../types/swap.js').VybeSwapBuildResponse;
+      selected: TradeMarketCandidate;
+      outAmount: bigint;
+      buildLog: RouteViaTradesBuildAttemptLog[];
+      queueEntry: QueuedMarketEntry;
+    }
+  | {
+      ok: false;
+      lastError: string;
+      buildLog: RouteViaTradesBuildAttemptLog[];
+      queueEntry: QueuedMarketEntry;
+    }
+> {
+  const candidate = queueEntry;
+  const baseLog: Omit<RouteViaTradesBuildAttemptLog, 'attempt' | 'success' | 'provider' | 'error'> = {
+    queueIndex: queueEntry.queueIndex,
+    marketAddress: queueEntry.marketAddress,
+    programLabel: queueEntry.programLabel,
+    tradeCount: queueEntry.tradeCount,
+  };
+  const attemptLabel = `${describeBuildAttempt(attempt)} (quote probe)`;
+  try {
+    const build = await buildSwap(http, buildSwapBodyForTradeAttempt(body, attempt));
+    const provider = String(build.provider ?? build.details?.quote?.provider ?? '').trim();
+    if (!acceptTradeRoutedBuild(build, candidate, attempt)) {
+      const lastError = 'Built tx missing expected pool/program accounts';
+      return {
+        ok: false,
+        lastError,
+        queueEntry,
+        buildLog: [{ ...baseLog, attempt: attemptLabel, provider: provider || undefined, success: false, error: lastError }],
+      };
+    }
+    const outAmount = quoteOutAmountRawFromBuild(build);
+    if (outAmount <= 0n) {
+      const lastError = 'Swap quote returned zero output';
+      return {
+        ok: false,
+        lastError,
+        queueEntry,
+        buildLog: [{ ...baseLog, attempt: attemptLabel, provider: provider || undefined, success: false, error: lastError }],
+      };
+    }
+    return {
+      ok: true,
+      build,
+      selected: resolveCandidateFromBuild(candidate, build),
+      outAmount,
+      queueEntry,
+      buildLog: [{ ...baseLog, attempt: attemptLabel, provider: provider || undefined, success: true }],
+    };
+  } catch (err) {
+    const lastError = normalizeBuildErrorMessage(
+      err instanceof Error ? err.message : err != null ? String(err) : 'unknown error',
+      'Swap build failed',
+    );
+    return {
+      ok: false,
+      lastError,
+      queueEntry,
+      buildLog: [{ ...baseLog, attempt: attemptLabel, success: false, error: lastError }],
+    };
+  }
+}
 
 async function trySingleBuildAttempt(
   http: AxiosInstance,
@@ -1092,6 +1300,7 @@ export async function buildSwapViaRpcPools(
     protocol: c.protocol,
     ixBuilderProtocol: c.ixBuilderProtocol,
     tradeCount: c.tradeCount,
+    marketScore: c.marketScore,
     programLabel: c.programLabel,
     queueIndex: c.queueIndex,
   }));
@@ -1186,6 +1395,7 @@ export async function buildSwapViaTradeMarkets(
     protocol: c.protocol,
     ixBuilderProtocol: c.ixBuilderProtocol,
     tradeCount: c.tradeCount,
+    marketScore: c.marketScore,
     programLabel: c.programLabel,
     queueIndex: c.queueIndex,
   }));

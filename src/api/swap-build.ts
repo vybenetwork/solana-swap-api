@@ -5,7 +5,7 @@
 import axios, { type AxiosInstance } from 'axios';
 import { DEFAULT_SWAP_SERVICE_FEE_PCT, isLocalVybeApi } from '../config.js';
 import type { VybeSwapBuildResponse } from '../types/swap.js';
-import { appendAtaHintsToPayload, enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
+import { appendAtaHintsToPayload, enrichBuildParamsWithAtaHints, buildParamsHaveCompleteAtaHints } from './wallet-ata-hints.js';
 import { buildSwapViaIxBuilder } from './ix-builder-swap.js';
 import { completePinnedSwapParams } from './pinned-swap-params.js';
 import { withRetry } from './client.js';
@@ -97,7 +97,7 @@ export interface BuildSwapParams {
 export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
   const router = body.router ?? 'vybe';
   let enriched = body;
-  if (router === 'vybe') {
+  if (router === 'vybe' && !buildParamsHaveCompleteAtaHints(body)) {
     enriched = await enrichBuildParamsWithAtaHints(http, body);
   }
   if (isLocalVybeApi() && router === 'vybe') {
@@ -173,7 +173,9 @@ export async function buildSwapWithFallback(
 
   if (isLocalVybeApi() && preferred === 'vybe') {
     try {
-      const enriched = await enrichBuildParamsWithAtaHints(http, body);
+      const enriched = buildParamsHaveCompleteAtaHints(body)
+        ? body
+        : await enrichBuildParamsWithAtaHints(http, body);
       return await buildSwapViaIxBuilder(enriched);
     } catch (err) {
       lastErr = err;
