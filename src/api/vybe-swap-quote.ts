@@ -43,7 +43,7 @@ import {
   type WalletTokenAccountCloseEntry,
   mergeBuildAtaCloseHints,
 } from './simulate-swap-output.js';
-import { enrichRoutePlanFees } from './enrich-route-fees.js';
+import { enrichRoutePlanFees, sumProtocolFeeAmountRaw } from './enrich-route-fees.js';
 import { DEFAULT_SWAP_SLIPPAGE_PCT } from '../config.js';
 import { NATIVE_SOL_MINT, toVybeSwapMint } from './sol-mints.js';
 import {
@@ -420,6 +420,12 @@ function synthesizeQuoteFromBuild(
   const providerLabel = build.provider ?? build.details.quote.provider ?? 'Vybe';
   const inferredPool = feeOpts?.inferredPoolAddressesByHop?.[0]?.poolAddress?.trim();
   const poolKey = params.poolAddress?.trim() || inferredPool || 'vybe';
+  const protocolFeeAmount = sumProtocolFeeAmountRaw(build.details.quote);
+  const protocolFeeMint =
+    build.details.quote.protocolFees?.[0]?.mint ??
+    build.details.quote.feeMint ??
+    build.details.quote.platformFee?.feeMint ??
+    inputMint;
 
   const baseRoutePlan: VybeRoutePlanStep[] = [
     {
@@ -432,8 +438,8 @@ function synthesizeQuoteFromBuild(
         outputMintAddress: outputMint,
         inAmount,
         outAmount: quotedOutAmount,
-        feeAmount: '0',
-        feeMintAddress: inputMint,
+        feeAmount: protocolFeeAmount,
+        feeMintAddress: protocolFeeMint,
       },
     },
   ];
@@ -568,8 +574,11 @@ async function simulateRouteBuild(
         outputMintAddress: vybeOutputMint,
         inAmount: build.details.quote.inAmount,
         outAmount: build.details.quote.outAmount,
-        feeAmount: '0',
-        feeMintAddress: vybeInputMint,
+        feeAmount: sumProtocolFeeAmountRaw(build.details.quote),
+        feeMintAddress:
+          build.details.quote.protocolFees?.[0]?.mint ??
+          build.details.quote.feeMint ??
+          vybeInputMint,
       },
     },
   ];
@@ -742,6 +751,100 @@ async function buildEnumeratedRouteQuotes(
     });
   }
   return sortRouteEntriesByOutput(routes);
+}
+
+export interface EnrichVybeRouteQuoteParams {
+  accountAddress: string;
+  amount: number;
+  inputMintAddress: string;
+  outputMintAddress: string;
+  poolAddress: string;
+  build: VybeSwapBuildResponse;
+  tokenHints?: Record<string, TokenPriceHint>;
+  router?: SwapProxyRouter;
+}
+
+/** Full simulate + fee enrichment for one enumerated route (background route #2…#6). */
+export async function enrichVybeEnumeratedRouteQuote(
+  http: AxiosInstance,
+  params: EnrichVybeRouteQuoteParams,
+): Promise<VybeSwapQuote> {
+  const uiInputMint = params.inputMintAddress.trim();
+  const uiOutputMint = params.outputMintAddress.trim();
+  const vybeInputMint = toVybeSwapMint(uiInputMint);
+  const vybeOutputMint = toVybeSwapMint(uiOutputMint);
+  const selected = normalizeRouterId(params.router ?? 'vybe') as SwapProxyRouter;
+
+  const hints = { ...params.tokenHints };
+  if (uiInputMint === NATIVE_SOL_MINT && hints[vybeInputMint] && !hints[uiInputMint]) {
+    hints[uiInputMint] = hints[vybeInputMint];
+  }
+  if (uiOutputMint === NATIVE_SOL_MINT && hints[vybeOutputMint] && !hints[uiOutputMint]) {
+    hints[uiOutputMint] = hints[vybeOutputMint];
+  }
+
+  const { stats: rawStats } = await resolveTokenPrices(http, [vybeInputMint, uiOutputMint], {
+    tokenHints: hints,
+  });
+  let tokenStats = aliasNativeSolPriceStats(rawStats, uiInputMint);
+  tokenStats = aliasNativeSolPriceStats(tokenStats, uiOutputMint);
+  const inputStats = tokenStats[uiInputMint] ?? tokenStats[vybeInputMint];
+  const outputStats = tokenStats[uiOutputMint] ?? tokenStats[vybeOutputMint];
+  if (!inputStats) {
+    throw new Error(`Could not resolve price for input mint ${uiInputMint}`);
+  }
+  if (!outputStats) {
+    throw new Error(`Could not resolve price for output mint ${uiOutputMint}`);
+  }
+
+  const vybeParams: VybeQuoteParams = {
+    accountAddress: params.accountAddress,
+    amount: params.amount,
+    inputMintAddress: vybeInputMint,
+    outputMintAddress: vybeOutputMint,
+    router: 'vybe',
+    poolAddress: params.poolAddress.trim(),
+  };
+
+  const sim = await simulateRouteBuild(
+    params.build,
+    vybeParams,
+    vybeInputMint,
+    vybeOutputMint,
+    uiInputMint,
+    params.poolAddress,
+  );
+
+  let quote = attachRouterMetadata(
+    synthesizeQuoteFromBuild(
+      vybeParams,
+      params.build,
+      vybeInputMint,
+      vybeOutputMint,
+      inputStats,
+      outputStats,
+      sim.simulatedOutRaw ?? undefined,
+      {
+        pdaRentLamports: sim.pdaRentLamports,
+        tokenAccRentByMint: sim.tokenAccRentByMint,
+        embeddedPoolFeesByHop: sim.embeddedPoolFeesByHop,
+        walletSolTransfers: sim.walletSolTransfers,
+        tokenFeeCredits: sim.tokenFeeCredits,
+        router: 'vybe',
+        walletPayDebitRaw: sim.walletPayDebitRaw,
+        networkFeeLamports: sim.networkFeeLamports,
+        inferredPoolAddressesByHop: sim.inferredPoolAddressesByHop,
+        walletTokenAccountCloses: sim.walletTokenAccountCloses,
+      },
+    ),
+    selected,
+    'vybe',
+    false,
+  );
+  if (uiInputMint === NATIVE_SOL_MINT) quote = { ...quote, inputMintAddress: NATIVE_SOL_MINT };
+  if (uiOutputMint === NATIVE_SOL_MINT) quote = { ...quote, outputMintAddress: NATIVE_SOL_MINT };
+  if (sim.simulationErr != null) quote = { ...quote, _simulationErr: sim.simulationErr };
+  return quote;
 }
 
 function aliasNativeSolPriceStats(
@@ -1025,8 +1128,11 @@ export async function buildVybeQuoteFromPriceAndSwap(
         outputMintAddress: vybeOutputMint,
         inAmount: build.details.quote.inAmount,
         outAmount: build.details.quote.outAmount,
-        feeAmount: '0',
-        feeMintAddress: vybeInputMint,
+        feeAmount: sumProtocolFeeAmountRaw(build.details.quote),
+        feeMintAddress:
+          build.details.quote.protocolFees?.[0]?.mint ??
+          build.details.quote.feeMint ??
+          vybeInputMint,
       },
     },
   ];

@@ -1842,8 +1842,31 @@ tr:hover td {
 }
 
 .swap-route-option--active {
-  border-color: var(--accent, #7c9cff);
-  box-shadow: 0 0 0 1px var(--accent, #7c9cff);
+  border-color: var(--accent, #6ea8fe);
+  box-shadow: 0 0 0 1px var(--accent, #6ea8fe);
+}
+
+.swap-route-option--disabled,
+.swap-route-option--disabled:hover {
+  cursor: not-allowed;
+  opacity: 0.72;
+  border-color: var(--border-subtle, rgba(255, 255, 255, 0.12));
+}
+
+.swap-route-option--loading {
+  cursor: wait;
+}
+
+.swap-route-option__loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.72rem;
+  opacity: 0.9;
+}
+
+.swap-route-option__loading-label {
+  color: var(--text-muted, rgba(255, 255, 255, 0.65));
 }
 
 .swap-route-option__rank {
@@ -3280,19 +3303,49 @@ tr:hover td {
   z-index: 3;
 }
 
+.routing-acc-rent-above--2 {
+  max-width: 14rem;
+}
+
+.routing-acc-rent-above--3 {
+  max-width: 18.5rem;
+}
+
+.routing-acc-rent-above--many {
+  max-width: 22rem;
+}
+
 .routing-acc-rent-cards {
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-start;
   justify-content: center;
-  width: 100%;
+  gap: 0.45rem;
+  width: max-content;
+  max-width: 100%;
+}
+
+.routing-acc-rent-cards--2 {
+  min-width: 11rem;
+}
+
+.routing-acc-rent-cards--3,
+.routing-acc-rent-cards--many {
+  min-width: 15.5rem;
 }
 
 .routing-acc-rent-connector {
-  width: 1px;
-  min-width: 1px;
+  width: 100%;
+  min-width: 3rem;
   height: 1.1rem;
   flex-shrink: 0;
   position: relative;
   z-index: 0;
+}
+
+.routing-acc-rent-connector-svg--fan {
+  width: 100%;
 }
 
 .routing-acc-rent-connector-svg {
@@ -3308,6 +3361,10 @@ tr:hover td {
 
 .routing-canvas--has-acc-rent-above.routing-canvas--has-fees .routing-path {
   --routing-path-pad-top: 1.5rem;
+}
+
+.routing-canvas--has-acc-rent-above.routing-canvas--flow.routing-frame--multi-acc-rent-above .routing-path {
+  --routing-path-pad-top: 1.65rem;
 }
 
 .routing-fee-branch {

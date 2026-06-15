@@ -54,7 +54,28 @@ export interface VybeSwapDetails {
     inAmount: string;
     outAmount: string;
     minOutAmount?: string;
+    minimumOutAmount?: string;
     provider: string;
+    protocolFees?: Array<{
+      label: string;
+      amountRaw: string;
+      mint: string;
+      feeBps?: number;
+      destinationKind?:
+        | 'lp_pool'
+        | 'new_token_account'
+        | 'fee_recipient'
+        | 'output_deduction'
+        | 'input_wallet'
+        | 'network_priority';
+    }>;
+    feeAmount?: string;
+    feeMint?: string;
+    platformFee?: {
+      amount?: string;
+      feeBps?: number;
+      feeMint?: string;
+    };
   };
 }
 

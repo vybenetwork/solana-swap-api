@@ -695,6 +695,90 @@ function buildRentByHopIndex(
   return byHop;
 }
 
+export interface QuoteProtocolFeeEntry {
+  label: string;
+  amountRaw: string;
+  mint: string;
+  feeBps?: number;
+  destinationKind?: HopFeeItem['destinationKind'];
+}
+
+export function sumProtocolFeeAmountRaw(quote: {
+  protocolFees?: QuoteProtocolFeeEntry[];
+  feeAmount?: string;
+} | undefined): string {
+  if (!quote) return '0';
+  if (quote.protocolFees?.length) {
+    let total = 0n;
+    for (const f of quote.protocolFees) {
+      if (!f.amountRaw || f.amountRaw === '0') continue;
+      try {
+        total += BigInt(f.amountRaw);
+      } catch {
+        /* skip */
+      }
+    }
+    return total > 0n ? total.toString() : '0';
+  }
+  const single = quote.feeAmount?.trim();
+  return single && single !== '0' ? single : '0';
+}
+
+function applyQuoteProtocolFees(
+  items: HopFeeItem[],
+  quote:
+    | {
+        protocolFees?: QuoteProtocolFeeEntry[];
+        platformFee?: { amount?: string; feeBps?: number; feeMint?: string };
+        feeAmount?: string;
+        feeMint?: string;
+      }
+    | undefined,
+  hopInputMint: string,
+): void {
+  if (!quote) return;
+  if (quote.protocolFees?.length) {
+    for (const pf of quote.protocolFees) {
+      if (!pf.amountRaw || pf.amountRaw === '0') continue;
+      const sig = `${pf.label}|${pf.amountRaw}|${pf.mint}`;
+      if (items.some((it) => `${it.label}|${it.amountRaw}|${it.mint}` === sig)) continue;
+      items.push({
+        label: pf.label,
+        amountRaw: pf.amountRaw,
+        mint: pf.mint || hopInputMint,
+        destinationKind:
+          pf.destinationKind ??
+          (pf.label.toLowerCase().includes('lp') ? 'lp_pool' : 'fee_recipient'),
+      });
+    }
+    return;
+  }
+  const platformFee = quote.platformFee;
+  if (platformFee?.amount && platformFee.amount !== '0') {
+    const mint = platformFee.feeMint ?? quote.feeMint ?? hopInputMint;
+    if (!items.some((it) => it.amountRaw === platformFee.amount && it.mint === mint)) {
+      items.push({
+        label: 'Protocol fee',
+        amountRaw: platformFee.amount,
+        mint,
+        destinationKind: 'lp_pool',
+      });
+    }
+    return;
+  }
+  if (quote.feeAmount && quote.feeAmount !== '0') {
+    const mint = quote.feeMint ?? hopInputMint;
+    if (!items.some((it) => it.amountRaw === quote.feeAmount)) {
+      items.push({
+        label: 'Protocol fee',
+        amountRaw: quote.feeAmount,
+        mint,
+        destinationKind: 'lp_pool',
+      });
+    }
+  }
+}
+
 /**
  * Enrich route-plan hops with protocol/route/pool fees using build quote + optional simulation.
  */
@@ -788,6 +872,9 @@ export function enrichRoutePlanFees(
     }
     const items: HopFeeItem[] = [];
     const isLast = i === lastIdx;
+    if (isLast) {
+      applyQuoteProtocolFees(items, build.details.quote, si.inputMintAddress || inputMint);
+    }
     const nextStep = isLast ? undefined : basePlan[i + 1];
     const hopRent = rentByHopIdx.get(i) ?? 0n;
     const hopQuotedOutForFee = hopQuotedOutRaw(step, isLast ? quotedOut : 0n);

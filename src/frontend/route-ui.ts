@@ -81,6 +81,8 @@ export function initRouteUi(d: RouteUiDeps): void {
   deps = d;
 }
 
+export type EnumeratedRouteEnrichStatus = 'ready' | 'pending' | 'loading';
+
 export interface EnumeratedRouteUiEntry {
   index: number;
   source?: string;
@@ -92,6 +94,7 @@ export interface EnumeratedRouteUiEntry {
     marketScore?: number;
   };
   quote?: Record<string, unknown>;
+  enrichStatus?: EnumeratedRouteEnrichStatus;
 }
 
 export interface EnumeratedRoutesUiState {
@@ -168,6 +171,9 @@ export function renderRouteOptionsPanel(): void {
     const trades = route.candidate?.tradeCount ?? 0;
     const marketScore = route.candidate?.marketScore;
     const source = sourceBadgeLabel(route.source);
+    const enrichStatus = route.enrichStatus ?? 'ready';
+    const isReady = enrichStatus === 'ready';
+    const isLoading = enrichStatus === 'loading';
     const metaParts: string[] = [];
     if (marketScore != null && marketScore > 0) {
       metaParts.push(`$${formatLiquidityUsd(marketScore)} liq`);
@@ -179,7 +185,10 @@ export function renderRouteOptionsPanel(): void {
       metaParts.length > 0
         ? `<span class="swap-route-option__trades">${metaParts.join(' · ')}</span>`
         : '';
-    return `<button type="button" class="swap-route-option${active ? ' swap-route-option--active' : ''}" data-route-index="${idx}" aria-pressed="${active ? 'true' : 'false'}">
+    const loadingBadge = isLoading
+      ? `<span class="swap-route-option__loading">${deps.renderLoadingSpinner('sm')}<span class="swap-route-option__loading-label">Loading fees…</span></span>`
+      : '';
+    return `<button type="button" class="swap-route-option${active ? ' swap-route-option--active' : ''}${!isReady ? ' swap-route-option--disabled' : ''}${isLoading ? ' swap-route-option--loading' : ''}" data-route-index="${idx}" data-route-ready="${isReady ? '1' : '0'}" aria-pressed="${active ? 'true' : 'false'}"${!isReady ? ' disabled aria-disabled="true"' : ''}>
       <span class="swap-route-option__rank">#${idx + 1}</span>
       <span class="swap-route-option__program">
         <span class="swap-route-option__program-name">${deps.escapeHtml(programLabel || '—')}</span>
@@ -189,6 +198,7 @@ export function renderRouteOptionsPanel(): void {
       <span class="swap-route-option__out">${deps.escapeHtml(outLabel)} ${deps.escapeHtml(sym)}</span>
       <span class="swap-route-option__meta">
         <span class="swap-route-option__badge swap-route-option__badge--${deps.escapeHtml(source.replaceAll('+', '-'))}">${deps.escapeHtml(source)}</span>
+        ${loadingBadge}
         ${metaDetail}
       </span>
     </button>`;
@@ -202,6 +212,7 @@ export function renderRouteOptionsPanel(): void {
   el.innerHTML = `<div class="swap-route-options__grid">${cards.join('')}</div>${moreBtn}`;
   el.querySelectorAll<HTMLButtonElement>('[data-route-index]').forEach((btn) => {
     btn.addEventListener('click', () => {
+      if (btn.dataset.routeReady !== '1') return;
       const index = Number(btn.dataset.routeIndex);
       if (Number.isFinite(index)) deps.selectEnumeratedRoute(index);
     });
@@ -3146,6 +3157,18 @@ function routePlanHasAccRentFee(plan: VybeRoutePlanStepLite[]): boolean {
   return false;
 }
 
+function routePlanMaxAccRentAboveCount(
+  plan: VybeRoutePlanStepLite[],
+  quote: Record<string, unknown>,
+): number {
+  let max = quoteHasAtaRentReclaim(quote) ? 1 : 0;
+  for (const step of plan) {
+    const { accRentItems } = partitionHopFeeDisplayItems(getHopFeeDisplayItems(step));
+    if (accRentItems.length > max) max = accRentItems.length;
+  }
+  return max;
+}
+
 function routePlanHasAccRentAbove(
   plan: VybeRoutePlanStepLite[],
   quote: Record<string, unknown>,
@@ -3446,51 +3469,53 @@ function partitionHopFeeDisplayItems(items: HopFeeItemLite[]): {
   return { accRentItems, routeFeeItems };
 }
 
-function renderRoutingAccRentConnectorDown(): string {
-  const vbW = 48;
+function renderRoutingAccRentConnectorDown(feeCount = 1): string {
   const vbH = 28;
-  const cx = vbW / 2;
-  return `<svg class="routing-acc-rent-connector-svg" viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none">
+  if (feeCount <= 1) {
+    const vbW = 48;
+    const cx = vbW / 2;
+    return `<svg class="routing-acc-rent-connector-svg" viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none">
     <path d="M ${cx} 0 L ${cx} ${vbH}" fill="none" stroke="#3f3f46" stroke-width="1" vector-effect="non-scaling-stroke" stroke-linecap="butt"/>
+  </svg>`;
+  }
+  const vbW = feeCount >= 3 ? 200 : 140;
+  const cx = vbW / 2;
+  const spread = feeCount >= 3 ? vbW * 0.38 : vbW * 0.32;
+  const leftX = cx - spread;
+  const rightX = cx + spread;
+  const segments =
+    feeCount === 2
+      ? `M ${leftX} 0 L ${leftX} ${vbH} M ${rightX} 0 L ${rightX} ${vbH}`
+      : `M ${leftX} 0 L ${leftX} ${vbH} M ${cx} 0 L ${cx} ${vbH} M ${rightX} 0 L ${rightX} ${vbH}`;
+  return `<svg class="routing-acc-rent-connector-svg routing-acc-rent-connector-svg--fan" viewBox="0 0 ${vbW} ${vbH}" preserveAspectRatio="none">
+    <path d="${segments}" fill="none" stroke="#3f3f46" stroke-width="1" vector-effect="non-scaling-stroke" stroke-linecap="butt"/>
   </svg>`;
 }
 
-function renderHopAccRentAboveBranch(
+function renderHopFeesAboveBranch(
   step: VybeRoutePlanStepLite,
   quote: Record<string, unknown>,
+  reclaimItems: HopFeeItemLite[],
 ): string {
   const { accRentItems } = partitionHopFeeDisplayItems(getHopFeeDisplayItems(step));
-  if (accRentItems.length === 0) return '';
+  const allItems = [...accRentItems, ...reclaimItems];
+  if (allItems.length === 0) return '';
 
-  const slots = accRentItems
-    .map((item) => {
+  const feeCount = allItems.length;
+  const countMod = feeCount >= 4 ? 'many' : String(feeCount);
+  const hasReclaim = reclaimItems.length > 0;
+  const slots = allItems
+    .map((item, idx) => {
       const chip = renderHopFeeChip(item, quote);
-      return `<div class="routing-fee-slot routing-fee-slot--acc-rent">${chip}</div>`;
+      const isReclaim = idx >= accRentItems.length;
+      const slotCls = isReclaim ? 'routing-fee-slot--acc-rent-reclaim' : 'routing-fee-slot--acc-rent';
+      return `<div class="routing-fee-slot ${slotCls}">${chip}</div>`;
     })
     .join('');
 
-  return `<div class="routing-acc-rent-above" aria-label="Account rent fee at this hop">
-    <div class="routing-acc-rent-cards">${slots}</div>
-    <div class="routing-acc-rent-connector" aria-hidden="true">${renderRoutingAccRentConnectorDown()}</div>
-  </div>`;
-}
-
-function renderHopAccRentReclaimAboveBranch(
-  reclaimItems: HopFeeItemLite[],
-  quote: Record<string, unknown>,
-): string {
-  if (reclaimItems.length === 0) return '';
-
-  const slots = reclaimItems
-    .map((item) => {
-      const chip = renderHopFeeChip(item, quote);
-      return `<div class="routing-fee-slot routing-fee-slot--acc-rent-reclaim">${chip}</div>`;
-    })
-    .join('');
-
-  return `<div class="routing-acc-rent-above routing-acc-rent-above--reclaim" aria-label="Account rent returned at this hop">
-    <div class="routing-acc-rent-cards">${slots}</div>
-    <div class="routing-acc-rent-connector" aria-hidden="true">${renderRoutingAccRentConnectorDown()}</div>
+  return `<div class="routing-acc-rent-above routing-acc-rent-above--${countMod}${hasReclaim ? ' routing-acc-rent-above--reclaim' : ''}" aria-label="Account rent fees at this hop">
+    <div class="routing-acc-rent-cards routing-acc-rent-cards--${countMod}">${slots}</div>
+    <div class="routing-acc-rent-connector" aria-hidden="true">${renderRoutingAccRentConnectorDown(feeCount)}</div>
   </div>`;
 }
 
@@ -3526,14 +3551,13 @@ function renderRouteMarketNode(
   const si = meta.step.swapInfo;
   const dexHtml = dexLoading ? deps.renderLoadingSpinner('sm') : deps.escapeHtml(si?.label ?? 'DEX');
   const sym = deps.escapeHtml(leg.outSym);
-  const accRentAbove = dexLoading ? '' : renderHopAccRentAboveBranch(meta.step, quote);
-  const accRentReclaimAbove = dexLoading
+  const accRentStackAbove = dexLoading
     ? ''
-    : renderHopAccRentReclaimAboveBranch(
-        getHopAtaRentReclaimItems(quote, meta.planIndex, isLastHop),
+    : renderHopFeesAboveBranch(
+        meta.step,
         quote,
+        getHopAtaRentReclaimItems(quote, meta.planIndex, isLastHop),
       );
-  const accRentStackAbove = accRentAbove + accRentReclaimAbove;
   const feeBranchBelow = dexLoading ? '' : renderRoutingFeeBranch(meta.step, leg, quote);
   const hasFees = Boolean(accRentStackAbove || feeBranchBelow);
   const railNode = `<div class="routing-market-node">
@@ -3667,6 +3691,7 @@ function renderRoutingFrame(
   outputUsdSubline: string | null = null,
   outputUsdTitle: string | null = null,
   showAllEndpointLabels = false,
+  maxAccRentAbove = 1,
 ): string {
   const placeholderClass = placeholder ? ' routing-canvas--placeholder' : '';
   const loadingClass = loading ? ' routing-canvas--loading' : '';
@@ -3704,6 +3729,8 @@ function renderRoutingFrame(
     feeRows.length > 1,
   );
   const multiInputFeesClass = feeRows.length > 1 ? ' routing-frame--multi-input-fees' : '';
+  const multiAccRentClass =
+    maxAccRentAbove >= 2 ? ' routing-frame--multi-acc-rent-above' : '';
   const inputTotalHtml =
     showAllEndpointLabels || (inputTotalLabel && inputTotalLabel !== '—')
       ? `<span class="routing-input-total">Total: <span class="routing-input-total__val">${deps.escapeHtml(inputTotalVal)}</span></span>`
@@ -3717,7 +3744,7 @@ function renderRoutingFrame(
       ? `<span class="routing-output-usd"${outputUsdTitle ? ` title="${deps.escapeHtml(outputUsdTitle)}"` : ''}>USD Output: <span class="routing-output-usd__val">${deps.escapeHtml(outputUsdVal)}</span></span>`
       : '';
   return `<div class="routing-canvas routing-canvas--flow${split ? ' routing-canvas--split' : ''}${routingCanvasHopClass(hopCount)}${feesClass}${accRentClass}${placeholderClass}${loadingClass}">
-    <div class="routing-frame${multiInputFeesClass}">
+    <div class="routing-frame${multiInputFeesClass}${multiAccRentClass}">
       <div class="routing-endpoint routing-endpoint--in">
         <div class="routing-endpoint-stack">
           ${inputAddonHtml}
@@ -3784,6 +3811,7 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const split = routeTreeHasFork(tree);
   const hasFees = routePlanHasHopFees(plan);
   const hasAccRentAbove = routePlanHasAccRentAbove(plan, quote);
+  const maxAccRentAbove = routePlanMaxAccRentAboveCount(plan, quote);
   const body = renderRouteBody(tree, legs, quote);
 
   return renderRoutingFrame(
@@ -3804,6 +3832,8 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
     outputFeesUsdLabel,
     outputUsdSubline,
     outputUsdTitle,
+    false,
+    maxAccRentAbove,
   );
 }
 
