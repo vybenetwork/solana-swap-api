@@ -10,7 +10,6 @@ import {
 } from '../config.js';
 import type { VybeSwapBuildResponse } from '../types/swap.js';
 import { appendAtaHintsToPayload } from './wallet-ata-hints.js';
-import { withRetry } from './client.js';
 import { completePinnedSwapParams } from './pinned-swap-params.js';
 import type { BuildSwapParams } from './swap-build.js';
 
@@ -98,22 +97,20 @@ function assertIxBuilderSwapResponse(
 
 export async function buildSwapViaIxBuilder(body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
   const payload = mapBuildSwapParamsToIxBuilder(body);
-  return withRetry(async () => {
-    try {
-      const { data } = await axios.post<VybeSwapBuildResponse & IxBuilderSwapErrorBody>(
-        `${IX_BUILDER_LOCAL_URL}/swap`,
-        payload,
-        {
-          timeout: VYBE_TIMEOUT_MS,
-          headers: { Accept: 'application/json' },
-          validateStatus: (status) => status < 500 || status === 500,
-        },
-      );
-      return assertIxBuilderSwapResponse(data);
-    } catch (err) {
-      const msg = ixBuilderSwapErrorMessage(err);
-      if (msg) throw new Error(msg);
-      throw err;
-    }
-  });
+  try {
+    const { data } = await axios.post<VybeSwapBuildResponse & IxBuilderSwapErrorBody>(
+      `${IX_BUILDER_LOCAL_URL}/swap`,
+      payload,
+      {
+        timeout: VYBE_TIMEOUT_MS,
+        headers: { Accept: 'application/json' },
+        validateStatus: (status) => status < 500 || status === 500,
+      },
+    );
+    return assertIxBuilderSwapResponse(data);
+  } catch (err) {
+    const msg = ixBuilderSwapErrorMessage(err);
+    if (msg) throw new Error(msg);
+    throw err;
+  }
 }

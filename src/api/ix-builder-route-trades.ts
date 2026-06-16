@@ -8,7 +8,6 @@
 
 import axios from 'axios';
 import { IX_BUILDER_LOCAL_URL, VYBE_TIMEOUT_MS } from '../config.js';
-import { withRetry } from './client.js';
 import type { MarketFetchMode } from './swap-build.js';
 
 /** Quote-bridge route metadata attached to a discovered pool (e.g. WSOL→USDC→token). */
@@ -56,6 +55,9 @@ export interface IxBuilderDiscoverPoolsMeta {
   marketsSource?: string;
   tradeEligible?: number;
   marketEligible?: number;
+  rpcLaunchpadsScanned?: number;
+  rpcPostLaunchLabFallback?: boolean;
+  rpcLaunchpads?: boolean;
   rpcScanned?: number;
   mergedCount?: number;
   directReserveCount?: number;
@@ -78,20 +80,19 @@ export async function fetchDiscoverPoolsViaIxBuilder(
   marketFetchMode: MarketFetchMode,
   enumerateRoutes = false,
 ): Promise<IxBuilderDiscoverPoolsResponse> {
-  return withRetry(async () => {
-    const { data } = await axios.get<IxBuilderDiscoverPoolsResponse>(
-      `${IX_BUILDER_LOCAL_URL}/discover-pools`,
-      {
-        params: {
-          inputMint: inputMint.trim(),
-          outputMint: outputMint.trim(),
-          marketFetchMode,
-          enumerateRoutes: enumerateRoutes ? 'true' : 'false',
-        },
-        timeout: VYBE_TIMEOUT_MS,
-        headers: { Accept: 'application/json' },
+  const { data } = await axios.get<IxBuilderDiscoverPoolsResponse>(
+    `${IX_BUILDER_LOCAL_URL}/discover-pools`,
+    {
+      params: {
+        inputMint: inputMint.trim(),
+        outputMint: outputMint.trim(),
+        marketFetchMode,
+        enumerateRoutes: enumerateRoutes ? 'true' : 'false',
+        rpcLaunchpads: 'true',
       },
-    );
-    return data;
-  });
+      timeout: VYBE_TIMEOUT_MS,
+      headers: { Accept: 'application/json' },
+    },
+  );
+  return data;
 }

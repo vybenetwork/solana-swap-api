@@ -1203,7 +1203,32 @@ export interface FinalReceivePctBreakdown {
 export function computeFinalReceivePctBreakdown(
   quote: Record<string, unknown>,
 ): FinalReceivePctBreakdown | null {
-  // Prefer ix-builder's net receive USD so the final % matches the engine's retentionOutPct.
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const lastStep = plan.length > 0 ? plan[plan.length - 1] : undefined;
+  const enrichedFinalOut = lastStep?._retentionOutPct;
+  if (typeof enrichedFinalOut === 'number' && Number.isFinite(enrichedFinalOut) && enrichedFinalOut > 0) {
+    const pct = Math.min(enrichedFinalOut, 100);
+    const pctLabel = formatHopPctLabel(pct);
+    const youPay = resolveQuoteYouPayUsd(quote);
+    const payParts =
+      youPay != null
+        ? [
+            `$${deps.formatSwapPayUsdAmount(youPay.swapUsd)} swap`,
+            ...(youPay.feeUsd != null && youPay.feeUsd > 0
+              ? [`$${deps.formatSwapPayUsdAmount(youPay.feeUsd)} fee`]
+              : []),
+            ...(youPay.rentUsd != null && youPay.rentUsd > 0
+              ? [`$${deps.formatSwapPayUsdAmount(youPay.rentUsd)} rent`]
+              : []),
+          ]
+        : [];
+    const breakdown = payParts.length > 1 ? ` (${payParts.join(' + ')})` : '';
+    const title =
+      `Cumulative value retained through route${breakdown} = ${pctLabel}`;
+    return { pct, pctLabel, title };
+  }
+
+  // Fallback when enrichment retention is absent (degraded quote).
   const enrichedReceive = quote._youReceive as { netUsd?: number } | undefined;
   const outUsd =
     enrichedReceive && Number(enrichedReceive.netUsd) > 0
