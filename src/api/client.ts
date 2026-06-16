@@ -51,6 +51,38 @@ export function isVybeApiNotFoundError(err: unknown): boolean {
   return axios.isAxiosError(err) && err.response?.status === 404;
 }
 
+/** Deterministic swap/build failures — retrying won't help; move to the next route immediately. */
+export function isNonRetryableSwapBuildError(err: unknown): boolean {
+  if (axios.isAxiosError(err)) {
+    const status = err.response?.status;
+    if (status != null && status >= 400 && status < 500 && status !== 429) return true;
+    const body = err.response?.data as { details?: string; detail?: string; error?: string } | undefined;
+    if (body && typeof body === 'object') {
+      const detail = (body.details ?? body.detail ?? '').trim();
+      if (detail && isNonRetryableSwapBuildErrorMessage(detail)) return true;
+    }
+  }
+  const msg =
+    err instanceof Error ? err.message : err != null ? String(err) : '';
+  return isNonRetryableSwapBuildErrorMessage(msg);
+}
+
+function isNonRetryableSwapBuildErrorMessage(msg: string): boolean {
+  if (!msg.trim()) return false;
+  return (
+    /insufficient liquidity in binarrays/i.test(msg) ||
+    /failed to build dlmm swap/i.test(msg) ||
+    /insufficientbalance/i.test(msg) ||
+    /no routes found/i.test(msg) ||
+    /no swap route found/i.test(msg) ||
+    /token mints don't match/i.test(msg) ||
+    /all pools failed/i.test(msg) ||
+    /built tx missing expected pool/i.test(msg) ||
+    /swap quote returned zero output/i.test(msg) ||
+    /transaction too large/i.test(msg)
+  );
+}
+
 /**
  * Run an async function with retries on error (2s delay, up to 3 retries).
  * @param fn - Function that performs one attempt
@@ -63,7 +95,7 @@ export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (isVybeApiNotFoundError(err)) throw err;
+      if (isVybeApiNotFoundError(err) || isNonRetryableSwapBuildError(err)) throw err;
       if (attempt < VYBE_MAX_RETRIES) {
         await new Promise((r) => setTimeout(r, VYBE_RETRY_DELAY_MS));
         continue;

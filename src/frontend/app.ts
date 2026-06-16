@@ -298,7 +298,6 @@ let lastRawSwapResponse: unknown = null;
 let lastVybeBuild: { tx: string; builtAt: number; paramsKey: string; buildPayload: unknown } | null = null;
 let enumeratedRoutesUiState: EnumeratedRoutesUiState | null = null;
 let lastVybeQuoteBodyForRoutes: Record<string, unknown> | null = null;
-let routeEnrichGeneration = 0;
 const quotedMintSession = new Set<string>();
 let pairTokenStats: Record<string, TokenPriceStats> = {};
 
@@ -3359,142 +3358,7 @@ function cacheVybeQuoteBuild(
   return null;
 }
 
-function sleepMs(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-function isEnumeratedRouteQuoteEnriched(quote?: Record<string, unknown>): boolean {
-  if (!quote) return false;
-  const sim = quote._simulatedOutAmount;
-  return sim != null && String(sim).trim() !== '';
-}
-
-function getEnumeratedRouteBuild(
-  body: Record<string, unknown>,
-  routeIndex: number,
-): Record<string, unknown> | undefined {
-  const rvt = body._routeViaTrades as { routes?: Array<{ index?: number; build?: unknown }> } | undefined;
-  const entry = rvt?.routes?.find((r) => Number(r.index) === routeIndex);
-  return entry?.build as Record<string, unknown> | undefined;
-}
-
-function setRouteEnrichStatus(routeIndex: number, status: 'ready' | 'pending' | 'loading'): void {
-  if (!enumeratedRoutesUiState) return;
-  enumeratedRoutesUiState = {
-    ...enumeratedRoutesUiState,
-    routes: enumeratedRoutesUiState.routes.map((r) =>
-      r.index === routeIndex ? { ...r, enrichStatus: status } : r,
-    ),
-  };
-}
-
-function patchEnumeratedRouteQuote(routeIndex: number, quote: Record<string, unknown>): void {
-  if (!enumeratedRoutesUiState || !lastVybeQuoteBodyForRoutes) return;
-  enumeratedRoutesUiState = {
-    ...enumeratedRoutesUiState,
-    routes: enumeratedRoutesUiState.routes.map((r) =>
-      r.index === routeIndex ? { ...r, quote, enrichStatus: 'ready' } : r,
-    ),
-  };
-  const rvt = lastVybeQuoteBodyForRoutes._routeViaTrades as
-    | { routes?: Array<Record<string, unknown>> }
-    | undefined;
-  if (!Array.isArray(rvt?.routes)) return;
-  lastVybeQuoteBodyForRoutes = {
-    ...lastVybeQuoteBodyForRoutes,
-    _routeViaTrades: {
-      ...rvt,
-      routes: rvt.routes.map((r) =>
-        Number(r.index) === routeIndex ? { ...r, quote } : r,
-      ),
-    },
-  };
-}
-
-async function startSequentialRouteEnrichment(
-  body: Record<string, unknown>,
-  wallet: string,
-  inputMint: string,
-  outputMint: string,
-  amount: number,
-  buildOpts: Record<string, unknown>,
-): Promise<void> {
-  const gen = routeEnrichGeneration;
-  if (!enumeratedRoutesUiState || enumeratedRoutesUiState.routes.length <= 1) return;
-
-  const ordered = [...enumeratedRoutesUiState.routes].sort((a, b) => a.index - b.index);
-  const pending = ordered.filter((r) => r.enrichStatus !== 'ready');
-  if (pending.length === 0) return;
-
-  for (const route of pending) {
-    if (gen !== routeEnrichGeneration) return;
-    await sleepMs(1000);
-    if (gen !== routeEnrichGeneration || !enumeratedRoutesUiState) return;
-
-    setRouteEnrichStatus(route.index, 'loading');
-    renderRouteOptionsPanel();
-
-    const poolAddress = route.candidate?.marketAddress?.trim() ?? '';
-    const build = getEnumeratedRouteBuild(body, route.index);
-    if (!poolAddress || !build) {
-      setRouteEnrichStatus(route.index, 'ready');
-      renderRouteOptionsPanel();
-      continue;
-    }
-
-    try {
-      const res = await fetchWithRetry('/api/trading/vybe-quote-route-enrich', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accountAddress: wallet,
-          amount,
-          inputMintAddress: inputMint,
-          outputMintAddress: outputMint,
-          poolAddress,
-          build,
-          router: normalizeRouterId(buildOpts.router ?? getSwapRouter()),
-          slippage: buildOpts.slippage,
-          swapFee: buildOpts.swapFee,
-          closeWsolAta: buildOpts.closeWsolAta,
-          createOutputAta: buildOpts.createOutputAta,
-          closeInputAta: buildOpts.closeInputAta,
-          tokenHints: buildTokenHintsForMints([inputMint, outputMint]),
-        }),
-      });
-      const quoteBody = (await res.json().catch(() => ({}))) as Record<string, unknown> & {
-        error?: string;
-      };
-      if (!res.ok) {
-        throw new Error(quoteBody.error || `Route enrich failed (${res.status})`);
-      }
-
-      patchEnumeratedRouteQuote(route.index, quoteBody);
-      if (
-        enumeratedRoutesUiState?.selectedIndex === route.index &&
-        lastVybeQuoteBodyForRoutes
-      ) {
-        applyActiveRouteQuoteToUi(
-          getQuoteBodyForActiveRoute(lastVybeQuoteBodyForRoutes),
-          wallet,
-          inputMint,
-          outputMint,
-          amount,
-          buildOpts,
-        );
-      } else {
-        renderRouteOptionsPanel();
-      }
-    } catch (err) {
-      console.warn('[route-enrich] route', route.index, err);
-      setRouteEnrichStatus(route.index, 'ready');
-      renderRouteOptionsPanel();
-    }
-  }
-}
-
 function syncEnumeratedRoutesFromBody(body: Record<string, unknown>): void {
-  routeEnrichGeneration++;
   const rvt = body._routeViaTrades as { routes?: Array<Record<string, unknown>> } | undefined;
   if (!Array.isArray(rvt?.routes) || rvt.routes.length === 0) {
     enumeratedRoutesUiState = null;
@@ -3503,16 +3367,12 @@ function syncEnumeratedRoutesFromBody(body: Record<string, unknown>): void {
   }
   lastVybeQuoteBodyForRoutes = body;
   enumeratedRoutesUiState = {
-    routes: rvt.routes.map((r, i) => {
-      const quote = (r.quote as Record<string, unknown> | undefined) ?? undefined;
-      return {
-        index: Number(r.index ?? i),
-        source: typeof r.source === 'string' ? r.source : undefined,
-        candidate: r.candidate as EnumeratedRoutesUiState['routes'][0]['candidate'],
-        quote,
-        enrichStatus: isEnumeratedRouteQuoteEnriched(quote) ? 'ready' : 'pending',
-      };
-    }),
+    routes: rvt.routes.map((r, i) => ({
+      index: Number(r.index ?? i),
+      source: typeof r.source === 'string' ? r.source : undefined,
+      candidate: r.candidate as EnumeratedRoutesUiState['routes'][0]['candidate'],
+      quote: (r.quote as Record<string, unknown> | undefined) ?? undefined,
+    })),
     selectedIndex: 0,
     expanded: false,
   };
@@ -3576,7 +3436,6 @@ function selectEnumeratedRoute(index: number): void {
   if (!enumeratedRoutesUiState || !lastVybeQuoteBodyForRoutes) return;
   const route = enumeratedRoutesUiState.routes.find((r) => r.index === index);
   if (!route) return;
-  if (route.enrichStatus != null && route.enrichStatus !== 'ready') return;
   enumeratedRoutesUiState = { ...enumeratedRoutesUiState, selectedIndex: index };
   const wallet = swapQuoteWalletSnapshot ?? swapWalletAddressInput?.value.trim() ?? '';
   const inputMint = swapInputMintInput?.value.trim() ?? '';
@@ -3664,9 +3523,6 @@ function applyVybeQuoteBodyToUi(
   void enrichRouteLabels(quote);
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
-  if (enumeratedRoutesUiState && enumeratedRoutesUiState.routes.length > 1) {
-    void startSequentialRouteEnrichment(body, wallet, inputMint, outputMint, effectiveAmount, buildOpts);
-  }
 }
 
 async function fetchAggregatorSwapQuote(
@@ -4136,9 +3992,33 @@ async function resolveVybeBuildTx(
 
 /** Vybe returns base64 wire tx as `tx` — use that string exactly, no transforms. */
 function extractSwapBuildTransaction(payload: Record<string, unknown> | null | undefined): string | null {
-  if (!payload) return null;
-  const tx = payload.tx ?? payload.transaction;
-  return typeof tx === 'string' && tx.length > 0 ? tx : null;
+  const txs = extractSwapBuildTransactions(payload);
+  return txs.length > 0 ? txs[txs.length - 1]! : null;
+}
+
+/** Ordered leg txs for quote-bridge routes: pre → main → post (each signed atomically). */
+function extractSwapBuildTransactions(payload: Record<string, unknown> | null | undefined): string[] {
+  if (!payload) return [];
+  const details = payload.details as Record<string, unknown> | undefined;
+  const pre =
+    typeof payload.preSwapTransaction === 'string'
+      ? payload.preSwapTransaction
+      : typeof details?.preSwapTransaction === 'string'
+        ? details.preSwapTransaction
+        : '';
+  const mainRaw = payload.tx ?? payload.transaction;
+  const main = typeof mainRaw === 'string' ? mainRaw : '';
+  const post =
+    typeof payload.postSwapTransaction === 'string'
+      ? payload.postSwapTransaction
+      : typeof details?.postSwapTransaction === 'string'
+        ? details.postSwapTransaction
+        : '';
+  const txs: string[] = [];
+  if (pre.trim()) txs.push(pre.trim());
+  if (main.trim()) txs.push(main.trim());
+  if (post.trim()) txs.push(post.trim());
+  return txs;
 }
 
 async function resolvePairTokenPrices(
@@ -4554,10 +4434,16 @@ async function postBuildSwap(): Promise<void> {
       buildPayload = resolved.buildPayload;
     }
     if (swapBuildMode === 'build-sign') {
-      swapTxBase64El.value = await signSwapTransactionBase64(buildTx, true);
+      const legTxs = extractSwapBuildTransactions(buildPayload);
+      const toSign = legTxs.length > 0 ? legTxs : [buildTx];
+      swapTxBase64El.value = await signSwapTransactionsBase64(toSign, true);
       syncSwapBuildResultPanel();
     } else {
-      const ok = await applyBuiltSwapTx(buildTx, buildPayload);
+      const legTxs = extractSwapBuildTransactions(buildPayload);
+      const ok = await applyBuiltSwapTx(
+        legTxs.length > 0 ? legTxs.join('\n\n') : buildTx,
+        buildPayload,
+      );
       if (!ok) return;
     }
   } catch (err) {
@@ -4673,6 +4559,47 @@ async function prepareSwapTxForSigning(txString: string): Promise<VersionedTrans
 
   vtx.message.recentBlockhash = blockhash;
   return vtx;
+}
+
+/** Sign one or more swap legs; multi-hop routes use signAllTransactions then send in order. */
+async function signSwapTransactionsBase64(txStrings: string[], sendAfterSign = false): Promise<string> {
+  const txs = txStrings.map((t) => t.trim()).filter(Boolean);
+  if (txs.length === 0) {
+    throw new Error('No transaction to sign.');
+  }
+  if (txs.length === 1) {
+    return signSwapTransactionBase64(txs[0]!, sendAfterSign);
+  }
+
+  const provider = getSolanaWalletProvider();
+  if (!provider?.signAllTransactions && !provider?.signTransaction) {
+    throw new Error('Connected wallet cannot sign transactions.');
+  }
+  if (!provider.signAllTransactions) {
+    throw new Error(
+      'This route requires multiple transactions. Use a wallet that supports signAllTransactions (e.g. Phantom).',
+    );
+  }
+
+  const prepared = await Promise.all(txs.map((t) => prepareSwapTxForSigning(t)));
+  const signed = await provider.signAllTransactions!(prepared);
+
+  if (sendAfterSign) {
+    const connection = getBrowserConnection();
+    let lastSig = '';
+    for (const stx of signed) {
+      lastSig = await connection.sendRawTransaction(stx.serialize(), { skipPreflight: false });
+    }
+    if (swapQuoteWarning) {
+      showInlineWarning(
+        swapQuoteWarning,
+        txs.length > 1 ? `${txs.length} transactions sent (last: ${lastSig})` : `Transaction sent: ${lastSig}`,
+      );
+    }
+    return signed.map((stx) => bytesToBase64(stx.serialize())).join('\n\n');
+  }
+
+  return signed.map((stx) => bytesToBase64(stx.serialize())).join('\n\n');
 }
 
 /** Phantom shows balance changes only when the wallet simulates before sign — use signAndSendTransaction. */

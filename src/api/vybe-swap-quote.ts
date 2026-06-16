@@ -429,40 +429,6 @@ async function buildEnumeratedRouteQuotes(
   return sortRouteEntriesByOutput(routes);
 }
 
-export interface EnrichVybeRouteQuoteParams {
-  accountAddress: string;
-  amount: number;
-  inputMintAddress: string;
-  outputMintAddress: string;
-  poolAddress: string;
-  build: VybeSwapBuildResponse;
-  tokenHints?: Record<string, TokenPriceHint>;
-  router?: SwapProxyRouter;
-}
-
-/**
- * Project one enumerated route's quote from its ix-builder enrichment.
- * The build was produced with enrich:true, so no re-simulation/pricing is needed here.
- */
-export async function enrichVybeEnumeratedRouteQuote(
-  _http: AxiosInstance,
-  params: EnrichVybeRouteQuoteParams,
-): Promise<VybeSwapQuote> {
-  const uiInputMint = params.inputMintAddress.trim();
-  const uiOutputMint = params.outputMintAddress.trim();
-  const selected = normalizeRouterId(params.router ?? 'vybe') as SwapProxyRouter;
-
-  let quote = attachRouterMetadata(
-    quoteFromBuild(params.build, { uiInputMint, uiOutputMint }),
-    selected,
-    'vybe',
-    false,
-  );
-  if (uiInputMint === NATIVE_SOL_MINT) quote = { ...quote, inputMintAddress: NATIVE_SOL_MINT };
-  if (uiOutputMint === NATIVE_SOL_MINT) quote = { ...quote, outputMintAddress: NATIVE_SOL_MINT };
-  return quote;
-}
-
 function aliasNativeSolPriceStats(
   stats: Record<string, TokenPriceStats>,
   uiMint: string,

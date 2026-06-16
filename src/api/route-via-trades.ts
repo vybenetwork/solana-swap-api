@@ -23,6 +23,8 @@ import {
   programLabelForAddress,
   enrichCandidatesWithMarketScores,
   filterRouteQueueByLiquidity,
+  isMeteoraDlmmCandidate,
+  isMeteoraDlmmInsufficientBinLiquidityError,
 } from './pinned-swap-params.js';
 export {
   isSupportedIxBuilderProgram,
@@ -36,7 +38,7 @@ export {
 } from './pinned-swap-params.js';
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
 import { staticAccountKeysFromSwapTx, validateTradeBuildStatic } from './pool-address-validation.js';
-import { isQuoteBridgeBuild } from './quote-bridge-detect.js';
+import { isQuoteBridgeBuild, type QuoteBridgeBuildDetails } from './quote-bridge-detect.js';
 import { toVybeSwapMint } from './sol-mints.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams } from './trades.js';
 
@@ -340,6 +342,10 @@ export function buildTxIncludesAddresses(
 /**
  * Validate a built route without re-simulating: static pool/program presence + ix-builder's
  * own simulation result (the build was requested with enrich:true). swap-api never simulates.
+ *
+ * Quote-bridge routes: accept when txs + quoted output are present. Main leg is often not
+ * simulatable (wallet lacks bridge mint); pre-swap probe sim may fail during enumeration
+ * without meaning the route is unroutable.
  */
 function validateTradeBuild(
   build: import('../types/swap.js').VybeSwapBuildResponse,
@@ -358,13 +364,27 @@ function validateTradeBuild(
     return { ok: false, reason: 'Built tx missing' };
   }
 
+  if (isQuoteBridgeBuild(build)) {
+    const details = build.details as QuoteBridgeBuildDetails;
+    const preNeeded =
+      details.preSwapNeeded === true || (build as { preSwapNeeded?: boolean }).preSwapNeeded === true;
+    const preTx =
+      (build as { preSwapTransaction?: string }).preSwapTransaction ??
+      details.preSwapTransaction;
+    if (preNeeded && (!preTx || !String(preTx).trim())) {
+      return { ok: false, reason: 'Quote-bridge build missing preSwapTransaction' };
+    }
+    if (quoteOutAmountRawFromBuild(build) <= 0n) {
+      return { ok: false, reason: 'Swap quote returned zero output' };
+    }
+    return { ok: true, reason: '' };
+  }
+
   const sim = build.enrichment?.simulated;
   if (sim) {
     if (sim.err != null) {
       return { ok: false, reason: `Swap simulation failed: ${JSON.stringify(sim.err)}` };
     }
-    // outputDeltaRaw === null → main-leg sim intentionally skipped (quote-bridge buy where the
-    // wallet does not yet hold the bridge mint). That is a valid route; only a real 0 fails.
     if (sim.outputDeltaRaw === '0') {
       return { ok: false, reason: 'Swap simulation returned zero output' };
     }
@@ -755,9 +775,16 @@ async function buildRoutesForCandidates(
   const tried: TradeMarketCandidate[] = [];
   const buildLog: RouteViaTradesBuildAttemptLog[] = [];
   let lastError = 'unknown error';
+  let skipRemainingMeteoraDlmm = false;
 
   if (options.stopOnFirst) {
     for (const queueEntry of candidates) {
+      if (skipRemainingMeteoraDlmm && isMeteoraDlmmCandidate(queueEntry)) {
+        console.info(
+          `[route-discovery] skip DLMM ${queueEntry.marketAddress.slice(0, 8)}… (prior bin liquidity failure)`,
+        );
+        continue;
+      }
       const attempt = quickProbeAttemptForQueueEntry(queueEntry);
       if (!attempt) continue;
       const result = await trySingleBuildAttempt(http, body, queueEntry, attempt, buildSwap);
@@ -772,6 +799,15 @@ async function buildRoutesForCandidates(
         break;
       }
       lastError = result.lastError;
+      if (
+        isMeteoraDlmmCandidate(queueEntry) &&
+        isMeteoraDlmmInsufficientBinLiquidityError(lastError)
+      ) {
+        skipRemainingMeteoraDlmm = true;
+        console.info(
+          '[route-discovery] METEORA_DLMM bin liquidity insufficient — skipping remaining DLMM candidates',
+        );
+      }
     }
     return { successes, tried, buildLog, lastError };
   }
@@ -791,6 +827,12 @@ async function buildRoutesForCandidates(
       break;
     }
     const queueEntry = candidates[i]!;
+    if (skipRemainingMeteoraDlmm && isMeteoraDlmmCandidate(queueEntry)) {
+      console.info(
+        `[route-discovery] skip DLMM ${queueEntry.marketAddress.slice(0, 8)}… (prior bin liquidity failure)`,
+      );
+      continue;
+    }
     const validated = await buildAndValidateCandidate(http, body, queueEntry, buildSwap);
     buildLog.push(...validated.buildLog);
     if (validated.tried) tried.push(queueEntry);
@@ -798,6 +840,15 @@ async function buildRoutesForCandidates(
       successes.push(validated.success);
     } else {
       lastError = validated.lastError;
+      if (
+        isMeteoraDlmmCandidate(queueEntry) &&
+        isMeteoraDlmmInsufficientBinLiquidityError(lastError)
+      ) {
+        skipRemainingMeteoraDlmm = true;
+        console.info(
+          '[route-discovery] METEORA_DLMM bin liquidity insufficient — skipping remaining DLMM candidates',
+        );
+      }
     }
   }
 
@@ -810,6 +861,7 @@ async function buildRoutesForCandidates(
     tried,
     buildLog,
     buildSwap,
+    skipRemainingMeteoraDlmm,
   );
 
   return {
@@ -884,6 +936,7 @@ async function ensureDirectRouteInValidatedTopN(
   tried: TradeMarketCandidate[],
   buildLog: RouteViaTradesBuildAttemptLog[],
   buildSwap: typeof import('./swap-build.js').buildSwap,
+  skipRemainingMeteoraDlmm = false,
 ): Promise<void> {
   if (successes.length < ROUTE_ENUMERATE_MAX_ROUTES) return;
   if (!successes.every((s) => buildRouteIsHopRequired(s.build, s.candidate))) return;
@@ -894,6 +947,12 @@ async function ensureDirectRouteInValidatedTopN(
 
   for (let i = startIndex; i < candidates.length; i++) {
     const queueEntry = candidates[i]!;
+    if (skipRemainingMeteoraDlmm && isMeteoraDlmmCandidate(queueEntry)) {
+      console.info(
+        `[route-discovery] skip DLMM ${queueEntry.marketAddress.slice(0, 8)}… (prior bin liquidity failure)`,
+      );
+      continue;
+    }
     if (haveKeys.has(candidatePairKey(queueEntry.marketAddress, queueEntry.programAddress))) continue;
     // Cheap pre-filter: skip candidates already tagged hop-required to avoid wasted builds.
     if (queueEntry.rpcMeta?.quoteBridge || queueEntry.rpcMeta?.preSwapNeeded) continue;

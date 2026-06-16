@@ -69,25 +69,51 @@ type IxBuilderSwapErrorBody = {
   detail?: string;
 };
 
+/** ix-builder returns { error, details } on failure — often with HTTP 500. */
+export function ixBuilderSwapErrorMessage(err: unknown): string | undefined {
+  if (axios.isAxiosError(err)) {
+    const body = err.response?.data as IxBuilderSwapErrorBody | undefined;
+    if (body && typeof body === 'object') {
+      const msg = (body.details ?? body.detail ?? '').trim();
+      if (msg) return msg;
+      if (typeof body.error === 'string' && body.error.trim()) return body.error.trim();
+    }
+  }
+  if (err instanceof Error && err.message.trim()) return err.message.trim();
+  return undefined;
+}
+
+function assertIxBuilderSwapResponse(
+  data: (VybeSwapBuildResponse & IxBuilderSwapErrorBody) | undefined,
+): VybeSwapBuildResponse {
+  if (data && typeof data === 'object' && data.error) {
+    const msg = (data.details ?? data.detail ?? String(data.error)).trim();
+    throw new Error(msg || 'ix-builder swap failed');
+  }
+  if (!data?.tx && !data?.transaction) {
+    throw new Error('ix-builder swap response missing transaction');
+  }
+  return data;
+}
+
 export async function buildSwapViaIxBuilder(body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
   const payload = mapBuildSwapParamsToIxBuilder(body);
   return withRetry(async () => {
-    const { data } = await axios.post<VybeSwapBuildResponse & IxBuilderSwapErrorBody>(
-      `${IX_BUILDER_LOCAL_URL}/swap`,
-      payload,
-      {
-        timeout: VYBE_TIMEOUT_MS,
-        headers: { Accept: 'application/json' },
-      },
-    );
-
-    if (data && typeof data === 'object' && data.error) {
-      const msg = (data.details ?? data.detail ?? String(data.error)).trim();
-      throw new Error(msg || 'ix-builder swap failed');
+    try {
+      const { data } = await axios.post<VybeSwapBuildResponse & IxBuilderSwapErrorBody>(
+        `${IX_BUILDER_LOCAL_URL}/swap`,
+        payload,
+        {
+          timeout: VYBE_TIMEOUT_MS,
+          headers: { Accept: 'application/json' },
+          validateStatus: (status) => status < 500 || status === 500,
+        },
+      );
+      return assertIxBuilderSwapResponse(data);
+    } catch (err) {
+      const msg = ixBuilderSwapErrorMessage(err);
+      if (msg) throw new Error(msg);
+      throw err;
     }
-    if (!data?.tx && !data?.transaction) {
-      throw new Error('ix-builder swap response missing transaction');
-    }
-    return data;
   });
 }

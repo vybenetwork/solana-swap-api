@@ -84,8 +84,6 @@ export function initRouteUi(d: RouteUiDeps): void {
   deps = d;
 }
 
-export type EnumeratedRouteEnrichStatus = 'ready' | 'pending' | 'loading';
-
 export interface EnumeratedRouteUiEntry {
   index: number;
   source?: string;
@@ -98,7 +96,6 @@ export interface EnumeratedRouteUiEntry {
     marketScore?: number;
   };
   quote?: Record<string, unknown>;
-  enrichStatus?: EnumeratedRouteEnrichStatus;
 }
 
 export interface EnumeratedRoutesUiState {
@@ -175,9 +172,6 @@ export function renderRouteOptionsPanel(): void {
     const trades = route.candidate?.tradeCount ?? 0;
     const marketScore = route.candidate?.marketScore;
     const source = sourceBadgeLabel(route.source);
-    const enrichStatus = route.enrichStatus ?? 'ready';
-    const isReady = enrichStatus === 'ready';
-    const isLoading = enrichStatus === 'loading';
     const metaParts: string[] = [];
     if (marketScore != null && marketScore > 0) {
       metaParts.push(`$${formatLiquidityUsd(marketScore)} liq`);
@@ -189,10 +183,7 @@ export function renderRouteOptionsPanel(): void {
       metaParts.length > 0
         ? `<span class="swap-route-option__trades">${metaParts.join(' · ')}</span>`
         : '';
-    const loadingBadge = isLoading
-      ? `<span class="swap-route-option__loading">${deps.renderLoadingSpinner('sm')}<span class="swap-route-option__loading-label">Loading fees…</span></span>`
-      : '';
-    return `<button type="button" class="swap-route-option${active ? ' swap-route-option--active' : ''}${!isReady ? ' swap-route-option--disabled' : ''}${isLoading ? ' swap-route-option--loading' : ''}" data-route-index="${idx}" data-route-ready="${isReady ? '1' : '0'}" aria-pressed="${active ? 'true' : 'false'}"${!isReady ? ' disabled aria-disabled="true"' : ''}>
+    return `<button type="button" class="swap-route-option${active ? ' swap-route-option--active' : ''}" data-route-index="${idx}" aria-pressed="${active ? 'true' : 'false'}">
       <span class="swap-route-option__rank">#${idx + 1}</span>
       <span class="swap-route-option__program">
         <span class="swap-route-option__program-name">${deps.escapeHtml(programLabel || '—')}</span>
@@ -202,7 +193,6 @@ export function renderRouteOptionsPanel(): void {
       <span class="swap-route-option__out">${deps.escapeHtml(outLabel)} ${deps.escapeHtml(sym)}</span>
       <span class="swap-route-option__meta">
         <span class="swap-route-option__badge swap-route-option__badge--${deps.escapeHtml(source.replace(/\+/g, '-'))}">${deps.escapeHtml(source)}</span>
-        ${loadingBadge}
         ${metaDetail}
       </span>
     </button>`;
@@ -216,7 +206,6 @@ export function renderRouteOptionsPanel(): void {
   el.innerHTML = `<div class="swap-route-options__grid">${cards.join('')}</div>${moreBtn}`;
   el.querySelectorAll<HTMLButtonElement>('[data-route-index]').forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (btn.dataset.routeReady !== '1') return;
       const index = Number(btn.dataset.routeIndex);
       if (Number.isFinite(index)) deps.selectEnumeratedRoute(index);
     });

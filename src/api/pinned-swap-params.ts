@@ -149,6 +149,23 @@ export function enrichCandidatesWithMarketScores<
   });
 }
 
+/** True when a route candidate is a Meteora DLMM pool (not CLMM or other Meteora variants). */
+export function isMeteoraDlmmCandidate(entry: {
+  ixBuilderProtocol?: string;
+  protocol?: string;
+  programAddress?: string;
+}): boolean {
+  const proto =
+    entry.ixBuilderProtocol ??
+    (entry.programAddress ? programAddressToIxBuilderProtocol(entry.programAddress) : undefined);
+  return proto === 'METEORA_DLMM';
+}
+
+/** DLMM swapQuote fails when active bins lack depth; lower-ranked DLMM pools will fail too. */
+export function isMeteoraDlmmInsufficientBinLiquidityError(message: string): boolean {
+  return /insufficient liquidity in binarrays/i.test(message);
+}
+
 export function filterRouteQueueByLiquidity<
   T extends { marketAddress?: string; programAddress: string; marketScore?: number; totalValueUsd?: number },
 >(entries: T[], label = 'queue'): T[] {

@@ -7,7 +7,7 @@ import { getToken } from './tokens.js';
 import { getSwapQuote, type GetSwapQuoteParams } from './swap-quote.js';
 import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type SwapProxyRouter } from './swap-build.js';
 import { resolveTokenPrices, type ResolveTokenPricesOptions } from './resolve-token-prices.js';
-import { buildVybeQuoteFromPriceAndSwap, enrichVybeEnumeratedRouteQuote, type VybeQuoteParams, type VybeQuoteResult, type EnrichVybeRouteQuoteParams } from './vybe-swap-quote.js';
+import { buildVybeQuoteFromPriceAndSwap, type VybeQuoteParams, type VybeQuoteResult } from './vybe-swap-quote.js';
 import {
   assertWalletHasSellAmount,
   getWalletTokenBalance,
@@ -29,7 +29,6 @@ export type {
   SwapProxyRouter,
   VybeQuoteParams,
   VybeQuoteResult,
-  EnrichVybeRouteQuoteParams,
   GetWalletTokenBalanceParams,
   WalletBalanceListItem,
   LowSolTradeWarningResult,
@@ -42,7 +41,6 @@ export interface VybeClient {
   buildSwapWithFallback(body: BuildSwapParams): Promise<VybeSwapBuildResponse>;
   resolveTokenPrices(mints: string[], options?: ResolveTokenPricesOptions): Promise<ResolveTokenPricesResult>;
   buildVybeQuote(params: VybeQuoteParams): Promise<VybeQuoteResult>;
-  enrichVybeRouteQuote(params: EnrichVybeRouteQuoteParams): Promise<VybeSwapQuote>;
   getWalletTokenBalance(params: GetWalletTokenBalanceParams): Promise<
     import('../types/api.js').VybeWalletTokenBalanceResponse
   >;
@@ -70,7 +68,6 @@ export function createClient(apiKey: string): VybeClient {
     buildSwapWithFallback: (body: BuildSwapParams) => buildSwapWithFallback(http, body),
     resolveTokenPrices: (mints, options) => resolveTokenPrices(http, mints, options),
     buildVybeQuote: (params) => buildVybeQuoteFromPriceAndSwap(http, params),
-    enrichVybeRouteQuote: (params) => enrichVybeEnumeratedRouteQuote(http, params),
     getWalletTokenBalance: (params) => getWalletTokenBalance(http, params),
     assertWalletHasSellAmount: (ownerAddress, inputMint, amountUi, symbolHint) =>
       assertWalletHasSellAmount(http, ownerAddress, inputMint, amountUi, symbolHint),

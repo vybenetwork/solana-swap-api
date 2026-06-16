@@ -511,49 +511,6 @@ app.post('/api/trading/vybe-quote', async (req: Request, res: Response) => {
   }
 });
 
-/** POST /api/trading/vybe-quote-route-enrich — simulate + fee breakdown for one enumerated route */
-app.post('/api/trading/vybe-quote-route-enrich', async (req: Request, res: Response) => {
-  try {
-    const body = req.body as Record<string, unknown>;
-    const accountAddress = typeof body.accountAddress === 'string' ? body.accountAddress.trim() : '';
-    const inputMintAddress = typeof body.inputMintAddress === 'string' ? body.inputMintAddress.trim() : '';
-    const outputMintAddress = typeof body.outputMintAddress === 'string' ? body.outputMintAddress.trim() : '';
-    const poolAddress = typeof body.poolAddress === 'string' ? body.poolAddress.trim() : '';
-    const amount = Number(body.amount);
-    const build = body.build as import('./types/swap.js').VybeSwapBuildResponse | undefined;
-    if (!accountAddress || !inputMintAddress || !outputMintAddress || !poolAddress) {
-      return res.status(400).json({ error: 'accountAddress, inputMintAddress, outputMintAddress, and poolAddress are required' });
-    }
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return res.status(400).json({ error: 'amount must be a positive number' });
-    }
-    if (!build || typeof build !== 'object') {
-      return res.status(400).json({ error: 'build is required' });
-    }
-    const tokenHints =
-      body.tokenHints && typeof body.tokenHints === 'object'
-        ? (body.tokenHints as Record<string, TokenPriceHint>)
-        : undefined;
-    const router = typeof body.router === 'string' ? body.router.trim() : 'vybe';
-
-    const quote = await client.enrichVybeRouteQuote({
-      accountAddress,
-      amount,
-      inputMintAddress,
-      outputMintAddress,
-      poolAddress,
-      build,
-      tokenHints,
-      router: router as import('./api/swap-build.js').SwapProxyRouter,
-    });
-
-    res.json(quote);
-  } catch (err) {
-    const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
-    res.status(status).json({ error: toHumanReadableError(err) });
-  }
-});
-
 /** POST /api/trading/swap — Vybe POST /v4/trading/swap */
 app.post('/api/trading/swap', async (req: Request, res: Response) => {
   try {
