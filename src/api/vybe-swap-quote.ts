@@ -33,20 +33,7 @@ import {
 } from './resolve-token-prices.js';
 import type { VybeSwapQuote, VybeSwapBuildResponse, VybeRoutePlanStep } from '../types/swap.js';
 import { assertWalletHasSellAmount } from './wallet-balance.js';
-import {
-  simulateSwapEffects,
-  type TokenAccRentEntry,
-  type EmbeddedPoolFeeEntry,
-  type WalletFeeTransferEntry,
-  type TokenFeeCreditEntry,
-  type InferredHopPoolEntry,
-  type WalletTokenAccountCloseEntry,
-  mergeBuildAtaCloseHints,
-} from './simulate-swap-output.js';
-import { evaluateQuoteBridgeSimEligibility, simulateQuoteBridgePreSwapLeg, type QuoteBridgeBuildDetails } from './quote-bridge-sim.js';
-import { createSolanaConnection } from './solana-connection.js';
-import { enrichRoutePlanFees, sumProtocolFeeAmountRaw } from './enrich-route-fees.js';
-import { DEFAULT_SWAP_SLIPPAGE_PCT } from '../config.js';
+import { quoteFromBuild } from './map-enrichment.js';
 import { NATIVE_SOL_MINT, toVybeSwapMint } from './sol-mints.js';
 import {
   isCommonQuotePair,
@@ -318,306 +305,6 @@ export interface VybeQuoteResult {
   routeViaTrades?: RouteViaTradesMeta;
 }
 
-function rawToUi(raw: string, decimals: number): number {
-  const n = BigInt(raw);
-  const base = 10n ** BigInt(decimals);
-  const whole = n / base;
-  const frac = n % base;
-  if (frac === 0n) return Number(whole);
-  const fracStr = frac.toString().padStart(decimals, '0').replace(/0+$/, '');
-  return Number(`${whole}.${fracStr}`);
-}
-
-function applySlippageThreshold(outRaw: string, slippagePct: number): string {
-  const out = BigInt(outRaw);
-  const bps = BigInt(Math.max(0, Math.round(slippagePct * 100)));
-  const threshold = out - (out * bps) / 10000n;
-  return threshold < 0n ? '0' : threshold.toString();
-}
-
-function formatImpactPct(spotRate: number, execRate: number): string {
-  if (!Number.isFinite(spotRate) || spotRate <= 0 || !Number.isFinite(execRate)) return '0';
-  const impact = ((execRate - spotRate) / spotRate) * 100;
-  if (!Number.isFinite(impact)) return '0';
-  return impact.toFixed(4);
-}
-
-/** Vybe-native pool build (Meteora, etc.) — not Jupiter/Titan aggregator responses. */
-function isVybeNativePoolBuild(build: VybeSwapBuildResponse, selectedRouter?: string): boolean {
-  const selected = normalizeRouterId(selectedRouter ?? 'vybe');
-  if (selected !== 'vybe') return false;
-  const provider = normalizeRouterId(String(build.provider ?? build.details.quote.provider ?? ''));
-  return provider !== 'jupiter' && provider !== 'titan';
-}
-
-function normalizeRoutePlan(raw: unknown): VybeRoutePlanStep[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.map((step) => {
-    const s = step as Record<string, unknown>;
-    const si = s.swapInfo as Record<string, unknown> | undefined;
-    if (!si) return step as unknown as VybeRoutePlanStep;
-    return {
-      ...s,
-      swapInfo: {
-        ...si,
-        inputMintAddress: String(si.inputMintAddress ?? si.inputMint ?? ''),
-        outputMintAddress: String(si.outputMintAddress ?? si.outputMint ?? ''),
-      },
-    } as unknown as VybeRoutePlanStep;
-  });
-}
-
-type LocalQuoteBridgeBuildDetails = QuoteBridgeBuildDetails & {
-  postSwapQuote?: { inAmount: string; outAmount: string; provider?: string };
-};
-
-function quoteBridgeRoutePlanFromBuild(
-  build: VybeSwapBuildResponse,
-  inputMint: string,
-  outputMint: string,
-  poolKey: string,
-  providerLabel: string,
-  protocolFeeAmount: string,
-  protocolFeeMint: string,
-  quotedOutAmount: string,
-): VybeRoutePlanStep[] | null {
-  const ext = build.details as LocalQuoteBridgeBuildDetails;
-  const preSwapNeeded =
-    ext.preSwapNeeded === true || (build as { preSwapNeeded?: boolean }).preSwapNeeded === true;
-  const postSwapNeeded = ext.postSwapNeeded === true;
-  const quoteBridge = ext.quoteBridge;
-  const bridgePool = ext.bridgePool;
-
-  if (preSwapNeeded && ext.preSwapQuote && quoteBridge?.bridgeMint) {
-    const bridgeMint = quoteBridge.bridgeMint;
-    const bridgeLabel =
-      ext.preSwapQuote.provider ??
-      (bridgePool?.type ? bridgePool.type.replace(/_/g, ' ') : 'Raydium');
-    const bridgePoolKey = bridgePool?.address?.trim() || 'bridge';
-    const preSwapFeeAmount = sumProtocolFeeAmountRaw(ext.preSwapQuote);
-    const preSwapFeeMint =
-      ext.preSwapQuote.protocolFees?.[0]?.mint ??
-      ext.preSwapQuote.feeMint ??
-      ext.preSwapQuote.platformFee?.feeMint ??
-      inputMint;
-    return [
-      {
-        percent: 100,
-        bps: null,
-        swapInfo: {
-          ammKey: bridgePoolKey,
-          label: bridgeLabel,
-          inputMintAddress: inputMint,
-          outputMintAddress: bridgeMint,
-          inAmount: ext.preSwapQuote.inAmount,
-          outAmount: ext.preSwapQuote.outAmount,
-          feeAmount: preSwapFeeAmount,
-          feeMintAddress: preSwapFeeMint,
-        },
-      },
-      {
-        percent: 100,
-        bps: null,
-        swapInfo: {
-          ammKey: poolKey,
-          label: providerLabel,
-          inputMintAddress: bridgeMint,
-          outputMintAddress: outputMint,
-          inAmount: build.details.quote.inAmount,
-          outAmount: quotedOutAmount,
-          feeAmount: protocolFeeAmount,
-          feeMintAddress: protocolFeeMint,
-        },
-      },
-    ];
-  }
-
-  if (postSwapNeeded && ext.postSwapQuote && quoteBridge?.bridgeMint) {
-    const bridgeMint = quoteBridge.bridgeMint;
-    const bridgeLabel =
-      ext.postSwapQuote.provider ??
-      (bridgePool?.type ? bridgePool.type.replace(/_/g, ' ') : 'Raydium');
-    const bridgePoolKey = bridgePool?.address?.trim() || 'bridge';
-    return [
-      {
-        percent: 100,
-        bps: null,
-        swapInfo: {
-          ammKey: poolKey,
-          label: providerLabel,
-          inputMintAddress: inputMint,
-          outputMintAddress: bridgeMint,
-          inAmount: build.details.quote.inAmount,
-          outAmount: build.details.quote.outAmount,
-          feeAmount: protocolFeeAmount,
-          feeMintAddress: protocolFeeMint,
-        },
-      },
-      {
-        percent: 100,
-        bps: null,
-        swapInfo: {
-          ammKey: bridgePoolKey,
-          label: bridgeLabel,
-          inputMintAddress: bridgeMint,
-          outputMintAddress: outputMint,
-          inAmount: ext.postSwapQuote.inAmount,
-          outAmount: ext.postSwapQuote.outAmount,
-          feeAmount: '0',
-          feeMintAddress: outputMint,
-        },
-      },
-    ];
-  }
-
-  return null;
-}
-
-function synthesizeQuoteFromBuild(
-  params: VybeQuoteParams,
-  build: VybeSwapBuildResponse,
-  inputMint: string,
-  outputMint: string,
-  inputStats: TokenPriceStats,
-  outputStats: TokenPriceStats,
-  effectiveOutAmount?: string,
-  feeOpts?: {
-    pdaRentLamports?: bigint;
-    tokenAccRentByMint?: TokenAccRentEntry[];
-    embeddedPoolFeesByHop?: EmbeddedPoolFeeEntry[];
-    walletSolTransfers?: WalletFeeTransferEntry[];
-    tokenFeeCredits?: TokenFeeCreditEntry[];
-    router?: string;
-    walletPayDebitRaw?: string | null;
-    networkFeeLamports?: bigint;
-    inferredPoolAddressesByHop?: InferredHopPoolEntry[];
-    walletTokenAccountCloses?: WalletTokenAccountCloseEntry[];
-  },
-): VybeSwapQuote {
-  const extDetails = build.details as QuoteBridgeBuildDetails;
-  const preSwapNeeded =
-    extDetails.preSwapNeeded === true ||
-    (build as { preSwapNeeded?: boolean }).preSwapNeeded === true;
-  const inAmount =
-    preSwapNeeded && extDetails.preSwapQuote?.inAmount
-      ? extDetails.preSwapQuote.inAmount
-      : build.details.quote.inAmount;
-  const quotedOutAmount = build.details.quote.outAmount;
-  const outAmount = effectiveOutAmount ?? quotedOutAmount;
-  const slippagePct = build.slippage ?? params.slippage ?? DEFAULT_SWAP_SLIPPAGE_PCT;
-  const outputFromSimulation =
-    effectiveOutAmount != null && effectiveOutAmount !== quotedOutAmount;
-
-  const outAmountUi = rawToUi(outAmount, outputStats.decimals);
-  const quotedOutUi = rawToUi(quotedOutAmount, outputStats.decimals);
-  const inAmountUi = rawToUi(inAmount, inputStats.decimals);
-  const otherAmountThreshold = applySlippageThreshold(outAmount, slippagePct);
-  const otherAmountThresholdUi = rawToUi(otherAmountThreshold, outputStats.decimals);
-  const swapRate = params.amount > 0 ? outAmountUi / params.amount : 0;
-  const quotedSwapRate = inAmountUi > 0 ? quotedOutUi / inAmountUi : swapRate;
-  const executedSwapRate = inAmountUi > 0 ? outAmountUi / inAmountUi : swapRate;
-
-  const spotCrossRate =
-    inputStats.price > 0 && outputStats.price > 0 ? inputStats.price / outputStats.price : 0;
-  /* Vybe direct-pool builds can report simulated out well below build quote without true
-   * market impact — compare pool quote rate to spot (Jupiter-style), not sim vs spot. */
-  const impactExecRate =
-    outputFromSimulation && isVybeNativePoolBuild(build, feeOpts?.router)
-      ? quotedSwapRate
-      : executedSwapRate;
-  const priceImpactPct = formatImpactPct(spotCrossRate, impactExecRate);
-
-  const swapUsdValue =
-    inputStats.price > 0 && Number.isFinite(params.amount)
-      ? (params.amount * inputStats.price).toFixed(2)
-      : null;
-
-  const providerLabel = build.provider ?? build.details.quote.provider ?? 'Vybe';
-  const inferredPool = feeOpts?.inferredPoolAddressesByHop?.[0]?.poolAddress?.trim();
-  const poolKey = params.poolAddress?.trim() || inferredPool || 'vybe';
-  const protocolFeeAmount = sumProtocolFeeAmountRaw(build.details.quote);
-  const protocolFeeMint =
-    build.details.quote.protocolFees?.[0]?.mint ??
-    build.details.quote.feeMint ??
-    build.details.quote.platformFee?.feeMint ??
-    inputMint;
-
-  const baseRoutePlan: VybeRoutePlanStep[] =
-    quoteBridgeRoutePlanFromBuild(
-      build,
-      inputMint,
-      outputMint,
-      poolKey,
-      providerLabel,
-      protocolFeeAmount,
-      protocolFeeMint,
-      quotedOutAmount,
-    ) ?? [
-      {
-        percent: 100,
-        bps: null,
-        swapInfo: {
-          ammKey: poolKey,
-          label: providerLabel,
-          inputMintAddress: inputMint,
-          outputMintAddress: outputMint,
-          inAmount,
-          outAmount: quotedOutAmount,
-          feeAmount: protocolFeeAmount,
-          feeMintAddress: protocolFeeMint,
-        },
-      },
-    ];
-  const feeEnrichment = enrichRoutePlanFees(
-    baseRoutePlan,
-    build,
-    outputFromSimulation ? outAmount : null,
-    outputMint,
-    {
-      pdaRentLamports: feeOpts?.pdaRentLamports ?? 0n,
-      tokenAccRentByMint: feeOpts?.tokenAccRentByMint,
-      embeddedPoolFeesByHop: feeOpts?.embeddedPoolFeesByHop,
-      walletSolTransfers: feeOpts?.walletSolTransfers,
-      tokenFeeCredits: feeOpts?.tokenFeeCredits,
-      router: feeOpts?.router ?? build.provider ?? params.router,
-      walletPayDebitRaw: feeOpts?.walletPayDebitRaw ?? null,
-      walletAddress: params.accountAddress,
-      inputMint,
-      networkFeeLamports: feeOpts?.networkFeeLamports ?? 0n,
-      inferredPoolAddressesByHop: feeOpts?.inferredPoolAddressesByHop,
-    },
-  );
-
-  return {
-    inputMintAddress: inputMint,
-    inAmount,
-    outputMintAddress: outputMint,
-    outAmount,
-    otherAmountThreshold,
-    swapMode: 'ExactIn',
-    priceImpactPct,
-    routePlan: feeEnrichment.routePlan,
-    outAmountUi,
-    otherAmountThresholdUi,
-    swapRate,
-    swapUsdValue,
-    slippageBps: Math.round(slippagePct * 100),
-    _quoteSource: 'vybe-price-build',
-    _inputPriceUsd: inputStats.price,
-    _outputPriceUsd: outputStats.price,
-    _priceUpdateTime: inputStats.priceUpdateTime,
-    _buildRouter: build.provider,
-    _quotedOutAmount: quotedOutAmount,
-    _outputFromSimulation: outputFromSimulation,
-    _swapFee: build.details.swapFee,
-    _swapFeePct: feeEnrichment.swapFeePct,
-    _totalFeeRaw: feeEnrichment.totalFeeRaw,
-    _simulatedOutAmount: feeEnrichment.simulatedOutRaw,
-    _walletPayDebitRaw: feeOpts?.walletPayDebitRaw ?? null,
-    _walletTokenAccountCloses: feeOpts?.walletTokenAccountCloses ?? [],
-  };
-}
-
 function normalizeRouterId(value: unknown): string {
   const raw = String(value ?? '').trim().toLowerCase();
   if (raw === 'jupiter' || raw === 'titan' || raw === 'vybe') return raw;
@@ -645,137 +332,6 @@ function attachRouterMetadata(
     _selectedRouter: selected,
     _effectiveRouter: effective,
     _routerFallbackUsed: fallbackUsed,
-  };
-}
-
-interface RouteSimulationBundle {
-  simulatedOutRaw: string | null;
-  simulationErr: unknown;
-  walletPayDebitRaw: string | null;
-  pdaRentLamports: bigint;
-  tokenAccRentByMint: TokenAccRentEntry[];
-  embeddedPoolFeesByHop: EmbeddedPoolFeeEntry[];
-  walletSolTransfers: WalletFeeTransferEntry[];
-  tokenFeeCredits: TokenFeeCreditEntry[];
-  networkFeeLamports: bigint;
-  inferredPoolAddressesByHop: InferredHopPoolEntry[];
-  walletTokenAccountCloses: WalletTokenAccountCloseEntry[];
-}
-
-const EMPTY_ROUTE_SIMULATION: RouteSimulationBundle = {
-  simulatedOutRaw: null,
-  simulationErr: null,
-  walletPayDebitRaw: null,
-  pdaRentLamports: 0n,
-  tokenAccRentByMint: [],
-  embeddedPoolFeesByHop: [],
-  walletSolTransfers: [],
-  tokenFeeCredits: [],
-  networkFeeLamports: 0n,
-  inferredPoolAddressesByHop: [],
-  walletTokenAccountCloses: [],
-};
-
-function routeSimBundleFromPreSwapSim(
-  preSwapSim: import('./simulate-swap-output.js').SwapSimulationResult,
-  build: VybeSwapBuildResponse,
-  uiInputMint: string,
-): RouteSimulationBundle {
-  const walletTokenAccountCloses = mergeBuildAtaCloseHints(
-    preSwapSim.walletTokenAccountCloses,
-    build.details as unknown as Record<string, unknown>,
-    uiInputMint,
-  );
-  return {
-    simulatedOutRaw: null,
-    simulationErr: preSwapSim.simulationErr,
-    walletPayDebitRaw: preSwapSim.walletPayDebitRaw,
-    pdaRentLamports: preSwapSim.pdaRentLamports,
-    tokenAccRentByMint: preSwapSim.tokenAccRentByMint,
-    embeddedPoolFeesByHop: preSwapSim.embeddedPoolFeesByHop,
-    walletSolTransfers: preSwapSim.walletSolTransfers,
-    tokenFeeCredits: preSwapSim.tokenFeeCredits,
-    networkFeeLamports: preSwapSim.networkFeeLamports,
-    inferredPoolAddressesByHop: preSwapSim.inferredPoolAddressesByHop,
-    walletTokenAccountCloses,
-  };
-}
-
-async function simulateRouteBuild(
-  build: VybeSwapBuildResponse,
-  params: VybeQuoteParams,
-  vybeInputMint: string,
-  vybeOutputMint: string,
-  uiInputMint: string,
-  poolAddress?: string,
-): Promise<RouteSimulationBundle> {
-  const empty: RouteSimulationBundle = { ...EMPTY_ROUTE_SIMULATION };
-  const buildTx = build.tx ?? build.transaction;
-  if (typeof buildTx !== 'string' || buildTx.length === 0) return empty;
-
-  const connection = createSolanaConnection('simulateRouteBuild');
-  const bridgeSim = await evaluateQuoteBridgeSimEligibility(
-    connection,
-    params.accountAddress,
-    build,
-  );
-  if (!bridgeSim.canSimulate) {
-    console.info(`[quote-bridge] route sim skipped: ${bridgeSim.reason}`);
-    const preSwapSim = await simulateQuoteBridgePreSwapLeg(
-      build,
-      params.accountAddress,
-      vybeInputMint,
-    );
-    if (preSwapSim) {
-      return routeSimBundleFromPreSwapSim(preSwapSim, build, uiInputMint);
-    }
-    return empty;
-  }
-
-  const preSimRoutePlan: VybeRoutePlanStep[] = [
-    {
-      percent: 100,
-      bps: null,
-      swapInfo: {
-        ammKey: poolAddress?.trim() || '',
-        label: build.provider ?? build.details.quote.provider ?? 'Vybe',
-        inputMintAddress: vybeInputMint,
-        outputMintAddress: vybeOutputMint,
-        inAmount: build.details.quote.inAmount,
-        outAmount: build.details.quote.outAmount,
-        feeAmount: sumProtocolFeeAmountRaw(build.details.quote),
-        feeMintAddress:
-          build.details.quote.protocolFees?.[0]?.mint ??
-          build.details.quote.feeMint ??
-          vybeInputMint,
-      },
-    },
-  ];
-  const sim = await simulateSwapEffects(
-    buildTx,
-    params.accountAddress,
-    vybeOutputMint,
-    uiInputMint,
-    preSimRoutePlan,
-    { pinnedPoolAddress: poolAddress },
-  );
-  let walletTokenAccountCloses = mergeBuildAtaCloseHints(
-    sim.walletTokenAccountCloses,
-    build.details as unknown as Record<string, unknown>,
-    uiInputMint,
-  );
-  return {
-    simulatedOutRaw: sim.outputDeltaRaw,
-    simulationErr: sim.simulationErr,
-    walletPayDebitRaw: sim.walletPayDebitRaw,
-    pdaRentLamports: sim.pdaRentLamports,
-    tokenAccRentByMint: sim.tokenAccRentByMint,
-    embeddedPoolFeesByHop: sim.embeddedPoolFeesByHop,
-    walletSolTransfers: sim.walletSolTransfers,
-    tokenFeeCredits: sim.tokenFeeCredits,
-    networkFeeLamports: sim.networkFeeLamports,
-    inferredPoolAddressesByHop: sim.inferredPoolAddressesByHop,
-    walletTokenAccountCloses,
   };
 }
 
@@ -837,12 +393,6 @@ function sortRouteEntriesByOutput(routes: RouteViaTradesRouteEntry[]): RouteViaT
 
 async function buildEnumeratedRouteQuotes(
   routeBuilds: RouteBuildSuccess[],
-  params: VybeQuoteParams,
-  vybeParams: VybeQuoteParams,
-  inputStats: TokenPriceStats,
-  outputStats: TokenPriceStats,
-  vybeInputMint: string,
-  vybeOutputMint: string,
   uiInputMint: string,
   uiOutputMint: string,
   selectedRouter: SwapProxyRouter,
@@ -850,61 +400,18 @@ async function buildEnumeratedRouteQuotes(
   const routes: RouteViaTradesRouteEntry[] = [];
   for (let i = 0; i < routeBuilds.length; i++) {
     const entry = routeBuilds[i]!;
-    const simBundle = entry.simulation
-      ? {
-          simulatedOutRaw: entry.simulation.outputDeltaRaw,
-          simulationErr: entry.simulation.simulationErr,
-          walletPayDebitRaw: entry.simulation.walletPayDebitRaw,
-          pdaRentLamports: entry.simulation.pdaRentLamports,
-          tokenAccRentByMint: entry.simulation.tokenAccRentByMint,
-          embeddedPoolFeesByHop: entry.simulation.embeddedPoolFeesByHop,
-          walletSolTransfers: entry.simulation.walletSolTransfers,
-          tokenFeeCredits: entry.simulation.tokenFeeCredits,
-          networkFeeLamports: entry.simulation.networkFeeLamports,
-          inferredPoolAddressesByHop: entry.simulation.inferredPoolAddressesByHop,
-          walletTokenAccountCloses: entry.simulation.walletTokenAccountCloses,
-        }
-      : i === 0
-        ? await simulateRouteBuild(
-            entry.build,
-            params,
-            vybeInputMint,
-            vybeOutputMint,
-            uiInputMint,
-            entry.selected.marketAddress,
-          )
-        : EMPTY_ROUTE_SIMULATION;
-    const sim = simBundle;
+    // Each enumerated build was produced with enrich:true, so it already carries its
+    // own ix-builder simulation + fees + USD + %. Just project it onto the quote shape.
     let quote = attachRouterMetadata(
-      synthesizeQuoteFromBuild(
-        vybeParams,
-        entry.build,
-        vybeInputMint,
-        vybeOutputMint,
-        inputStats,
-        outputStats,
-        sim.simulatedOutRaw ?? undefined,
-        {
-          pdaRentLamports: sim.pdaRentLamports,
-          tokenAccRentByMint: sim.tokenAccRentByMint,
-          embeddedPoolFeesByHop: sim.embeddedPoolFeesByHop,
-          walletSolTransfers: sim.walletSolTransfers,
-          tokenFeeCredits: sim.tokenFeeCredits,
-          router: 'vybe',
-          walletPayDebitRaw: sim.walletPayDebitRaw,
-          networkFeeLamports: sim.networkFeeLamports,
-          inferredPoolAddressesByHop: sim.inferredPoolAddressesByHop,
-          walletTokenAccountCloses: sim.walletTokenAccountCloses,
-        },
-      ),
+      quoteFromBuild(entry.build, { uiInputMint, uiOutputMint }),
       selectedRouter,
       'vybe',
       false,
     );
     if (uiInputMint === NATIVE_SOL_MINT) quote = { ...quote, inputMintAddress: NATIVE_SOL_MINT };
     if (uiOutputMint === NATIVE_SOL_MINT) quote = { ...quote, outputMintAddress: NATIVE_SOL_MINT };
-    if (sim.simulationErr != null) quote = { ...quote, _simulationErr: sim.simulationErr };
     const candidate = entry.candidate as EnumeratedRouteCandidate;
+    const simulatedOutRaw = entry.build.enrichment?.simulatedOutRaw ?? undefined;
     routes.push({
       index: i,
       source: candidate.source ?? 'trades',
@@ -916,7 +423,7 @@ async function buildEnumeratedRouteQuotes(
       rpcMeta: candidate.rpcMeta,
       build: entry.build,
       quote,
-      simulatedOutRaw: sim.simulatedOutRaw ?? undefined,
+      simulatedOutRaw: simulatedOutRaw ?? undefined,
     });
   }
   return sortRouteEntriesByOutput(routes);
@@ -933,86 +440,26 @@ export interface EnrichVybeRouteQuoteParams {
   router?: SwapProxyRouter;
 }
 
-/** Full simulate + fee enrichment for one enumerated route (background route #2…#3). */
+/**
+ * Project one enumerated route's quote from its ix-builder enrichment.
+ * The build was produced with enrich:true, so no re-simulation/pricing is needed here.
+ */
 export async function enrichVybeEnumeratedRouteQuote(
-  http: AxiosInstance,
+  _http: AxiosInstance,
   params: EnrichVybeRouteQuoteParams,
 ): Promise<VybeSwapQuote> {
   const uiInputMint = params.inputMintAddress.trim();
   const uiOutputMint = params.outputMintAddress.trim();
-  const vybeInputMint = toVybeSwapMint(uiInputMint);
-  const vybeOutputMint = toVybeSwapMint(uiOutputMint);
   const selected = normalizeRouterId(params.router ?? 'vybe') as SwapProxyRouter;
 
-  const hints = { ...params.tokenHints };
-  if (uiInputMint === NATIVE_SOL_MINT && hints[vybeInputMint] && !hints[uiInputMint]) {
-    hints[uiInputMint] = hints[vybeInputMint];
-  }
-  if (uiOutputMint === NATIVE_SOL_MINT && hints[vybeOutputMint] && !hints[uiOutputMint]) {
-    hints[uiOutputMint] = hints[vybeOutputMint];
-  }
-
-  const { stats: rawStats } = await resolveTokenPrices(http, [vybeInputMint, uiOutputMint], {
-    tokenHints: hints,
-  });
-  let tokenStats = aliasNativeSolPriceStats(rawStats, uiInputMint);
-  tokenStats = aliasNativeSolPriceStats(tokenStats, uiOutputMint);
-  const inputStats = tokenStats[uiInputMint] ?? tokenStats[vybeInputMint];
-  const outputStats = tokenStats[uiOutputMint] ?? tokenStats[vybeOutputMint];
-  if (!inputStats) {
-    throw new Error(`Could not resolve price for input mint ${uiInputMint}`);
-  }
-  if (!outputStats) {
-    throw new Error(`Could not resolve price for output mint ${uiOutputMint}`);
-  }
-
-  const vybeParams: VybeQuoteParams = {
-    accountAddress: params.accountAddress,
-    amount: params.amount,
-    inputMintAddress: vybeInputMint,
-    outputMintAddress: vybeOutputMint,
-    router: 'vybe',
-    poolAddress: params.poolAddress.trim(),
-  };
-
-  const sim = await simulateRouteBuild(
-    params.build,
-    vybeParams,
-    vybeInputMint,
-    vybeOutputMint,
-    uiInputMint,
-    params.poolAddress,
-  );
-
   let quote = attachRouterMetadata(
-    synthesizeQuoteFromBuild(
-      vybeParams,
-      params.build,
-      vybeInputMint,
-      vybeOutputMint,
-      inputStats,
-      outputStats,
-      sim.simulatedOutRaw ?? undefined,
-      {
-        pdaRentLamports: sim.pdaRentLamports,
-        tokenAccRentByMint: sim.tokenAccRentByMint,
-        embeddedPoolFeesByHop: sim.embeddedPoolFeesByHop,
-        walletSolTransfers: sim.walletSolTransfers,
-        tokenFeeCredits: sim.tokenFeeCredits,
-        router: 'vybe',
-        walletPayDebitRaw: sim.walletPayDebitRaw,
-        networkFeeLamports: sim.networkFeeLamports,
-        inferredPoolAddressesByHop: sim.inferredPoolAddressesByHop,
-        walletTokenAccountCloses: sim.walletTokenAccountCloses,
-      },
-    ),
+    quoteFromBuild(params.build, { uiInputMint, uiOutputMint }),
     selected,
     'vybe',
     false,
   );
   if (uiInputMint === NATIVE_SOL_MINT) quote = { ...quote, inputMintAddress: NATIVE_SOL_MINT };
   if (uiOutputMint === NATIVE_SOL_MINT) quote = { ...quote, outputMintAddress: NATIVE_SOL_MINT };
-  if (sim.simulationErr != null) quote = { ...quote, _simulationErr: sim.simulationErr };
   return quote;
 }
 
@@ -1128,12 +575,6 @@ export async function buildVybeQuoteFromPriceAndSwap(
         if (routed.kind === 'multi') {
           const enumRoutes = await buildEnumeratedRouteQuotes(
             routed.routes,
-            params,
-            vybeParams,
-            inputStats,
-            outputStats,
-            vybeInputMint,
-            vybeOutputMint,
             uiInputMint,
             uiOutputMint,
             selected,
@@ -1213,12 +654,6 @@ export async function buildVybeQuoteFromPriceAndSwap(
       if (routed.kind === 'multi') {
         const enumRoutes = await buildEnumeratedRouteQuotes(
           routed.routes,
-          params,
-          vybeParams,
-          inputStats,
-          outputStats,
-          vybeInputMint,
-          vybeOutputMint,
           uiInputMint,
           uiOutputMint,
           selected,
@@ -1274,94 +709,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
       logRouteViaTradesMeta(routeViaTrades);
     }
   }
-  const buildTx = build.tx ?? build.transaction;
-  let simulatedOutRaw: string | null = null;
-  let simulationErr: unknown = null;
-  let walletPayDebitRaw: string | null = null;
-  let pdaRentLamports = 0n;
-  let tokenAccRentByMint: TokenAccRentEntry[] = [];
-  let embeddedPoolFeesByHop: EmbeddedPoolFeeEntry[] = [];
-  let walletSolTransfers: WalletFeeTransferEntry[] = [];
-  let tokenFeeCredits: TokenFeeCreditEntry[] = [];
-  let networkFeeLamports = 0n;
-  let inferredPoolAddressesByHop: InferredHopPoolEntry[] = [];
-  let walletTokenAccountCloses: WalletTokenAccountCloseEntry[] = [];
-  const preSimRoutePlan: VybeRoutePlanStep[] = [
-    {
-      percent: 100,
-      bps: null,
-      swapInfo: {
-        ammKey:
-          (routeViaTrades?.outcome === 'direct' || routeViaTrades?.outcome === 'multi') &&
-          routeViaTrades?.selected?.marketAddress
-            ? routeViaTrades.selected.marketAddress
-            : '',
-        label: build.provider ?? build.details.quote.provider ?? 'Vybe',
-        inputMintAddress: vybeInputMint,
-        outputMintAddress: vybeOutputMint,
-        inAmount: build.details.quote.inAmount,
-        outAmount: build.details.quote.outAmount,
-        feeAmount: sumProtocolFeeAmountRaw(build.details.quote),
-        feeMintAddress:
-          build.details.quote.protocolFees?.[0]?.mint ??
-          build.details.quote.feeMint ??
-          vybeInputMint,
-      },
-    },
-  ];
-  if (!precomputedPrimaryQuote && typeof buildTx === 'string' && buildTx.length > 0) {
-    const connection = createSolanaConnection('vybeQuoteSim');
-    const bridgeSim = await evaluateQuoteBridgeSimEligibility(
-      connection,
-      params.accountAddress,
-      build,
-    );
-    if (bridgeSim.canSimulate) {
-      const sim = await simulateSwapEffects(
-        buildTx,
-        params.accountAddress,
-        vybeOutputMint,
-        uiInputMint,
-        preSimRoutePlan,
-      );
-      simulatedOutRaw = sim.outputDeltaRaw;
-      simulationErr = sim.simulationErr;
-      walletPayDebitRaw = sim.walletPayDebitRaw;
-      pdaRentLamports = sim.pdaRentLamports;
-      tokenAccRentByMint = sim.tokenAccRentByMint;
-      embeddedPoolFeesByHop = sim.embeddedPoolFeesByHop;
-      walletSolTransfers = sim.walletSolTransfers;
-      tokenFeeCredits = sim.tokenFeeCredits;
-      networkFeeLamports = sim.networkFeeLamports;
-      inferredPoolAddressesByHop = sim.inferredPoolAddressesByHop;
-      walletTokenAccountCloses = sim.walletTokenAccountCloses;
-    } else {
-      console.info(`[quote-bridge] primary quote sim skipped: ${bridgeSim.reason}`);
-      const preSwapSim = await simulateQuoteBridgePreSwapLeg(
-        build,
-        params.accountAddress,
-        vybeInputMint,
-      );
-      if (preSwapSim) {
-        walletPayDebitRaw = preSwapSim.walletPayDebitRaw;
-        pdaRentLamports = preSwapSim.pdaRentLamports;
-        tokenAccRentByMint = preSwapSim.tokenAccRentByMint;
-        embeddedPoolFeesByHop = preSwapSim.embeddedPoolFeesByHop;
-        walletSolTransfers = preSwapSim.walletSolTransfers;
-        tokenFeeCredits = preSwapSim.tokenFeeCredits;
-        networkFeeLamports = preSwapSim.networkFeeLamports;
-        inferredPoolAddressesByHop = preSwapSim.inferredPoolAddressesByHop;
-        walletTokenAccountCloses = preSwapSim.walletTokenAccountCloses;
-        simulationErr = preSwapSim.simulationErr;
-      }
-    }
-  }
-  walletTokenAccountCloses = mergeBuildAtaCloseHints(
-    walletTokenAccountCloses,
-    build.details as unknown as Record<string, unknown>,
-    uiInputMint,
-  );
-
+  // ix-builder owns simulation + fees + USD + %; project its enrichment onto the quote.
   const tradeRouteFallback = routeViaTrades?.fallbackRouter;
   const effective = tradeRouteFallback
     ? tradeRouteFallback
@@ -1371,27 +719,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
   const quote = precomputedPrimaryQuote
     ? precomputedPrimaryQuote
     : attachRouterMetadata(
-        synthesizeQuoteFromBuild(
-          vybeParams,
-          build,
-          vybeInputMint,
-          vybeOutputMint,
-          inputStats,
-          outputStats,
-          simulatedOutRaw ?? undefined,
-          {
-            pdaRentLamports,
-            tokenAccRentByMint,
-            embeddedPoolFeesByHop,
-            walletSolTransfers,
-            tokenFeeCredits,
-            router: tradeRouteFallback ?? (routeViaTrades ? 'vybe' : selected),
-            walletPayDebitRaw,
-            networkFeeLamports,
-            inferredPoolAddressesByHop,
-            walletTokenAccountCloses,
-          },
-        ),
+        quoteFromBuild(build, { uiInputMint, uiOutputMint }),
         selected,
         effective,
         tradeRouteFallback != null || (routeViaTrades ? false : effective !== selected),
@@ -1402,9 +730,6 @@ export async function buildVybeQuoteFromPriceAndSwap(
   }
   if (uiOutputMint === NATIVE_SOL_MINT) {
     finalQuote = { ...finalQuote, outputMintAddress: NATIVE_SOL_MINT };
-  }
-  if (!precomputedPrimaryQuote && simulationErr != null) {
-    finalQuote = { ...finalQuote, _simulationErr: simulationErr };
   }
   return {
     quote: finalQuote,

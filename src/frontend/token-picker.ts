@@ -724,17 +724,45 @@ function quotedBuildOutAmountRaw(buildPayload?: Record<string, unknown> | null):
   return null;
 }
 
+function isQuoteBridgeBuildPayload(buildPayload?: Record<string, unknown> | null): boolean {
+  if (!buildPayload) return false;
+  const details = buildPayload.details as { preSwapNeeded?: boolean } | undefined;
+  return details?.preSwapNeeded === true || buildPayload.preSwapNeeded === true;
+}
+
+/** Prefer nested `_build` when the vybe-quote API body is passed whole. */
+function resolveSwapSimBuildPayload(
+  buildPayload?: Record<string, unknown> | null,
+): Record<string, unknown> | null | undefined {
+  if (!buildPayload) return buildPayload;
+  const nested = buildPayload._build;
+  if (nested && typeof nested === 'object') return nested as Record<string, unknown>;
+  return buildPayload;
+}
+
 export function swapSimulationFailed(
   simulatedOutRaw: string | null | undefined,
   buildTx: unknown,
   buildPayload?: Record<string, unknown> | null,
 ): boolean {
-  const simulationErr = buildPayload?._simulationErr ?? buildPayload?.simulationErr;
+  const build = resolveSwapSimBuildPayload(buildPayload);
+  const quoteShell = build !== buildPayload ? buildPayload : null;
+
+  /* Quote-bridge: main leg is not simulated without intermediate mint — quoted out is enough. */
+  if (isQuoteBridgeBuildPayload(build) && quotedBuildOutAmountRaw(build)) {
+    return false;
+  }
+
+  const simulationErr =
+    build?._simulationErr ??
+    build?.simulationErr ??
+    (quoteShell && !quoteShell._build ? quoteShell._simulationErr : null) ??
+    (quoteShell && !quoteShell._build ? quoteShell.simulationErr : null);
   if (simulationErr != null) return true;
   if (!buildTx || typeof buildTx !== 'string' || buildTx.length === 0) return false;
   if (simulatedOutRaw != null && simulatedOutRaw !== '') return false;
-  if (quotedBuildOutAmountRaw(buildPayload)) return false;
-  const topOut = String(buildPayload?.outAmount ?? '').trim();
+  if (quotedBuildOutAmountRaw(build)) return false;
+  const topOut = String(quoteShell?.outAmount ?? buildPayload?.outAmount ?? '').trim();
   if (/^\d+$/.test(topOut) && topOut !== '0') return false;
   return true;
 }

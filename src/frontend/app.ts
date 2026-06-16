@@ -2103,6 +2103,11 @@ function formatFooterPctAlwaysTwoDecimals(pct: number): string {
 
 /** Max slippage % = (1 − min received ÷ output) × 100 */
 function formatMaxSlippageRatio(quote: Record<string, unknown>): string {
+  // ix-builder enrichment carries the authoritative max slippage % — print it, don't recompute.
+  const enriched = quote._maxSlippagePct;
+  if (typeof enriched === 'number' && Number.isFinite(enriched) && enriched >= 0) {
+    return formatFooterPctAlwaysTwoDecimals(enriched);
+  }
   const out = quoteTokenAmountUiNumber(quote, 'out');
   const min = quoteTokenAmountUiNumber(quote, 'min');
   if (out == null || min == null || out <= 0) return '—';
@@ -2419,6 +2424,16 @@ function detectVybeAggregatorFallbackRouter(
   return resolveVybeHandoffAggregatorRouter(body);
 }
 
+function hasAcceptableVybeRouteQuote(body: Record<string, unknown>): boolean {
+  const rvt = body._routeViaTrades as { outcome?: string; routes?: unknown[] } | undefined;
+  if (rvt?.outcome === 'multi' || rvt?.outcome === 'direct') return true;
+  const plan = body.routePlan;
+  if (!Array.isArray(plan) || plan.length === 0) return false;
+  const build = body._build as Record<string, unknown> | undefined;
+  const tx = build?.tx ?? build?.transaction;
+  return typeof tx === 'string' && tx.length > 0;
+}
+
 function detectRouteViaTradesAggregatorHandoff(
   body: Record<string, unknown>,
 ): 'jupiter' | 'titan' | null {
@@ -2428,6 +2443,7 @@ function detectRouteViaTradesAggregatorHandoff(
     outcome?: string;
   } | undefined;
   if (!rvt?.enabled) return null;
+  if (rvt.outcome === 'multi' || rvt.outcome === 'direct') return null;
   if (rvt.fallbackRouter === 'jupiter' || rvt.fallbackRouter === 'titan') {
     return rvt.fallbackRouter;
   }
@@ -2532,6 +2548,19 @@ function applyFeeEnrichmentToQuote(
     _swapFee: swapFeeRaw ?? quote._swapFee,
   };
 
+  // Carry ix-builder's print-ready display fields forward from the final build (authoritative).
+  for (const key of [
+    '_youPay',
+    '_youReceive',
+    '_maxSlippagePct',
+    '_tokens',
+    '_inputPriceUsd',
+    '_outputPriceUsd',
+  ] as const) {
+    const value = buildPayload?.[key];
+    if (value != null) next[key] = value;
+  }
+
   const walletPayDebitRaw =
     buildPayload?._walletPayDebitRaw ??
     source?.walletPayDebitRaw ??
@@ -2552,18 +2581,31 @@ function applyFeeEnrichmentToQuote(
     const outFmt = formatRawTokenAmount(simulatedOutRaw, outMint);
     next.outAmountUi = Number(outFmt.display.replace(/,/g, ''));
     next._outputFromSimulation = outputFromSimulation;
-    const slippagePct = swapSlippageInput ? Number(swapSlippageInput.value) : DEFAULT_SWAP_SLIPPAGE_PCT;
-    if (Number.isFinite(slippagePct) && slippagePct >= 0) {
-      try {
-        const out = BigInt(simulatedOutRaw);
-        const bps = BigInt(Math.max(0, Math.round(slippagePct * 100)));
-        const threshold = out - (out * bps) / 10000n;
-        const thresholdRaw = threshold < 0n ? '0' : threshold.toString();
-        next.otherAmountThreshold = thresholdRaw;
-        const thFmt = formatRawTokenAmount(thresholdRaw, outMint);
-        next.otherAmountThresholdUi = Number(thFmt.display.replace(/,/g, ''));
-      } catch {
-        /* keep existing threshold */
+
+    // Prefer ix-builder's min-received threshold (printed, not recomputed). Only fall back to
+    // the client slippage math when the build did not return an enriched threshold.
+    const enrThreshRaw = buildPayload?._otherAmountThresholdRaw;
+    if (typeof enrThreshRaw === 'string' && enrThreshRaw.length > 0) {
+      next.otherAmountThreshold = enrThreshRaw;
+      const enrThreshUi = buildPayload?._otherAmountThresholdUi;
+      next.otherAmountThresholdUi =
+        typeof enrThreshUi === 'number' && Number.isFinite(enrThreshUi)
+          ? enrThreshUi
+          : Number(formatRawTokenAmount(enrThreshRaw, outMint).display.replace(/,/g, ''));
+    } else {
+      const slippagePct = swapSlippageInput ? Number(swapSlippageInput.value) : DEFAULT_SWAP_SLIPPAGE_PCT;
+      if (Number.isFinite(slippagePct) && slippagePct >= 0) {
+        try {
+          const out = BigInt(simulatedOutRaw);
+          const bps = BigInt(Math.max(0, Math.round(slippagePct * 100)));
+          const threshold = out - (out * bps) / 10000n;
+          const thresholdRaw = threshold < 0n ? '0' : threshold.toString();
+          next.otherAmountThreshold = thresholdRaw;
+          const thFmt = formatRawTokenAmount(thresholdRaw, outMint);
+          next.otherAmountThresholdUi = Number(thFmt.display.replace(/,/g, ''));
+        } catch {
+          /* keep existing threshold */
+        }
       }
     }
   }
@@ -3992,7 +4034,7 @@ async function requestVybeQuote(
     const simFailed = swapSimulationFailed(
       body._simulatedOutAmount as string | null | undefined,
       buildTx,
-      body,
+      (body._build as Record<string, unknown> | undefined) ?? body,
     );
     if (!simFailed) {
       if (attemptAmount < originalAmount * 0.999) {
@@ -4010,6 +4052,7 @@ async function requestVybeQuote(
     if (
       selectedRouter === 'vybe' &&
       isRouterFallbackEnabled() &&
+      !hasAcceptableVybeRouteQuote(body) &&
       balanceUi > 0 &&
       isNearMaxSellAmountUi(attemptAmount, balanceUi)
     ) {
@@ -4042,7 +4085,11 @@ async function requestVybeQuote(
     );
   }
 
-  if (selectedRouter === 'vybe' && isRouterFallbackEnabled()) {
+  if (
+    selectedRouter === 'vybe' &&
+    isRouterFallbackEnabled() &&
+    !(lastBody && hasAcceptableVybeRouteQuote(lastBody))
+  ) {
     setSwapRouter('jupiter', { invalidateQuote: false });
     return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, originalAmount, {
       ...buildOpts,

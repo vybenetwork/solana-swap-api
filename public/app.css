@@ -3304,7 +3304,7 @@ tr:hover td {
 }
 
 .routing-acc-rent-above {
-  --routing-fee-connector-h: 2.7rem;
+  --routing-fee-connector-h: 3rem;
   position: absolute;
   left: 50%;
   bottom: 100%;
@@ -3409,7 +3409,7 @@ tr:hover td {
 }
 
 .routing-fee-branch {
-  --routing-fee-connector-h: 2.7rem;
+  --routing-fee-connector-h: 3.1rem;
   display: flex;
   flex-direction: column;
   align-items: center;

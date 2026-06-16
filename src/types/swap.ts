@@ -91,5 +91,7 @@ export interface VybeSwapBuildResponse {
   details: VybeSwapDetails;
   slippage: number;
   slippageSource: string;
+  /** Print-ready enrichment (simulation + fees + USD + %) when `enrich:true` was requested. */
+  enrichment?: import('./enrichment.js').SwapEnrichment;
   [key: string]: unknown;
 }

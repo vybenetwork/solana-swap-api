@@ -26,9 +26,7 @@ import {
   getRuntimeIconDir,
 } from './token-icon-cache.js';
 import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
-import { simulateSwapEffects, type TokenAccRentEntry, type EmbeddedPoolFeeEntry, type WalletFeeTransferEntry, type TokenFeeCreditEntry, type WalletTokenAccountCloseEntry, mergeBuildAtaCloseHints } from './api/simulate-swap-output.js';
-import { enrichRoutePlanFees, estimateWalletPayDebitRaw } from './api/enrich-route-fees.js';
-import type { VybeRoutePlanStep } from './types/swap.js';
+import { quoteFromBuild } from './api/map-enrichment.js';
 import { createHttpClient } from './api/client.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams, type TradesSortField } from './api/trades.js';
 import { fetchRankedTopMarketsFromTrades } from './api/route-via-trades.js';
@@ -556,28 +554,6 @@ app.post('/api/trading/vybe-quote-route-enrich', async (req: Request, res: Respo
   }
 });
 
-function parseRoutePlanFromBody(body: Record<string, unknown>): VybeRoutePlanStep[] {
-  if (!Array.isArray(body.routePlan)) return [];
-  return body.routePlan.map((step) => {
-    const s = step as Record<string, unknown>;
-    const si = (s.swapInfo ?? {}) as Record<string, unknown>;
-    return {
-      percent: Number(s.percent ?? 100),
-      bps: s.bps != null ? Number(s.bps) : null,
-      swapInfo: {
-        ammKey: String(si.ammKey ?? ''),
-        label: String(si.label ?? ''),
-        inputMintAddress: String(si.inputMintAddress ?? si.inputMint ?? ''),
-        outputMintAddress: String(si.outputMintAddress ?? si.outputMint ?? ''),
-        inAmount: String(si.inAmount ?? '0'),
-        outAmount: String(si.outAmount ?? '0'),
-        feeAmount: String(si.feeAmount ?? '0'),
-        feeMintAddress: String(si.feeMintAddress ?? si.inputMintAddress ?? si.inputMint ?? ''),
-      },
-    };
-  });
-}
-
 /** POST /api/trading/swap — Vybe POST /v4/trading/swap */
 app.post('/api/trading/swap', async (req: Request, res: Response) => {
   try {
@@ -590,82 +566,47 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
         ? await client.buildSwapWithFallback(parsed)
         : await client.buildSwap(parsed);
 
-    const routePlan = parseRoutePlanFromBody(body);
-    const buildTx = data.tx ?? data.transaction;
-    let simulatedOutRaw: string | null = null;
-    let walletPayDebitRaw: string | null = null;
-    let pdaRentLamports = 0n;
-    let tokenAccRentByMint: TokenAccRentEntry[] = [];
-    let embeddedPoolFeesByHop: EmbeddedPoolFeeEntry[] = [];
-    let walletSolTransfers: WalletFeeTransferEntry[] = [];
-    let tokenFeeCredits: TokenFeeCreditEntry[] = [];
-    let networkFeeLamports = 0n;
-    let inferredPoolAddressesByHop: { hopIndex: number; poolAddress: string }[] = [];
-    let walletTokenAccountCloses: WalletTokenAccountCloseEntry[] = [];
-    if (typeof buildTx === 'string' && buildTx.length > 0) {
-      const sim = await simulateSwapEffects(
-        buildTx,
-        parsed.accountAddress,
-        parsed.outputMintAddress,
-        parsed.inputMintAddress,
-        routePlan,
-      );
-      simulatedOutRaw = sim.outputDeltaRaw;
-      walletPayDebitRaw = sim.walletPayDebitRaw;
-      pdaRentLamports = sim.pdaRentLamports;
-      tokenAccRentByMint = sim.tokenAccRentByMint;
-      embeddedPoolFeesByHop = sim.embeddedPoolFeesByHop;
-      walletSolTransfers = sim.walletSolTransfers;
-      tokenFeeCredits = sim.tokenFeeCredits;
-      networkFeeLamports = sim.networkFeeLamports;
-      inferredPoolAddressesByHop = sim.inferredPoolAddressesByHop;
-      walletTokenAccountCloses = sim.walletTokenAccountCloses;
-    }
-    walletTokenAccountCloses = mergeBuildAtaCloseHints(
-      walletTokenAccountCloses,
-      data.details as unknown as Record<string, unknown>,
-      parsed.inputMintAddress,
-    );
-
-    const feeEnrichment = enrichRoutePlanFees(
-      routePlan,
-      data,
-      simulatedOutRaw,
-      parsed.outputMintAddress,
-      {
-        pdaRentLamports,
-        tokenAccRentByMint,
-        embeddedPoolFeesByHop,
-        walletSolTransfers,
-        tokenFeeCredits,
-        router: parsed.router ?? data.provider,
-        walletPayDebitRaw,
-        walletAddress: parsed.accountAddress,
-        inputMint: parsed.inputMintAddress,
-        networkFeeLamports,
-        inferredPoolAddressesByHop,
-      },
-    );
-
-    if (!walletPayDebitRaw) {
-      walletPayDebitRaw =
-        feeEnrichment.walletPayDebitRaw ??
-        estimateWalletPayDebitRaw(
-          feeEnrichment.routePlan,
-          data.details?.quote?.inAmount ?? '',
-          parsed.inputMintAddress,
-        ) ??
-        walletPayDebitRaw;
-    }
-    feeEnrichment.walletPayDebitRaw = walletPayDebitRaw;
+    // ix-builder is the single source of simulation + fees + USD; swap-api never simulates.
+    // Project its enrichment into the legacy `_feeEnrichment` shape the browser already reads.
+    const enrichment = data.enrichment;
+    const projected = quoteFromBuild(data, {
+      uiInputMint: parsed.inputMintAddress,
+      uiOutputMint: parsed.outputMintAddress,
+    });
+    const feeEnrichment = enrichment
+      ? {
+          routePlan: projected.routePlan,
+          quotedOutRaw: enrichment.quotedOutRaw,
+          simulatedOutRaw: enrichment.simulatedOutRaw,
+          totalFeeRaw: enrichment.totalFeeRaw,
+          swapFeePct: enrichment.swapFeePct,
+          swapFeeRaw: enrichment.swapFeeRaw,
+          outputFromSimulation: enrichment.outputFromSimulation,
+          walletPayDebitRaw: enrichment.walletPayDebitRaw,
+        }
+      : undefined;
 
     res.json({
       ...data,
-      _feeEnrichment: feeEnrichment,
-      _simulatedOutAmount: simulatedOutRaw,
-      _quotedOutAmount: feeEnrichment.quotedOutRaw,
-      _walletPayDebitRaw: walletPayDebitRaw,
-      _walletTokenAccountCloses: walletTokenAccountCloses,
+      ...(feeEnrichment ? { _feeEnrichment: feeEnrichment } : {}),
+      _simulatedOutAmount: enrichment?.simulatedOutRaw ?? null,
+      _quotedOutAmount: enrichment?.quotedOutRaw ?? data.details?.quote?.outAmount,
+      _walletPayDebitRaw: enrichment?.walletPayDebitRaw ?? null,
+      _walletTokenAccountCloses: enrichment?.walletTokenAccountCloses ?? [],
+      // Print-ready display fields (so the You pay/receive hero + slippage stay correct
+      // even when the final build re-simulates at a reduced SPL sell amount).
+      ...(enrichment
+        ? {
+            _youPay: enrichment.youPay,
+            _youReceive: enrichment.youReceive,
+            _maxSlippagePct: enrichment.maxSlippagePct,
+            _tokens: enrichment.tokens,
+            _inputPriceUsd: enrichment.inputPriceUsd,
+            _outputPriceUsd: enrichment.outputPriceUsd,
+            _otherAmountThresholdRaw: enrichment.otherAmountThresholdRaw,
+            _otherAmountThresholdUi: enrichment.otherAmountThresholdUi,
+          }
+        : {}),
     });
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;

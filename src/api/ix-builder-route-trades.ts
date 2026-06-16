@@ -1,78 +1,17 @@
 /**
- * Route trades fetch via local ix-builder (ClickHouse → Vybe API fallback).
+ * Pool discovery via local ix-builder.
+ *
+ * Discovery (trades + markets + RPC ranking, quote-bridge augmentation, and direct-route
+ * diversity) is owned by ix-builder's GET /discover-pools. swap-api only consumes that single
+ * contract — it no longer fetches/merges /route-trades, /route-markets or /scan-pools itself.
  */
 
 import axios from 'axios';
 import { IX_BUILDER_LOCAL_URL, VYBE_TIMEOUT_MS } from '../config.js';
-import type { VybeTrade } from '../types/api.js';
 import { withRetry } from './client.js';
+import type { MarketFetchMode } from './swap-build.js';
 
-export interface IxBuilderRouteTradesResponse {
-  data: VybeTrade[];
-  rawCount: number;
-  source: 'clickhouse' | 'vybe_api';
-  errors?: Array<{ source: string; error: string }>;
-}
-
-export interface IxBuilderRouteMarketRow {
-  marketAddress: string;
-  programAddress: string;
-  totalValueUsd?: number;
-  rankScore?: number;
-  updatedAt?: string;
-}
-
-export interface IxBuilderRouteMarketsResponse {
-  data: IxBuilderRouteMarketRow[];
-  rawCount: number;
-  source?: 'clickhouse_markets' | 'vybe_api';
-  errors?: Array<{ source: string; error: string; table?: string }>;
-}
-
-export async function fetchRouteTradesViaIxBuilder(
-  inputMint: string,
-  outputMint: string,
-  limit: number,
-): Promise<IxBuilderRouteTradesResponse> {
-  return withRetry(async () => {
-    const { data } = await axios.get<IxBuilderRouteTradesResponse>(
-      `${IX_BUILDER_LOCAL_URL}/route-trades`,
-      {
-        params: {
-          inputMint: inputMint.trim(),
-          outputMint: outputMint.trim(),
-          limit,
-        },
-        timeout: VYBE_TIMEOUT_MS,
-        headers: { Accept: 'application/json' },
-      },
-    );
-    return data;
-  });
-}
-
-export async function fetchRouteMarketsViaIxBuilder(
-  inputMint: string,
-  outputMint: string,
-  limit: number,
-): Promise<IxBuilderRouteMarketsResponse> {
-  return withRetry(async () => {
-    const { data } = await axios.get<IxBuilderRouteMarketsResponse>(
-      `${IX_BUILDER_LOCAL_URL}/route-markets`,
-      {
-        params: {
-          inputMint: inputMint.trim(),
-          outputMint: outputMint.trim(),
-          limit,
-        },
-        timeout: VYBE_TIMEOUT_MS,
-        headers: { Accept: 'application/json' },
-      },
-    );
-    return data;
-  });
-}
-
+/** Quote-bridge route metadata attached to a discovered pool (e.g. WSOL→USDC→token). */
 export interface ScannedPoolCandidate {
   marketAddress: string;
   programAddress: string;
@@ -88,20 +27,71 @@ export interface ScannedPoolCandidate {
   } | null;
 }
 
-export async function fetchScanPoolsViaIxBuilder(
+/** One pool from GET /discover-pools (already ranked, deduped, augmented + diversity-applied). */
+export interface IxBuilderDiscoverPool {
+  marketAddress: string;
+  programAddress: string;
+  protocol?: string;
+  liquidity?: string;
+  marketScore?: number | null;
+  tradeCount?: number;
+  source?: string | null;
+  preSwapNeeded?: boolean;
+  postSwapNeeded?: boolean;
+  isDirectPair?: boolean;
+  baseMint?: string | null;
+  quoteMint?: string | null;
+  quoteBridge?: {
+    bridgeMint: string;
+    userVettedMint: string;
+    isBuyingToken: boolean;
+    protocol?: string;
+  } | null;
+}
+
+export interface IxBuilderDiscoverPoolsMeta {
+  mode?: string;
+  strategy?: string;
+  tradesSource?: string;
+  marketsSource?: string;
+  tradeEligible?: number;
+  marketEligible?: number;
+  rpcScanned?: number;
+  mergedCount?: number;
+  directReserveCount?: number;
+  directPoolCount?: number;
+  poolCount?: number;
+  marketFetchMode?: string;
+  enumerateRoutes?: boolean;
+}
+
+export interface IxBuilderDiscoverPoolsResponse {
+  pools: IxBuilderDiscoverPool[];
+  count: number;
+  meta: IxBuilderDiscoverPoolsMeta;
+}
+
+/** Single discovery call: output-centric trades/markets ranking + quote-bridge + direct diversity. */
+export async function fetchDiscoverPoolsViaIxBuilder(
   inputMint: string,
   outputMint: string,
-): Promise<ScannedPoolCandidate[]> {
-  const { data } = await axios.get<{ pools: ScannedPoolCandidate[] }>(
-    `${IX_BUILDER_LOCAL_URL}/scan-pools`,
-    {
-      params: {
-        inputMint: inputMint.trim(),
-        outputMint: outputMint.trim(),
+  marketFetchMode: MarketFetchMode,
+  enumerateRoutes = false,
+): Promise<IxBuilderDiscoverPoolsResponse> {
+  return withRetry(async () => {
+    const { data } = await axios.get<IxBuilderDiscoverPoolsResponse>(
+      `${IX_BUILDER_LOCAL_URL}/discover-pools`,
+      {
+        params: {
+          inputMint: inputMint.trim(),
+          outputMint: outputMint.trim(),
+          marketFetchMode,
+          enumerateRoutes: enumerateRoutes ? 'true' : 'false',
+        },
+        timeout: VYBE_TIMEOUT_MS,
+        headers: { Accept: 'application/json' },
       },
-      timeout: VYBE_TIMEOUT_MS,
-      headers: { Accept: 'application/json' },
-    },
-  );
-  return data.pools ?? [];
+    );
+    return data;
+  });
 }

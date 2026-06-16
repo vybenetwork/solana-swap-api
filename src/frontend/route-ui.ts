@@ -201,7 +201,7 @@ export function renderRouteOptionsPanel(): void {
       <span class="swap-route-option__pool" title="${deps.escapeHtml(route.candidate?.marketAddress ?? '')}">${deps.escapeHtml(pool)}</span>
       <span class="swap-route-option__out">${deps.escapeHtml(outLabel)} ${deps.escapeHtml(sym)}</span>
       <span class="swap-route-option__meta">
-        <span class="swap-route-option__badge swap-route-option__badge--${deps.escapeHtml(source.replaceAll('+', '-'))}">${deps.escapeHtml(source)}</span>
+        <span class="swap-route-option__badge swap-route-option__badge--${deps.escapeHtml(source.replace(/\+/g, '-'))}">${deps.escapeHtml(source)}</span>
         ${loadingBadge}
         ${metaDetail}
       </span>
@@ -255,6 +255,11 @@ export interface HopFeeItemLite {
   destinationAddress?: string;
   destinationKind?: 'lp_pool' | 'new_token_account' | 'closed_token_account' | 'fee_recipient' | 'output_deduction' | 'input_wallet' | 'network_priority';
   destinationNote?: string;
+  /** USD value of this fee item — provided by ix-builder enrichment (printed, not recomputed). */
+  usd?: number;
+  /** UI (human) amount = amountRaw / 10^decimals — provided by ix-builder enrichment. */
+  ui?: number;
+  decimals?: number;
   pdaRent?: {
     label: string;
     amountRaw: string;
@@ -275,6 +280,14 @@ export interface VybeRoutePlanStepLite {
   bps?: number | null;
   swapInfo?: VybeSwapInfoLite;
   _hopFees?: HopFeeBreakdownLite;
+  /** Retention/% + USD provided by ix-builder enrichment (printed, not recomputed). */
+  _retentionInPct?: number;
+  _retentionOutPct?: number;
+  _outgoingPct?: number;
+  _inUsd?: number;
+  _outUsd?: number;
+  _netOutRaw?: string | null;
+  _grossOutRaw?: string | null;
 }
 export const ACC_RENT_FEE_LABEL = 'Acc Rent Fee';
 
@@ -731,7 +744,7 @@ export function parsePositiveBigInt(raw: string | undefined | null): bigint | nu
   }
 }
 
-/** Sum hop fees (output-mint + PDA rent) expressed in output-token raw units. */
+/** Sum output-side hop fees expressed in the hop output mint's raw units. */
 function sumHopFeeDeductionInOutputRaw(
   hopFees: HopFeeBreakdownLite,
   outMint: string,
@@ -741,42 +754,46 @@ function sumHopFeeDeductionInOutputRaw(
   quote: Record<string, unknown>,
 ): bigint {
   let total = 0n;
-  for (const item of hopFees.items) {
+  for (const item of flattenHopFeeItems(hopFees.items)) {
     if (isAccRentFeeLabel(item.label)) continue;
-    if (item.mint === outMint) {
-      const amt = parsePositiveBigInt(item.amountRaw);
-      if (amt) total += amt;
+    if (isWalletCostFeeItem(item, quote)) continue;
+    if (isInputSideWalletFeeItem(item, inputMint)) continue;
+    if (!isOutputSideFeeDisplayItem(item) && !isDeductedFromPoolFeeItem(item, quote, outMint)) {
+      continue;
     }
-    if (item.pdaRent?.amountRaw && inRaw && inRaw > 0n && quotedOutRaw > 0n) {
-      const rent = parsePositiveBigInt(item.pdaRent.amountRaw);
-      if (!rent) continue;
-      const rentMint = item.pdaRent.mint;
-      if (routeLegMintMatches(rentMint, inputMint)) {
-        /* Rent raw shares the hop input mint's units — the hop rate ratio is valid. */
-        total += (rent * quotedOutRaw) / inRaw;
-      } else {
-        /* Cross-mint rent (e.g. SOL rent on a BONK-input hop): convert via USD prices. */
-        const rentUi = feeAmountToUi(rent.toString(), rentMint);
-        const rentPrice = lookupMintPriceUsd(rentMint, quote);
-        const outPrice = lookupMintPriceUsd(outMint, quote);
-        if (
-          rentUi != null &&
-          Number.isFinite(rentPrice) &&
-          rentPrice > 0 &&
-          Number.isFinite(outPrice) &&
-          outPrice > 0
-        ) {
-          const outUi = (rentUi * rentPrice) / outPrice;
-          const outRawNum = Math.round(outUi * 10 ** deps.getMintDecimals(outMint));
-          if (Number.isFinite(outRawNum) && outRawNum > 0) {
-            try {
-              total += BigInt(outRawNum);
-            } catch {
-              /* skip overflow */
-            }
-          }
+
+    const amt = parsePositiveBigInt(item.amountRaw);
+    if (!amt) continue;
+
+    if (routeLegMintMatches(item.mint, outMint)) {
+      total += amt;
+      continue;
+    }
+
+    const feeUi = feeAmountToUi(item.amountRaw, item.mint);
+    const feePrice = lookupMintPriceUsd(item.mint, quote);
+    const outPrice = lookupMintPriceUsd(outMint, quote);
+    if (
+      feeUi != null &&
+      Number.isFinite(feePrice) &&
+      feePrice > 0 &&
+      Number.isFinite(outPrice) &&
+      outPrice > 0
+    ) {
+      const outUi = (feeUi * feePrice) / outPrice;
+      const outRawNum = Math.round(outUi * 10 ** deps.getMintDecimals(outMint));
+      if (Number.isFinite(outRawNum) && outRawNum > 0) {
+        try {
+          total += BigInt(outRawNum);
+        } catch {
+          /* skip overflow */
         }
       }
+      continue;
+    }
+
+    if (inRaw && inRaw > 0n && quotedOutRaw > 0n && routeLegMintMatches(item.mint, inputMint)) {
+      total += (amt * quotedOutRaw) / inRaw;
     }
   }
   return total;
@@ -918,6 +935,10 @@ function computeRunningRetentionPctThroughHop(
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   if (throughPlanIndex < 0 || throughPlanIndex >= plan.length) return 100;
 
+  // ix-builder enrichment carries the authoritative retention % — print it, don't recompute.
+  const enrichedOut = plan[throughPlanIndex]?._retentionOutPct;
+  if (typeof enrichedOut === 'number' && Number.isFinite(enrichedOut)) return enrichedOut;
+
   let running = 100;
   for (let i = 0; i <= throughPlanIndex; i++) {
     running *= computeHopStepRetentionFactor(plan[i]!, quote, i, i === plan.length - 1);
@@ -942,16 +963,26 @@ function resolveHopRetentionPctsAtHop(
   step: VybeRoutePlanStepLite,
   isLastHop: boolean,
 ): { inPct: number; outPct: number; outTitle: string | null } {
+  const outTitle = resolveHopRetentionPctTitle(quote, planIndex, step, isLastHop);
+
+  // ix-builder enrichment provides the in/out retention % directly — print, don't recompute.
+  const enrichedIn = step._retentionInPct;
+  const enrichedOut = step._retentionOutPct;
+  if (
+    typeof enrichedIn === 'number' &&
+    Number.isFinite(enrichedIn) &&
+    typeof enrichedOut === 'number' &&
+    Number.isFinite(enrichedOut)
+  ) {
+    return { inPct: enrichedIn, outPct: enrichedOut, outTitle };
+  }
+
   const inPct =
     planIndex > 0 ? computeRunningRetentionPctThroughHop(quote, planIndex - 1) : 100;
   const stepFactor = computeHopStepRetentionFactor(step, quote, planIndex, isLastHop);
   let outPct = inPct * stepFactor;
   if (outPct > inPct + 0.001) outPct = inPct;
-  return {
-    inPct,
-    outPct,
-    outTitle: resolveHopRetentionPctTitle(quote, planIndex, step, isLastHop),
-  };
+  return { inPct, outPct, outTitle };
 }
 
 /** Swap leg USD plus wallet-debited fees charged through the given hop index. */
@@ -1107,6 +1138,21 @@ function resolveQuoteYouPayFeeUsd(
 
 /** Phantom-style total pay: swap leg USD + wallet fee USD + acc rent USD (matches You pay sub-label). */
 export function resolveQuoteYouPayUsd(quote: Record<string, unknown>): QuoteYouPayUsdBreakdown | null {
+  // ix-builder enrichment is authoritative — print it instead of recomputing client-side.
+  const enriched = quote._youPay as
+    | { swapUsd?: number; feeUsd?: number; rentUsd?: number; totalUsd?: number }
+    | undefined;
+  if (enriched && typeof enriched === 'object' && Number(enriched.totalUsd) > 0) {
+    const feeUsd = Number(enriched.feeUsd ?? 0);
+    const rentUsd = Number(enriched.rentUsd ?? 0);
+    return {
+      swapUsd: Number(enriched.swapUsd ?? 0),
+      feeUsd: feeUsd > 0 ? feeUsd : null,
+      rentUsd: rentUsd > 0 ? rentUsd : null,
+      totalUsd: Number(enriched.totalUsd),
+    };
+  }
+
   const swapUsd = deps.getQuoteSwapUsdValue(quote);
   if (swapUsd == null || swapUsd <= 0) return null;
 
@@ -1168,7 +1214,12 @@ export interface FinalReceivePctBreakdown {
 export function computeFinalReceivePctBreakdown(
   quote: Record<string, unknown>,
 ): FinalReceivePctBreakdown | null {
-  const outUsd = deps.getQuoteReceiveUsd(quote);
+  // Prefer ix-builder's net receive USD so the final % matches the engine's retentionOutPct.
+  const enrichedReceive = quote._youReceive as { netUsd?: number } | undefined;
+  const outUsd =
+    enrichedReceive && Number(enrichedReceive.netUsd) > 0
+      ? Number(enrichedReceive.netUsd)
+      : deps.getQuoteReceiveUsd(quote);
   if (outUsd == null || outUsd <= 0) return null;
 
   const youPay = resolveQuoteYouPayUsd(quote);
@@ -1326,6 +1377,10 @@ function resolveHopOutAmounts(
   } else if (!netRaw && isLastHop) {
     const fromOut = parsePositiveBigInt(String(quote.outAmount ?? ''));
     if (fromOut && fromOut < quotedRaw) netRaw = fromOut;
+  } else if (!netRaw && feeDeductionOut > 0n && quotedRaw > feeDeductionOut) {
+    netRaw = quotedRaw - feeDeductionOut;
+  } else if (!netRaw) {
+    netRaw = quotedRaw;
   }
   if (!netRaw) return null;
 
@@ -1417,10 +1472,6 @@ function hopLocalOutRetentionFactor(
   if (!amounts) return null;
   const { netRaw, grossRaw, outMint } = amounts;
 
-  if (vybeBuildSkipsSimQuotedRetentionHaircut(step, quote, outMint)) {
-    return 1;
-  }
-
   if (grossRaw > 0n && netRaw < grossRaw) {
     const f = Number(netRaw) / Number(grossRaw);
     if (Number.isFinite(f) && f > 0 && f <= 1) return f;
@@ -1431,6 +1482,10 @@ function hopLocalOutRetentionFactor(
   if (netUi > 0 && hopFeeUi > 0) {
     const f = netUi / (netUi + hopFeeUi);
     if (Number.isFinite(f) && f > 0 && f <= 1) return f;
+  }
+
+  if (vybeBuildSkipsSimQuotedRetentionHaircut(step, quote, outMint)) {
+    return 1;
   }
 
   return 1;
@@ -1835,8 +1890,16 @@ export function renderQuoteReceiveHeroValueHtml(
 
 /** Sub-label under You receive — swap output USD plus input rent reclaim when present. */
 export function getQuoteYouReceiveSubLabel(quote: Record<string, unknown>): string | null {
-  const receiveUsd = deps.getQuoteReceiveUsd(quote);
-  const reclaimUsd = sumInputQuoteRentReclaimUsd(quote);
+  // ix-builder enrichment carries the receive + reclaim USD — print it, don't recompute.
+  const enriched = quote._youReceive as { outUsd?: number; reclaimUsd?: number } | undefined;
+  const receiveUsd =
+    enriched && Number.isFinite(enriched.outUsd)
+      ? Number(enriched.outUsd)
+      : deps.getQuoteReceiveUsd(quote);
+  const reclaimUsd =
+    enriched && Number.isFinite(enriched.reclaimUsd)
+      ? Number(enriched.reclaimUsd)
+      : sumInputQuoteRentReclaimUsd(quote);
   if (receiveUsd == null && reclaimUsd <= 0) return null;
   let valuePart = '';
   if (receiveUsd != null && receiveUsd > 0) {
@@ -2867,6 +2930,11 @@ function computeFeeUsdNumeric(
   item: HopFeeItemLite,
   quote: Record<string, unknown>,
 ): number | null {
+  // ix-builder enrichment carries each fee item's USD — print it, don't recompute.
+  if (typeof item.usd === 'number' && Number.isFinite(item.usd) && item.usd > 0) {
+    return item.usd;
+  }
+
   const feeUi = feeAmountToUi(item.amountRaw, item.mint);
   if (feeUi == null || feeUi <= 0) return null;
 
@@ -3823,6 +3891,28 @@ function parseHopPctLabel(label: string | null): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function renderHopOutgoingLinkBadge(
+  quote: Record<string, unknown>,
+  planIndex: number,
+  step: VybeRoutePlanStepLite,
+  isLastHop: boolean,
+): string {
+  const retention = resolveHopRetentionPctsAtHop(quote, planIndex, step, isLastHop);
+  const reclaimBonusPct = computeHopRentReclaimBonusPct(quote, planIndex, isLastHop);
+  const baseOutPct =
+    retention.outPct < retention.inPct - 0.001 ? retention.outPct : retention.inPct;
+
+  if (reclaimBonusPct > 0.001) {
+    return renderRoutePctBadgeWithReclaim(baseOutPct, reclaimBonusPct, retention.outTitle);
+  }
+
+  return renderRoutePctBadge(
+    formatHopPctLabel(retention.outPct),
+    'out',
+    retention.outTitle,
+  );
+}
+
 function renderRouteTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<string, unknown>): string {
   const metas: RouteHopMeta[] = [];
   collectRouteHopMetas(node, metas);
@@ -3835,33 +3925,7 @@ function renderRouteTrack(node: RouteNode, legs: RouteHopLeg[], quote: Record<st
       const isLastHop = i === metas.length - 1;
       const inLink =
         i === 0 ? renderRoutePctBadge(hopPercentLabel(meta.step)) : '';
-      const reclaimBonusPct = computeHopRentReclaimBonusPct(
-        quote,
-        meta.planIndex,
-        isLastHop,
-      );
-      const retention = resolveHopRetentionPctsAtHop(
-        quote,
-        meta.planIndex,
-        meta.step,
-        isLastHop,
-      );
-      const baseOutPct =
-        retention.outPct < retention.inPct - 0.001 ? retention.outPct : retention.inPct;
-      let outLink = '';
-      if (reclaimBonusPct > 0.001) {
-        outLink = renderRoutePctBadgeWithReclaim(
-          baseOutPct,
-          reclaimBonusPct,
-          retention.outTitle,
-        );
-      } else if (retention.outPct < retention.inPct - 0.001) {
-        outLink = renderRoutePctBadge(
-          formatHopPctLabel(retention.outPct),
-          'out',
-          retention.outTitle,
-        );
-      }
+      const outLink = renderHopOutgoingLinkBadge(quote, meta.planIndex, meta.step, isLastHop);
       return inLink + renderRouteMarketNode(meta, leg, quote, isLastHop) + outLink;
     })
     .join('');

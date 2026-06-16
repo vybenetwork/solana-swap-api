@@ -5,13 +5,11 @@
 
 import type { AxiosInstance } from 'axios';
 import { isLocalVybeApi } from '../config.js';
-import { createSolanaConnection } from './solana-connection.js';
 import {
-  fetchRouteTradesViaIxBuilder,
-  fetchRouteMarketsViaIxBuilder,
-  fetchScanPoolsViaIxBuilder,
+  fetchDiscoverPoolsViaIxBuilder,
   type ScannedPoolCandidate,
-  type IxBuilderRouteMarketRow,
+  type IxBuilderDiscoverPool,
+  type IxBuilderDiscoverPoolsResponse,
 } from './ix-builder-route-trades.js';
 import { normalizeMarketFetchMode, type MarketFetchMode } from './swap-build.js';
 import type { VybeTrade } from '../types/api.js';
@@ -37,9 +35,8 @@ export {
   MIN_TICK_ARRAY_LIQUIDITY_USD,
 } from './pinned-swap-params.js';
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
-import { staticAccountKeysFromSwapTx, validateTradeRoutedBuildOnChain } from './pool-address-validation.js';
-import { simulateSwapEffects } from './simulate-swap-output.js';
-import { evaluateQuoteBridgeSimEligibility, simulateQuoteBridgePreSwapLeg } from './quote-bridge-sim.js';
+import { staticAccountKeysFromSwapTx, validateTradeBuildStatic } from './pool-address-validation.js';
+import { isQuoteBridgeBuild } from './quote-bridge-detect.js';
 import { toVybeSwapMint } from './sol-mints.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams } from './trades.js';
 
@@ -279,8 +276,6 @@ export interface RouteBuildSuccess {
   candidate: EnumeratedRouteCandidate;
   build: import('../types/swap.js').VybeSwapBuildResponse;
   selected: TradeMarketCandidate;
-  /** Populated during enumerate validate — reused for route card quotes (no second sim). */
-  simulation?: import('./simulate-swap-output.js').SwapSimulationResult;
 }
 
 export interface RouteViaTradesBuildAttemptLog {
@@ -342,20 +337,15 @@ export function buildTxIncludesAddresses(
   return { ok: true };
 }
 
-async function validateTradeBuild(
+/**
+ * Validate a built route without re-simulating: static pool/program presence + ix-builder's
+ * own simulation result (the build was requested with enrich:true). swap-api never simulates.
+ */
+function validateTradeBuild(
   build: import('../types/swap.js').VybeSwapBuildResponse,
   candidate: TradeMarketCandidate,
-  swapParams: Pick<
-    import('./swap-build.js').BuildSwapParams,
-    'accountAddress' | 'inputMintAddress' | 'outputMintAddress'
-  >,
-): Promise<{ ok: boolean; reason: string; simulation?: import('./simulate-swap-output.js').SwapSimulationResult }> {
-  const connection = createSolanaConnection('validateTradeBuild');
-  console.info(
-    `[solana-rpc] validateTradeBuild pool=${candidate.marketAddress.slice(0, 8)}… ` +
-      `program=${candidate.programAddress.slice(0, 8)}…`,
-  );
-  const result = await validateTradeRoutedBuildOnChain(connection, build, {
+): { ok: boolean; reason: string } {
+  const result = validateTradeBuildStatic(build, {
     marketAddress: candidate.marketAddress,
     programAddress: candidate.programAddress,
   });
@@ -368,50 +358,19 @@ async function validateTradeBuild(
     return { ok: false, reason: 'Built tx missing' };
   }
 
-  const bridgeSim = await evaluateQuoteBridgeSimEligibility(
-    connection,
-    swapParams.accountAddress.trim(),
-    build,
-  );
-  if (!bridgeSim.canSimulate) {
-    console.info(
-      `[quote-bridge] ${bridgeSim.reason}` +
-        (bridgeSim.intermediateMint
-          ? ` mint=${bridgeSim.intermediateMint.slice(0, 8)}… need=${bridgeSim.requiredIntermediateRaw} have=${bridgeSim.availableIntermediateRaw}`
-          : ''),
-    );
-    const vybeInputMint = toVybeSwapMint(swapParams.inputMintAddress.trim());
-    const preSwapSim = await simulateQuoteBridgePreSwapLeg(
-      build,
-      swapParams.accountAddress.trim(),
-      vybeInputMint,
-    );
-    return {
-      ok: true,
-      reason: '',
-      simulation: preSwapSim ? { ...preSwapSim, outputDeltaRaw: null } : undefined,
-    };
+  const sim = build.enrichment?.simulated;
+  if (sim) {
+    if (sim.err != null) {
+      return { ok: false, reason: `Swap simulation failed: ${JSON.stringify(sim.err)}` };
+    }
+    // outputDeltaRaw === null → main-leg sim intentionally skipped (quote-bridge buy where the
+    // wallet does not yet hold the bridge mint). That is a valid route; only a real 0 fails.
+    if (sim.outputDeltaRaw === '0') {
+      return { ok: false, reason: 'Swap simulation returned zero output' };
+    }
   }
 
-  const sim = await simulateSwapEffects(
-    tx,
-    swapParams.accountAddress.trim(),
-    swapParams.outputMintAddress.trim(),
-    swapParams.inputMintAddress.trim(),
-    undefined,
-    { pinnedPoolAddress: candidate.marketAddress },
-  );
-  if (sim.simulationErr) {
-    return {
-      ok: false,
-      reason: `Swap simulation failed: ${JSON.stringify(sim.simulationErr)}`,
-    };
-  }
-  if (!sim.outputDeltaRaw || sim.outputDeltaRaw === '0') {
-    return { ok: false, reason: 'Swap simulation returned zero output' };
-  }
-
-  return { ok: true, reason: '', simulation: sim };
+  return { ok: true, reason: '' };
 }
 
 export function normalizeBuildErrorMessage(message: string, fallback: string): string {
@@ -484,24 +443,6 @@ async function fetchTradesForPair(
 ): Promise<TradesFetchResult> {
   const fetchParams = buildTradesFetchParams(inputMint, outputMint, limit);
 
-  if (isLocalVybeApi()) {
-    try {
-      const res = await fetchRouteTradesViaIxBuilder(inputMint, outputMint, limit);
-      const raw = res.data ?? [];
-      const trades = raw.filter((t) => tradeMatchesSellInputDirection(t, inputMint, outputMint));
-      return {
-        trades,
-        rawCount: res.rawCount,
-        fetchParams,
-        tradesUnavailable: false,
-        tradesSource: res.source,
-      };
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[route-via-trades] ix-builder /route-trades failed, falling back to Vybe API: ${msg}`);
-    }
-  }
-
   try {
     const res = await getTrades(http, fetchParams);
     const raw = res.data ?? [];
@@ -533,85 +474,6 @@ function resolveFromTrades(
   const ranked = rankAllMarketsFromTrades(trades, inputMint, outputMint);
   const resolved = resolveMarketsForRouteViaTrades(ranked);
   return { ...resolved, pairTradeCount };
-}
-
-export async function fetchTopMarketsFromTrades(
-  http: AxiosInstance,
-  params: FetchTopMarketsParams,
-): Promise<{
-  candidates: TradeMarketCandidate[];
-  topMarkets: RankedTradeMarket[];
-  maxTradeCount: number;
-  minCountThreshold: number;
-  tradesFetched: number;
-  tradesFetchedForward: number;
-  tradesFetchedInverse: number;
-  pairTradeCount: number;
-  tradesUnavailable?: boolean;
-  tradesSource?: TradesFetchResult['tradesSource'];
-}> {
-  const inputMint = params.inputMintAddress.trim();
-  const outputMint = params.outputMintAddress.trim();
-  const limit = params.limit ?? ROUTE_VIA_TRADES_LIMIT;
-
-  const { trades, rawCount, tradesUnavailable, tradesSource } = await fetchTradesForPair(
-    http,
-    inputMint,
-    outputMint,
-    limit,
-  );
-  const resolved = resolveFromTrades(trades, inputMint, outputMint);
-
-  return {
-    candidates: resolved.queueCandidates,
-    topMarkets: resolved.topMarkets,
-    maxTradeCount: resolved.maxTradeCount,
-    minCountThreshold: resolved.minCountThreshold,
-    tradesFetched: rawCount,
-    tradesFetchedForward: rawCount,
-    tradesFetchedInverse: 0,
-    pairTradeCount: resolved.pairTradeCount,
-    tradesUnavailable: tradesUnavailable === true,
-    tradesSource,
-  };
-}
-
-export async function fetchTopMarketsFromMarketsSnapshot(
-  inputMint: string,
-  outputMint: string,
-  limit = 50,
-): Promise<{
-  candidates: TradeMarketCandidate[];
-  marketsFetched: number;
-  marketsSource?: 'clickhouse_markets' | 'vybe_api';
-}> {
-  if (!isLocalVybeApi()) {
-    return { candidates: [], marketsFetched: 0 };
-  }
-  const res = await fetchRouteMarketsViaIxBuilder(inputMint, outputMint, limit);
-  const candidates: TradeMarketCandidate[] = [];
-  for (const row of res.data ?? []) {
-    const marketAddress = row.marketAddress?.trim();
-    const programAddress = row.programAddress?.trim();
-    if (!marketAddress || !programAddress) continue;
-    if (!isSupportedIxBuilderProgram(programAddress)) continue;
-    const score = Number(row.rankScore ?? row.totalValueUsd ?? 0);
-    candidates.push({
-      marketAddress,
-      programAddress,
-      protocol: programAddressToProtocol(programAddress),
-      ixBuilderProtocol: programAddressToIxBuilderProtocol(programAddress),
-      programLabel: programLabelForAddress(programAddress),
-      tradeCount: 0,
-      marketScore: score,
-    });
-  }
-  candidates.sort((a, b) => (b.marketScore ?? 0) - (a.marketScore ?? 0));
-  return {
-    candidates,
-    marketsFetched: candidates.length,
-    marketsSource: res.source,
-  };
 }
 
 export interface RouteViaTradesQueueMeta {
@@ -675,153 +537,6 @@ function candidatePairKey(marketAddress: string, programAddress: string): string
   return `${marketAddress.trim()}\0${programAddress.trim()}`;
 }
 
-export function mergeDiscoveryCandidates(
-  tradeQueued: QueuedMarketEntry[],
-  marketQueued: QueuedMarketEntry[],
-  rpcPools: ScannedPoolCandidate[],
-): EnumeratedRouteCandidate[] {
-  const tradeByKey = new Map<string, QueuedMarketEntry>();
-  for (const entry of tradeQueued) {
-    if (!isSupportedIxBuilderProgram(entry.programAddress)) continue;
-    tradeByKey.set(candidatePairKey(entry.marketAddress, entry.programAddress), entry);
-  }
-
-  const rpcByKey = new Map<string, ScannedPoolCandidate>();
-  for (const pool of rpcPools) {
-    const market = pool.marketAddress?.trim();
-    const program = pool.programAddress?.trim();
-    if (!market || !program) continue;
-    rpcByKey.set(candidatePairKey(market, program), pool);
-  }
-
-  const toCandidate = (
-    entry: QueuedMarketEntry,
-    baseSource: RouteCandidateSource,
-    queueIndex: number,
-  ): EnumeratedRouteCandidate => {
-    const key = candidatePairKey(entry.marketAddress, entry.programAddress);
-    const tradeEntry = tradeByKey.get(key);
-    const rpc = rpcByKey.get(key);
-    let source: RouteCandidateSource = baseSource;
-    if (rpc) {
-      source =
-        baseSource === 'markets' ? 'markets+rpc' : baseSource === 'trades' ? 'trades+rpc' : baseSource;
-    }
-    return {
-      ...entry,
-      tradeCount: tradeEntry?.tradeCount ?? entry.tradeCount ?? 0,
-      marketScore: entry.marketScore ?? tradeEntry?.marketScore,
-      programLabel: entry.programLabel ?? programLabelForAddress(entry.programAddress),
-      queueIndex,
-      source,
-      rpcMeta: rpc
-        ? {
-            liquidity: rpc.liquidity,
-            preSwapNeeded: rpc.preSwapNeeded,
-            quoteBridge: rpc.quoteBridge ?? undefined,
-          }
-        : undefined,
-    };
-  };
-
-  const marketSlots = marketQueued.filter((e) => isSupportedIxBuilderProgram(e.programAddress));
-  const tradeSlots = tradeQueued.filter((e) => isSupportedIxBuilderProgram(e.programAddress));
-
-  const top5Liq = marketSlots.slice(0, ROUTE_ENUMERATE_LIQUIDITY_SLOTS);
-  const topMarketLiqPool = marketSlots.slice(0, ROUTE_ENUMERATE_CANDIDATE_POOL);
-  const top5Keys = new Set(
-    top5Liq.map((e) => candidatePairKey(e.marketAddress, e.programAddress)),
-  );
-
-  const tradeInTop5 = tradeSlots.some((e) =>
-    top5Keys.has(candidatePairKey(e.marketAddress, e.programAddress)),
-  );
-
-  const ordered: QueuedMarketEntry[] = [];
-  const seen = new Set<string>();
-  const pushUnique = (entry: QueuedMarketEntry) => {
-    const key = candidatePairKey(entry.marketAddress, entry.programAddress);
-    if (seen.has(key)) return;
-    seen.add(key);
-    ordered.push(entry);
-  };
-
-  if (marketSlots.length > 0) {
-    if (tradeInTop5) {
-      for (const entry of topMarketLiqPool) pushUnique(entry);
-    } else {
-      for (const entry of top5Liq) pushUnique(entry);
-      const topTrade = tradeSlots[0];
-      if (topTrade) {
-        const tradeKey = candidatePairKey(topTrade.marketAddress, topTrade.programAddress);
-        if (!top5Keys.has(tradeKey)) {
-          pushUnique(topTrade);
-        } else if (topMarketLiqPool[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]) {
-          pushUnique(topMarketLiqPool[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]!);
-        }
-      } else if (topMarketLiqPool[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]) {
-        pushUnique(topMarketLiqPool[ROUTE_ENUMERATE_LIQUIDITY_SLOTS]!);
-      }
-    }
-  } else if (tradeSlots.length > 0) {
-    for (const entry of tradeSlots.slice(0, ROUTE_ENUMERATE_CANDIDATE_POOL)) pushUnique(entry);
-  }
-
-  // Surface Pumpswap quote-bridge routes (e.g. WSOL→USDC→token) even when trades/markets
-  // already found direct WSOL pools — they are a distinct execution path.
-  for (const pool of rpcPools) {
-    if (ordered.length >= ROUTE_ENUMERATE_CANDIDATE_POOL) break;
-    if (!pool.quoteBridge && !pool.preSwapNeeded) continue;
-    const market = pool.marketAddress?.trim();
-    const program = pool.programAddress?.trim();
-    if (!market || !program || !isSupportedIxBuilderProgram(program)) continue;
-    pushUnique({
-      marketAddress: market,
-      programAddress: program,
-      protocol: programAddressToProtocol(program),
-      ixBuilderProtocol: programAddressToIxBuilderProtocol(program),
-      tradeCount: 0,
-      programLabel: programLabelForAddress(program),
-      queueIndex: ordered.length + 1,
-    });
-  }
-
-  if (ordered.length === 0) {
-    for (const pool of rpcPools) {
-      if (ordered.length >= ROUTE_ENUMERATE_CANDIDATE_POOL) break;
-      const market = pool.marketAddress?.trim();
-      const program = pool.programAddress?.trim();
-      if (!market || !program || !isSupportedIxBuilderProgram(program)) continue;
-      pushUnique({
-        marketAddress: market,
-        programAddress: program,
-        protocol: programAddressToProtocol(program),
-        ixBuilderProtocol: programAddressToIxBuilderProtocol(program),
-        tradeCount: 0,
-        programLabel: programLabelForAddress(program),
-        queueIndex: ordered.length + 1,
-      });
-    }
-  }
-
-  return ordered.slice(0, ROUTE_ENUMERATE_CANDIDATE_POOL).map((entry, i) => {
-    const key = candidatePairKey(entry.marketAddress, entry.programAddress);
-    const fromMarkets = marketSlots.some(
-      (m) => candidatePairKey(m.marketAddress, m.programAddress) === key,
-    );
-    const baseSource: RouteCandidateSource = fromMarkets ? 'markets' : 'trades';
-    return toCandidate(entry, baseSource, i + 1);
-  });
-}
-
-/** @deprecated Use mergeDiscoveryCandidates */
-export function mergeTradeAndRpcCandidates(
-  tradeQueued: QueuedMarketEntry[],
-  rpcPools: ScannedPoolCandidate[],
-): EnumeratedRouteCandidate[] {
-  return mergeDiscoveryCandidates(tradeQueued, [], rpcPools);
-}
-
 const EMPTY_TRADE_DISCOVERY = {
   candidates: [] as TradeMarketCandidate[],
   topMarkets: [] as RankedTradeMarket[],
@@ -835,178 +550,165 @@ const EMPTY_TRADE_DISCOVERY = {
   tradesSource: undefined as TradesFetchResult['tradesSource'],
 };
 
-function countUniqueDiscoveryPairs(
-  tradeCandidates: TradeMarketCandidate[],
-  marketCandidates: TradeMarketCandidate[],
-): number {
-  const seen = new Set<string>();
-  for (const c of tradeCandidates) {
-    seen.add(candidatePairKey(c.marketAddress, c.programAddress));
-  }
-  for (const c of marketCandidates) {
-    seen.add(candidatePairKey(c.marketAddress, c.programAddress));
-  }
-  return seen.size;
+/** Map one ix-builder /discover-pools pool into an enumerated route candidate for quote probing. */
+function discoverPoolToRouteCandidate(
+  pool: IxBuilderDiscoverPool,
+  index: number,
+): EnumeratedRouteCandidate {
+  const programAddress = pool.programAddress?.trim() ?? '';
+  const isBridge = Boolean(pool.quoteBridge || pool.preSwapNeeded || pool.postSwapNeeded);
+  const baseSource: RouteCandidateSource =
+    pool.source === 'markets' ? 'markets' : pool.source === 'trades' ? 'trades' : 'rpc';
+  const source: RouteCandidateSource = isBridge
+    ? baseSource === 'markets'
+      ? 'markets+rpc'
+      : baseSource === 'trades'
+        ? 'trades+rpc'
+        : 'rpc'
+    : baseSource;
+  const marketScore =
+    typeof pool.marketScore === 'number' && Number.isFinite(pool.marketScore)
+      ? pool.marketScore
+      : undefined;
+  const quoteBridge = pool.quoteBridge
+    ? {
+        bridgeMint: pool.quoteBridge.bridgeMint,
+        userVettedMint: pool.quoteBridge.userVettedMint,
+        isBuyingToken: pool.quoteBridge.isBuyingToken,
+      }
+    : undefined;
+  return {
+    marketAddress: pool.marketAddress,
+    programAddress,
+    protocol: programAddressToProtocol(programAddress),
+    ixBuilderProtocol: programAddressToIxBuilderProtocol(programAddress),
+    tradeCount: pool.tradeCount ?? 0,
+    marketScore,
+    programLabel: programLabelForAddress(programAddress),
+    queueIndex: index + 1,
+    source,
+    rpcMeta:
+      pool.liquidity != null || isBridge
+        ? { liquidity: pool.liquidity, preSwapNeeded: pool.preSwapNeeded, quoteBridge }
+        : undefined,
+  };
 }
 
+/**
+ * Discover ranked route candidates for a mint pair via ix-builder's GET /discover-pools.
+ *
+ * ix-builder owns all ranking, dedupe, quote-bridge augmentation and direct-route diversity;
+ * swap-api just maps the returned queue into route candidates. Returns an empty queue when not
+ * running against a local ix-builder (remote Vybe handles its own routing).
+ */
 export async function discoverRouteCandidates(
-  http: AxiosInstance,
+  _http: AxiosInstance,
   inputMint: string,
   outputMint: string,
   marketFetchMode: MarketFetchMode,
 ): Promise<{
-  tradeData: Awaited<ReturnType<typeof fetchTopMarketsFromTrades>> | typeof EMPTY_TRADE_DISCOVERY;
+  tradeData: typeof EMPTY_TRADE_DISCOVERY;
   marketCandidates: TradeMarketCandidate[];
   marketsSnapshotFetched: number;
   marketsSnapshotSource?: 'clickhouse_markets' | 'vybe_api';
   rpcPools: ScannedPoolCandidate[];
   candidates: EnumeratedRouteCandidate[];
 }> {
-  const includeTrades = marketFetchMode === 'full' || marketFetchMode === 'trades';
-  const includeMarkets =
-    (marketFetchMode === 'full' || marketFetchMode === 'markets') && isLocalVybeApi();
-  const includeRpc =
-    (marketFetchMode === 'full' || marketFetchMode === 'rpc') && isLocalVybeApi();
+  const empty = {
+    tradeData: { ...EMPTY_TRADE_DISCOVERY },
+    marketCandidates: [] as TradeMarketCandidate[],
+    marketsSnapshotFetched: 0,
+    marketsSnapshotSource: undefined as 'clickhouse_markets' | 'vybe_api' | undefined,
+    rpcPools: [] as ScannedPoolCandidate[],
+    candidates: [] as EnumeratedRouteCandidate[],
+  };
 
-  console.info(
-    `[route-discovery] start mode=${marketFetchMode} steps=` +
-      `[${includeTrades ? 'trades' : ''}${includeTrades && includeMarkets ? '+' : ''}` +
-      `${includeMarkets ? 'markets' : ''}${(includeTrades || includeMarkets) && includeRpc ? '→' : ''}` +
-      `${includeRpc ? 'rpc' : ''}] local=${isLocalVybeApi()}`,
-  );
-
-  let tradeData: Awaited<ReturnType<typeof fetchTopMarketsFromTrades>> | typeof EMPTY_TRADE_DISCOVERY =
-    { ...EMPTY_TRADE_DISCOVERY };
-  let marketCandidates: TradeMarketCandidate[] = [];
-  let marketsSnapshotFetched = 0;
-  let marketsSnapshotSource: 'clickhouse_markets' | 'vybe_api' | undefined;
-  let rpcPools: ScannedPoolCandidate[] = [];
-
-  const tradesPromise = includeTrades
-    ? fetchTopMarketsFromTrades(http, {
-        inputMintAddress: inputMint,
-        outputMintAddress: outputMint,
-      })
-    : Promise.resolve({ ...EMPTY_TRADE_DISCOVERY });
-
-  const marketsPromise = includeMarkets
-    ? fetchTopMarketsFromMarketsSnapshot(inputMint, outputMint).catch((err) => {
-        console.warn(
-          `[route-via-trades] route-markets failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        if (marketFetchMode === 'markets') throw err;
-        return null;
-      })
-    : Promise.resolve(null);
-
-  const [tradesResult, marketsResult] = await Promise.all([tradesPromise, marketsPromise]);
-
-  if (includeTrades) {
-    tradeData = tradesResult;
+  if (!isLocalVybeApi()) {
+    return empty;
   }
 
-  if (marketsResult) {
-    marketCandidates = marketsResult.candidates;
-    marketsSnapshotFetched = marketsResult.marketsFetched;
-    marketsSnapshotSource = marketsResult.marketsSource;
-    console.info(
-      `[route-discovery] markets source=${marketsResult.marketsSource ?? 'unknown'} ` +
-        `eligible=${marketCandidates.length}`,
+  console.info(`[route-discovery] start mode=${marketFetchMode} via ix-builder /discover-pools`);
+
+  let discover: IxBuilderDiscoverPoolsResponse;
+  try {
+    discover = await fetchDiscoverPoolsViaIxBuilder(inputMint, outputMint, marketFetchMode, true);
+  } catch (err) {
+    console.warn(
+      `[route-via-trades] ix-builder /discover-pools failed: ${err instanceof Error ? err.message : String(err)}`,
     );
+    return empty;
   }
 
-  let shouldIncludeRpc = includeRpc;
-  if (marketFetchMode === 'full' && includeRpc) {
-    const tradeEligible = tradeData.candidates.length;
-    const marketEligible = marketCandidates.length;
-    const combinedUnique = countUniqueDiscoveryPairs(tradeData.candidates, marketCandidates);
-    if (
-      tradeEligible >= ROUTE_DISCOVERY_RPC_SKIP_MIN ||
-      marketEligible >= ROUTE_DISCOVERY_RPC_SKIP_MIN ||
-      combinedUnique >= ROUTE_DISCOVERY_RPC_SKIP_MIN
-    ) {
-      shouldIncludeRpc = false;
-      console.info(
-        `[route-discovery] skipping RPC scan (trades=${tradeEligible} markets=${marketEligible} combined=${combinedUnique})`,
-      );
-    }
-  }
+  const pools = Array.isArray(discover.pools) ? discover.pools : [];
+  const meta = discover.meta ?? {};
+  const candidates = pools
+    .filter(
+      (p) =>
+        Boolean(p.marketAddress?.trim()) &&
+        Boolean(p.programAddress?.trim()) &&
+        isSupportedIxBuilderProgram(p.programAddress),
+    )
+    .map(discoverPoolToRouteCandidate);
 
-  if (shouldIncludeRpc) {
-    rpcPools = await fetchScanPoolsViaIxBuilder(inputMint, outputMint).catch((err) => {
-      console.warn(
-        `[route-via-trades] scan-pools failed: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return [] as ScannedPoolCandidate[];
-    });
-  } else if (includeRpc) {
-    // Trades/markets may satisfy the RPC skip threshold — still fetch quote-bridge pools.
-    rpcPools = await fetchScanPoolsViaIxBuilder(inputMint, outputMint)
-      .then((pools) => pools.filter((p) => p.quoteBridge || p.preSwapNeeded))
-      .catch((err) => {
-        console.warn(
-          `[route-via-trades] quote-bridge scan failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-        return [] as ScannedPoolCandidate[];
-      });
-    if (rpcPools.length > 0) {
-      console.info(`[route-discovery] quote-bridge-only rpc=${rpcPools.length} (full RPC scan skipped)`);
-    }
-  }
+  const tradeCandidates = candidates.filter(
+    (c) => c.source === 'trades' || c.source === 'trades+rpc',
+  );
+  const marketCandidates = candidates.filter(
+    (c) => c.source === 'markets' || c.source === 'markets+rpc',
+  );
 
-  const tradeQueued = includeTrades
-    ? toQueuedMarketEntries(
-        filterRouteQueueByLiquidity(
-          enrichCandidatesWithMarketScores(tradeData.candidates, marketCandidates),
-          'trades',
-        ),
-      )
-    : [];
-  const marketQueued = includeMarkets
-    ? toQueuedMarketEntries(filterRouteQueueByLiquidity(marketCandidates, 'markets'))
-    : [];
-  const marketScoreByKey = new Map(
-    marketCandidates.map((m) => [
-      candidatePairKey(m.marketAddress, m.programAddress),
-      m.marketScore,
-    ]),
-  );
-  const filteredRpcPools = filterRouteQueueByLiquidity(
-    rpcPools.map((p) => {
-      const market = p.marketAddress?.trim() ?? '';
-      const program = p.programAddress?.trim() ?? '';
-      return {
-        ...p,
-        programAddress: program,
-        marketScore: marketScoreByKey.get(candidatePairKey(market, program)),
-      };
-    }),
-    'rpc',
-  );
-  const candidates = mergeDiscoveryCandidates(tradeQueued, marketQueued, filteredRpcPools);
+  const topMarkets: RankedTradeMarket[] = candidates.map((c, i) => ({
+    marketAddress: c.marketAddress,
+    programAddress: c.programAddress,
+    protocol: c.protocol,
+    ixBuilderProtocol: c.ixBuilderProtocol,
+    tradeCount: c.tradeCount,
+    marketScore: c.marketScore,
+    rank: i + 1,
+    programLabel: c.programLabel,
+    supportedProgram: true,
+    eligible: true,
+  }));
 
-  const tradeInTop5 =
-    marketQueued.length > 0 &&
-    tradeQueued.some((t) => {
-      const top5 = marketQueued
-        .slice(0, ROUTE_ENUMERATE_LIQUIDITY_SLOTS)
-        .map((m) => candidatePairKey(m.marketAddress, m.programAddress));
-      return top5.includes(candidatePairKey(t.marketAddress, t.programAddress));
-    });
-  console.info(
-    `[route-discovery] merged=${candidates.length} strategy=` +
-      `${marketQueued.length === 0 ? 'trades-only' : tradeInTop5 ? 'top6-liquidity' : 'top5-liquidity+top-trade'}`,
-  );
+  const maxTradeCount = candidates.reduce((m, c) => Math.max(m, c.tradeCount ?? 0), 0);
+  const marketsSource =
+    meta.marketsSource === 'clickhouse_markets' || meta.marketsSource === 'vybe_api'
+      ? meta.marketsSource
+      : undefined;
+  const tradesSource: TradesFetchResult['tradesSource'] =
+    meta.tradesSource === 'clickhouse' || meta.tradesSource === 'vybe_api'
+      ? meta.tradesSource
+      : undefined;
+
+  const tradeData: typeof EMPTY_TRADE_DISCOVERY = {
+    candidates: tradeCandidates,
+    topMarkets,
+    maxTradeCount,
+    minCountThreshold: 0,
+    tradesFetched: meta.tradeEligible ?? tradeCandidates.length,
+    tradesFetchedForward: 0,
+    tradesFetchedInverse: 0,
+    pairTradeCount: 0,
+    tradesUnavailable: false,
+    tradesSource,
+  };
 
   console.info(
-    `[route-discovery] mode=${marketFetchMode} ` +
-      `${inputMint.slice(0, 8)}…→${outputMint.slice(0, 8)}… ` +
-      `trades=${tradeData.candidates.length} markets=${marketCandidates.length} ` +
-      `rpc=${filteredRpcPools.length} merged=${candidates.length}` +
-      (tradeData.tradesSource ? ` tradesSource=${tradeData.tradesSource}` : ''),
+    `[route-discovery] mode=${marketFetchMode} ${inputMint.slice(0, 8)}…→${outputMint.slice(0, 8)}… ` +
+      `pools=${candidates.length} trades=${tradeCandidates.length} markets=${marketCandidates.length} ` +
+      `direct=${meta.directPoolCount ?? 0} reserve=${meta.directReserveCount ?? 0} ` +
+      `strategy=${meta.strategy ?? 'n/a'}` +
+      (tradesSource ? ` tradesSource=${tradesSource}` : ''),
   );
 
-  return { tradeData, marketCandidates, marketsSnapshotFetched, marketsSnapshotSource, rpcPools: filteredRpcPools, candidates };
+  return {
+    tradeData,
+    marketCandidates,
+    marketsSnapshotFetched: meta.marketEligible ?? marketCandidates.length,
+    marketsSnapshotSource: marketsSource,
+    rpcPools: pools as unknown as ScannedPoolCandidate[],
+    candidates,
+  };
 }
 
 function quoteOutAmountRawFromBuild(build: import('../types/swap.js').VybeSwapBuildResponse): bigint {
@@ -1023,6 +725,17 @@ function sortRouteBuildSuccessesByQuotedOutput(successes: RouteBuildSuccess[]): 
   return [...successes].sort(
     (a, b) =>
       Number(quoteOutAmountRawFromBuild(b.build) - quoteOutAmountRawFromBuild(a.build)),
+  );
+}
+
+/** A route requires an extra hop when its build is a quote-bridge/pre-swap or the candidate is tagged so. */
+function buildRouteIsHopRequired(
+  build: import('../types/swap.js').VybeSwapBuildResponse,
+  candidate: EnumeratedRouteCandidate,
+): boolean {
+  return (
+    isQuoteBridgeBuild(build) ||
+    Boolean(candidate.rpcMeta?.quoteBridge || candidate.rpcMeta?.preSwapNeeded)
   );
 }
 
@@ -1063,79 +776,41 @@ async function buildRoutesForCandidates(
     return { successes, tried, buildLog, lastError };
   }
 
-  type QuoteProbe = {
-    queueEntry: EnumeratedRouteCandidate;
-    build: import('../types/swap.js').VybeSwapBuildResponse;
-    selected: TradeMarketCandidate;
-    outAmount: bigint;
-    buildLog: RouteViaTradesBuildAttemptLog[];
-  };
-
-  const quoteProbes: QuoteProbe[] = [];
-
-  for (const queueEntry of candidates) {
-    const attempt = quickProbeAttemptForQueueEntry(queueEntry);
-    if (!attempt) continue;
-    const probe = await tryQuoteProbeAttempt(http, body, queueEntry, attempt, buildSwap);
-    buildLog.push(...probe.buildLog);
-    tried.push(probe.queueEntry);
-    if (probe.ok) {
-      quoteProbes.push({
-        queueEntry,
-        build: probe.build,
-        selected: probe.selected,
-        outAmount: probe.outAmount,
-        buildLog: probe.buildLog,
-      });
-    } else {
-      lastError = probe.lastError;
-    }
-  }
-
-  quoteProbes.sort((a, b) => Number(b.outAmount - a.outAmount));
-
+  // Enumerate: build + on-chain validate candidates in queue order, stopping once
+  // ROUTE_ENUMERATE_MAX_ROUTES routes pass on-chain sim. The happy path runs exactly
+  // ROUTE_ENUMERATE_MAX_ROUTES simulations; deeper candidates are only probed to backfill failures.
   console.info(
-    `[route-discovery] quote-probe ranked=${quoteProbes.length} ` +
-      `sim-validating until ${ROUTE_ENUMERATE_MAX_ROUTES} pass (full on-chain sim each)`,
+    `[route-discovery] enumerate: build+sim in queue order until ${ROUTE_ENUMERATE_MAX_ROUTES} pass ` +
+      `(scan deeper only on errors)`,
   );
 
-  for (let i = 0; i < quoteProbes.length; i++) {
-    if (successes.length >= ROUTE_ENUMERATE_MAX_ROUTES) break;
-    const probe = quoteProbes[i]!;
-    console.info(
-      `[solana-rpc] quote-probe full validate rank=${i + 1} ` +
-        `pool=${probe.queueEntry.marketAddress.slice(0, 8)}…`,
-    );
-    const validation = await validateTradeBuild(probe.build, probe.queueEntry, body);
-
-    if (!validation.ok) {
-      lastError = describeTradeBuildRejectReasonFromValidation(validation.reason);
-      buildLog.push({
-        queueIndex: probe.queueEntry.queueIndex,
-        marketAddress: probe.queueEntry.marketAddress,
-        programLabel: probe.queueEntry.programLabel,
-        tradeCount: probe.queueEntry.tradeCount,
-        attempt: 'quote-probe validate',
-        success: false,
-        error: lastError,
-      });
-      continue;
+  let nextCandidateIndex = candidates.length;
+  for (let i = 0; i < candidates.length; i++) {
+    if (successes.length >= ROUTE_ENUMERATE_MAX_ROUTES) {
+      nextCandidateIndex = i;
+      break;
     }
-    successes.push({
-      candidate: probe.queueEntry,
-      build: probe.build,
-      selected: probe.selected,
-      simulation: validation.simulation,
-    });
-    buildLog.push({
-      queueIndex: probe.queueEntry.queueIndex,
-      marketAddress: probe.queueEntry.marketAddress,
-      programLabel: probe.queueEntry.programLabel,
-      tradeCount: probe.queueEntry.tradeCount,
-      attempt: 'quote-probe validate',
-      success: true,
-    });
+    const queueEntry = candidates[i]!;
+    const validated = await buildAndValidateCandidate(http, body, queueEntry, buildSwap);
+    buildLog.push(...validated.buildLog);
+    if (validated.tried) tried.push(queueEntry);
+    if (validated.ok) {
+      successes.push(validated.success);
+    } else {
+      lastError = validated.lastError;
+    }
   }
+
+  await ensureDirectRouteInValidatedTopN(
+    http,
+    body,
+    candidates,
+    nextCandidateIndex,
+    successes,
+    tried,
+    buildLog,
+    buildSwap,
+  );
 
   return {
     successes: sortRouteBuildSuccessesByQuotedOutput(successes),
@@ -1143,6 +818,103 @@ async function buildRoutesForCandidates(
     buildLog,
     lastError,
   };
+}
+
+type BuildAndValidateResult =
+  | { ok: true; tried: true; success: RouteBuildSuccess; buildLog: RouteViaTradesBuildAttemptLog[] }
+  | { ok: false; tried: boolean; lastError: string; buildLog: RouteViaTradesBuildAttemptLog[] };
+
+/** Build (quote probe) then full on-chain validate a single candidate. One build + one sim. */
+async function buildAndValidateCandidate(
+  http: AxiosInstance,
+  body: import('./swap-build.js').BuildSwapParams,
+  queueEntry: EnumeratedRouteCandidate,
+  buildSwap: typeof import('./swap-build.js').buildSwap,
+): Promise<BuildAndValidateResult> {
+  const attempt = quickProbeAttemptForQueueEntry(queueEntry);
+  if (!attempt) {
+    return { ok: false, tried: false, lastError: 'No build attempt for candidate', buildLog: [] };
+  }
+  const probe = await tryQuoteProbeAttempt(http, body, queueEntry, attempt, buildSwap);
+  const buildLog = [...probe.buildLog];
+  if (!probe.ok) {
+    return { ok: false, tried: true, lastError: probe.lastError, buildLog };
+  }
+  console.info(
+    `[route-validate] ix-builder sim check pool=${queueEntry.marketAddress.slice(0, 8)}…`,
+  );
+  const validation = validateTradeBuild(probe.build, queueEntry);
+  const logBase = {
+    queueIndex: queueEntry.queueIndex,
+    marketAddress: queueEntry.marketAddress,
+    programLabel: queueEntry.programLabel,
+    tradeCount: queueEntry.tradeCount,
+    attempt: 'quote-probe validate',
+  };
+  if (!validation.ok) {
+    const lastError = describeTradeBuildRejectReasonFromValidation(validation.reason);
+    buildLog.push({ ...logBase, success: false, error: lastError });
+    return { ok: false, tried: true, lastError, buildLog };
+  }
+  buildLog.push({ ...logBase, success: true });
+  return {
+    ok: true,
+    tried: true,
+    success: {
+      candidate: queueEntry,
+      build: probe.build,
+      selected: probe.selected,
+    },
+    buildLog,
+  };
+}
+
+/**
+ * Direct-route diversity (final validated routes): when the validated top-N are all hop-required
+ * (quote-bridge / pre-swap), scan the remaining queue for the first direct route that passes on-chain
+ * sim and swap it into the last slot. ix-builder already reserves a direct slot in the top-N discovery
+ * queue, so this rarely needs to build extra candidates — it only fires when that direct slot failed.
+ */
+async function ensureDirectRouteInValidatedTopN(
+  http: AxiosInstance,
+  body: import('./swap-build.js').BuildSwapParams,
+  candidates: EnumeratedRouteCandidate[],
+  startIndex: number,
+  successes: RouteBuildSuccess[],
+  tried: TradeMarketCandidate[],
+  buildLog: RouteViaTradesBuildAttemptLog[],
+  buildSwap: typeof import('./swap-build.js').buildSwap,
+): Promise<void> {
+  if (successes.length < ROUTE_ENUMERATE_MAX_ROUTES) return;
+  if (!successes.every((s) => buildRouteIsHopRequired(s.build, s.candidate))) return;
+
+  const haveKeys = new Set(
+    successes.map((s) => candidatePairKey(s.candidate.marketAddress, s.candidate.programAddress)),
+  );
+
+  for (let i = startIndex; i < candidates.length; i++) {
+    const queueEntry = candidates[i]!;
+    if (haveKeys.has(candidatePairKey(queueEntry.marketAddress, queueEntry.programAddress))) continue;
+    // Cheap pre-filter: skip candidates already tagged hop-required to avoid wasted builds.
+    if (queueEntry.rpcMeta?.quoteBridge || queueEntry.rpcMeta?.preSwapNeeded) continue;
+
+    const validated = await buildAndValidateCandidate(http, body, queueEntry, buildSwap);
+    buildLog.push(...validated.buildLog);
+    if (validated.tried) tried.push(queueEntry);
+    if (!validated.ok) continue;
+    if (buildRouteIsHopRequired(validated.success.build, queueEntry)) continue;
+
+    const ranked = sortRouteBuildSuccessesByQuotedOutput(successes);
+    const replaced = ranked[ranked.length - 1]!;
+    successes.length = 0;
+    successes.push(...ranked.slice(0, ranked.length - 1), validated.success);
+    console.info(
+      `[route-discovery] direct diversity: top-${ROUTE_ENUMERATE_MAX_ROUTES} all hop-required → ` +
+        `swapped ${replaced.candidate.marketAddress.slice(0, 8)}… for direct ` +
+        `${queueEntry.marketAddress.slice(0, 8)}… in slot ${ROUTE_ENUMERATE_MAX_ROUTES}`,
+    );
+    return;
+  }
 }
 
 function pickPrimaryRouteSuccess(successes: RouteBuildSuccess[]): RouteBuildSuccess | undefined {
@@ -1301,7 +1073,7 @@ async function trySingleBuildAttempt(
   try {
     const build = await buildSwap(http, buildSwapBodyForTradeAttempt(body, attempt));
     const provider = String(build.provider ?? build.details?.quote?.provider ?? '').trim();
-    const validation = await validateTradeBuild(build, candidate, body);
+    const validation = validateTradeBuild(build, candidate);
     if (!validation.ok) {
       const lastError = describeTradeBuildRejectReasonFromValidation(validation.reason);
       return {
@@ -1709,7 +1481,10 @@ export function formatRouteViaTradesServerLog(
   if (rpcScanned != null && rpcScanned > 0) {
     lines.push(`RPC scan: ${rpcScanned} pool(s) merged into route list`);
   }
-  lines.push(`Merged queue: ${meta.queued.length} route(s)`);
+  lines.push(
+    `Candidate pool: ${meta.queued.length} route(s) ` +
+      `(build+sim in order; deeper pools only probed to backfill failures)`,
+  );
   for (const q of meta.queued) {
     lines.push(`  #${q.queueIndex} ${q.programLabel} ${q.marketAddress} (${q.tradeCount} trades)`);
   }

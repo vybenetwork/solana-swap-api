@@ -37,6 +37,8 @@ export function mapBuildSwapParamsToIxBuilder(body: BuildSwapParams): Record<str
   if (pinned.protocol) payload.protocol = pinned.protocol;
   if (pinned.programAddress?.trim()) payload.programAddress = pinned.programAddress.trim();
   if (pinned.simulate != null) payload.simulate = pinned.simulate;
+  // ix-builder owns simulation + fee/USD/% enrichment; always request the print-ready payload.
+  payload.enrich = true;
 
   const feePct =
     pinned.swapFee != null && Number.isFinite(pinned.swapFee)

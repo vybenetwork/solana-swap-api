@@ -130,6 +130,9 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
   if (pinned.protocol) payload.protocol = pinned.protocol;
   if (pinned.programAddress?.trim()) payload.programAddress = pinned.programAddress.trim();
   if (pinned.simulate != null) payload.simulate = pinned.simulate;
+  // Request ix-builder's print-ready enrichment (simulation + fees + USD + %).
+  // Aggregator/remote builds that don't support it simply ignore the flag.
+  payload.enrich = true;
   payload.swapFee = swapFeeParamForRouter(pinned.swapFee, router);
   appendAtaHintsToPayload(payload, {
     closeInputAta: pinned.closeInputAta,

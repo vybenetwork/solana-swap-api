@@ -3,7 +3,7 @@
  * Empirically ~2% below wallet balance when swapFee is 1% (Jupiter/Vybe USDC max sell).
  */
 
-import { normalizeSwapFeePct } from './enrich-route-fees.js';
+import { normalizeSwapFeePct } from './swap-fee-utils.js';
 import { isSolMint } from './wallet-balance.js';
 
 /** Each retry step lowers sell amount by this many percent of wallet balance. */
