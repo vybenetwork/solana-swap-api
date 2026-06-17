@@ -13,6 +13,8 @@
     "typecheck:frontend": "tsc -p tsconfig.frontend.json",
     "fetch:catalog": "node tools/fetch-jupiter-token-catalog.mjs",
     "download:token-icons": "node tools/download-token-icons.mjs",
+    "prod-like-proxy": "node tools/local-vybe-proxy.mjs",
+    "prod-like-local": "bash tools/run-prod-like-local.sh",
     "prestart": "npm run build:frontend"
   },
   "keywords": ["solana", "swap", "vybe", "api"],

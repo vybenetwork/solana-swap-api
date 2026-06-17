@@ -9,8 +9,7 @@ import {
   PUBLIC_DIR,
   SOLANA_RPC_URL,
   DEFAULT_SWAP_SERVICE_FEE_PCT,
-  getVybeApiLocation,
-  IX_BUILDER_LOCAL_URL,
+  VYBE_API_BASE,
 } from './config.js';
 import { getSolanaRpcHost, logBrowserRpc429 } from './api/solana-connection.js';
 import { createClient } from './api/index.js';
@@ -35,11 +34,7 @@ import { fetchRankedTopMarketsFromTrades } from './api/route-via-trades.js';
 loadEnv();
 const apiKey = getApiKey();
 console.log('VYBE_API_KEY loaded (length %d)', apiKey.length);
-if (getVybeApiLocation() === 'local') {
-  console.log('Vybe swap builds → local ix-builder at %s', IX_BUILDER_LOCAL_URL);
-} else {
-  console.log('Vybe swap builds → Vybe API at https://api.vybenetwork.xyz');
-}
+console.log('Vybe API base → %s', VYBE_API_BASE);
 
 const SWAP_PROTOCOL_SET = new Set<string>(VYBE_SWAP_PROTOCOLS);
 

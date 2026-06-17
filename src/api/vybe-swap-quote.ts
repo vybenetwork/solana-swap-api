@@ -8,13 +8,10 @@ import {
   completePinnedSwapParams,
   programLabelForAddress,
 } from './pinned-swap-params.js';
-import { isLocalVybeApi } from '../config.js';
 import { enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
 import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type MarketFetchMode, type SwapProxyRouter, isMarketDiscoveryEnabled, normalizeMarketFetchMode, resolveEnumerateRoutes, resolveMarketFetchMode } from './swap-build.js';
 import {
   buildSwapForTradeCandidate,
-  buildSwapViaRpcPools,
-  buildSwapViaTradeMarkets,
   formatRouteViaTradesServerLog,
   isAggregatorSwapProvider,
   normalizeBuildErrorMessage,
@@ -376,6 +373,148 @@ function baseRouteViaTradesMetaFromRouted(
   };
 }
 
+async function runVybeSwapEnumeration(
+  http: AxiosInstance,
+  vybeParams: VybeQuoteParams,
+  opts: {
+    marketFetchMode: MarketFetchMode;
+    enumerateRoutes: boolean;
+    uiInputMint: string;
+    uiOutputMint: string;
+    selected: SwapProxyRouter;
+    bothCommonQuotes: boolean;
+    userMessage?: string;
+    exhaustedMessage?: string;
+  },
+): Promise<{
+  build: VybeSwapBuildResponse;
+  routeViaTrades?: RouteViaTradesMeta;
+  precomputedPrimaryQuote?: VybeSwapQuote;
+}> {
+  const build = await buildSwap(http, {
+    ...vybeParams,
+    router: 'vybe',
+    marketFetchMode: opts.marketFetchMode,
+    enumerateRoutes: opts.enumerateRoutes,
+    simulate: false,
+  });
+  const parsed = parseVybeEnumeratedSwapRoutes(build);
+  const userMessage = opts.userMessage ?? 'Routed via Vybe swap enumeration.';
+  const exhaustedMessage = opts.exhaustedMessage ?? 'Vybe swap enumeration returned no routes';
+
+  if (parsed.kind === 'multi') {
+    const enumRoutes = await buildEnumeratedRouteQuotes(
+      parsed.routes,
+      opts.uiInputMint,
+      opts.uiOutputMint,
+      opts.selected,
+    );
+    const precomputedPrimaryQuote = enumRoutes[0]?.quote;
+    Object.assign(
+      vybeParams,
+      completePinnedSwapParams({
+        poolAddress: parsed.selected.marketAddress,
+        programAddress: parsed.selected.programAddress,
+        protocol: parsed.selected.protocol,
+      }),
+    );
+    const routeViaTrades: RouteViaTradesMeta = {
+      enabled: true,
+      outcome: 'multi',
+      selected: parsed.selected,
+      selectedRouteIndex: 0,
+      routes: enumRoutes,
+      marketFetchMode: opts.marketFetchMode,
+      enumerateRoutes: opts.enumerateRoutes,
+      topMarkets: [],
+      maxTradeCount: 0,
+      minCountThreshold: 0,
+      tried: parsed.routes.map((r) => r.selected),
+      tradesFetched: 0,
+      tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+      tradesFetchOk: false,
+      tradesFetchedForward: 0,
+      tradesFetchedInverse: 0,
+      pairTradeCount: 0,
+      tradeMarketsEligible: parsed.routes.length,
+      queued: parsed.routes.map((r, i) => ({
+        marketAddress: r.selected.marketAddress,
+        programAddress: r.selected.programAddress,
+        protocol: r.selected.protocol,
+        programLabel:
+          r.selected.programLabel ?? programLabelForAddress(r.selected.programAddress),
+        queueIndex: i + 1,
+        tradeCount: 0,
+      })),
+      buildLog: [],
+      userMessage,
+    };
+    logRouteViaTradesMeta(routeViaTrades);
+    return { build, routeViaTrades, precomputedPrimaryQuote };
+  }
+
+  if (parsed.kind === 'direct') {
+    Object.assign(
+      vybeParams,
+      completePinnedSwapParams({
+        poolAddress: parsed.selected.marketAddress,
+        programAddress: parsed.selected.programAddress,
+        protocol: parsed.selected.protocol,
+      }),
+    );
+    const routeViaTrades: RouteViaTradesMeta = {
+      enabled: true,
+      outcome: 'direct',
+      selected: parsed.selected,
+      marketFetchMode: opts.marketFetchMode,
+      enumerateRoutes: opts.enumerateRoutes,
+      topMarkets: [],
+      maxTradeCount: 0,
+      minCountThreshold: 0,
+      tried: [parsed.selected],
+      tradesFetched: 0,
+      tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+      tradesFetchOk: false,
+      tradesFetchedForward: 0,
+      tradesFetchedInverse: 0,
+      pairTradeCount: 0,
+      tradeMarketsEligible: 1,
+      queued: [],
+      buildLog: [],
+      userMessage,
+    };
+    logRouteViaTradesMeta(routeViaTrades);
+    return { build, routeViaTrades };
+  }
+
+  const recovery = await recoverAfterTradeQueueExhausted(
+    http,
+    vybeParams,
+    {
+      kind: 'exhausted',
+      topMarkets: [],
+      maxTradeCount: 0,
+      minCountThreshold: 0,
+      tried: [],
+      tradesFetched: 0,
+      tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+      tradesFetchOk: false,
+      tradesFetchedForward: 0,
+      tradesFetchedInverse: 0,
+      pairTradeCount: 0,
+      tradeMarketsEligible: 0,
+      queued: [],
+      buildLog: [],
+      lastError: exhaustedMessage,
+    },
+    {
+      allowRpcFallback:
+        opts.marketFetchMode === 'full' && !opts.bothCommonQuotes && !opts.enumerateRoutes,
+    },
+  );
+  return { build: recovery.build, routeViaTrades: recovery.routeViaTrades };
+}
+
 function quoteOutputRawFromEntry(entry: RouteViaTradesRouteEntry): bigint {
   const sim = entry.simulatedOutRaw?.trim();
   if (sim) {
@@ -540,49 +679,19 @@ export async function buildVybeQuoteFromPriceAndSwap(
       throw new Error(rpcScanUnsupportedForCommonQuotesError());
     }
     if (enumerateRoutes) {
-      const routed = await buildSwapViaRpcPools(http, { ...vybeParams, router: 'vybe' });
-      if (routed.kind === 'direct' || routed.kind === 'multi') {
-        build = routed.build;
-        Object.assign(
-          vybeParams,
-          completePinnedSwapParams({
-            poolAddress: routed.selected.marketAddress,
-            programAddress: routed.selected.programAddress,
-            protocol: routed.selected.protocol,
-          }),
-        );
-        if (routed.kind === 'multi') {
-          const enumRoutes = await buildEnumeratedRouteQuotes(
-            routed.routes,
-            uiInputMint,
-            uiOutputMint,
-            selected,
-          );
-          precomputedPrimaryQuote = enumRoutes[0]?.quote;
-          routeViaTrades = {
-            enabled: true,
-            outcome: 'multi',
-            selected: routed.selected,
-            selectedRouteIndex: 0,
-            routes: enumRoutes,
-            ...baseRouteViaTradesMetaFromRouted(routed, marketFetchMode, true),
-          };
-        } else {
-          routeViaTrades = {
-            enabled: true,
-            outcome: 'direct',
-            selected: routed.selected,
-            ...baseRouteViaTradesMetaFromRouted(routed, marketFetchMode, false),
-          };
-        }
-        logRouteViaTradesMeta(routeViaTrades);
-      } else {
-        const recovery = await recoverAfterTradeQueueExhausted(http, vybeParams, routed, {
-          allowRpcFallback: false,
-        });
-        build = recovery.build;
-        routeViaTrades = recovery.routeViaTrades;
-      }
+      const enumerated = await runVybeSwapEnumeration(http, vybeParams, {
+        marketFetchMode: 'rpc',
+        enumerateRoutes: true,
+        uiInputMint,
+        uiOutputMint,
+        selected,
+        bothCommonQuotes,
+        userMessage: 'Routed via Vybe RPC pool scan.',
+        exhaustedMessage: 'Vybe RPC pool scan returned no routes',
+      });
+      build = enumerated.build;
+      routeViaTrades = enumerated.routeViaTrades;
+      precomputedPrimaryQuote = enumerated.precomputedPrimaryQuote;
     } else {
       build = await buildSwap(http, {
         ...vybeParams,
@@ -612,131 +721,12 @@ export async function buildVybeQuoteFromPriceAndSwap(
       };
       logRouteViaTradesMeta(routeViaTrades);
     }
-  } else if (useTradeCandidatePin || useDiscoveryFetch) {
-    if (useDiscoveryFetch && !isLocalVybeApi()) {
-      build = await buildSwap(http, {
-        ...vybeParams,
-        router: 'vybe',
-        marketFetchMode,
-        enumerateRoutes,
-        simulate: false,
-      });
-      const parsed = parseVybeEnumeratedSwapRoutes(build);
-      if (parsed.kind === 'multi') {
-        const enumRoutes = await buildEnumeratedRouteQuotes(
-          parsed.routes,
-          uiInputMint,
-          uiOutputMint,
-          selected,
-        );
-        precomputedPrimaryQuote = enumRoutes[0]?.quote;
-        Object.assign(
-          vybeParams,
-          completePinnedSwapParams({
-            poolAddress: parsed.selected.marketAddress,
-            programAddress: parsed.selected.programAddress,
-            protocol: parsed.selected.protocol,
-          }),
-        );
-        routeViaTrades = {
-          enabled: true,
-          outcome: 'multi',
-          selected: parsed.selected,
-          selectedRouteIndex: 0,
-          routes: enumRoutes,
-          marketFetchMode,
-          enumerateRoutes,
-          topMarkets: [],
-          maxTradeCount: 0,
-          minCountThreshold: 0,
-          tried: parsed.routes.map((r) => r.selected),
-          tradesFetched: 0,
-          tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
-          tradesFetchOk: false,
-          tradesFetchedForward: 0,
-          tradesFetchedInverse: 0,
-          pairTradeCount: 0,
-          tradeMarketsEligible: parsed.routes.length,
-          queued: parsed.routes.map((r, i) => ({
-            marketAddress: r.selected.marketAddress,
-            programAddress: r.selected.programAddress,
-            protocol: r.selected.protocol,
-            programLabel:
-              r.selected.programLabel ?? programLabelForAddress(r.selected.programAddress),
-            queueIndex: i + 1,
-            tradeCount: 0,
-          })),
-          buildLog: [],
-          userMessage: 'Routed via Vybe swap enumeration.',
-        };
-        logRouteViaTradesMeta(routeViaTrades!);
-      } else if (parsed.kind === 'direct') {
-        Object.assign(
-          vybeParams,
-          completePinnedSwapParams({
-            poolAddress: parsed.selected.marketAddress,
-            programAddress: parsed.selected.programAddress,
-            protocol: parsed.selected.protocol,
-          }),
-        );
-        routeViaTrades = {
-          enabled: true,
-          outcome: 'direct',
-          selected: parsed.selected,
-          marketFetchMode,
-          enumerateRoutes,
-          topMarkets: [],
-          maxTradeCount: 0,
-          minCountThreshold: 0,
-          tried: [parsed.selected],
-          tradesFetched: 0,
-          tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
-          tradesFetchOk: false,
-          tradesFetchedForward: 0,
-          tradesFetchedInverse: 0,
-          pairTradeCount: 0,
-          tradeMarketsEligible: 1,
-          queued: [],
-          buildLog: [],
-          userMessage: 'Routed via Vybe swap enumeration.',
-        };
-        logRouteViaTradesMeta(routeViaTrades);
-      } else {
-        const recovery = await recoverAfterTradeQueueExhausted(
-          http,
-          vybeParams,
-          {
-            kind: 'exhausted',
-            topMarkets: [],
-            maxTradeCount: 0,
-            minCountThreshold: 0,
-            tried: [],
-            tradesFetched: 0,
-            tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
-            tradesFetchOk: false,
-            tradesFetchedForward: 0,
-            tradesFetchedInverse: 0,
-            pairTradeCount: 0,
-            tradeMarketsEligible: 0,
-            queued: [],
-            buildLog: [],
-            lastError: 'Vybe swap enumeration returned no routes',
-          },
-          {
-            allowRpcFallback: marketFetchMode === 'full' && !bothCommonQuotes && !enumerateRoutes,
-          },
-        );
-        build = recovery.build;
-        routeViaTrades = recovery.routeViaTrades;
-      }
-    } else {
-    const routed = useTradeCandidatePin
-      ? await buildSwapForTradeCandidate(http, { ...vybeParams, router: 'vybe' }, {
-          marketAddress: manualPool!,
-          ...(manualProgram ? { programAddress: manualProgram } : {}),
-          ...(manualProtocol ? { protocol: manualProtocol } : {}),
-        })
-      : await buildSwapViaTradeMarkets(http, { ...vybeParams, router: 'vybe' });
+  } else if (useTradeCandidatePin) {
+    const routed = await buildSwapForTradeCandidate(http, { ...vybeParams, router: 'vybe' }, {
+      marketAddress: manualPool!,
+      ...(manualProgram ? { programAddress: manualProgram } : {}),
+      ...(manualProtocol ? { protocol: manualProtocol } : {}),
+    });
     if (routed.kind === 'direct' || routed.kind === 'multi') {
       build = routed.build;
       Object.assign(
@@ -795,7 +785,18 @@ export async function buildVybeQuoteFromPriceAndSwap(
       build = recovery.build;
       routeViaTrades = recovery.routeViaTrades;
     }
-    }
+  } else if (useDiscoveryFetch) {
+    const enumerated = await runVybeSwapEnumeration(http, vybeParams, {
+      marketFetchMode,
+      enumerateRoutes,
+      uiInputMint,
+      uiOutputMint,
+      selected,
+      bothCommonQuotes,
+    });
+    build = enumerated.build;
+    routeViaTrades = enumerated.routeViaTrades;
+    precomputedPrimaryQuote = enumerated.precomputedPrimaryQuote;
   } else {
     build =
       selected === 'vybe'
