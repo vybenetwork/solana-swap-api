@@ -2513,14 +2513,52 @@ function annotateQuoteRouterMeta(
   };
 }
 
+/** Project ix-builder `enrichment` onto the browser swap-body shape (matches POST /api/trading/swap). */
+function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<string, unknown> {
+  const enrichment = build.enrichment as Record<string, unknown> | undefined;
+  if (!enrichment || typeof enrichment !== 'object') return { ...build };
+
+  const buildDetails = build.details as Record<string, unknown> | undefined;
+  const buildQuote = buildDetails?.quote as Record<string, unknown> | undefined;
+  const feeEnrichment = {
+    routePlan: enrichment.routePlan,
+    quotedOutRaw: enrichment.quotedOutRaw,
+    simulatedOutRaw: enrichment.simulatedOutRaw,
+    totalFeeRaw: enrichment.totalFeeRaw,
+    swapFeePct: enrichment.swapFeePct,
+    swapFeeRaw: enrichment.swapFeeRaw,
+    outputFromSimulation: enrichment.outputFromSimulation,
+    walletPayDebitRaw: enrichment.walletPayDebitRaw,
+  };
+
+  return {
+    ...build,
+    _feeEnrichment: feeEnrichment,
+    _simulatedOutAmount: enrichment.simulatedOutRaw ?? null,
+    _quotedOutAmount: enrichment.quotedOutRaw ?? buildQuote?.outAmount,
+    _walletPayDebitRaw: enrichment.walletPayDebitRaw ?? null,
+    _walletTokenAccountCloses: enrichment.walletTokenAccountCloses ?? [],
+    _youPay: enrichment.youPay,
+    _youReceive: enrichment.youReceive,
+    _maxSlippagePct: enrichment.maxSlippagePct,
+    _tokens: enrichment.tokens,
+    _inputPriceUsd: enrichment.inputPriceUsd,
+    _outputPriceUsd: enrichment.outputPriceUsd,
+    _otherAmountThresholdRaw: enrichment.otherAmountThresholdRaw,
+    _otherAmountThresholdUi: enrichment.otherAmountThresholdUi,
+  };
+}
+
 function applyFeeEnrichmentToQuote(
   quote: Record<string, unknown>,
   enrichment: Record<string, unknown> | null | undefined,
   buildPayload?: Record<string, unknown>,
 ): Record<string, unknown> {
+  const buildEnrichment = buildPayload?.enrichment as Record<string, unknown> | undefined;
   const source =
     enrichment ??
     (buildPayload?._feeEnrichment as Record<string, unknown> | undefined) ??
+    buildEnrichment ??
     null;
 
   const simulatedOutRaw =
@@ -2529,12 +2567,14 @@ function applyFeeEnrichmentToQuote(
   const quotedOutRaw =
     (source?.quotedOutRaw as string | undefined) ??
     (buildPayload?._quotedOutAmount as string | undefined);
-  const outputFromSimulation = source?.outputFromSimulation === true;
-  const totalFeeRaw = source?.totalFeeRaw;
-  const swapFeePct = source?.swapFeePct;
+  const outputFromSimulation =
+    source?.outputFromSimulation === true || buildEnrichment?.outputFromSimulation === true;
+  const totalFeeRaw = source?.totalFeeRaw ?? buildEnrichment?.totalFeeRaw;
+  const swapFeePct = source?.swapFeePct ?? buildEnrichment?.swapFeePct;
   const buildDetails = buildPayload?.details as Record<string, unknown> | undefined;
-  const swapFeeRaw = source?.swapFeeRaw ?? buildDetails?.swapFee ?? quote._swapFee;
-  const routePlan = source?.routePlan;
+  const swapFeeRaw =
+    source?.swapFeeRaw ?? buildEnrichment?.swapFeeRaw ?? buildDetails?.swapFee ?? quote._swapFee;
+  const routePlan = source?.routePlan ?? buildEnrichment?.routePlan;
 
   let next: Record<string, unknown> = {
     ...quote,
@@ -3475,6 +3515,10 @@ function applyVybeQuoteBodyToUi(
   const activeBody = getQuoteBodyForActiveRoute(body);
   const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   let quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(activeBody), selectedRouter);
+  const buildPayload = activeBody._build as Record<string, unknown> | undefined;
+  if (buildPayload) {
+    quote = applyFeeEnrichmentToQuote(quote, undefined, projectSwapBuildForBrowser(buildPayload));
+  }
   quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
   let effectiveAmount = amount;
   const inRaw = parseRawAmountDigits(activeBody.inAmount ?? quote.inAmount);
@@ -3532,6 +3576,7 @@ async function fetchAggregatorSwapQuote(
   outputMint: string,
   amount: number,
   slippage: number | undefined,
+  router: string,
 ): Promise<Record<string, unknown>> {
   const params = new URLSearchParams();
   params.set('amount', String(amount));
@@ -3540,6 +3585,10 @@ async function fetchAggregatorSwapQuote(
   if (wallet) params.set('accountAddress', wallet);
   if (typeof slippage === 'number' && Number.isFinite(slippage)) {
     params.set('slippage', String(slippage));
+  }
+  const routerId = normalizeRouterId(router);
+  if (routerId === 'jupiter' || routerId === 'titan') {
+    params.set('router', routerId);
   }
 
   const quoteRes = await fetchWithRetry(`/api/trading/swap-quote?${params.toString()}`);
@@ -3595,6 +3644,7 @@ async function fetchAggregatorQuoteAndBuildOnce(
     outputMint,
     amount,
     slippageNum,
+    router,
   );
 
   if (router === 'jupiter' && isEmptyAggregatorQuote(quoteBody)) {
@@ -3614,6 +3664,7 @@ async function fetchAggregatorQuoteAndBuildOnce(
           outputMint,
           buildAmount,
           slippageNum,
+          router,
         );
         inRaw = extractAuthoritativeInAmountRaw(quoteBody, {});
         if (inRaw) {
@@ -3626,25 +3677,35 @@ async function fetchAggregatorQuoteAndBuildOnce(
     }
   }
 
-  const routePlan = Array.isArray(quoteBody.routePlan) ? quoteBody.routePlan : undefined;
-  const swapRes = await fetchWithRetry('/api/trading/swap', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      accountAddress: wallet,
-      amount: buildAmount,
-      inputMintAddress: inputMint,
-      outputMintAddress: outputMint,
-      ...(routePlan ? { routePlan } : {}),
-      ...buildOpts,
-      router,
-    }),
-  });
-  const swapBody = (await swapRes.json().catch(() => ({}))) as Record<string, unknown> & {
-    error?: string;
-  };
-  if (!swapRes.ok) {
-    throw new Error(swapBody.error || `Build failed (${swapRes.status})`);
+  const atomicBuild = quoteBody._build as Record<string, unknown> | undefined;
+  const atomicTx = extractSwapBuildTransaction(atomicBuild);
+  let swapBody: Record<string, unknown>;
+  if (atomicTx && atomicBuild) {
+    // Router-specific GET swap-quote returns quote + build atomically — reuse it so
+    // displayed outAmount/min-received match the signed transaction.
+    swapBody = projectSwapBuildForBrowser(atomicBuild);
+  } else {
+    const routePlan = Array.isArray(quoteBody.routePlan) ? quoteBody.routePlan : undefined;
+    const swapRes = await fetchWithRetry('/api/trading/swap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        accountAddress: wallet,
+        amount: buildAmount,
+        inputMintAddress: inputMint,
+        outputMintAddress: outputMint,
+        ...(routePlan ? { routePlan } : {}),
+        ...buildOpts,
+        router,
+      }),
+    });
+    swapBody = (await swapRes.json().catch(() => ({}))) as Record<string, unknown> & {
+      error?: string;
+    };
+    if (!swapRes.ok) {
+      throw new Error(swapBody.error || `Build failed (${swapRes.status})`);
+    }
+    swapBody = projectSwapBuildForBrowser(swapBody);
   }
 
   const buildProvider = normalizeRouterId(swapBody.provider ?? router);
@@ -3828,7 +3889,7 @@ async function resolveAggregatorBuildTx(
     renderRawResponsePanels();
     return {
       tx: lastVybeBuild.tx,
-      buildPayload: lastVybeBuild.buildPayload as Record<string, unknown>,
+      buildPayload: projectSwapBuildForBrowser(lastVybeBuild.buildPayload as Record<string, unknown>),
     };
   }
   return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, buildOpts);
@@ -3902,7 +3963,7 @@ async function requestVybeQuote(
       if (!buildTx) {
         throw new Error('Vybe quote did not return a transaction.');
       }
-      return { tx: buildTx, buildPayload: body._build as Record<string, unknown> };
+      return { tx: buildTx, buildPayload: projectSwapBuildForBrowser(body._build as Record<string, unknown>) };
     }
 
     const balanceUi = getWalletBalanceAmountUi(inputMint) ?? 0;
@@ -3985,7 +4046,7 @@ async function resolveVybeBuildTx(
     renderRawResponsePanels();
     return {
       tx: lastVybeBuild.tx,
-      buildPayload: lastVybeBuild.buildPayload as Record<string, unknown>,
+      buildPayload: projectSwapBuildForBrowser(lastVybeBuild.buildPayload as Record<string, unknown>),
     };
   }
   return requestVybeQuote(wallet, inputMint, outputMint, amount, buildOpts);
@@ -4343,8 +4404,6 @@ async function postBuildSwap(): Promise<void> {
       }
       return;
     }
-    const confirmed = await promptSignSwapConfirm(lastSwapQuoteOk);
-    if (!confirmed) return;
   } else if (!wallet) {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Wallet (accountAddress) is required to build the transaction.');
     return;
@@ -4384,9 +4443,16 @@ async function postBuildSwap(): Promise<void> {
     } else {
       const resolved = await resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
       buildTx = resolved.tx;
-      buildPayload = resolved.buildPayload;
+      buildPayload = projectSwapBuildForBrowser(resolved.buildPayload);
     }
     if (swapBuildMode === 'build-sign') {
+      const confirmQuote = lastSwapQuoteOk
+        ? applyFeeEnrichmentToQuote(lastSwapQuoteOk, null, buildPayload)
+        : {};
+      lastSwapQuoteOk = confirmQuote;
+      renderSwapQuoteUI(confirmQuote);
+      const confirmed = await promptSignSwapConfirm(confirmQuote, buildPayload);
+      if (!confirmed) return;
       const legTxs = extractSwapBuildTransactions(buildPayload);
       const toSign = legTxs.length > 0 ? legTxs : [buildTx];
       swapTxBase64El.value = await signSwapTransactionsBase64(toSign, true);
