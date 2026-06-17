@@ -57,6 +57,13 @@ export function resolveMarketFetchMode(
   return 'full';
 }
 
+/** Multi-route enumeration is on unless explicitly disabled. */
+export function resolveEnumerateRoutes(
+  params: Pick<BuildSwapParams, 'enumerateRoutes'>,
+): boolean {
+  return params.enumerateRoutes !== false;
+}
+
 export interface BuildSwapParams {
   accountAddress: string;
   amount: number;
@@ -81,7 +88,7 @@ export interface BuildSwapParams {
    * - `rpc` — RPC pool scan only
    */
   marketFetchMode?: MarketFetchMode;
-  /** Build up to 6 routes (top liquidity + trade overlap) instead of stopping at the first success. */
+  /** Build up to 6 routes (top liquidity + trade overlap). Default on; set `false` to disable. */
   enumerateRoutes?: boolean;
   /** Append input SPL ATA close after full-balance sell (Vybe / ix-builder). */
   closeInputAta?: boolean;
@@ -147,7 +154,12 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
     payload.inputDecimals = pinned.inputDecimals;
   }
   if (pinned.marketFetchMode) payload.marketFetchMode = pinned.marketFetchMode;
-  if (pinned.enumerateRoutes != null) payload.enumerateRoutes = pinned.enumerateRoutes;
+  const routerIsVybe = router === 'vybe' || (router === undefined && (pinned.router ?? 'vybe') === 'vybe');
+  if (routerIsVybe) {
+    payload.enumerateRoutes = resolveEnumerateRoutes(pinned);
+  } else if (pinned.enumerateRoutes != null) {
+    payload.enumerateRoutes = pinned.enumerateRoutes;
+  }
   return payload;
 }
 

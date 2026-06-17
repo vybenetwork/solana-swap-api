@@ -11,7 +11,7 @@ import {
   type IxBuilderDiscoverPool,
   type IxBuilderDiscoverPoolsResponse,
 } from './ix-builder-route-trades.js';
-import { normalizeMarketFetchMode, type MarketFetchMode } from './swap-build.js';
+import { normalizeMarketFetchMode, resolveEnumerateRoutes, type MarketFetchMode } from './swap-build.js';
 import type { VybeTrade } from '../types/api.js';
 import type { SwapProxyProtocol } from './swap-build.js';
 import {
@@ -1310,7 +1310,7 @@ export async function buildSwapViaRpcPools(
   const outputMint = body.outputMintAddress.trim();
   const totalStart = Date.now();
   const timingsMs: NonNullable<RouteViaTradesQueueMeta['timingsMs']> = {};
-  const enumerateRoutes = body.enumerateRoutes === true;
+  const enumerateRoutes = resolveEnumerateRoutes(body);
 
   const rpcStart = Date.now();
   const { candidates, rpcPools } = await discoverRouteCandidates(http, inputMint, outputMint, 'rpc');
@@ -1403,7 +1403,7 @@ export async function buildSwapViaTradeMarkets(
   const outputMint = body.outputMintAddress.trim();
   const totalStart = Date.now();
   const timingsMs: NonNullable<RouteViaTradesQueueMeta['timingsMs']> = {};
-  const enumerateRoutes = body.enumerateRoutes === true;
+  const enumerateRoutes = resolveEnumerateRoutes(body);
   const marketFetchMode = normalizeMarketFetchMode(body.marketFetchMode);
 
   const discoverStart = Date.now();

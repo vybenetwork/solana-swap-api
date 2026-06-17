@@ -12,6 +12,7 @@ import type { VybeSwapBuildResponse } from '../types/swap.js';
 import { appendAtaHintsToPayload } from './wallet-ata-hints.js';
 import { completePinnedSwapParams } from './pinned-swap-params.js';
 import type { BuildSwapParams } from './swap-build.js';
+import { resolveEnumerateRoutes } from './swap-build.js';
 
 export function mapBuildSwapParamsToIxBuilder(body: BuildSwapParams): Record<string, unknown> {
   const pinned = completePinnedSwapParams(body);
@@ -57,7 +58,7 @@ export function mapBuildSwapParamsToIxBuilder(body: BuildSwapParams): Record<str
     payload.inputDecimals = pinned.inputDecimals;
   }
   if (body.marketFetchMode) payload.marketFetchMode = body.marketFetchMode;
-  if (body.enumerateRoutes != null) payload.enumerateRoutes = body.enumerateRoutes;
+  payload.enumerateRoutes = resolveEnumerateRoutes(body);
 
   return payload;
 }

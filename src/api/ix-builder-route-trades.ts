@@ -81,7 +81,7 @@ export async function fetchDiscoverPoolsViaIxBuilder(
   inputMint: string,
   outputMint: string,
   marketFetchMode: MarketFetchMode,
-  enumerateRoutes = false,
+  enumerateRoutes = true,
 ): Promise<IxBuilderDiscoverPoolsResponse> {
   const { data } = await axios.get<IxBuilderDiscoverPoolsResponse>(
     `${IX_BUILDER_LOCAL_URL}/discover-pools`,

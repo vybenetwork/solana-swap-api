@@ -3292,8 +3292,9 @@ function collectSwapBuildOptions(): Record<string, unknown> {
     marketFetchMode: vybeMarketDiscoveryActive()
       ? (swapMarketFetchModeSelect?.value.trim() as 'full' | 'trades' | 'markets' | 'rpc' | undefined) || 'full'
       : undefined,
-    enumerateRoutes:
-      vybeMarketDiscoveryActive() && swapEnumerateRoutesCheckbox?.checked === true ? true : undefined,
+    enumerateRoutes: vybeMarketDiscoveryActive()
+      ? swapEnumerateRoutesCheckbox?.checked !== false
+      : false,
     swapFee: resolveSwapServiceFeePct(),
     ...(ataFromCache
       ? {
@@ -4334,7 +4335,7 @@ function mergeSelectedRoutePinIntoBuildOpts(opts: Record<string, unknown>): Reco
     ...opts,
     poolAddress: candidate.marketAddress.trim(),
     marketFetchMode: undefined,
-    enumerateRoutes: undefined,
+    enumerateRoutes: false,
   };
   if (candidate.programAddress?.trim()) next.programAddress = candidate.programAddress.trim();
   if (candidate.protocol?.trim()) next.protocol = candidate.protocol.trim();

@@ -9,7 +9,7 @@ import {
   programLabelForAddress,
 } from './pinned-swap-params.js';
 import { enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
-import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type MarketFetchMode, type SwapProxyRouter, isMarketDiscoveryEnabled, normalizeMarketFetchMode, resolveMarketFetchMode } from './swap-build.js';
+import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type MarketFetchMode, type SwapProxyRouter, isMarketDiscoveryEnabled, normalizeMarketFetchMode, resolveEnumerateRoutes, resolveMarketFetchMode } from './swap-build.js';
 import {
   buildSwapForTradeCandidate,
   buildSwapViaRpcPools,
@@ -212,7 +212,7 @@ async function recoverAfterTradeQueueExhausted(
     programAddress: undefined,
     protocol: undefined,
     marketFetchMode: undefined,
-    enumerateRoutes: undefined,
+    enumerateRoutes: false,
   };
 
   if (allowRpcFallback) {
@@ -255,7 +255,7 @@ async function recoverAfterTradeQueueExhausted(
     programAddress: undefined,
     protocol: undefined,
     marketFetchMode: undefined,
-    enumerateRoutes: undefined,
+    enumerateRoutes: false,
   };
 
   const aggregatorRouters: Array<'jupiter' | 'titan'> = routed.tradesUnavailable
@@ -519,7 +519,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
     !params.poolAddress?.trim() &&
     !params.programAddress?.trim();
   const marketFetchMode = resolveMarketFetchMode(params);
-  const enumerateRoutes = params.enumerateRoutes === true;
+  const enumerateRoutes = resolveEnumerateRoutes(params);
   const bothCommonQuotes = isCommonQuotePair(uiInputMint, uiOutputMint);
   const useTradeCandidatePin = Boolean(
     manualPool && (manualProgram || manualProtocol) && !useMarketDiscovery,
@@ -584,7 +584,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
         ...vybeParams,
         router: 'vybe',
         marketFetchMode: undefined,
-        enumerateRoutes: undefined,
+        enumerateRoutes: false,
       });
       routeViaTrades = {
         enabled: true,
