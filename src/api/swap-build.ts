@@ -108,8 +108,8 @@ export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Pro
   if (router === 'vybe' && !buildParamsHaveCompleteAtaHints(body)) {
     enriched = await enrichBuildParamsWithAtaHints(http, body);
   }
-  if (isLocalVybeApi() && router === 'vybe') {
-    return buildSwapViaIxBuilder(enriched);
+  if (isLocalVybeApi()) {
+    return buildSwapViaIxBuilder({ ...enriched, router });
   }
   const payload = buildSwapPayload(enriched, router);
   return withRetry(async () => {

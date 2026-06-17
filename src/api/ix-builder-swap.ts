@@ -16,14 +16,17 @@ import { resolveEnumerateRoutes } from './swap-build.js';
 
 export function mapBuildSwapParamsToIxBuilder(body: BuildSwapParams): Record<string, unknown> {
   const pinned = completePinnedSwapParams(body);
+  const router = body.router ?? 'vybe';
   const payload: Record<string, unknown> = {
     wallet: pinned.accountAddress.trim(),
     inputMint: pinned.inputMintAddress.trim(),
     outputMint: pinned.outputMintAddress.trim(),
     amount: pinned.amount,
-    router: 'vybe',
-    vybeOnly: true,
+    router,
   };
+  if (router === 'vybe') {
+    payload.vybeOnly = true;
+  }
 
   if (pinned.slippage != null && Number.isFinite(pinned.slippage)) {
     payload.slippage = pinned.slippage;
@@ -58,7 +61,9 @@ export function mapBuildSwapParamsToIxBuilder(body: BuildSwapParams): Record<str
     payload.inputDecimals = pinned.inputDecimals;
   }
   if (body.marketFetchMode) payload.marketFetchMode = body.marketFetchMode;
-  payload.enumerateRoutes = resolveEnumerateRoutes(body);
+  if (router === 'vybe') {
+    payload.enumerateRoutes = resolveEnumerateRoutes(body);
+  }
 
   return payload;
 }
