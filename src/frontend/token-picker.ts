@@ -658,6 +658,7 @@ export const NATIVE_SOL_MINT = '11111111111111111111111111111111';
 export const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 /** Leave this much SOL in wallet when selling (rent + fees). */
 export const SOL_WALLET_MIN_RESERVE_UI = 0.006;
+/** Max-sell / 100% button leaves this much SOL; manual amounts may use full balance. */
 /** Total SOL below this is skipped for auto-pick (prefer USDC/USDT instead). */
 export const SOL_MIN_AUTO_PICK_TOTAL_UI = 0.0065;
 /** Total SOL below this is not tradable (max sell would be ≤ 0.0001 SOL). */

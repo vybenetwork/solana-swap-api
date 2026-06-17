@@ -4105,14 +4105,14 @@ async function fetchSwapQuote(): Promise<void> {
     return;
   }
   if (hasValidSwapWallet()) {
-    const maxInput = getMaxSellAmountForInput(inputMint);
-    if (maxInput != null && amount > maxInput) {
+    const totalBal = getWalletBalanceAmountUi(inputMint);
+    if (totalBal != null && amount > totalBal) {
       clampSwapAmountInputToMax();
       syncSwapSellAmountUi();
       if (swapQuoteError) {
         showInlineError(
           swapQuoteError,
-          `Amount exceeds max sellable balance (${formatSwapInputAmountValue(maxInput, getMintDecimals(inputMint))}).`
+          `Amount exceeds wallet balance (${formatSwapInputAmountValue(totalBal, getMintDecimals(inputMint))}).`
         );
       }
       return;

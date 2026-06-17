@@ -10,8 +10,6 @@ import { withRetry } from './client.js';
 /** Vybe reports native SOL under System Program id, not WSOL mint. */
 const NATIVE_SOL_MINT = '11111111111111111111111111111111';
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
-/** Leave this much SOL in wallet when selling (rent + fees). */
-const SOL_WALLET_MIN_RESERVE_UI = 0.006;
 /** Total SOL below this is not tradable. */
 const SOL_MIN_TRADABLE_TOTAL_UI = 0.0061;
 
@@ -246,24 +244,12 @@ export async function assertWalletHasSellAmount(
       );
     }
 
-    const reserveRaw = uiAmountToRaw(SOL_WALLET_MIN_RESERVE_UI, 9);
-    const sellableRaw = totalRaw > reserveRaw ? totalRaw - reserveRaw : 0n;
     const requiredRaw = uiAmountToRaw(amountUi, 9);
-    const sellableUi = rawToUiAmount(sellableRaw.toString(), 9);
 
-    if (sellableRaw <= 0n) {
+    if (requiredRaw > totalRaw) {
       throw new InsufficientBalanceError(
-        `Insufficient balance: need at least ${formatUiAmount(SOL_WALLET_MIN_RESERVE_UI)} SOL reserved in wallet (you have ${formatUiAmount(totalUi)} SOL).`,
+        `Insufficient balance: you have ${formatUiAmount(totalUi)} SOL but tried to sell ${formatUiAmount(amountUi)} SOL.`,
         totalUi,
-        amountUi,
-        symbol,
-      );
-    }
-
-    if (requiredRaw > sellableRaw) {
-      throw new InsufficientBalanceError(
-        `Insufficient balance: you have ${formatUiAmount(totalUi)} SOL (${formatUiAmount(sellableUi)} available after ${formatUiAmount(SOL_WALLET_MIN_RESERVE_UI)} SOL reserve) but tried to sell ${formatUiAmount(amountUi)} SOL.`,
-        sellableUi,
         amountUi,
         symbol,
       );
