@@ -10,7 +10,10 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.join(__dirname, '..');
 
-/** Load .env from project root. Call once at startup. */
+/** Load .env before any env-backed constants below (import order must not matter). */
+dotenv.config({ path: path.join(projectRoot, '.env') });
+
+/** Load .env from project root. Idempotent; call at startup if needed. */
 export function loadEnv(): void {
   dotenv.config({ path: path.join(projectRoot, '.env') });
 }
