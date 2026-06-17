@@ -30,7 +30,7 @@ async function getCachedLatestBlockhash(connection: Connection): Promise<string>
   if (cachedBlockhash && now - cachedBlockhash.cachedAt < BLOCKHASH_CACHE_MS) {
     return cachedBlockhash.hash;
   }
-  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  const { blockhash } = await connection.getLatestBlockhash('processed');
   cachedBlockhash = { hash: blockhash, cachedAt: now };
   return blockhash;
 }

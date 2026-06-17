@@ -631,8 +631,8 @@ app.post('/api/solana/rpc', async (req: Request, res: Response) => {
 app.get('/api/solana/latest-blockhash', async (_req: Request, res: Response) => {
   try {
     const { createSolanaConnection } = await import('./api/solana-connection.js');
-    const connection = createSolanaConnection('latest-blockhash');
-    const latest = await connection.getLatestBlockhash('confirmed');
+    const connection = createSolanaConnection('latest-blockhash', 'processed');
+    const latest = await connection.getLatestBlockhash('processed');
     res.json(latest);
   } catch (err) {
     res.status(500).json({ error: toHumanReadableError(err) });

@@ -60,10 +60,10 @@ function mergeParsedTokenAccounts(
 /** Fetch all positive SPL + native SOL balances for a wallet from chain RPC. */
 export async function fetchRpcWalletBalances(ownerAddress: string): Promise<Map<string, RpcMintBalance>> {
   const owner = new PublicKey(ownerAddress.trim());
-  const connection = createSolanaConnection('wallet-balance-rpc');
+  const connection = createSolanaConnection('wallet-balance-rpc', 'processed');
 
   const [lamports, splAccounts, token2022Accounts] = await Promise.all([
-    connection.getBalance(owner, 'confirmed'),
+    connection.getBalance(owner, 'processed'),
     connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_PROGRAM_ID }),
     connection.getParsedTokenAccountsByOwner(owner, { programId: TOKEN_2022_PROGRAM_ID }),
   ]);

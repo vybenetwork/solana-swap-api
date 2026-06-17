@@ -13,7 +13,7 @@ export interface PrepareSwapTxResult {
 }
 
 export async function prepareSwapTransactionForSigning(base64Tx: string): Promise<PrepareSwapTxResult> {
-  const connection = createSolanaConnection('prepareSwapTx');
+  const connection = createSolanaConnection('prepareSwapTx', 'processed');
   const prepared = await prepareVersionedSwapTransaction(connection, base64Tx);
   const blockhash = prepared.message.recentBlockhash;
 
