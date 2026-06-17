@@ -4326,25 +4326,7 @@ function getSelectedEnumeratedRouteCandidate():
   return route?.candidate ?? null;
 }
 
-/** Pin the selected enumerated route and disable market discovery for the sign/build step. */
-function pinSelectedEnumeratedRouteToBuildUi(): void {
-  const candidate = getSelectedEnumeratedRouteCandidate();
-  if (!candidate?.marketAddress?.trim()) return;
-
-  if (swapPoolAddressInput) swapPoolAddressInput.value = candidate.marketAddress.trim();
-  if (swapEnablePoolAddressCheckbox) swapEnablePoolAddressCheckbox.checked = true;
-  if (swapPoolAddressFieldEl) swapPoolAddressFieldEl.hidden = false;
-
-  const protocol = candidate.protocol?.trim();
-  if (protocol && swapProtocolSelect) {
-    swapProtocolSelect.value = protocol;
-    if (swapEnableProtocolCheckbox) swapEnableProtocolCheckbox.checked = true;
-    if (swapProtocolFieldEl) swapProtocolFieldEl.hidden = false;
-  }
-
-  if (swapEnumerateRoutesCheckbox) swapEnumerateRoutesCheckbox.checked = false;
-}
-
+/** Apply selected route pins to the build request only — never mutate manual pool/protocol UI fields. */
 function mergeSelectedRoutePinIntoBuildOpts(opts: Record<string, unknown>): Record<string, unknown> {
   const candidate = getSelectedEnumeratedRouteCandidate();
   if (!candidate?.marketAddress?.trim()) return opts;
@@ -4391,7 +4373,6 @@ async function postBuildSwap(): Promise<void> {
     }
     const confirmed = await promptSignSwapConfirm(lastSwapQuoteOk);
     if (!confirmed) return;
-    pinSelectedEnumeratedRouteToBuildUi();
   } else if (!wallet) {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Wallet (accountAddress) is required to build the transaction.');
     return;

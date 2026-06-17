@@ -3,7 +3,11 @@
  */
 
 import type { AxiosInstance } from 'axios';
-import { completePinnedSwapParams, programLabelForAddress } from './pinned-swap-params.js';
+import {
+  assertPinnedPoolParams,
+  completePinnedSwapParams,
+  programLabelForAddress,
+} from './pinned-swap-params.js';
 import { enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
 import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type MarketFetchMode, type SwapProxyRouter, isMarketDiscoveryEnabled, normalizeMarketFetchMode, resolveMarketFetchMode } from './swap-build.js';
 import {
@@ -504,6 +508,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
     inputMintAddress: vybeInputMint,
     outputMintAddress: vybeOutputMint,
   };
+  assertPinnedPoolParams(params);
   const manualPool = params.poolAddress?.trim();
   const manualProgram = params.programAddress?.trim();
   const manualProtocol = params.protocol;

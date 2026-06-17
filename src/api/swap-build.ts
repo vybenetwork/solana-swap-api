@@ -7,7 +7,7 @@ import { DEFAULT_SWAP_SERVICE_FEE_PCT, isLocalVybeApi } from '../config.js';
 import type { VybeSwapBuildResponse } from '../types/swap.js';
 import { appendAtaHintsToPayload, enrichBuildParamsWithAtaHints, buildParamsHaveCompleteAtaHints } from './wallet-ata-hints.js';
 import { buildSwapViaIxBuilder } from './ix-builder-swap.js';
-import { completePinnedSwapParams } from './pinned-swap-params.js';
+import { assertPinnedPoolParams, completePinnedSwapParams } from './pinned-swap-params.js';
 import { withRetry } from './client.js';
 import { toVybeSwapMint } from './sol-mints.js';
 
@@ -95,6 +95,7 @@ export interface BuildSwapParams {
 }
 
 export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
+  assertPinnedPoolParams(body);
   const router = body.router ?? 'vybe';
   let enriched = body;
   if (router === 'vybe' && !buildParamsHaveCompleteAtaHints(body)) {

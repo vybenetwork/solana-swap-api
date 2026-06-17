@@ -16,6 +16,7 @@ import { getSolanaRpcHost, logBrowserRpc429 } from './api/solana-connection.js';
 import { createClient } from './api/index.js';
 import { toHumanReadableError } from './api/client.js';
 import { InsufficientBalanceError } from './api/wallet-balance.js';
+import { validatePinnedPoolParams } from './api/pinned-swap-params.js';
 import { VYBE_SWAP_PROTOCOLS, type SwapProxyProtocol } from './api/swap-build.js';
 import { type TokenPriceHint } from './api/resolve-token-prices.js';
 import { getTokenSymbol } from './api/token-symbol.js';
@@ -330,6 +331,10 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
   const protocolRaw = typeof body.protocol === 'string' ? body.protocol.trim() : '';
   const protocol: SwapProxyProtocol | undefined =
     protocolRaw && SWAP_PROTOCOL_SET.has(protocolRaw) ? (protocolRaw as SwapProxyProtocol) : undefined;
+  const poolAddress = typeof body.poolAddress === 'string' ? body.poolAddress.trim() : undefined;
+  const programAddress = typeof body.programAddress === 'string' ? body.programAddress.trim() : undefined;
+  const pinnedPoolErr = validatePinnedPoolParams({ poolAddress, protocol, programAddress });
+  if (pinnedPoolErr) return { error: pinnedPoolErr };
 
   return {
     accountAddress,
@@ -341,8 +346,8 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
     autoCalculateSlippage: typeof body.autoCalculateSlippage === 'boolean' ? body.autoCalculateSlippage : undefined,
     gasless: typeof body.gasless === 'boolean' ? body.gasless : undefined,
     partner: typeof body.partner === 'string' ? body.partner : undefined,
-    poolAddress: typeof body.poolAddress === 'string' ? body.poolAddress : undefined,
-    programAddress: typeof body.programAddress === 'string' ? body.programAddress.trim() : undefined,
+    poolAddress,
+    programAddress,
     protocol,
     simulate: typeof body.simulate === 'boolean' ? body.simulate : undefined,
     swapFee:

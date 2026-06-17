@@ -192,12 +192,40 @@ export function filterRouteQueueByLiquidity<
   return kept;
 }
 
+export const PINNED_POOL_REQUIRES_PROTOCOL_OR_PROGRAM =
+  'Protocol or program must be selected when a pool address is provided';
+
+/** poolAddress alone is invalid — require protocol and/or programAddress. */
+export function validatePinnedPoolParams(params: {
+  poolAddress?: string;
+  protocol?: SwapProxyProtocol | string | null;
+  programAddress?: string;
+}): string | undefined {
+  const poolAddress = params.poolAddress?.trim();
+  if (!poolAddress) return undefined;
+  const hasProgram = Boolean(params.programAddress?.trim());
+  const hasProtocol =
+    params.protocol != null && String(params.protocol).trim() !== '';
+  if (!hasProgram && !hasProtocol) return PINNED_POOL_REQUIRES_PROTOCOL_OR_PROGRAM;
+  return undefined;
+}
+
+export function assertPinnedPoolParams(params: {
+  poolAddress?: string;
+  protocol?: SwapProxyProtocol | string | null;
+  programAddress?: string;
+}): void {
+  const err = validatePinnedPoolParams(params);
+  if (err) throw new Error(err);
+}
+
 /** Fill missing protocol or programAddress when a pool pin is partially specified. */
 export function completePinnedSwapParams<T extends {
   poolAddress?: string;
   protocol?: SwapProxyProtocol;
   programAddress?: string;
 }>(params: T): T {
+  assertPinnedPoolParams(params);
   const poolAddress = params.poolAddress?.trim();
   if (!poolAddress) return params;
 
