@@ -53,6 +53,9 @@ export interface IxBuilderDiscoverPoolsMeta {
   strategy?: string;
   tradesSource?: string;
   marketsSource?: string;
+  tradesRawCount?: number;
+  tradesOldestBlockTime?: number | null;
+  tradesOldestAt?: string | null;
   tradeEligible?: number;
   marketEligible?: number;
   rpcLaunchpadsScanned?: number;

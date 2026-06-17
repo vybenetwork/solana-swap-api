@@ -110,6 +110,8 @@ export interface RouteViaTradesMeta {
   /** When GET /v4/trades returns 404. */
   tradesUnavailable?: boolean;
   tradesSource?: 'clickhouse' | 'vybe_api' | 'vybe_remote';
+  tradesOldestBlockTime?: number | null;
+  tradesOldestAt?: string | null;
   marketsSnapshotFetched?: number;
   marketsSnapshotEligible?: number;
   marketsSnapshotSource?: 'clickhouse_markets' | 'vybe_api';
@@ -356,6 +358,8 @@ function baseRouteViaTradesMetaFromRouted(
     buildLog: routed.buildLog,
     timingsMs: routed.timingsMs,
     tradesSource: routed.tradesSource,
+    tradesOldestBlockTime: routed.tradesOldestBlockTime,
+    tradesOldestAt: routed.tradesOldestAt,
     marketsSnapshotFetched: routed.marketsSnapshotFetched,
     marketsSnapshotEligible: routed.marketsSnapshotEligible,
     marketsSnapshotSource: routed.marketsSnapshotSource,

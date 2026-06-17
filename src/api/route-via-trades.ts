@@ -515,6 +515,10 @@ export interface RouteViaTradesQueueMeta {
   /** GET /v4/trades returned 404 — queue empty, use Jupiter fallback. */
   tradesUnavailable?: boolean;
   tradesSource?: TradesFetchResult['tradesSource'];
+  /** Unix seconds of the oldest trade row in the fetch (coverage floor). */
+  tradesOldestBlockTime?: number | null;
+  /** ISO-8601 timestamp of the oldest trade row in the fetch. */
+  tradesOldestAt?: string | null;
   /** PG snapshot rows from GET /route-markets (0 when skipped or failed). */
   marketsSnapshotFetched?: number;
   marketsSnapshotEligible?: number;
@@ -568,6 +572,8 @@ const EMPTY_TRADE_DISCOVERY = {
   pairTradeCount: 0,
   tradesUnavailable: undefined as boolean | undefined,
   tradesSource: undefined as TradesFetchResult['tradesSource'],
+  tradesOldestBlockTime: null as number | null,
+  tradesOldestAt: null as string | null,
 };
 
 /** Map one ix-builder /discover-pools pool into an enumerated route candidate for quote probing. */
@@ -700,17 +706,28 @@ export async function discoverRouteCandidates(
       ? meta.tradesSource
       : undefined;
 
+  const tradesOldestBlockTime =
+    typeof meta.tradesOldestBlockTime === 'number' && Number.isFinite(meta.tradesOldestBlockTime)
+      ? meta.tradesOldestBlockTime
+      : null;
+  const tradesOldestAt =
+    typeof meta.tradesOldestAt === 'string' && meta.tradesOldestAt.trim()
+      ? meta.tradesOldestAt.trim()
+      : null;
+
   const tradeData: typeof EMPTY_TRADE_DISCOVERY = {
     candidates: tradeCandidates,
     topMarkets,
     maxTradeCount,
     minCountThreshold: 0,
-    tradesFetched: meta.tradeEligible ?? tradeCandidates.length,
-    tradesFetchedForward: 0,
+    tradesFetched: meta.tradesRawCount ?? meta.tradeEligible ?? tradeCandidates.length,
+    tradesFetchedForward: meta.tradesRawCount ?? 0,
     tradesFetchedInverse: 0,
     pairTradeCount: 0,
     tradesUnavailable: false,
     tradesSource,
+    tradesOldestBlockTime,
+    tradesOldestAt,
   };
 
   console.info(
@@ -1428,6 +1445,8 @@ export async function buildSwapViaTradeMarkets(
     timingsMs,
     tradesUnavailable,
     tradesSource: tradeData.tradesSource,
+    tradesOldestBlockTime: tradeData.tradesOldestBlockTime,
+    tradesOldestAt: tradeData.tradesOldestAt,
   };
 
   if (candidates.length === 0) {
@@ -1488,6 +1507,18 @@ export async function buildSwapViaTradeMarkets(
   };
 }
 
+function formatTradesFetchLookbackSec(oldestBlockTimeSec: number | null | undefined): string {
+  const bt = Number(oldestBlockTimeSec);
+  if (!Number.isFinite(bt) || bt <= 0) return '';
+  const ageHours = Math.max(0, Date.now() / 1000 - bt) / 3600;
+  if (ageHours < 24) {
+    const hours = ageHours >= 10 ? Math.round(ageHours) : Math.round(ageHours * 10) / 10;
+    return `last ${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+  const days = Math.round((ageHours / 24) * 10) / 10;
+  return `last ${days} day${days === 1 ? '' : 's'}`;
+}
+
 /** Human-readable server log for Route via Trades diagnostics. */
 export function formatRouteViaTradesServerLog(
   meta: Pick<
@@ -1520,6 +1551,14 @@ export function formatRouteViaTradesServerLog(
   lines.push(
     `Trades fetch: ${meta.tradesFetched} rows (limit ${meta.tradesFetchLimit}) — ${meta.pairTradeCount} matched sell→buy pair for ranking`,
   );
+  const tradesOldestAt = (meta as { tradesOldestAt?: string | null }).tradesOldestAt;
+  const tradesOldestBlockTime = (meta as { tradesOldestBlockTime?: number | null }).tradesOldestBlockTime;
+  if (tradesOldestAt || tradesOldestBlockTime) {
+    const lookback = formatTradesFetchLookbackSec(tradesOldestBlockTime);
+    lines.push(
+      `Trades coverage: ${lookback || 'unknown'}${tradesOldestAt ? ` (oldest ${tradesOldestAt})` : ''}`,
+    );
+  }
   const tradesSource = (meta as { tradesSource?: string }).tradesSource;
   if (tradesSource) {
     lines.push(`Trades source: ${tradesSource}`);

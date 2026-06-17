@@ -4802,6 +4802,32 @@ const ROUTE_VIA_TRADES_OUTCOME_LABELS: Record<string, string> = {
   failed: 'Trade queue failed',
 };
 
+function formatTradesOldestLabel(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
+/** Relative coverage label from oldest trade blockTime (unix seconds). */
+export function formatTradesFetchLookback(oldestBlockTimeSec: unknown): string {
+  const bt = Number(oldestBlockTimeSec);
+  if (!Number.isFinite(bt) || bt <= 0) return '';
+  const ageSec = Math.max(0, Date.now() / 1000 - bt);
+  const ageHours = ageSec / 3600;
+  if (ageHours < 24) {
+    const hours = ageHours >= 10 ? Math.round(ageHours) : Math.round(ageHours * 10) / 10;
+    return `last ${hours} hour${hours === 1 ? '' : 's'}`;
+  }
+  const days = Math.round((ageHours / 24) * 10) / 10;
+  return `last ${days} day${days === 1 ? '' : 's'}`;
+}
+
 export function renderRouteViaTradesLogHtml(meta: Record<string, unknown> | null | undefined): string {
   if (!meta || typeof meta !== 'object') {
     return '<p class="routing-empty">Route via Trades log appears on Vybe quotes.</p>';
@@ -4824,8 +4850,16 @@ export function renderRouteViaTradesLogHtml(meta: Record<string, unknown> | null
     const limit = Number(meta.tradesFetchLimit ?? 1000);
     const fetchOk = meta.tradesFetchOk === true;
     const pairCount = Number(meta.pairTradeCount ?? 0);
+    const lookback = formatTradesFetchLookback(meta.tradesOldestBlockTime);
+    const oldestAt =
+      typeof meta.tradesOldestAt === 'string' && meta.tradesOldestAt.trim()
+        ? meta.tradesOldestAt.trim()
+        : '';
+    const lookbackBit = lookback
+      ? ` · ${lookback}${oldestAt ? ` <span class="rvt-log__muted" title="${escapeHtml(oldestAt)}">(from ${escapeHtml(formatTradesOldestLabel(oldestAt))})</span>` : ''}`
+      : '';
     parts.push(
-      `<p class="rvt-log__line"><strong>Trades:</strong> ${fetched} rows (limit ${limit})${fetchOk ? '' : ' (empty)'} — ${pairCount} matched sell→buy pair</p>`,
+      `<p class="rvt-log__line"><strong>Trades:</strong> ${fetched} rows (limit ${limit})${fetchOk ? '' : ' (empty)'} — ${pairCount} matched sell→buy pair${lookbackBit}</p>`,
     );
     const maxCount = Number(meta.maxTradeCount ?? 0);
     const minThreshold = Number(meta.minCountThreshold ?? 0);
