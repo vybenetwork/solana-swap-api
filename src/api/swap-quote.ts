@@ -15,6 +15,11 @@ export interface GetSwapQuoteParams {
   accountAddress?: string;
   /** Percentage, default 2 */
   slippage?: number;
+  /** Quote/build router: vybe (uses marketFetchMode), jupiter, or titan */
+  router?: 'vybe' | 'jupiter' | 'titan';
+  /** Vybe market discovery mode when router=vybe (default full) */
+  marketFetchMode?: 'full' | 'trades' | 'markets' | 'rpc';
+  enumerateRoutes?: boolean;
 }
 
 export async function getSwapQuote(http: AxiosInstance, params: GetSwapQuoteParams): Promise<VybeSwapQuote> {

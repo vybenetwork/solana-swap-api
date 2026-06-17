@@ -6,7 +6,7 @@
 import type { AxiosInstance } from 'axios';
 import { isLocalVybeApi } from '../config.js';
 import {
-  fetchDiscoverPoolsViaIxBuilder,
+  fetchDiscoverPools,
   type ScannedPoolCandidate,
   type IxBuilderDiscoverPool,
   type IxBuilderDiscoverPoolsResponse,
@@ -621,14 +621,11 @@ function discoverPoolToRouteCandidate(
 }
 
 /**
- * Discover ranked route candidates for a mint pair via ix-builder's GET /discover-pools.
- *
- * ix-builder owns all ranking, dedupe, quote-bridge augmentation and direct-route diversity;
- * swap-api just maps the returned queue into route candidates. Returns an empty queue when not
- * running against a local ix-builder (remote Vybe handles its own routing).
+ * Discover ranked route candidates for a mint pair via ix-builder GET /discover-pools
+ * (local ix-builder or Vybe API proxy on prod).
  */
 export async function discoverRouteCandidates(
-  _http: AxiosInstance,
+  http: AxiosInstance,
   inputMint: string,
   outputMint: string,
   marketFetchMode: MarketFetchMode,
@@ -650,14 +647,14 @@ export async function discoverRouteCandidates(
   };
 
   if (!isLocalVybeApi()) {
-    return empty;
+    console.info(`[route-discovery] start mode=${marketFetchMode} via Vybe API /v4/trading/discover-pools`);
+  } else {
+    console.info(`[route-discovery] start mode=${marketFetchMode} via ix-builder /discover-pools`);
   }
-
-  console.info(`[route-discovery] start mode=${marketFetchMode} via ix-builder /discover-pools`);
 
   let discover: IxBuilderDiscoverPoolsResponse;
   try {
-    discover = await fetchDiscoverPoolsViaIxBuilder(inputMint, outputMint, marketFetchMode, true);
+    discover = await fetchDiscoverPools(http, inputMint, outputMint, marketFetchMode, true);
   } catch (err) {
     console.warn(
       `[route-via-trades] ix-builder /discover-pools failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -1031,6 +1028,10 @@ function buildSwapBodyForTradeAttempt(
   return completePinnedSwapParams({
     ...rest,
     router: 'vybe',
+    // Route enumeration probes pin pool/program and rely on enrich:true for ix-builder's
+    // on-chain sim. simulate:true makes local ix-builder return simulation-only (no tx),
+    // which fails assertIxBuilderSwapResponse and rejects every candidate.
+    simulate: false,
     poolAddress: attempt.poolAddress,
     programAddress: attempt.programAddress,
     protocol: attempt.protocol,

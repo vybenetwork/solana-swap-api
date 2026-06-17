@@ -1,13 +1,13 @@
 /**
- * Pool discovery via local ix-builder.
+ * Pool discovery via ix-builder GET /discover-pools.
  *
- * Discovery (trades + markets + RPC ranking, quote-bridge augmentation, and direct-route
- * diversity) is owned by ix-builder's GET /discover-pools. swap-api only consumes that single
- * contract — it no longer fetches/merges /route-trades, /route-markets or /scan-pools itself.
+ * Local dev: direct localhost ix-builder. Prod: Vybe API GET /v4/trading/discover-pools
+ * (proxied to prod ix-builder). swap-api then probes each ranked pool via swap build,
+ * same path for local and remote.
  */
 
-import axios from 'axios';
-import { IX_BUILDER_LOCAL_URL, VYBE_TIMEOUT_MS } from '../config.js';
+import axios, { type AxiosInstance } from 'axios';
+import { isLocalVybeApi, IX_BUILDER_LOCAL_URL, VYBE_TIMEOUT_MS } from '../config.js';
 import type { MarketFetchMode } from './swap-build.js';
 
 /** Quote-bridge route metadata attached to a discovered pool (e.g. WSOL→USDC→token). */
@@ -76,26 +76,46 @@ export interface IxBuilderDiscoverPoolsResponse {
   meta: IxBuilderDiscoverPoolsMeta;
 }
 
-/** Single discovery call: output-centric trades/markets ranking + quote-bridge + direct diversity. */
-export async function fetchDiscoverPoolsViaIxBuilder(
+const DISCOVER_POOLS_PARAMS = (
+  inputMint: string,
+  outputMint: string,
+  marketFetchMode: MarketFetchMode,
+  enumerateRoutes: boolean,
+) => ({
+  inputMint: inputMint.trim(),
+  outputMint: outputMint.trim(),
+  marketFetchMode,
+  enumerateRoutes: enumerateRoutes ? 'true' : 'false',
+  rpcLaunchpads: 'true',
+});
+
+/**
+ * Discover ranked pools for a mint pair.
+ * @param http - Authenticated Vybe client (required when not using local ix-builder).
+ */
+export async function fetchDiscoverPools(
+  http: AxiosInstance,
   inputMint: string,
   outputMint: string,
   marketFetchMode: MarketFetchMode,
   enumerateRoutes = true,
 ): Promise<IxBuilderDiscoverPoolsResponse> {
-  const { data } = await axios.get<IxBuilderDiscoverPoolsResponse>(
-    `${IX_BUILDER_LOCAL_URL}/discover-pools`,
-    {
-      params: {
-        inputMint: inputMint.trim(),
-        outputMint: outputMint.trim(),
-        marketFetchMode,
-        enumerateRoutes: enumerateRoutes ? 'true' : 'false',
-        rpcLaunchpads: 'true',
+  const params = DISCOVER_POOLS_PARAMS(inputMint, outputMint, marketFetchMode, enumerateRoutes);
+  if (isLocalVybeApi()) {
+    const { data } = await axios.get<IxBuilderDiscoverPoolsResponse>(
+      `${IX_BUILDER_LOCAL_URL}/discover-pools`,
+      {
+        params,
+        timeout: VYBE_TIMEOUT_MS,
+        headers: { Accept: 'application/json' },
       },
-      timeout: VYBE_TIMEOUT_MS,
-      headers: { Accept: 'application/json' },
-    },
-  );
+    );
+    return data;
+  }
+  const { data } = await http.get<IxBuilderDiscoverPoolsResponse>('/v4/trading/discover-pools', {
+    params,
+    timeout: VYBE_TIMEOUT_MS,
+    headers: { Accept: 'application/json' },
+  });
   return data;
 }

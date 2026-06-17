@@ -449,7 +449,7 @@ app.get('/api/route-via-trades/top-markets', async (req: Request, res: Response)
   }
 });
 
-/** GET /api/trading/swap-quote — Vybe GET /v4/trading/swap-quote */
+/** GET /api/trading/swap-quote — aggregator quote, or router-specific quote+build when `router` is set */
 app.get('/api/trading/swap-quote', async (req: Request, res: Response) => {
   try {
     const amount = qNum(req, 'amount');
@@ -462,6 +462,46 @@ app.get('/api/trading/swap-quote', async (req: Request, res: Response) => {
     }
     if (!inputMintAddress) return res.status(400).json({ error: 'inputMintAddress required' });
     if (!outputMintAddress) return res.status(400).json({ error: 'outputMintAddress required' });
+
+    const routerRaw = q(req, 'router').trim().toLowerCase();
+    const router =
+      routerRaw === 'jupiter' || routerRaw === 'titan' || routerRaw === 'vybe' ? routerRaw : undefined;
+    if (router) {
+      if (!accountAddress) {
+        return res.status(400).json({ error: 'accountAddress required when router is set' });
+      }
+      const marketFetchModeRaw = q(req, 'marketFetchMode').trim().toLowerCase();
+      const marketFetchMode =
+        router === 'vybe' &&
+        ['full', 'trades', 'markets', 'rpc'].includes(marketFetchModeRaw)
+          ? (marketFetchModeRaw as 'full' | 'trades' | 'markets' | 'rpc')
+          : router === 'vybe'
+            ? 'full'
+            : undefined;
+      const enumerateRoutesRaw = q(req, 'enumerateRoutes').trim().toLowerCase();
+      const enumerateRoutes =
+        enumerateRoutesRaw === 'false' || enumerateRoutesRaw === '0' ? false : undefined;
+      const result = await client.buildVybeQuote({
+        accountAddress,
+        amount,
+        inputMintAddress,
+        outputMintAddress,
+        slippage: Number.isFinite(slippage) ? slippage : undefined,
+        router,
+        marketFetchMode,
+        enumerateRoutes,
+      });
+      return res.json({
+        ...result.quote,
+        ...(result.build
+          ? { _build: result.build, _builtAt: result.builtAt }
+          : { _buildUnavailable: true }),
+        _tokenStats: result.tokenStats,
+        _quoteSource: result.quote._quoteSource ?? 'router-quote-build',
+        ...(result.routeViaTrades ? { _routeViaTrades: result.routeViaTrades } : {}),
+      });
+    }
+
     const data = await client.getSwapQuote({
       amount,
       inputMintAddress,
@@ -476,7 +516,7 @@ app.get('/api/trading/swap-quote', async (req: Request, res: Response) => {
   }
 });
 
-/** POST /api/trading/vybe-quote — spot price + build swap (Vybe router; no swap-quote aggregator) */
+/** POST /api/trading/vybe-quote — quote + build for vybe, jupiter, or titan (prefer router + marketFetchMode on body) */
 app.post('/api/trading/vybe-quote', async (req: Request, res: Response) => {
   try {
     const body = req.body as Record<string, unknown>;

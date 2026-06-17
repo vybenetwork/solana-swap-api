@@ -4158,45 +4158,16 @@ async function fetchSwapQuote(): Promise<void> {
         : amount;
     void refreshLowSolTradeWarning();
 
-    if (router === 'vybe') {
-      // Vybe quote builds on the server (balance check, prices, ix-builder) — no preflight.
-      try {
-        await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, buildOpts);
-      } catch (quoteErr) {
-        if (swapQuoteError) {
-          showInlineError(
-            swapQuoteError,
-            quoteErr instanceof Error ? quoteErr.message : String(quoteErr),
-          );
-        }
-        invalidateSwapQuoteUi();
+    try {
+      await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+    } catch (quoteErr) {
+      if (swapQuoteError) {
+        showInlineError(
+          swapQuoteError,
+          quoteErr instanceof Error ? quoteErr.message : String(quoteErr),
+        );
       }
-    } else {
-      const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
-      try {
-        const pairStats = await resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMints);
-        updateSwapPairCards(pairStats, swapQuoteFetching);
-      } catch (priceErr) {
-        if (swapQuoteError) {
-          showInlineError(
-            swapQuoteError,
-            priceErr instanceof Error ? priceErr.message : String(priceErr),
-          );
-        }
-        invalidateSwapQuoteUi();
-        return;
-      }
-      try {
-        await requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, quoteAmount, buildOpts);
-      } catch (quoteErr) {
-        if (swapQuoteError) {
-          showInlineError(
-            swapQuoteError,
-            quoteErr instanceof Error ? quoteErr.message : String(quoteErr),
-          );
-        }
-        invalidateSwapQuoteUi();
-      }
+      invalidateSwapQuoteUi();
     }
   } catch (err) {
     if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
