@@ -8,6 +8,7 @@ import {
   completePinnedSwapParams,
   programLabelForAddress,
 } from './pinned-swap-params.js';
+import { isLocalVybeApi } from '../config.js';
 import { enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
 import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type MarketFetchMode, type SwapProxyRouter, isMarketDiscoveryEnabled, normalizeMarketFetchMode, resolveEnumerateRoutes, resolveMarketFetchMode } from './swap-build.js';
 import {
@@ -17,6 +18,7 @@ import {
   formatRouteViaTradesServerLog,
   isAggregatorSwapProvider,
   normalizeBuildErrorMessage,
+  parseVybeEnumeratedSwapRoutes,
   ROUTE_VIA_TRADES_LIMIT,
   TRADES_API_UNAVAILABLE_MESSAGE,
   type BuildSwapViaTradeMarketsResult,
@@ -611,6 +613,123 @@ export async function buildVybeQuoteFromPriceAndSwap(
       logRouteViaTradesMeta(routeViaTrades);
     }
   } else if (useTradeCandidatePin || useDiscoveryFetch) {
+    if (useDiscoveryFetch && !isLocalVybeApi()) {
+      build = await buildSwap(http, {
+        ...vybeParams,
+        router: 'vybe',
+        marketFetchMode,
+        enumerateRoutes,
+        simulate: false,
+      });
+      const parsed = parseVybeEnumeratedSwapRoutes(build);
+      if (parsed.kind === 'multi') {
+        const enumRoutes = await buildEnumeratedRouteQuotes(
+          parsed.routes,
+          uiInputMint,
+          uiOutputMint,
+          selected,
+        );
+        precomputedPrimaryQuote = enumRoutes[0]?.quote;
+        Object.assign(
+          vybeParams,
+          completePinnedSwapParams({
+            poolAddress: parsed.selected.marketAddress,
+            programAddress: parsed.selected.programAddress,
+            protocol: parsed.selected.protocol,
+          }),
+        );
+        routeViaTrades = {
+          enabled: true,
+          outcome: 'multi',
+          selected: parsed.selected,
+          selectedRouteIndex: 0,
+          routes: enumRoutes,
+          marketFetchMode,
+          enumerateRoutes,
+          topMarkets: [],
+          maxTradeCount: 0,
+          minCountThreshold: 0,
+          tried: parsed.routes.map((r) => r.selected),
+          tradesFetched: 0,
+          tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+          tradesFetchOk: false,
+          tradesFetchedForward: 0,
+          tradesFetchedInverse: 0,
+          pairTradeCount: 0,
+          tradeMarketsEligible: parsed.routes.length,
+          queued: parsed.routes.map((r, i) => ({
+            marketAddress: r.selected.marketAddress,
+            programAddress: r.selected.programAddress,
+            protocol: r.selected.protocol,
+            programLabel:
+              r.selected.programLabel ?? programLabelForAddress(r.selected.programAddress),
+            queueIndex: i + 1,
+            tradeCount: 0,
+          })),
+          buildLog: [],
+          userMessage: 'Routed via Vybe swap enumeration.',
+        };
+        logRouteViaTradesMeta(routeViaTrades!);
+      } else if (parsed.kind === 'direct') {
+        Object.assign(
+          vybeParams,
+          completePinnedSwapParams({
+            poolAddress: parsed.selected.marketAddress,
+            programAddress: parsed.selected.programAddress,
+            protocol: parsed.selected.protocol,
+          }),
+        );
+        routeViaTrades = {
+          enabled: true,
+          outcome: 'direct',
+          selected: parsed.selected,
+          marketFetchMode,
+          enumerateRoutes,
+          topMarkets: [],
+          maxTradeCount: 0,
+          minCountThreshold: 0,
+          tried: [parsed.selected],
+          tradesFetched: 0,
+          tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+          tradesFetchOk: false,
+          tradesFetchedForward: 0,
+          tradesFetchedInverse: 0,
+          pairTradeCount: 0,
+          tradeMarketsEligible: 1,
+          queued: [],
+          buildLog: [],
+          userMessage: 'Routed via Vybe swap enumeration.',
+        };
+        logRouteViaTradesMeta(routeViaTrades);
+      } else {
+        const recovery = await recoverAfterTradeQueueExhausted(
+          http,
+          vybeParams,
+          {
+            kind: 'exhausted',
+            topMarkets: [],
+            maxTradeCount: 0,
+            minCountThreshold: 0,
+            tried: [],
+            tradesFetched: 0,
+            tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+            tradesFetchOk: false,
+            tradesFetchedForward: 0,
+            tradesFetchedInverse: 0,
+            pairTradeCount: 0,
+            tradeMarketsEligible: 0,
+            queued: [],
+            buildLog: [],
+            lastError: 'Vybe swap enumeration returned no routes',
+          },
+          {
+            allowRpcFallback: marketFetchMode === 'full' && !bothCommonQuotes && !enumerateRoutes,
+          },
+        );
+        build = recovery.build;
+        routeViaTrades = recovery.routeViaTrades;
+      }
+    } else {
     const routed = useTradeCandidatePin
       ? await buildSwapForTradeCandidate(http, { ...vybeParams, router: 'vybe' }, {
           marketAddress: manualPool!,
@@ -675,6 +794,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
       });
       build = recovery.build;
       routeViaTrades = recovery.routeViaTrades;
+    }
     }
   } else {
     build =

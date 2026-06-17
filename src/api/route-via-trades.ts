@@ -318,6 +318,78 @@ function poolAddressFromBuild(build: import('../types/swap.js').VybeSwapBuildRes
   return String(quote?.poolAddress ?? quote?.pool ?? '').trim();
 }
 
+function swapHasTx(build: import('../types/swap.js').VybeSwapBuildResponse): boolean {
+  const tx = build.tx ?? build.transaction;
+  return typeof tx === 'string' && tx.trim().length > 0;
+}
+
+function tradeCandidateFromVybeBuild(
+  build: import('../types/swap.js').VybeSwapBuildResponse,
+): TradeMarketCandidate {
+  const marketAddress = poolAddressFromBuild(build);
+  const programAddress = String(build.programAddress ?? '').trim();
+  const protocolRaw = build.protocol;
+  const protocol =
+    typeof protocolRaw === 'string' ? (protocolRaw as import('./swap-build.js').SwapProxyProtocol) : undefined;
+  const programLabel = programAddress ? programLabelForAddress(programAddress) : 'unknown';
+  return {
+    marketAddress,
+    programAddress,
+    protocol,
+    tradeCount: 0,
+    programLabel,
+  };
+}
+
+function routeBuildSuccessFromVybeBuild(
+  build: import('../types/swap.js').VybeSwapBuildResponse,
+  index: number,
+): RouteBuildSuccess {
+  const selected = tradeCandidateFromVybeBuild(build);
+  const candidate: EnumeratedRouteCandidate = {
+    ...selected,
+    programLabel: selected.programLabel ?? programLabelForAddress(selected.programAddress),
+    source: 'markets',
+    queueIndex: index + 1,
+  };
+  return { candidate, build, selected };
+}
+
+export type VybeEnumeratedSwapParseResult =
+  | {
+      kind: 'multi';
+      routes: RouteBuildSuccess[];
+      build: import('../types/swap.js').VybeSwapBuildResponse;
+      selected: TradeMarketCandidate;
+    }
+  | {
+      kind: 'direct';
+      build: import('../types/swap.js').VybeSwapBuildResponse;
+      selected: TradeMarketCandidate;
+    }
+  | { kind: 'none' };
+
+/** Parse `outcome` + `routes[]` from Vybe POST /v4/trading/swap when enumerateRoutes is enabled. */
+export function parseVybeEnumeratedSwapRoutes(
+  build: import('../types/swap.js').VybeSwapBuildResponse,
+): VybeEnumeratedSwapParseResult {
+  const routesRaw = build.routes;
+  if (build.outcome === 'multi' && Array.isArray(routesRaw) && routesRaw.length > 0) {
+    const routes = routesRaw.map((route, i) =>
+      routeBuildSuccessFromVybeBuild(route as import('../types/swap.js').VybeSwapBuildResponse, i),
+    );
+    const primary = routes[0]!;
+    return { kind: 'multi', routes, build: primary.build, selected: primary.selected };
+  }
+  if (swapHasTx(build)) {
+    const selected = tradeCandidateFromVybeBuild(build);
+    if (selected.marketAddress && selected.programAddress) {
+      return { kind: 'direct', build, selected };
+    }
+  }
+  return { kind: 'none' };
+}
+
 type BuildAttempt = Pick<
   import('./swap-build.js').BuildSwapParams,
   'poolAddress' | 'programAddress' | 'protocol'
@@ -646,11 +718,7 @@ export async function discoverRouteCandidates(
     candidates: [] as EnumeratedRouteCandidate[],
   };
 
-  if (!isLocalVybeApi()) {
-    console.info(`[route-discovery] start mode=${marketFetchMode} via Vybe API /v4/trading/discover-pools`);
-  } else {
-    console.info(`[route-discovery] start mode=${marketFetchMode} via ix-builder /discover-pools`);
-  }
+  console.info(`[route-discovery] start mode=${marketFetchMode} via ix-builder /discover-pools`);
 
   let discover: IxBuilderDiscoverPoolsResponse;
   try {
@@ -762,6 +830,27 @@ function sortRouteBuildSuccessesByQuotedOutput(successes: RouteBuildSuccess[]): 
   );
 }
 
+/** Pure on-chain RPC scan rows — backfill only when trades/markets cannot fill enumerate slots. */
+function isPureRpcRouteCandidate(c: EnumeratedRouteCandidate): boolean {
+  return c.source === 'rpc';
+}
+
+function candidatesForEnumerationProbe(candidates: EnumeratedRouteCandidate[]): EnumeratedRouteCandidate[] {
+  const primary = candidates.filter((c) => !isPureRpcRouteCandidate(c));
+  const rpcBackfill = candidates.filter((c) => isPureRpcRouteCandidate(c));
+  if (primary.length === 0) return candidates;
+  return [...primary, ...rpcBackfill];
+}
+
+function finalizeEnumeratedRouteSuccesses(successes: RouteBuildSuccess[]): RouteBuildSuccess[] {
+  const ranked = sortRouteBuildSuccessesByQuotedOutput(successes);
+  const nonRpc = ranked.filter((s) => !isPureRpcRouteCandidate(s.candidate));
+  if (nonRpc.length >= ROUTE_ENUMERATE_MAX_ROUTES) {
+    return nonRpc.slice(0, ROUTE_ENUMERATE_MAX_ROUTES);
+  }
+  return ranked.slice(0, ROUTE_ENUMERATE_MAX_ROUTES);
+}
+
 /** A route requires an extra hop when its build is a quote-bridge/pre-swap or the candidate is tagged so. */
 function buildRouteIsHopRequired(
   build: import('../types/swap.js').VybeSwapBuildResponse,
@@ -831,16 +920,17 @@ async function buildRoutesForCandidates(
   // ROUTE_ENUMERATE_MAX_ROUTES simulations; deeper candidates are only probed to backfill failures.
   console.info(
     `[route-discovery] enumerate: build+sim in queue order until ${ROUTE_ENUMERATE_MAX_ROUTES} pass ` +
-      `(scan deeper only on errors)`,
+      `(scan deeper only on errors; RPC pools deferred behind trades/markets)`,
   );
 
-  let nextCandidateIndex = candidates.length;
-  for (let i = 0; i < candidates.length; i++) {
+  const probeQueue = candidatesForEnumerationProbe(candidates);
+  let nextCandidateIndex = probeQueue.length;
+  for (let i = 0; i < probeQueue.length; i++) {
     if (successes.length >= ROUTE_ENUMERATE_MAX_ROUTES) {
       nextCandidateIndex = i;
       break;
     }
-    const queueEntry = candidates[i]!;
+    const queueEntry = probeQueue[i]!;
     if (skipRemainingMeteoraDlmm && isMeteoraDlmmCandidate(queueEntry)) {
       console.info(
         `[route-discovery] skip DLMM ${queueEntry.marketAddress.slice(0, 8)}… (prior bin liquidity failure)`,
@@ -869,7 +959,7 @@ async function buildRoutesForCandidates(
   await ensureDirectRouteInValidatedTopN(
     http,
     body,
-    candidates,
+    probeQueue,
     nextCandidateIndex,
     successes,
     tried,
@@ -879,7 +969,7 @@ async function buildRoutesForCandidates(
   );
 
   return {
-    successes: sortRouteBuildSuccessesByQuotedOutput(successes),
+    successes: finalizeEnumeratedRouteSuccesses(successes),
     tried,
     buildLog,
     lastError,
@@ -968,6 +1058,7 @@ async function ensureDirectRouteInValidatedTopN(
       continue;
     }
     if (haveKeys.has(candidatePairKey(queueEntry.marketAddress, queueEntry.programAddress))) continue;
+    if (isPureRpcRouteCandidate(queueEntry)) continue;
     // Cheap pre-filter: skip candidates already tagged hop-required to avoid wasted builds.
     if (queueEntry.rpcMeta?.quoteBridge || queueEntry.rpcMeta?.preSwapNeeded) continue;
 

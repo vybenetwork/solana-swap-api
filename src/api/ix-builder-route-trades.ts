@@ -1,9 +1,8 @@
 /**
- * Pool discovery via ix-builder GET /discover-pools.
+ * Pool discovery via ix-builder GET /discover-pools (local dev only).
  *
- * Local dev: direct localhost ix-builder. Prod: Vybe API GET /v4/trading/discover-pools
- * (proxied to prod ix-builder). swap-api then probes each ranked pool via swap build,
- * same path for local and remote.
+ * Prod uses POST /v4/trading/swap with `enumerateRoutes: true` — Vybe API discovers pools
+ * internally and returns enumerated routes in the swap response.
  */
 
 import axios, { type AxiosInstance } from 'axios';
@@ -100,22 +99,19 @@ export async function fetchDiscoverPools(
   marketFetchMode: MarketFetchMode,
   enumerateRoutes = true,
 ): Promise<IxBuilderDiscoverPoolsResponse> {
-  const params = DISCOVER_POOLS_PARAMS(inputMint, outputMint, marketFetchMode, enumerateRoutes);
-  if (isLocalVybeApi()) {
-    const { data } = await axios.get<IxBuilderDiscoverPoolsResponse>(
-      `${IX_BUILDER_LOCAL_URL}/discover-pools`,
-      {
-        params,
-        timeout: VYBE_TIMEOUT_MS,
-        headers: { Accept: 'application/json' },
-      },
+  if (!isLocalVybeApi()) {
+    throw new Error(
+      'fetchDiscoverPools is local-only; use POST /v4/trading/swap with enumerateRoutes on remote Vybe API',
     );
-    return data;
   }
-  const { data } = await http.get<IxBuilderDiscoverPoolsResponse>('/v4/trading/discover-pools', {
-    params,
-    timeout: VYBE_TIMEOUT_MS,
-    headers: { Accept: 'application/json' },
-  });
+  const params = DISCOVER_POOLS_PARAMS(inputMint, outputMint, marketFetchMode, enumerateRoutes);
+  const { data } = await axios.get<IxBuilderDiscoverPoolsResponse>(
+    `${IX_BUILDER_LOCAL_URL}/discover-pools`,
+    {
+      params,
+      timeout: VYBE_TIMEOUT_MS,
+      headers: { Accept: 'application/json' },
+    },
+  );
   return data;
 }
