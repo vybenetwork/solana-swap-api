@@ -2632,6 +2632,34 @@ function annotateQuoteRouterMeta(
   };
 }
 
+/** Map ix-builder enrichment route steps onto the UI shape (`hopFees` → `_hopFees`, etc.). */
+function mapEnrichmentRoutePlanStep(step: Record<string, unknown>): Record<string, unknown> {
+  const mapped: Record<string, unknown> = { ...step };
+  const hopFees = step.hopFees as Record<string, unknown> | undefined;
+  if (hopFees && !mapped._hopFees) mapped._hopFees = hopFees;
+  if (step.retentionInPct != null && mapped._retentionInPct == null) {
+    mapped._retentionInPct = step.retentionInPct;
+  }
+  if (step.retentionOutPct != null && mapped._retentionOutPct == null) {
+    mapped._retentionOutPct = step.retentionOutPct;
+  }
+  if (step.outgoingPct != null && mapped._outgoingPct == null) mapped._outgoingPct = step.outgoingPct;
+  if (step.inUsd != null && mapped._inUsd == null) mapped._inUsd = step.inUsd;
+  if (step.outUsd != null && mapped._outUsd == null) mapped._outUsd = step.outUsd;
+  if (step.netOutRaw != null && mapped._netOutRaw == null) mapped._netOutRaw = step.netOutRaw;
+  if (step.grossOutRaw != null && mapped._grossOutRaw == null) mapped._grossOutRaw = step.grossOutRaw;
+  return mapped;
+}
+
+function mapEnrichmentRoutePlanForUi(plan: unknown): Record<string, unknown>[] | undefined {
+  if (!Array.isArray(plan)) return undefined;
+  return plan.map((step) =>
+    typeof step === 'object' && step != null
+      ? mapEnrichmentRoutePlanStep(step as Record<string, unknown>)
+      : (step as Record<string, unknown>),
+  );
+}
+
 /** Project ix-builder `enrichment` onto the browser swap-body shape (matches POST /api/trading/swap). */
 function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<string, unknown> {
   const enrichment = build.enrichment as Record<string, unknown> | undefined;
@@ -2640,7 +2668,7 @@ function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<stri
   const buildDetails = build.details as Record<string, unknown> | undefined;
   const buildQuote = buildDetails?.quote as Record<string, unknown> | undefined;
   const feeEnrichment = {
-    routePlan: enrichment.routePlan,
+    routePlan: mapEnrichmentRoutePlanForUi(enrichment.routePlan) ?? enrichment.routePlan,
     quotedOutRaw: enrichment.quotedOutRaw,
     simulatedOutRaw: enrichment.simulatedOutRaw,
     totalFeeRaw: enrichment.totalFeeRaw,
@@ -2693,11 +2721,13 @@ function applyFeeEnrichmentToQuote(
   const buildDetails = buildPayload?.details as Record<string, unknown> | undefined;
   const swapFeeRaw =
     source?.swapFeeRaw ?? buildEnrichment?.swapFeeRaw ?? buildDetails?.swapFee ?? quote._swapFee;
-  const routePlan = source?.routePlan ?? buildEnrichment?.routePlan;
+  const routePlan =
+    mapEnrichmentRoutePlanForUi(source?.routePlan ?? buildEnrichment?.routePlan) ??
+    (Array.isArray(quote.routePlan) ? (quote.routePlan as Record<string, unknown>[]) : undefined);
 
   let next: Record<string, unknown> = {
     ...quote,
-    ...(Array.isArray(routePlan) ? { routePlan } : {}),
+    ...(routePlan ? { routePlan } : {}),
     _quotedOutAmount: quotedOutRaw ?? quote._quotedOutAmount,
     _simulatedOutAmount: simulatedOutRaw ?? quote._simulatedOutAmount,
     _outputFromSimulation: outputFromSimulation || quote._outputFromSimulation === true,

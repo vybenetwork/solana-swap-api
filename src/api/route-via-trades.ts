@@ -384,6 +384,13 @@ export function parseVybeEnumeratedSwapRoutes(
     if (selected.marketAddress && selected.programAddress) {
       return { kind: 'direct', build, selected };
     }
+    // Prod Vybe API: native DEX tx without enumerate metadata (no pool/program on response).
+    const provider =
+      build.provider ??
+      (build.details as { quote?: { provider?: string } } | undefined)?.quote?.provider;
+    if (isDirectVybeDexProvider(provider)) {
+      return { kind: 'direct', build, selected };
+    }
   }
   return { kind: 'none' };
 }

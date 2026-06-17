@@ -558,10 +558,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
     const parsed = parseSwapBuildBody(body);
     if ('error' in parsed) return res.status(400).json({ error: parsed.error });
 
-    const data =
-      parsed.router === 'vybe'
-        ? await client.buildSwapWithFallback(parsed)
-        : await client.buildSwap(parsed);
+    const data = await client.buildSwap(parsed);
 
     // ix-builder is the single source of simulation + fees + USD; swap-api never simulates.
     // Project its enrichment into the legacy `_feeEnrichment` shape the browser already reads.

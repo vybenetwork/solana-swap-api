@@ -269,6 +269,8 @@ export interface VybeRoutePlanStepLite {
   bps?: number | null;
   swapInfo?: VybeSwapInfoLite;
   _hopFees?: HopFeeBreakdownLite;
+  /** Raw ix-builder enrichment field (mapped to `_hopFees` in quote projection). */
+  hopFees?: HopFeeBreakdownLite;
   /** Retention/% + USD provided by ix-builder enrichment (printed, not recomputed). */
   _retentionInPct?: number;
   _retentionOutPct?: number;
@@ -2539,6 +2541,7 @@ function getHopFeeDisplayItems(step: VybeRoutePlanStepLite): HopFeeItemLite[] {
 
 function getHopFeeBreakdown(step: VybeRoutePlanStepLite): HopFeeBreakdownLite | null {
   if (step._hopFees?.items?.length) return step._hopFees;
+  if (step.hopFees?.items?.length) return step.hopFees;
   const si = step.swapInfo;
   if (si?.feeAmount && si.feeAmount !== '0') {
     const mint = (si.feeMintAddress ?? si.outputMintAddress ?? '').trim();
