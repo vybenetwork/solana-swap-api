@@ -9,6 +9,7 @@ import {
   programLabelForAddress,
 } from './pinned-swap-params.js';
 import { enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
+import { isLocalVybeApi } from '../config.js';
 import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type MarketFetchMode, type SwapProxyRouter, isMarketDiscoveryEnabled, normalizeMarketFetchMode, resolveEnumerateRoutes, resolveMarketFetchMode } from './swap-build.js';
 import {
   buildSwapForTradeCandidate,
@@ -531,7 +532,38 @@ export async function buildVybeQuoteFromPriceAndSwap(
   let routeViaTrades: RouteViaTradesMeta | undefined;
   let precomputedPrimaryQuote: VybeSwapQuote | undefined;
 
-  if (useMarketDiscovery && marketFetchMode === 'rpc') {
+  // Remote Vybe API: discovery + route enumeration live in prod ix-builder. swap-api's
+  // /discover-pools client is local-only — without this branch we get 0 candidates and
+  // incorrectly fall back to Jupiter/Titan.
+  if (!isLocalVybeApi() && useMarketDiscovery) {
+    build = await buildSwap(http, {
+      ...vybeParams,
+      router: 'vybe',
+      marketFetchMode,
+      enumerateRoutes,
+    });
+    routeViaTrades = {
+      enabled: true,
+      outcome: 'direct',
+      marketFetchMode,
+      enumerateRoutes,
+      topMarkets: [],
+      maxTradeCount: 0,
+      minCountThreshold: 0,
+      tried: [],
+      tradesFetched: 0,
+      tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+      tradesFetchOk: false,
+      tradesFetchedForward: 0,
+      tradesFetchedInverse: 0,
+      pairTradeCount: 0,
+      tradeMarketsEligible: 0,
+      queued: [],
+      buildLog: [],
+      userMessage: 'Market discovery handled by Vybe API (prod ix-builder).',
+    };
+    logRouteViaTradesMeta(routeViaTrades);
+  } else if (useMarketDiscovery && marketFetchMode === 'rpc') {
     if (bothCommonQuotes) {
       throw new Error(rpcScanUnsupportedForCommonQuotesError());
     }
