@@ -520,12 +520,26 @@
                 <span class="swap-action-btn__label">Get quote</span>
                 <span class="swap-action-btn__hint">Fetch route &amp; pricing</span>
               </span>
+              <span class="swap-action-btn__timer" id="swapQuoteBtnTimer" hidden aria-hidden="true">
+                <svg class="swap-action-btn__timer-svg" viewBox="0 0 36 36" aria-hidden="true">
+                  <circle class="swap-action-btn__timer-track" cx="18" cy="18" r="15.9155" pathLength="100" />
+                  <circle class="swap-action-btn__timer-progress" cx="18" cy="18" r="15.9155" pathLength="100" />
+                </svg>
+                <span class="swap-action-btn__timer-label">5</span>
+              </span>
             </button>
             <button type="button" id="swapBuildBtn" class="swap-action-btn swap-action-btn--secondary" disabled>
               <span class="swap-action-btn__icon swap-action-btn__icon--build" aria-hidden="true"></span>
               <span class="swap-action-btn__text">
                 <span class="swap-action-btn__label">Build &amp; sign swap</span>
                 <span class="swap-action-btn__hint">Connect wallet &amp; sign</span>
+              </span>
+              <span class="swap-action-btn__timer" id="swapBuildBtnTimer" hidden aria-hidden="true">
+                <svg class="swap-action-btn__timer-svg" viewBox="0 0 36 36" aria-hidden="true">
+                  <circle class="swap-action-btn__timer-track" cx="18" cy="18" r="15.9155" pathLength="100" />
+                  <circle class="swap-action-btn__timer-progress" cx="18" cy="18" r="15.9155" pathLength="100" />
+                </svg>
+                <span class="swap-action-btn__timer-label">10</span>
               </span>
             </button>
           </div>
@@ -660,7 +674,7 @@
           <button type="button" class="routing-dialog-close" id="swapSignConfirmClose" aria-label="Close">×</button>
         </div>
         <p class="swap-sign-dialog__lead">
-          Phantom may show <strong>Advanced</strong> instructions for Vybe-routed swaps. The swap is still included — review the amounts below, then confirm to open your wallet.
+          Review the amounts below. Your wallet will open automatically to sign; progress is shown underneath.
         </p>
         <div class="swap-sign-dialog__summary">
           <div class="swap-sign-dialog__row">
@@ -676,13 +690,11 @@
             <span class="swap-sign-dialog__value" id="swapSignConfirmRoute">—</span>
           </div>
         </div>
+        <div class="swap-sign-dialog__logs" id="swapSignConfirmLogs" aria-live="polite" aria-relevant="additions"></div>
         <div class="swap-sign-dialog__actions">
           <button type="button" class="swap-ghost-btn" id="swapSignConfirmCancel">Cancel</button>
-          <button type="button" class="swap-action-btn swap-action-btn--primary swap-sign-dialog__confirm" id="swapSignConfirmProceed">
-            <span class="swap-action-btn__text">
-              <span class="swap-action-btn__label">Open wallet to sign</span>
-            </span>
-          </button>
+          <button type="button" class="swap-ghost-btn swap-sign-dialog__requote" id="swapSignConfirmRequote" hidden>Requote + Rebuild</button>
+          <button type="button" class="swap-ghost-btn" id="swapSignConfirmClose" hidden>Close</button>
         </div>
       </div>
     </dialog>

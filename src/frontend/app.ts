@@ -111,7 +111,9 @@ interface TokenSymbolResponse {
 const MAX_FETCH_RETRIES = 5;
 const FETCH_RETRY_DELAY_MS = 2000;
 const FETCH_TIMEOUT_MS = 90_000;
-const VYBE_QUOTE_TX_REUSE_MS = 45_000;
+const VYBE_QUOTE_TX_REUSE_MS = 10_000;
+const SWAP_TX_CONFIRM_POLL_MS = 1_000;
+const SWAP_TX_CONFIRM_MAX_POLLS = 90;
 /** Default service fee % on build for Vybe, Jupiter, and Titan (0 = none). */
 const DEFAULT_SWAP_SERVICE_FEE_PCT = 0;
 
@@ -198,8 +200,18 @@ const swapMarketFetchModeSelect = document.getElementById('swapMarketFetchMode')
 const swapEnumerateRoutesCheckbox = document.getElementById('swapEnumerateRoutes') as HTMLInputElement | null;
 const swapRouteOptionsEl = document.getElementById('swapRouteOptions') as HTMLElement | null;
 const swapQuoteBtn = document.getElementById('swapQuoteBtn') as HTMLButtonElement | null;
+const swapQuoteBtnTimerEl = document.getElementById('swapQuoteBtnTimer') as HTMLElement | null;
 const swapQuoteBtnDebugEl = document.getElementById('swapQuoteBtnDebug') as HTMLElement | null;
 const swapBuildBtn = document.getElementById('swapBuildBtn') as HTMLButtonElement | null;
+const swapBuildBtnTimerEl = document.getElementById('swapBuildBtnTimer') as HTMLElement | null;
+
+const SWAP_QUOTE_BTN_COOLDOWN_SEC = 5;
+const SWAP_BUILD_BTN_QUOTE_TTL_SEC = 10;
+
+let quoteBtnCooldownEndsAt = 0;
+let quoteBtnCooldownRaf = 0;
+let buildBtnQuoteValidUntil = 0;
+let buildBtnQuoteRaf = 0;
 const swapBuildResultEl = document.getElementById('swapBuildResult') as HTMLElement | null;
 const swapTxBase64El = document.getElementById('swapTxBase64') as HTMLTextAreaElement | null;
 const swapCopyTxBtn = document.getElementById('swapCopyTxBtn') as HTMLButtonElement | null;
@@ -276,9 +288,10 @@ const swapSignConfirmDialogEl = document.getElementById('swapSignConfirmDialog')
 const swapSignConfirmPayEl = document.getElementById('swapSignConfirmPay') as HTMLElement | null;
 const swapSignConfirmReceiveEl = document.getElementById('swapSignConfirmReceive') as HTMLElement | null;
 const swapSignConfirmRouteEl = document.getElementById('swapSignConfirmRoute') as HTMLElement | null;
-const swapSignConfirmProceedEl = document.getElementById('swapSignConfirmProceed') as HTMLButtonElement | null;
+const swapSignConfirmLogsEl = document.getElementById('swapSignConfirmLogs') as HTMLElement | null;
 const swapSignConfirmCancelEl = document.getElementById('swapSignConfirmCancel') as HTMLButtonElement | null;
 const swapSignConfirmCloseEl = document.getElementById('swapSignConfirmClose') as HTMLButtonElement | null;
+const swapSignConfirmRequoteEl = document.getElementById('swapSignConfirmRequote') as HTMLButtonElement | null;
 const swapPairCardsEl = document.getElementById('swapPairCards') as HTMLElement | null;
 const swapQuoteDetailsEmptyEl = document.getElementById('swapQuoteDetailsEmpty') as HTMLElement | null;
 const swapQuoteDetailsBodyEl = document.getElementById('swapQuoteDetailsBody') as HTMLElement | null;
@@ -432,6 +445,108 @@ function isSwapQuoteInputReady(): boolean {
   return getSwapQuoteDisabledReason() === null;
 }
 
+function isQuoteBtnInCooldown(): boolean {
+  return quoteBtnCooldownEndsAt > performance.now();
+}
+
+function isBuildBtnQuoteExpired(): boolean {
+  if (buildBtnQuoteValidUntil <= 0) return true;
+  return performance.now() >= buildBtnQuoteValidUntil;
+}
+
+function setActionBtnTimerVisible(
+  btn: HTMLButtonElement | null,
+  timerEl: HTMLElement | null,
+  visible: boolean,
+  durationSec?: number,
+): void {
+  if (!btn || !timerEl) return;
+  timerEl.hidden = !visible;
+  btn.classList.toggle('swap-action-btn--cooldown', visible);
+  if (!visible) return;
+  const progress = timerEl.querySelector('.swap-action-btn__timer-progress') as SVGCircleElement | null;
+  if (progress && typeof durationSec === 'number' && Number.isFinite(durationSec)) {
+    progress.style.animation = 'none';
+    void progress.getBoundingClientRect();
+    progress.style.setProperty('--swap-action-timer-duration', `${durationSec}s`);
+    progress.style.animation = '';
+  }
+}
+
+function clearQuoteBtnCooldown(): void {
+  cancelAnimationFrame(quoteBtnCooldownRaf);
+  quoteBtnCooldownRaf = 0;
+  quoteBtnCooldownEndsAt = 0;
+  setActionBtnTimerVisible(swapQuoteBtn, swapQuoteBtnTimerEl, false);
+}
+
+function clearBuildBtnQuoteWindow(): void {
+  cancelAnimationFrame(buildBtnQuoteRaf);
+  buildBtnQuoteRaf = 0;
+  buildBtnQuoteValidUntil = 0;
+  setActionBtnTimerVisible(swapBuildBtn, swapBuildBtnTimerEl, false);
+}
+
+function clearSwapActionCooldowns(): void {
+  clearQuoteBtnCooldown();
+  clearBuildBtnQuoteWindow();
+}
+
+function tickQuoteBtnCooldown(now: number): void {
+  if (!swapQuoteBtn || quoteBtnCooldownEndsAt <= 0) return;
+  const remainMs = quoteBtnCooldownEndsAt - now;
+  if (remainMs <= 0) {
+    clearQuoteBtnCooldown();
+    syncSwapQuoteButtonState();
+    return;
+  }
+  const label = swapQuoteBtnTimerEl?.querySelector('.swap-action-btn__timer-label');
+  if (label) label.textContent = String(Math.max(1, Math.ceil(remainMs / 1000)));
+  quoteBtnCooldownRaf = requestAnimationFrame(() => tickQuoteBtnCooldown(performance.now()));
+}
+
+function tickBuildBtnQuoteWindow(now: number): void {
+  if (!swapBuildBtn || buildBtnQuoteValidUntil <= 0) return;
+  const remainMs = buildBtnQuoteValidUntil - now;
+  if (remainMs <= 0) {
+    clearBuildBtnQuoteWindow();
+    syncBuildButtonState();
+    return;
+  }
+  const label = swapBuildBtnTimerEl?.querySelector('.swap-action-btn__timer-label');
+  if (label) label.textContent = String(Math.max(1, Math.ceil(remainMs / 1000)));
+  buildBtnQuoteRaf = requestAnimationFrame(() => tickBuildBtnQuoteWindow(performance.now()));
+}
+
+function startQuoteBtnCooldown(): void {
+  if (!swapQuoteBtn || !swapQuoteBtnTimerEl) return;
+  const durationSec = SWAP_QUOTE_BTN_COOLDOWN_SEC;
+  quoteBtnCooldownEndsAt = performance.now() + durationSec * 1000;
+  const label = swapQuoteBtnTimerEl.querySelector('.swap-action-btn__timer-label');
+  if (label) label.textContent = String(durationSec);
+  setActionBtnTimerVisible(swapQuoteBtn, swapQuoteBtnTimerEl, true, durationSec);
+  swapQuoteBtn.disabled = true;
+  cancelAnimationFrame(quoteBtnCooldownRaf);
+  quoteBtnCooldownRaf = requestAnimationFrame(() => tickQuoteBtnCooldown(performance.now()));
+}
+
+function startBuildBtnQuoteWindow(): void {
+  if (!swapBuildBtn || !swapBuildBtnTimerEl || swapBuildMode === 'paste-sign') return;
+  const durationSec = SWAP_BUILD_BTN_QUOTE_TTL_SEC;
+  buildBtnQuoteValidUntil = performance.now() + durationSec * 1000;
+  const label = swapBuildBtnTimerEl.querySelector('.swap-action-btn__timer-label');
+  if (label) label.textContent = String(durationSec);
+  setActionBtnTimerVisible(swapBuildBtn, swapBuildBtnTimerEl, true, durationSec);
+  syncBuildButtonState();
+  cancelAnimationFrame(buildBtnQuoteRaf);
+  buildBtnQuoteRaf = requestAnimationFrame(() => tickBuildBtnQuoteWindow(performance.now()));
+}
+
+function startSwapActionCooldownsAfterQuote(): void {
+  startQuoteBtnCooldown();
+  startBuildBtnQuoteWindow();
+}
+
 function syncSwapQuoteButtonState(): void {
   const diag = collectSwapQuoteBtnDiagnostics();
   if (!swapQuoteBtn || swapQuoteBtn.hidden) {
@@ -440,14 +555,14 @@ function syncSwapQuoteButtonState(): void {
     return;
   }
   const ready = diag.blockReason === null;
-  swapQuoteBtn.disabled = !ready;
+  swapQuoteBtn.disabled = !ready || isQuoteBtnInCooldown();
   renderSwapQuoteBtnDebug(diag);
   console.debug('[swap-quote-btn]', diag);
   const w = getSolanaWindow();
   w.__swapQuoteBtnDebug = diag;
 }
 
-function setSwapQuoteButtonLoading(loading: boolean): void {
+function setSwapQuoteButtonLoading(loading: boolean, opts?: { skipEnableSync?: boolean }): void {
   if (!swapQuoteBtn) return;
   swapQuoteBtn.classList.toggle('swap-action-btn--loading', loading);
   swapQuoteBtn.setAttribute('aria-busy', loading ? 'true' : 'false');
@@ -457,7 +572,7 @@ function setSwapQuoteButtonLoading(loading: boolean): void {
   if (hintEl) hintEl.textContent = loading ? 'Fetching route & pricing' : 'Fetch route & pricing';
   if (loading) {
     swapQuoteBtn.disabled = true;
-  } else {
+  } else if (!opts?.skipEnableSync && !isQuoteBtnInCooldown()) {
     syncSwapQuoteButtonState();
   }
 }
@@ -976,6 +1091,7 @@ function syncSwapSellAmountUi(): void {
 }
 
 function resetSwapQuoteToMock(): void {
+  clearSwapActionCooldowns();
   swapQuoteFetching = false;
   setSwapQuoteButtonLoading(false);
   if (swapQuoteLoading) {
@@ -3361,6 +3477,22 @@ function vybeBuildParamsKey(
   return JSON.stringify({ wallet, inputMint, outputMint, amount, ...opts });
 }
 
+function vybeCacheBuildOpts(buildOpts: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...mergeSelectedRoutePinIntoBuildOpts(buildOpts),
+    routeIndex: enumeratedRoutesUiState?.selectedIndex ?? 0,
+  };
+}
+
+function tryReuseLastVybeBuildFromQuote(): { tx: string; buildPayload: Record<string, unknown> } | null {
+  if (!lastVybeBuild || !lastSwapQuoteOk) return null;
+  if (Date.now() - lastVybeBuild.builtAt >= VYBE_QUOTE_TX_REUSE_MS) return null;
+  const buildPayload = lastVybeBuild.buildPayload as Record<string, unknown>;
+  const tx = lastVybeBuild.tx?.trim();
+  if (!tx) return null;
+  return { tx, buildPayload: projectSwapBuildForBrowser(buildPayload) };
+}
+
 type VybeQuoteApiBody = Record<string, unknown> & {
   error?: string;
   _build?: Record<string, unknown>;
@@ -3458,10 +3590,7 @@ function applyActiveRouteQuoteToUi(
     lastVybeBuild = {
       tx: buildTx,
       builtAt: body._builtAt as number,
-      paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, amount, {
-        ...buildOpts,
-        routeIndex: enumeratedRoutesUiState?.selectedIndex ?? 0,
-      }),
+      paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, amount, vybeCacheBuildOpts(buildOpts)),
       buildPayload: body._build,
     };
   }
@@ -3537,10 +3666,7 @@ function applyVybeQuoteBodyToUi(
       lastSwapQuoteOk = quote;
     }
   }
-  cacheVybeQuoteBuild(activeBody, wallet, inputMint, outputMint, effectiveAmount, {
-    ...buildOpts,
-    routeIndex: enumeratedRoutesUiState?.selectedIndex ?? 0,
-  });
+  cacheVybeQuoteBuild(activeBody, wallet, inputMint, outputMint, effectiveAmount, vybeCacheBuildOpts(buildOpts));
   if (swapQuoteError) clearInlineError(swapQuoteError);
   const rvt = body._routeViaTrades as {
     directRouteFailed?: boolean;
@@ -3863,7 +3989,7 @@ function applyAggregatorBuildToUi(
     lastVybeBuild = {
       tx: buildTx,
       builtAt: Date.now(),
-      paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, effectiveAmount, buildOpts),
+      paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, effectiveAmount, vybeCacheBuildOpts(buildOpts)),
       buildPayload: swapBody,
     };
   }
@@ -3883,7 +4009,14 @@ async function resolveAggregatorBuildTx(
   amount: number,
   buildOpts: Record<string, unknown>,
 ): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
-  const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts);
+  const cachedFromQuote = tryReuseLastVybeBuildFromQuote();
+  if (cachedFromQuote) {
+    lastRawSwapResponse = cachedFromQuote.buildPayload;
+    renderRawResponsePanels();
+    return cachedFromQuote;
+  }
+  const cacheOpts = vybeCacheBuildOpts(buildOpts);
+  const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, cacheOpts);
   if (isVybeQuoteTxFresh(paramsKey) && lastVybeBuild) {
     lastRawSwapResponse = lastVybeBuild.buildPayload;
     renderRawResponsePanels();
@@ -4040,7 +4173,14 @@ async function resolveVybeBuildTx(
   amount: number,
   buildOpts: Record<string, unknown>,
 ): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
-  const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts);
+  const cachedFromQuote = tryReuseLastVybeBuildFromQuote();
+  if (cachedFromQuote) {
+    lastRawSwapResponse = cachedFromQuote.buildPayload;
+    renderRawResponsePanels();
+    return cachedFromQuote;
+  }
+  const cacheOpts = vybeCacheBuildOpts(buildOpts);
+  const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, cacheOpts);
   if (isVybeQuoteTxFresh(paramsKey) && lastVybeBuild) {
     lastRawSwapResponse = lastVybeBuild.buildPayload;
     renderRawResponsePanels();
@@ -4205,6 +4345,7 @@ async function fetchSwapQuote(): Promise<void> {
 
   lastSwapQuoteOk = null;
   lastVybeBuild = null;
+  clearBuildBtnQuoteWindow();
   if (swapBuildBtn) syncBuildButtonState();
   resetSwapQuoteDetailsPanel();
   if (swapQuoteError) clearInlineError(swapQuoteError);
@@ -4235,12 +4376,16 @@ async function fetchSwapQuote(): Promise<void> {
     invalidateSwapQuoteUi();
   } finally {
     swapQuoteFetching = false;
-    setSwapQuoteButtonLoading(false);
-    if (!lastSwapQuoteOk) {
+    setSwapQuoteButtonLoading(false, { skipEnableSync: lastSwapQuoteOk != null });
+    if (lastSwapQuoteOk) {
+      startSwapActionCooldownsAfterQuote();
+    } else {
       setBuyReadoutLoading(false);
       setBuyFiatLoading(false);
       setFooterStatsLoading(false);
     }
+    syncSwapQuoteButtonState();
+    syncBuildButtonState();
     if (swapQuoteLoading) {
       swapQuoteLoading.hidden = true;
       swapQuoteLoading.setAttribute('aria-hidden', 'true');
@@ -4279,27 +4424,210 @@ function getSignConfirmSummary(
   };
 }
 
-let signConfirmResolver: ((confirmed: boolean) => void) | null = null;
+let swapSignFlowGeneration = 0;
+let swapSignPendingLogEl: HTMLElement | null = null;
 
-function finishSignConfirm(confirmed: boolean): void {
-  const resolve = signConfirmResolver;
-  signConfirmResolver = null;
-  if (swapSignConfirmDialogEl?.open) swapSignConfirmDialogEl.close();
-  resolve?.(confirmed);
+type SwapSignLogTone = 'neutral' | 'pending' | 'success' | 'error';
+
+function sleepMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function promptSignSwapConfirm(
+function resetSwapSignDialogUi(): void {
+  if (swapSignConfirmLogsEl) swapSignConfirmLogsEl.innerHTML = '';
+  swapSignPendingLogEl = null;
+  if (swapSignConfirmCancelEl) {
+    swapSignConfirmCancelEl.hidden = false;
+    swapSignConfirmCancelEl.disabled = false;
+  }
+  if (swapSignConfirmCloseEl) swapSignConfirmCloseEl.hidden = true;
+  if (swapSignConfirmRequoteEl) {
+    swapSignConfirmRequoteEl.hidden = true;
+    swapSignConfirmRequoteEl.disabled = false;
+  }
+}
+
+function setSwapSignDialogActions(state: 'running' | 'success' | 'failed'): void {
+  if (swapSignConfirmCancelEl) {
+    swapSignConfirmCancelEl.hidden = state === 'success';
+    swapSignConfirmCancelEl.disabled = false;
+  }
+  if (swapSignConfirmCloseEl) swapSignConfirmCloseEl.hidden = state !== 'success';
+  if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.hidden = state !== 'failed';
+}
+
+function appendSwapSignLog(text: string, tone: SwapSignLogTone = 'neutral'): HTMLElement | null {
+  if (!swapSignConfirmLogsEl) return null;
+  if (swapSignPendingLogEl) {
+    swapSignPendingLogEl.classList.remove('swap-sign-dialog__log--pending');
+    swapSignPendingLogEl = null;
+  }
+  const row = document.createElement('div');
+  row.className = `swap-sign-dialog__log swap-sign-dialog__log--${tone}`;
+  row.textContent = text;
+  swapSignConfirmLogsEl.appendChild(row);
+  swapSignConfirmLogsEl.scrollTop = swapSignConfirmLogsEl.scrollHeight;
+  if (tone === 'pending') swapSignPendingLogEl = row;
+  return row;
+}
+
+function setSwapSignDialogSummary(
   quote: Record<string, unknown>,
   buildPayload?: Record<string, unknown>,
-): Promise<boolean> {
+): void {
   const summary = getSignConfirmSummary(quote, buildPayload);
   if (swapSignConfirmPayEl) swapSignConfirmPayEl.textContent = summary.pay;
   if (swapSignConfirmReceiveEl) swapSignConfirmReceiveEl.textContent = summary.receive;
   if (swapSignConfirmRouteEl) swapSignConfirmRouteEl.textContent = summary.route;
+}
+
+function openSwapSignDialog(quote: Record<string, unknown>, buildPayload?: Record<string, unknown>): void {
+  resetSwapSignDialogUi();
+  setSwapSignDialogSummary(quote, buildPayload);
+  setSwapSignDialogActions('running');
   swapSignConfirmDialogEl?.showModal();
-  return new Promise((resolve) => {
-    signConfirmResolver = resolve;
-  });
+}
+
+function closeSwapSignDialog(): void {
+  swapSignFlowGeneration++;
+  if (swapSignConfirmDialogEl?.open) swapSignConfirmDialogEl.close();
+  resetSwapSignDialogUi();
+}
+
+async function pollTransactionConfirmation(signature: string, generation: number): Promise<{ ok: boolean; err?: string }> {
+  const connection = getBrowserConnection();
+  for (let attempt = 0; attempt < SWAP_TX_CONFIRM_MAX_POLLS; attempt++) {
+    if (generation !== swapSignFlowGeneration) {
+      return { ok: false, err: 'Cancelled' };
+    }
+    await sleepMs(SWAP_TX_CONFIRM_POLL_MS);
+    if (generation !== swapSignFlowGeneration) {
+      return { ok: false, err: 'Cancelled' };
+    }
+    try {
+      const { value } = await connection.getSignatureStatuses([signature]);
+      const status = value[0];
+      if (status?.err) {
+        return { ok: false, err: JSON.stringify(status.err) };
+      }
+      if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') {
+        return { ok: true };
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        err: err instanceof Error ? err.message : String(err),
+      };
+    }
+  }
+  return { ok: false, err: 'Transaction confirmation timed out' };
+}
+
+async function signAndSendSwapLegs(txStrings: string[]): Promise<string[]> {
+  const txs = txStrings.map((t) => t.trim()).filter(Boolean);
+  if (txs.length === 0) throw new Error('No transaction to sign.');
+
+  const provider = getSolanaWalletProvider();
+  if (!provider?.signTransaction && !provider?.signAllTransactions && !provider?.signAndSendTransaction) {
+    throw new Error('Connected wallet cannot sign transactions.');
+  }
+
+  const prepared = await Promise.all(txs.map((t) => prepareSwapTxForSigning(t)));
+  const connection = getBrowserConnection();
+  const signatures: string[] = [];
+
+  if (txs.length === 1 && provider.signAndSendTransaction) {
+    const { signature } = await provider.signAndSendTransaction(prepared[0]!, { skipPreflight: false });
+    signatures.push(signature);
+    return signatures;
+  }
+
+  if (txs.length > 1 && !provider.signAllTransactions) {
+    throw new Error(
+      'This route requires multiple transactions. Use a wallet that supports signAllTransactions (e.g. Phantom).',
+    );
+  }
+
+  const signed =
+    txs.length === 1 && provider.signTransaction
+      ? [await provider.signTransaction(prepared[0]!)]
+      : await provider.signAllTransactions!(prepared);
+
+  for (const stx of signed) {
+    signatures.push(await connection.sendRawTransaction(stx.serialize(), { skipPreflight: false }));
+  }
+  return signatures;
+}
+
+async function runSwapSignDialogFlow(
+  quote: Record<string, unknown>,
+  buildPayload: Record<string, unknown>,
+  txStrings: string[],
+): Promise<void> {
+  const generation = ++swapSignFlowGeneration;
+  openSwapSignDialog(quote, buildPayload);
+  appendSwapSignLog('Preparing transaction…', 'neutral');
+
+  try {
+    appendSwapSignLog('Waiting for user to sign transaction', 'pending');
+    const signatures = await signAndSendSwapLegs(txStrings);
+    if (generation !== swapSignFlowGeneration) return;
+
+    appendSwapSignLog('User signed transaction', 'success');
+    const lastSig = signatures[signatures.length - 1] ?? '';
+    if (!lastSig) throw new Error('Wallet did not return a transaction signature.');
+
+    if (signatures.length > 1) {
+      appendSwapSignLog(`Sent ${signatures.length} transactions (tracking last: ${lastSig})`, 'neutral');
+    } else {
+      appendSwapSignLog(`Transaction sent: ${lastSig}`, 'neutral');
+    }
+
+    appendSwapSignLog('Confirming transaction', 'pending');
+    const confirmed = await pollTransactionConfirmation(lastSig, generation);
+    if (generation !== swapSignFlowGeneration) return;
+
+    if (!confirmed.ok) {
+      appendSwapSignLog(
+        confirmed.err === 'Cancelled'
+          ? 'Confirmation cancelled'
+          : `Transaction failed: ${confirmed.err ?? 'unknown error'}`,
+        'error',
+      );
+      setSwapSignDialogActions('failed');
+      return;
+    }
+
+    appendSwapSignLog('Transaction confirmed', 'success');
+    if (swapTxBase64El) swapTxBase64El.value = lastSig;
+    syncSwapBuildResultPanel();
+    if (swapQuoteWarning) {
+      showInlineWarning(swapQuoteWarning, `Transaction confirmed: ${lastSig}`);
+    }
+    setSwapSignDialogActions('success');
+  } catch (err) {
+    if (generation !== swapSignFlowGeneration) return;
+    appendSwapSignLog(err instanceof Error ? err.message : String(err), 'error');
+    setSwapSignDialogActions('failed');
+  }
+}
+
+async function handleSwapSignDialogRequoteRebuild(): Promise<void> {
+  if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = true;
+  appendSwapSignLog('Fetching a fresh quote…', 'pending');
+  try {
+    await fetchSwapQuote();
+    if (!lastSwapQuoteOk) {
+      appendSwapSignLog('Quote failed — fix inputs and try again.', 'error');
+      if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = false;
+      return;
+    }
+    appendSwapSignLog('Quote received — rebuilding swap…', 'neutral');
+    await postBuildSwap();
+  } catch (err) {
+    appendSwapSignLog(err instanceof Error ? err.message : String(err), 'error');
+    if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = false;
+  }
 }
 
 async function applyBuiltSwapTx(buildTx: string, buildPayload: Record<string, unknown>): Promise<boolean> {
@@ -4346,7 +4674,9 @@ function syncBuildButtonState(): void {
     swapBuildBtn.disabled = false;
     return;
   }
-  swapBuildBtn.disabled = !lastSwapQuoteOk;
+  const hasQuote = lastSwapQuoteOk != null;
+  const withinWindow = !isBuildBtnQuoteExpired();
+  swapBuildBtn.disabled = !hasQuote || !withinWindow;
 }
 
 function getSelectedEnumeratedRouteCandidate():
@@ -4431,7 +4761,7 @@ async function postBuildSwap(): Promise<void> {
         lastVybeBuild = {
           tx: buildTx,
           builtAt: Date.now(),
-          paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, amount, buildOpts),
+          paramsKey: vybeBuildParamsKey(wallet, inputMint, outputMint, amount, vybeCacheBuildOpts(buildOpts)),
           buildPayload,
         };
         renderRawResponsePanels();
@@ -4451,12 +4781,9 @@ async function postBuildSwap(): Promise<void> {
         : {};
       lastSwapQuoteOk = confirmQuote;
       renderSwapQuoteUI(confirmQuote);
-      const confirmed = await promptSignSwapConfirm(confirmQuote, buildPayload);
-      if (!confirmed) return;
       const legTxs = extractSwapBuildTransactions(buildPayload);
       const toSign = legTxs.length > 0 ? legTxs : [buildTx];
-      swapTxBase64El.value = await signSwapTransactionsBase64(toSign, true);
-      syncSwapBuildResultPanel();
+      await runSwapSignDialogFlow(confirmQuote, buildPayload, toSign);
     } else {
       const legTxs = extractSwapBuildTransactions(buildPayload);
       const ok = await applyBuiltSwapTx(
@@ -5128,12 +5455,12 @@ routingDialogEl?.addEventListener('close', () => {
 
 routingDialogCloseEl?.addEventListener('click', () => routingDialogEl?.close());
 
-swapSignConfirmProceedEl?.addEventListener('click', () => finishSignConfirm(true));
-swapSignConfirmCancelEl?.addEventListener('click', () => finishSignConfirm(false));
-swapSignConfirmCloseEl?.addEventListener('click', () => finishSignConfirm(false));
+swapSignConfirmCancelEl?.addEventListener('click', () => closeSwapSignDialog());
+swapSignConfirmCloseEl?.addEventListener('click', () => closeSwapSignDialog());
+swapSignConfirmRequoteEl?.addEventListener('click', () => void handleSwapSignDialogRequoteRebuild());
 swapSignConfirmDialogEl?.addEventListener('cancel', (event) => {
   event.preventDefault();
-  finishSignConfirm(false);
+  closeSwapSignDialog();
 });
 
 swapGaslessCheckbox?.addEventListener('change', () => {

@@ -6702,6 +6702,79 @@ tr:hover td {
   flex-direction: column;
   gap: 0.1rem;
   min-width: 0;
+  flex: 1;
+}
+
+.swap-action-btn__timer {
+  position: relative;
+  width: 2.05rem;
+  height: 2.05rem;
+  flex-shrink: 0;
+  margin-left: auto;
+  color: inherit;
+}
+
+.swap-action-btn__timer[hidden] {
+  display: none;
+}
+
+.swap-action-btn__timer-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.swap-action-btn__timer-track,
+.swap-action-btn__timer-progress {
+  fill: none;
+  stroke-width: 3;
+}
+
+.swap-action-btn__timer-track {
+  stroke: rgba(0, 0, 0, 0.14);
+}
+
+.swap-action-btn--secondary .swap-action-btn__timer-track {
+  stroke: rgba(255, 255, 255, 0.18);
+}
+
+.swap-action-btn__timer-progress {
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-dasharray: 100;
+  stroke-dashoffset: 0;
+  animation: swap-action-timer-ring var(--swap-action-timer-duration, 5s) linear forwards;
+}
+
+.swap-action-btn__timer-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+@keyframes swap-action-timer-ring {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: 100;
+  }
+}
+
+.swap-action-btn--cooldown:not(.swap-action-btn--loading) {
+  cursor: not-allowed;
+}
+
+.swap-action-btn--primary.swap-action-btn--cooldown:not(.swap-action-btn--loading) {
+  opacity: 0.48;
+  filter: none;
+  box-shadow: none;
 }
 
 .swap-action-btn__label {
@@ -7305,11 +7378,75 @@ tr:hover td {
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
-  margin-bottom: 1rem;
+  margin-bottom: 0.75rem;
   padding: 0.75rem 0.85rem;
   background: #09090b;
   border: 1px solid #27272a;
   border-radius: 12px;
+}
+
+.swap-sign-dialog__logs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 9.5rem;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+  padding: 0.65rem 0.75rem;
+  background: #050506;
+  border: 1px solid #27272a;
+  border-radius: 12px;
+  font-size: 0.74rem;
+  line-height: 1.4;
+}
+
+.swap-sign-dialog__logs:empty {
+  display: none;
+}
+
+.swap-sign-dialog__log {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
+  color: #a1a1aa;
+}
+
+.swap-sign-dialog__log::before {
+  content: '·';
+  color: #52525b;
+  flex-shrink: 0;
+}
+
+.swap-sign-dialog__log--pending {
+  color: #e4e4e7;
+}
+
+.swap-sign-dialog__log--pending::before {
+  content: '…';
+  color: #c4f20b;
+}
+
+.swap-sign-dialog__log--success {
+  color: #bbf7d0;
+}
+
+.swap-sign-dialog__log--success::before {
+  content: '✓';
+  color: #4ade80;
+}
+
+.swap-sign-dialog__log--error {
+  color: #fecaca;
+}
+
+.swap-sign-dialog__log--error::before {
+  content: '✕';
+  color: #f87171;
+}
+
+.swap-sign-dialog__requote {
+  color: #fde68a;
+  border-color: rgba(251, 191, 36, 0.35);
 }
 
 .swap-sign-dialog__row {
@@ -7338,11 +7475,6 @@ tr:hover td {
   gap: 0.55rem;
 }
 
-.swap-sign-dialog__confirm {
-  width: auto;
-  min-width: 11rem;
-  padding: 0.62rem 0.95rem;
-}
 
 /* --- Vybe swap quote / build (legacy grid / inline routes) --- */
 .swap-panel .swap-params-grid {
