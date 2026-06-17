@@ -6296,7 +6296,7 @@ tr:hover td {
 }
 
 .swap-quote-route-options .swap-toggle-row--market-fetch .swap-protocol-select {
-  width: 100%;
+  width: 92px;
   min-width: 0;
   max-width: 100%;
   font-size: 0.68rem;
