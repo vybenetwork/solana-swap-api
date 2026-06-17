@@ -93,6 +93,8 @@ export function isSupportedIxBuilderProgram(programAddress: string): boolean {
 export const TICK_ARRAY_IX_BUILDER_PROTOCOLS = new Set(['METEORA_DLMM', 'RAYDIUM_CLMM']);
 /** Exclude route candidates below this USD liquidity when a market score is known. */
 export const MIN_ROUTE_POOL_LIQUIDITY_USD = 1000;
+/** When pre-filter candidate count is at or below this, keep sub-floor pools for simulation. */
+export const SPARSE_ROUTE_CANDIDATE_BYPASS_MAX = 3;
 /** @deprecated Use MIN_ROUTE_POOL_LIQUIDITY_USD */
 export const MIN_TICK_ARRAY_LIQUIDITY_USD = MIN_ROUTE_POOL_LIQUIDITY_USD;
 
@@ -168,11 +170,19 @@ export function isMeteoraDlmmInsufficientBinLiquidityError(message: string): boo
 
 export function filterRouteQueueByLiquidity<
   T extends { marketAddress?: string; programAddress: string; marketScore?: number; totalValueUsd?: number },
->(entries: T[], label = 'queue'): T[] {
+>(entries: T[], label = 'queue', options: { bypassLiquidityFloor?: boolean } = {}): T[] {
+  const bypassLiquidityFloor =
+    options.bypassLiquidityFloor === true ||
+    (entries.length > 0 && entries.length <= SPARSE_ROUTE_CANDIDATE_BYPASS_MAX);
   const kept: T[] = [];
   let dropped = 0;
+  let bypassedBelowFloor = 0;
   for (const entry of entries) {
-    if (passesRouteLiquidityFloor(entry)) {
+    const passes = bypassLiquidityFloor || passesRouteLiquidityFloor(entry);
+    if (passes) {
+      if (bypassLiquidityFloor && hasKnownPoolLiquidityUsd(entry) && !passesRouteLiquidityFloor(entry)) {
+        bypassedBelowFloor += 1;
+      }
       kept.push(entry);
     } else {
       dropped += 1;
@@ -184,7 +194,11 @@ export function filterRouteQueueByLiquidity<
       );
     }
   }
-  if (dropped > 0) {
+  if (bypassedBelowFloor > 0) {
+    console.info(
+      `[route-discovery] liquidity floor bypassed for ${label} (${entries.length} ≤ ${SPARSE_ROUTE_CANDIDATE_BYPASS_MAX} — kept ${bypassedBelowFloor} sub-$${MIN_ROUTE_POOL_LIQUIDITY_USD})`,
+    );
+  } else if (dropped > 0) {
     console.info(
       `[route-discovery] liquidity floor: excluded ${dropped} below $${MIN_ROUTE_POOL_LIQUIDITY_USD}`,
     );
