@@ -140,6 +140,12 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
     createOutputAta: pinned.createOutputAta,
     closeWsolAta: pinned.closeWsolAta,
   });
+  if (pinned.inputBalanceExact?.trim()) {
+    payload.inputBalanceExact = pinned.inputBalanceExact.trim();
+  }
+  if (pinned.inputDecimals != null && Number.isFinite(pinned.inputDecimals)) {
+    payload.inputDecimals = pinned.inputDecimals;
+  }
   if (pinned.marketFetchMode) payload.marketFetchMode = pinned.marketFetchMode;
   if (pinned.enumerateRoutes != null) payload.enumerateRoutes = pinned.enumerateRoutes;
   return payload;
