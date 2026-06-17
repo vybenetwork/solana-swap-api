@@ -1292,7 +1292,11 @@ function sellAmountMatchesVybeExactBalance(mint: string): boolean {
   const item = getWalletBalanceListItem(mint);
   const exact = item?.amountExact?.trim().replace(/,/g, '');
   if (!exact) return false;
-  return swapAmountInput.value.trim() === exact;
+  const input = swapAmountInput.value.trim().replace(/,/g, '');
+  if (!input) return false;
+  if (input === exact) return true;
+  const inputUi = Number(input);
+  return Number.isFinite(inputUi) && sellAmountRoughlyEqual(inputUi, item!.amountUi, mint);
 }
 
 function sellAmountMatchesPercent(currentUi: number, percent: number, mint: string): boolean {
@@ -1381,10 +1385,9 @@ function applySellAmountPercent(percent: number): void {
     percent >= getMaxSellPercentForMint(mint) ? maxInput : total * (percent / 100);
   if (percent >= getMaxSellPercentForMint(mint) && getSwapRouter() === 'vybe') {
     const item = getWalletBalanceListItem(mint);
-    const exact = item?.amountExact?.trim();
-    if (exact) {
+    if (item && item.amountUi > 0) {
       if (swapQuoteError) clearInlineError(swapQuoteError);
-      swapAmountInput!.value = exact.replace(/,/g, '');
+      swapAmountInput!.value = formatSwapInputAmountValue(item.amountUi, getMintDecimals(mint));
       syncSwapAmountMaxFromBalance();
       swapAmountInput!.dispatchEvent(new Event('input', { bubbles: true }));
       return;

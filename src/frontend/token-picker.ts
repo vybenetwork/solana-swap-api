@@ -49,6 +49,7 @@ export interface WalletBalanceListItem {
   logoUrl: string | null;
   decimals: number;
   amountUi: number;
+  /** Raw base-unit balance (integer string). */
   amountExact?: string;
   valueUsd: number;
   verified: boolean;
@@ -970,8 +971,7 @@ export function buildSwapAtaHintsFromWalletCache(params: {
       const isFullSell = params.maxSellSelected === true;
       if (isFullSell && inputBalanceExact) {
         closeInputAta = true;
-        const exactUi = Number(inputBalanceExact);
-        if (Number.isFinite(exactUi) && exactUi > 0) amountUi = exactUi;
+        if (inputRow.amountUi > 0) amountUi = inputRow.amountUi;
       }
     }
   }
