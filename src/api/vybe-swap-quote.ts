@@ -6,14 +6,24 @@ import type { AxiosInstance } from 'axios';
 import {
   assertPinnedPoolParams,
   completePinnedSwapParams,
+  programLabelForAddress,
 } from './pinned-swap-params.js';
 import { enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
 import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type MarketFetchMode, type SwapProxyRouter, isMarketDiscoveryEnabled, normalizeMarketFetchMode, resolveEnumerateRoutes, resolveMarketFetchMode } from './swap-build.js';
 import {
+  buildSwapForTradeCandidate,
+  buildSwapViaRpcPools,
+  buildSwapViaTradeMarkets,
   formatRouteViaTradesServerLog,
+  isAggregatorSwapProvider,
+  normalizeBuildErrorMessage,
   ROUTE_VIA_TRADES_LIMIT,
+  TRADES_API_UNAVAILABLE_MESSAGE,
+  type BuildSwapViaTradeMarketsResult,
+  type EnumeratedRouteCandidate,
   type QueuedMarketEntry,
   type RankedTradeMarket,
+  type RouteBuildSuccess,
   type RouteCandidateSource,
   type RouteRpcMeta,
   type RouteViaTradesBuildAttemptLog,
@@ -155,30 +165,142 @@ function buildSkippedRouteViaTradesMeta(
   };
 }
 
-function marketDiscoveryRouteMeta(
-  marketFetchMode: MarketFetchMode,
-  enumerateRoutes: boolean,
-): RouteViaTradesMeta {
-  return {
+function acceptUnpinnedVybeBuild(build: VybeSwapBuildResponse): boolean {
+  const provider = build.provider ?? build.details?.quote?.provider;
+  if (isAggregatorSwapProvider(provider)) return false;
+  const tx = build.tx ?? build.transaction;
+  return typeof tx === 'string' && tx.length > 0;
+}
+
+async function recoverAfterTradeQueueExhausted(
+  http: AxiosInstance,
+  vybeParams: VybeQuoteParams,
+  routed: import('./route-via-trades.js').RouteViaTradesExhaustedResult,
+  options?: { allowRpcFallback?: boolean },
+): Promise<{ build: VybeSwapBuildResponse; routeViaTrades: RouteViaTradesMeta }> {
+  const allowRpcFallback = options?.allowRpcFallback !== false;
+  const recoveryLog: RouteViaTradesRecoveryLogEntry[] = [];
+  const routeViaTrades: RouteViaTradesMeta = {
     enabled: true,
-    outcome: 'direct',
-    marketFetchMode,
-    enumerateRoutes,
-    topMarkets: [],
-    maxTradeCount: 0,
-    minCountThreshold: 0,
-    tried: [],
-    tradesFetched: 0,
-    tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
-    tradesFetchOk: false,
-    tradesFetchedForward: 0,
-    tradesFetchedInverse: 0,
-    pairTradeCount: 0,
-    tradeMarketsEligible: 0,
-    queued: [],
-    buildLog: [],
-    userMessage: `Vybe router (marketFetchMode=${marketFetchMode}).`,
+    outcome: 'failed',
+    topMarkets: routed.topMarkets,
+    maxTradeCount: routed.maxTradeCount,
+    minCountThreshold: routed.minCountThreshold,
+    tried: routed.tried,
+    tradesFetched: routed.tradesFetched,
+    tradesFetchLimit: routed.tradesFetchLimit,
+    tradesFetchOk: routed.tradesFetchOk,
+    tradesFetchedForward: routed.tradesFetchedForward,
+    tradesFetchedInverse: routed.tradesFetchedInverse,
+    pairTradeCount: routed.pairTradeCount,
+    tradeMarketsEligible: routed.tradeMarketsEligible,
+    queued: routed.queued,
+    buildLog: routed.buildLog,
+    timingsMs: routed.timingsMs,
+    directRouteFailed: true,
+    lastError: routed.lastError,
+    tradesUnavailable: routed.tradesUnavailable === true,
+    tradesSource: routed.tradesSource,
+    marketFetchMode: vybeParams.marketFetchMode,
+    userMessage: routed.tradesUnavailable ? TRADES_API_UNAVAILABLE_MESSAGE : undefined,
   };
+
+  const unpinnedParams: VybeQuoteParams = {
+    ...vybeParams,
+    router: 'vybe',
+    poolAddress: undefined,
+    programAddress: undefined,
+    protocol: undefined,
+    marketFetchMode: undefined,
+    enumerateRoutes: false,
+  };
+
+  if (allowRpcFallback) {
+    try {
+      const unpinned = await buildSwap(http, unpinnedParams);
+      const provider = String(unpinned.provider ?? unpinned.details?.quote?.provider ?? '').trim();
+      if (acceptUnpinnedVybeBuild(unpinned)) {
+        recoveryLog.push({ step: 'unpinned_vybe', success: true, provider: provider || undefined });
+        const meta: RouteViaTradesMeta = {
+          ...routeViaTrades,
+          outcome: 'unpinned_vybe',
+          unpinnedVybeRetry: true,
+          directRouteFailed: false,
+          recoveryLog,
+          userMessage: routed.tradesUnavailable
+            ? 'Routed via Vybe auto-route — trades API unavailable.'
+            : 'Pinned trade routes failed — using Vybe RPC pool scan.',
+        };
+        logRouteViaTradesMeta(meta);
+        return { build: unpinned, routeViaTrades: meta };
+      }
+      recoveryLog.push({
+        step: 'unpinned_vybe',
+        success: false,
+        provider: provider || undefined,
+        error: provider ? `Vybe returned aggregator/provider ${provider}` : 'no direct tx',
+      });
+    } catch (err) {
+      recoveryLog.push({
+        step: 'unpinned_vybe',
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  const aggregatorParams: VybeQuoteParams = {
+    ...vybeParams,
+    poolAddress: undefined,
+    programAddress: undefined,
+    protocol: undefined,
+    marketFetchMode: undefined,
+    enumerateRoutes: false,
+  };
+
+  const aggregatorRouters: Array<'jupiter' | 'titan'> = routed.tradesUnavailable
+    ? ['jupiter', 'titan']
+    : ['titan', 'jupiter'];
+
+  for (const router of aggregatorRouters) {
+    try {
+      const build = await buildSwap(http, { ...aggregatorParams, router });
+      const provider = String(build.provider ?? build.details?.quote?.provider ?? router).trim();
+      recoveryLog.push({
+        step: router,
+        success: true,
+        provider: provider || router,
+      });
+      const outcome = router === 'titan' ? 'titan_fallback' : 'jupiter_fallback';
+      const jupiterOk = router === 'jupiter' && routed.tradesUnavailable;
+      const meta: RouteViaTradesMeta = {
+        ...routeViaTrades,
+        outcome,
+        fallbackRouter: router,
+        recoveryLog,
+        userMessage: jupiterOk
+          ? 'Routed via Jupiter — Vybe trades API unavailable.'
+          : routed.tradesUnavailable && router === 'titan'
+            ? 'Routed via Titan — Vybe trades API unavailable.'
+            : routeViaTrades.userMessage,
+      };
+      logRouteViaTradesMeta(meta);
+      return { build, routeViaTrades: meta };
+    } catch (err) {
+      recoveryLog.push({
+        step: router,
+        success: false,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  throw new Error(
+    normalizeBuildErrorMessage(
+      routeViaTrades.lastError ?? '',
+      'Route via Trades recovery failed',
+    ),
+  );
 }
 
 export interface VybeQuoteResult {
@@ -195,6 +317,14 @@ function normalizeRouterId(value: unknown): string {
   return raw || 'vybe';
 }
 
+function routerDisplayLabel(routerId: string): string {
+  const id = normalizeRouterId(routerId);
+  if (id === 'jupiter') return 'Jupiter';
+  if (id === 'titan') return 'Titan';
+  if (id === 'vybe') return 'Vybe';
+  return id.charAt(0).toUpperCase() + id.slice(1);
+}
+
 function attachRouterMetadata(
   quote: VybeSwapQuote,
   selectedRouter: unknown,
@@ -209,6 +339,102 @@ function attachRouterMetadata(
     _effectiveRouter: effective,
     _routerFallbackUsed: fallbackUsed,
   };
+}
+
+function baseRouteViaTradesMetaFromRouted(
+  routed: BuildSwapViaTradeMarketsResult,
+  marketFetchMode: MarketFetchMode,
+  enumerateRoutes: boolean,
+): Omit<RouteViaTradesMeta, 'outcome' | 'selected' | 'enabled'> {
+  return {
+    topMarkets: routed.topMarkets,
+    maxTradeCount: routed.maxTradeCount,
+    minCountThreshold: routed.minCountThreshold,
+    tried: routed.tried,
+    tradesFetched: routed.tradesFetched,
+    tradesFetchLimit: routed.tradesFetchLimit,
+    tradesFetchOk: routed.tradesFetchOk,
+    tradesFetchedForward: routed.tradesFetchedForward,
+    tradesFetchedInverse: routed.tradesFetchedInverse,
+    pairTradeCount: routed.pairTradeCount,
+    tradeMarketsEligible: routed.tradeMarketsEligible,
+    queued: routed.queued,
+    buildLog: routed.buildLog,
+    timingsMs: routed.timingsMs,
+    tradesSource: routed.tradesSource,
+    tradesOldestBlockTime: routed.tradesOldestBlockTime,
+    tradesOldestAt: routed.tradesOldestAt,
+    marketsSnapshotFetched: routed.marketsSnapshotFetched,
+    marketsSnapshotEligible: routed.marketsSnapshotEligible,
+    marketsSnapshotSource: routed.marketsSnapshotSource,
+    rpcPoolsScanned: routed.rpcPoolsScanned,
+    marketFetchMode,
+    enumerateRoutes,
+    tradesUnavailable: routed.tradesUnavailable === true,
+  };
+}
+
+function quoteOutputRawFromEntry(entry: RouteViaTradesRouteEntry): bigint {
+  const sim = entry.simulatedOutRaw?.trim();
+  if (sim) {
+    try {
+      return BigInt(sim);
+    } catch {
+      /* fall through */
+    }
+  }
+  const fromQuote = String(entry.quote?.outAmount ?? entry.quote?._quotedOutAmount ?? '').trim();
+  if (fromQuote) {
+    try {
+      return BigInt(fromQuote);
+    } catch {
+      /* fall through */
+    }
+  }
+  return 0n;
+}
+
+function sortRouteEntriesByOutput(routes: RouteViaTradesRouteEntry[]): RouteViaTradesRouteEntry[] {
+  const sorted = [...routes].sort((a, b) => Number(quoteOutputRawFromEntry(b) - quoteOutputRawFromEntry(a)));
+  return sorted.map((route, i) => ({ ...route, index: i }));
+}
+
+async function buildEnumeratedRouteQuotes(
+  routeBuilds: RouteBuildSuccess[],
+  uiInputMint: string,
+  uiOutputMint: string,
+  selectedRouter: SwapProxyRouter,
+): Promise<RouteViaTradesRouteEntry[]> {
+  const routes: RouteViaTradesRouteEntry[] = [];
+  for (let i = 0; i < routeBuilds.length; i++) {
+    const entry = routeBuilds[i]!;
+    // Each enumerated build was produced with enrich:true, so it already carries its
+    // own ix-builder simulation + fees + USD + %. Just project it onto the quote shape.
+    let quote = attachRouterMetadata(
+      quoteFromBuild(entry.build, { uiInputMint, uiOutputMint }),
+      selectedRouter,
+      'vybe',
+      false,
+    );
+    if (uiInputMint === NATIVE_SOL_MINT) quote = { ...quote, inputMintAddress: NATIVE_SOL_MINT };
+    if (uiOutputMint === NATIVE_SOL_MINT) quote = { ...quote, outputMintAddress: NATIVE_SOL_MINT };
+    const candidate = entry.candidate as EnumeratedRouteCandidate;
+    const simulatedOutRaw = entry.build.enrichment?.simulatedOutRaw ?? undefined;
+    routes.push({
+      index: i,
+      source: candidate.source ?? 'trades',
+      candidate: {
+        ...entry.selected,
+        marketScore: candidate.marketScore ?? entry.selected.marketScore,
+        programLabel: candidate.programLabel ?? programLabelForAddress(entry.selected.programAddress),
+      },
+      rpcMeta: candidate.rpcMeta,
+      build: entry.build,
+      quote,
+      simulatedOutRaw: simulatedOutRaw ?? undefined,
+    });
+  }
+  return sortRouteEntriesByOutput(routes);
 }
 
 function aliasNativeSolPriceStats(
@@ -300,35 +526,156 @@ export async function buildVybeQuoteFromPriceAndSwap(
   const useTradeCandidatePin = Boolean(
     manualPool && (manualProgram || manualProtocol) && !useMarketDiscovery,
   );
+  const useDiscoveryFetch =
+    useMarketDiscovery && !manualPool && marketFetchMode !== 'rpc';
 
   let build: VybeSwapBuildResponse;
   let routeViaTrades: RouteViaTradesMeta | undefined;
+  let precomputedPrimaryQuote: VybeSwapQuote | undefined;
 
-  if (useTradeCandidatePin) {
-    build = await buildSwap(
-      http,
-      completePinnedSwapParams({
-        ...vybeParams,
-        router: 'vybe',
-        poolAddress: manualPool,
-        ...(manualProgram ? { programAddress: manualProgram } : {}),
-        ...(manualProtocol ? { protocol: manualProtocol } : {}),
-      }),
-    );
-    routeViaTrades = buildSkippedRouteViaTradesMeta(vybeParams, 'vybe');
-    logRouteViaTradesMeta(routeViaTrades);
-  } else if (useMarketDiscovery) {
-    if (marketFetchMode === 'rpc' && bothCommonQuotes) {
+  if (useMarketDiscovery && marketFetchMode === 'rpc') {
+    if (bothCommonQuotes) {
       throw new Error(rpcScanUnsupportedForCommonQuotesError());
     }
-    build = await buildSwap(http, {
-      ...vybeParams,
-      router: 'vybe',
-      marketFetchMode,
-      enumerateRoutes,
-    });
-    routeViaTrades = marketDiscoveryRouteMeta(marketFetchMode, enumerateRoutes);
-    logRouteViaTradesMeta(routeViaTrades);
+    if (enumerateRoutes) {
+      const routed = await buildSwapViaRpcPools(http, { ...vybeParams, router: 'vybe' });
+      if (routed.kind === 'direct' || routed.kind === 'multi') {
+        build = routed.build;
+        Object.assign(
+          vybeParams,
+          completePinnedSwapParams({
+            poolAddress: routed.selected.marketAddress,
+            programAddress: routed.selected.programAddress,
+            protocol: routed.selected.protocol,
+          }),
+        );
+        if (routed.kind === 'multi') {
+          const enumRoutes = await buildEnumeratedRouteQuotes(
+            routed.routes,
+            uiInputMint,
+            uiOutputMint,
+            selected,
+          );
+          precomputedPrimaryQuote = enumRoutes[0]?.quote;
+          routeViaTrades = {
+            enabled: true,
+            outcome: 'multi',
+            selected: routed.selected,
+            selectedRouteIndex: 0,
+            routes: enumRoutes,
+            ...baseRouteViaTradesMetaFromRouted(routed, marketFetchMode, true),
+          };
+        } else {
+          routeViaTrades = {
+            enabled: true,
+            outcome: 'direct',
+            selected: routed.selected,
+            ...baseRouteViaTradesMetaFromRouted(routed, marketFetchMode, false),
+          };
+        }
+        logRouteViaTradesMeta(routeViaTrades);
+      } else {
+        const recovery = await recoverAfterTradeQueueExhausted(http, vybeParams, routed, {
+          allowRpcFallback: false,
+        });
+        build = recovery.build;
+        routeViaTrades = recovery.routeViaTrades;
+      }
+    } else {
+      build = await buildSwap(http, {
+        ...vybeParams,
+        router: 'vybe',
+        marketFetchMode: undefined,
+        enumerateRoutes: false,
+      });
+      routeViaTrades = {
+        enabled: true,
+        outcome: 'rpc_only',
+        marketFetchMode,
+        enumerateRoutes: false,
+        topMarkets: [],
+        maxTradeCount: 0,
+        minCountThreshold: 0,
+        tried: [],
+        tradesFetched: 0,
+        tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+        tradesFetchOk: false,
+        tradesFetchedForward: 0,
+        tradesFetchedInverse: 0,
+        pairTradeCount: 0,
+        tradeMarketsEligible: 0,
+        queued: [],
+        buildLog: [],
+        userMessage: 'Routed via Vybe RPC pool scan.',
+      };
+      logRouteViaTradesMeta(routeViaTrades);
+    }
+  } else if (useTradeCandidatePin || useDiscoveryFetch) {
+    const routed = useTradeCandidatePin
+      ? await buildSwapForTradeCandidate(http, { ...vybeParams, router: 'vybe' }, {
+          marketAddress: manualPool!,
+          ...(manualProgram ? { programAddress: manualProgram } : {}),
+          ...(manualProtocol ? { protocol: manualProtocol } : {}),
+        })
+      : await buildSwapViaTradeMarkets(http, { ...vybeParams, router: 'vybe' });
+    if (routed.kind === 'direct' || routed.kind === 'multi') {
+      build = routed.build;
+      Object.assign(
+        vybeParams,
+        completePinnedSwapParams({
+          poolAddress: routed.selected.marketAddress,
+          programAddress: routed.selected.programAddress,
+          protocol: routed.selected.protocol,
+        }),
+      );
+      if (routed.kind === 'multi') {
+        const enumRoutes = await buildEnumeratedRouteQuotes(
+          routed.routes,
+          uiInputMint,
+          uiOutputMint,
+          selected,
+        );
+        precomputedPrimaryQuote = enumRoutes[0]?.quote;
+        routeViaTrades = {
+          enabled: true,
+          outcome: 'multi',
+          selected: routed.selected,
+          selectedRouteIndex: 0,
+          routes: enumRoutes,
+          ...baseRouteViaTradesMetaFromRouted(routed, marketFetchMode, true),
+        };
+      } else {
+        routeViaTrades = {
+          enabled: true,
+          outcome: 'direct',
+          marketFetchMode,
+          enumerateRoutes,
+          topMarkets: routed.topMarkets,
+          maxTradeCount: routed.maxTradeCount,
+          minCountThreshold: routed.minCountThreshold,
+          selected: routed.selected,
+          tried: routed.tried,
+          tradesFetched: routed.tradesFetched,
+          tradesFetchLimit: routed.tradesFetchLimit,
+          tradesFetchOk: routed.tradesFetchOk,
+          tradesFetchedForward: routed.tradesFetchedForward,
+          tradesFetchedInverse: routed.tradesFetchedInverse,
+          pairTradeCount: routed.pairTradeCount,
+          tradeMarketsEligible: routed.tradeMarketsEligible,
+          queued: routed.queued,
+          buildLog: routed.buildLog,
+          timingsMs: routed.timingsMs,
+          tradesSource: routed.tradesSource,
+        };
+      }
+      logRouteViaTradesMeta(routeViaTrades);
+    } else {
+      const recovery = await recoverAfterTradeQueueExhausted(http, vybeParams, routed, {
+        allowRpcFallback: marketFetchMode === 'full' && !bothCommonQuotes && !enumerateRoutes,
+      });
+      build = recovery.build;
+      routeViaTrades = recovery.routeViaTrades;
+    }
   } else {
     build =
       selected === 'vybe'
@@ -346,12 +693,14 @@ export async function buildVybeQuoteFromPriceAndSwap(
     : routeViaTrades
       ? 'vybe'
       : normalizeRouterId(build.provider ?? selected);
-  const quote = attachRouterMetadata(
-    quoteFromBuild(build, { uiInputMint, uiOutputMint }),
-    selected,
-    effective,
-    tradeRouteFallback != null || (routeViaTrades ? false : effective !== selected),
-  );
+  const quote = precomputedPrimaryQuote
+    ? precomputedPrimaryQuote
+    : attachRouterMetadata(
+        quoteFromBuild(build, { uiInputMint, uiOutputMint }),
+        selected,
+        effective,
+        tradeRouteFallback != null || (routeViaTrades ? false : effective !== selected),
+      );
   let finalQuote = quote;
   if (uiInputMint === NATIVE_SOL_MINT) {
     finalQuote = { ...finalQuote, inputMintAddress: NATIVE_SOL_MINT };
