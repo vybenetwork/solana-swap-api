@@ -6472,6 +6472,39 @@ tr:hover td {
   margin-top: 0.35rem;
 }
 
+.swap-build-toggles-row--full {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.swap-toggle-row--route-mode {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 0.45rem;
+}
+
+.swap-route-pin-row .swap-toggle-row--expandable .swap-pill-switch {
+  display: none;
+}
+
+.swap-route-pin-row .swap-toggle-row--expandable .swap-toggle-row__field--pool,
+.swap-route-pin-row .swap-toggle-row--expandable .swap-toggle-row__field--protocol {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: block;
+}
+
+.swap-route-pin-row .swap-toggle-row--pool .swap-toggle-row__text,
+.swap-route-pin-row .swap-toggle-row--protocol .swap-toggle-row__text {
+  grid-column: 1;
+  grid-row: 1;
+}
+
+.swap-route-discovery-row .swap-pill-switch__input:disabled + .swap-pill-switch__track {
+  opacity: 0.72;
+  cursor: not-allowed;
+}
+
 .swap-quote-route-options .swap-toggle-row--market-fetch .swap-protocol-select {
   width: 68px;
   min-width: 0;

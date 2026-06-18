@@ -364,7 +364,22 @@
           </div>
 
           <div class="swap-build-toggles swap-quote-route-options">
-            <div class="swap-build-toggles-row">
+            <div class="swap-build-toggles-row swap-build-toggles-row--full">
+              <div class="swap-toggle-row swap-toggle-row--route-mode">
+                <div class="swap-toggle-row__text">
+                  <span class="swap-adv-label-row">
+                    <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
+                    <span>Pin route</span>
+                  </span>
+                  <span class="swap-toggle-row__hint">Use a specific market &amp; protocol</span>
+                </div>
+                <label class="swap-pill-switch" title="Pin swap to a market address and DEX protocol instead of discovering routes">
+                  <input type="checkbox" id="swapPinRoute" class="swap-pill-switch__input" />
+                  <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                </label>
+              </div>
+            </div>
+            <div id="swapRouteDiscoveryRow" class="swap-build-toggles-row swap-route-discovery-row">
               <div class="swap-toggle-row swap-toggle-row--market-fetch">
                 <div class="swap-toggle-row__text">
                   <span class="swap-adv-label-row">
@@ -394,7 +409,7 @@
                 </label>
               </div>
             </div>
-            <div class="swap-build-toggles-row">
+            <div id="swapRoutePinRow" class="swap-build-toggles-row swap-route-pin-row" hidden>
               <div class="swap-toggle-row swap-toggle-row--expandable swap-toggle-row--pool">
                 <div class="swap-toggle-row__text">
                   <span class="swap-adv-label-row">

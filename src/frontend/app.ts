@@ -201,6 +201,9 @@ const swapServiceFeeFieldEl = document.getElementById('swapServiceFeeField') as 
 const swapServiceFeeInput = document.getElementById('swapServiceFee') as HTMLInputElement | null;
 const swapMarketFetchModeSelect = document.getElementById('swapMarketFetchMode') as HTMLSelectElement | null;
 const swapEnumerateRoutesCheckbox = document.getElementById('swapEnumerateRoutes') as HTMLInputElement | null;
+const swapPinRouteCheckbox = document.getElementById('swapPinRoute') as HTMLInputElement | null;
+const swapRouteDiscoveryRowEl = document.getElementById('swapRouteDiscoveryRow') as HTMLElement | null;
+const swapRoutePinRowEl = document.getElementById('swapRoutePinRow') as HTMLElement | null;
 const swapRouteOptionsEl = document.getElementById('swapRouteOptions') as HTMLElement | null;
 const swapQuoteBtn = document.getElementById('swapQuoteBtn') as HTMLButtonElement | null;
 const swapQuoteBtnTimerEl = document.getElementById('swapQuoteBtnTimer') as HTMLElement | null;
@@ -1390,10 +1393,8 @@ function syncSellTokenPickerState(): void {
   setWalletGatedDisabled(swapAutoSlippageCheckbox, !valid);
   setWalletGatedDisabled(swapGaslessCheckbox, !valid);
   setWalletGatedDisabled(swapVybeFallbackCheckbox, !valid);
-  setWalletGatedDisabled(swapEnablePoolAddressCheckbox, !valid);
-  setWalletGatedDisabled(swapPoolAddressInput, !valid);
-  setWalletGatedDisabled(swapEnableProtocolCheckbox, !valid);
-  setWalletGatedDisabled(swapProtocolSelect, !valid);
+  setWalletGatedDisabled(swapPinRouteCheckbox, !valid);
+  syncSwapRoutePinMode(valid);
   setWalletGatedDisabled(swapSimulateCheckbox, !valid);
   setWalletGatedDisabled(swapEnablePartnerCheckbox, !valid);
   setWalletGatedDisabled(swapPartnerInput, !valid);
@@ -3633,12 +3634,61 @@ function isVybeMaxSellSelected(mint: string): boolean {
   return sellAmountRoughlyEqual(currentUi, maxInput, mint);
 }
 
+function isSwapRoutePinMode(): boolean {
+  return swapPinRouteCheckbox?.checked === true;
+}
+
+let swapRoutePinModeWasOn: boolean | null = null;
+
+function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
+  const pinOn = isSwapRoutePinMode();
+  const leavingPin = swapRoutePinModeWasOn === true && !pinOn;
+  swapRoutePinModeWasOn = pinOn;
+
+  if (swapRouteDiscoveryRowEl) swapRouteDiscoveryRowEl.hidden = pinOn;
+  if (swapRoutePinRowEl) swapRoutePinRowEl.hidden = !pinOn;
+
+  if (pinOn) {
+    if (swapEnablePoolAddressCheckbox) {
+      swapEnablePoolAddressCheckbox.checked = true;
+      swapEnablePoolAddressCheckbox.disabled = true;
+    }
+    if (swapEnableProtocolCheckbox) {
+      swapEnableProtocolCheckbox.checked = true;
+      swapEnableProtocolCheckbox.disabled = true;
+    }
+    if (swapPoolAddressFieldEl) swapPoolAddressFieldEl.hidden = false;
+    if (swapProtocolFieldEl) swapProtocolFieldEl.hidden = false;
+    setWalletGatedDisabled(swapPoolAddressInput, !walletValid);
+    setWalletGatedDisabled(swapProtocolSelect, !walletValid);
+  } else {
+    if (swapEnablePoolAddressCheckbox) {
+      swapEnablePoolAddressCheckbox.checked = false;
+      swapEnablePoolAddressCheckbox.disabled = true;
+    }
+    if (swapEnableProtocolCheckbox) {
+      swapEnableProtocolCheckbox.checked = false;
+      swapEnableProtocolCheckbox.disabled = true;
+    }
+    if (swapPoolAddressFieldEl) swapPoolAddressFieldEl.hidden = true;
+    if (swapProtocolFieldEl) swapProtocolFieldEl.hidden = true;
+    if (swapPoolAddressInput) swapPoolAddressInput.value = '';
+    if (swapProtocolSelect) swapProtocolSelect.selectedIndex = 0;
+    if (swapEnumerateRoutesCheckbox) {
+      swapEnumerateRoutesCheckbox.checked = true;
+      swapEnumerateRoutesCheckbox.disabled = true;
+    }
+    if (swapMarketFetchModeSelect) {
+      swapMarketFetchModeSelect.disabled = !walletValid;
+      if (leavingPin) swapMarketFetchModeSelect.value = 'full';
+    }
+  }
+
+  setWalletGatedDisabled(swapPinRouteCheckbox, !walletValid);
+}
+
 function vybeMarketDiscoveryActive(): boolean {
-  return (
-    getSwapRouter() === 'vybe' &&
-    swapEnablePoolAddressCheckbox?.checked !== true &&
-    swapEnableProtocolCheckbox?.checked !== true
-  );
+  return getSwapRouter() === 'vybe' && !isSwapRoutePinMode();
 }
 
 function collectSwapBuildOptions(): Record<string, unknown> {
@@ -3673,12 +3723,10 @@ function collectSwapBuildOptions(): Record<string, unknown> {
     simulate: swapSimulateCheckbox?.checked === true,
     partner:
       swapEnablePartnerCheckbox?.checked === true ? swapPartnerInput?.value.trim() || undefined : undefined,
-    poolAddress:
-      swapEnablePoolAddressCheckbox?.checked === true
+    poolAddress: isSwapRoutePinMode()
         ? swapPoolAddressInput?.value.trim() || undefined
         : undefined,
-    protocol:
-      swapEnableProtocolCheckbox?.checked === true
+    protocol: isSwapRoutePinMode()
         ? swapProtocolSelect?.value.trim() || undefined
         : undefined,
     marketFetchMode: vybeMarketDiscoveryActive()
@@ -5523,10 +5571,16 @@ swapEnablePartnerCheckbox?.addEventListener('change', () => {
 });
 swapPartnerInput?.addEventListener('input', syncSwapQuoteButtonState);
 swapPartnerInput?.addEventListener('change', syncSwapQuoteButtonState);
-wireBuildOptionToggle(swapEnablePoolAddressCheckbox, swapPoolAddressFieldEl, swapPoolAddressInput);
-wireBuildOptionToggle(swapEnableProtocolCheckbox, swapProtocolFieldEl, swapProtocolSelect);
+swapPinRouteCheckbox?.addEventListener('change', () => {
+  syncSwapRoutePinMode();
+  invalidateSwapQuoteAfterInputChange();
+});
+swapPoolAddressInput?.addEventListener('input', invalidateSwapQuoteAfterInputChange);
+swapPoolAddressInput?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
+swapProtocolSelect?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
 swapMarketFetchModeSelect?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
 swapEnumerateRoutesCheckbox?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
+syncSwapRoutePinMode();
 
 function syncServiceFeePartnerGate(walletValid = hasValidSwapWallet()): void {
   const partnerOn = swapEnablePartnerCheckbox?.checked === true;
