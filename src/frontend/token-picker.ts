@@ -926,6 +926,57 @@ export function getWalletBalanceAmountUi(mint: string): number | null {
   return item && item.amountUi > 0 ? item.amountUi : null;
 }
 
+/** Format a wallet balance for the sell input without rounding above on-chain amount. */
+export function maxSwapInputStringForWalletItem(item: WalletBalanceListItem): string {
+  const exact = item.amountExact?.trim().replace(/,/g, '');
+  if (exact && /^\d+$/.test(exact)) {
+    const decimals = Number.isFinite(item.decimals) ? item.decimals : 0;
+    const raw = BigInt(exact);
+    const base = 10n ** BigInt(decimals);
+    const whole = raw / base;
+    const frac = raw % base;
+    if (frac === 0n) return whole.toString();
+    const fracStr = frac.toString().padStart(decimals, '0').replace(/0+$/, '');
+    return `${whole}.${fracStr}`;
+  }
+  return formatSwapInputAmountValueFloor(item.amountUi, item.decimals);
+}
+
+export function swapInputUiToRawBigInt(ui: string, decimals: number): bigint {
+  const cleaned = ui.trim().replace(/,/g, '');
+  if (!cleaned) return 0n;
+  const negative = cleaned.startsWith('-');
+  const unsigned = negative ? cleaned.slice(1) : cleaned;
+  const [whole, frac = ''] = unsigned.split('.');
+  const fracPadded = frac.padEnd(decimals, '0').slice(0, decimals);
+  const digits = `${whole || '0'}${fracPadded}`.replace(/^0+(?=\d)/, '');
+  return BigInt(`${negative ? '-' : ''}${digits || '0'}`);
+}
+
+export function formatSwapInputAmountValueFloor(amount: number, decimals = 9): string {
+  if (!Number.isFinite(amount) || amount <= 0) return '0';
+  const abs = Math.abs(amount);
+  if (abs >= 100_000) return String(Math.floor(amount));
+  const scale = Math.min(Math.max(decimals, 4), 12);
+  const factor = 10 ** scale;
+  const floored = Math.floor(amount * factor) / factor;
+  const fixed = floored.toFixed(scale).replace(/\.?0+$/, '');
+  return fixed || '0';
+}
+
+export function amountExceedsCachedWalletBalance(amountUi: number, mint: string): boolean {
+  const item = getWalletBalanceListItem(mint);
+  if (!item || !(item.amountUi > 0)) return false;
+  if (!Number.isFinite(amountUi) || amountUi <= 0) return false;
+  const decimals = Number.isFinite(item.decimals) ? item.decimals : 9;
+  const inputStr = formatSwapInputAmountValueFloor(amountUi, decimals);
+  const requiredRaw = swapInputUiToRawBigInt(inputStr, decimals);
+  const availableRaw = item.amountExact?.trim()
+    ? BigInt(item.amountExact.trim().replace(/,/g, ''))
+    : swapInputUiToRawBigInt(maxSwapInputStringForWalletItem(item), decimals);
+  return requiredRaw > availableRaw;
+}
+
 /** True when wallet cache has a token-balance row for this mint (ATA assumed to exist). */
 function walletHasMintInCache(mint: string): boolean {
   if (!walletBalanceCache) return false;

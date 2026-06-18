@@ -20,6 +20,9 @@ import {
   isWalletBalanceCacheReady,
   getWalletBalanceAmountUi,
   getWalletBalanceListItem,
+  maxSwapInputStringForWalletItem,
+  amountExceedsCachedWalletBalance,
+  formatSwapInputAmountValueFloor,
   getWalletTotalBalanceUsd,
   formatWalletTotalUsd,
   isSplValueTradable,
@@ -191,10 +194,8 @@ const swapEnablePartnerCheckbox = document.getElementById('swapEnablePartner') a
 const swapPartnerFieldEl = document.getElementById('swapPartnerField') as HTMLElement | null;
 const swapPartnerInput = document.getElementById('swapPartner') as HTMLInputElement | null;
 const swapEnablePoolAddressCheckbox = document.getElementById('swapEnablePoolAddress') as HTMLInputElement | null;
-const swapPoolAddressFieldEl = document.getElementById('swapPoolAddressField') as HTMLElement | null;
 const swapPoolAddressInput = document.getElementById('swapPoolAddress') as HTMLInputElement | null;
 const swapEnableProtocolCheckbox = document.getElementById('swapEnableProtocol') as HTMLInputElement | null;
-const swapProtocolFieldEl = document.getElementById('swapProtocolField') as HTMLElement | null;
 const swapProtocolSelect = document.getElementById('swapProtocol') as HTMLSelectElement | null;
 const swapEnableServiceFeeCheckbox = document.getElementById('swapEnableServiceFee') as HTMLInputElement | null;
 const swapServiceFeeFieldEl = document.getElementById('swapServiceFeeField') as HTMLElement | null;
@@ -204,6 +205,7 @@ const swapEnumerateRoutesCheckbox = document.getElementById('swapEnumerateRoutes
 const swapPinRouteCheckbox = document.getElementById('swapPinRoute') as HTMLInputElement | null;
 const swapRouteDiscoveryRowEl = document.getElementById('swapRouteDiscoveryRow') as HTMLElement | null;
 const swapRoutePinRowEl = document.getElementById('swapRoutePinRow') as HTMLElement | null;
+const swapQuoteRouteOptionsEl = document.querySelector('.swap-quote-route-options') as HTMLElement | null;
 const swapRouteOptionsEl = document.getElementById('swapRouteOptions') as HTMLElement | null;
 const swapQuoteBtn = document.getElementById('swapQuoteBtn') as HTMLButtonElement | null;
 const swapQuoteBtnTimerEl = document.getElementById('swapQuoteBtnTimer') as HTMLElement | null;
@@ -1520,7 +1522,7 @@ function applySellAmountPercent(percent: number): void {
     const item = getWalletBalanceListItem(mint);
     if (item && item.amountUi > 0) {
       if (swapQuoteError) clearInlineError(swapQuoteError);
-      swapAmountInput!.value = formatSwapInputAmountValue(item.amountUi, getMintDecimals(mint));
+      swapAmountInput!.value = maxSwapInputStringForWalletItem(item);
       syncSwapAmountMaxFromBalance();
       swapAmountInput!.dispatchEvent(new Event('input', { bubbles: true }));
       return;
@@ -1534,15 +1536,20 @@ function applySellAmountPercent(percent: number): void {
 }
 
 function formatSwapInputAmountValue(amount: number, decimals = 9): string {
-  if (!Number.isFinite(amount) || amount <= 0) return '0';
-  return formatSwapAmountValue(amount).replace(/,/g, '');
+  return formatSwapInputAmountValueFloor(amount, decimals);
 }
 
-/** Max sell amount as stored in the amount input (matches 4-decimal display rounding). */
+/** Max sell amount as stored in the amount input (never rounds above wallet balance). */
 function getMaxSellAmountForInput(mint: string): number | null {
+  const item = getWalletBalanceListItem(mint);
   const sellable = getWalletSellableForUi(mint);
   if (sellable == null || sellable <= 0) return null;
-  const formatted = formatSwapInputAmountValue(sellable, getMintDecimals(mint));
+  if (item && getSwapRouter() === 'vybe' && !isSolMint(mint)) {
+    const formatted = maxSwapInputStringForWalletItem(item);
+    const parsed = Number(formatted);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : sellable;
+  }
+  const formatted = formatSwapInputAmountValueFloor(sellable, getMintDecimals(mint));
   const parsed = Number(formatted);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : sellable;
 }
@@ -3647,6 +3654,7 @@ function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
 
   if (swapRouteDiscoveryRowEl) swapRouteDiscoveryRowEl.hidden = pinOn;
   if (swapRoutePinRowEl) swapRoutePinRowEl.hidden = !pinOn;
+  swapQuoteRouteOptionsEl?.classList.toggle('swap-quote-route-options--pin', pinOn);
 
   if (pinOn) {
     if (swapEnablePoolAddressCheckbox) {
@@ -3657,8 +3665,6 @@ function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
       swapEnableProtocolCheckbox.checked = true;
       swapEnableProtocolCheckbox.disabled = true;
     }
-    if (swapPoolAddressFieldEl) swapPoolAddressFieldEl.hidden = false;
-    if (swapProtocolFieldEl) swapProtocolFieldEl.hidden = false;
     setWalletGatedDisabled(swapPoolAddressInput, !walletValid);
     setWalletGatedDisabled(swapProtocolSelect, !walletValid);
   } else {
@@ -3670,13 +3676,11 @@ function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
       swapEnableProtocolCheckbox.checked = false;
       swapEnableProtocolCheckbox.disabled = true;
     }
-    if (swapPoolAddressFieldEl) swapPoolAddressFieldEl.hidden = true;
-    if (swapProtocolFieldEl) swapProtocolFieldEl.hidden = true;
     if (swapPoolAddressInput) swapPoolAddressInput.value = '';
     if (swapProtocolSelect) swapProtocolSelect.selectedIndex = 0;
     if (swapEnumerateRoutesCheckbox) {
-      swapEnumerateRoutesCheckbox.checked = true;
-      swapEnumerateRoutesCheckbox.disabled = true;
+      if (leavingPin) swapEnumerateRoutesCheckbox.checked = true;
+      setWalletGatedDisabled(swapEnumerateRoutesCheckbox, !walletValid);
     }
     if (swapMarketFetchModeSelect) {
       swapMarketFetchModeSelect.disabled = !walletValid;
@@ -4591,11 +4595,13 @@ async function fetchSwapQuote(): Promise<void> {
     return;
   }
   if (hasValidSwapWallet()) {
-    const totalBal = getWalletBalanceAmountUi(inputMint);
-    if (totalBal != null && amount > totalBal) {
+    if (amountExceedsCachedWalletBalance(amount, inputMint)) {
       clampSwapAmountInputToMax();
       syncSwapSellAmountUi();
-      if (swapQuoteError) {
+      const item = getWalletBalanceListItem(inputMint);
+      const totalBal =
+        item != null ? Number(maxSwapInputStringForWalletItem(item)) : getWalletBalanceAmountUi(inputMint);
+      if (swapQuoteError && totalBal != null) {
         showInlineError(
           swapQuoteError,
           `Amount exceeds wallet balance (${formatSwapInputAmountValue(totalBal, getMintDecimals(inputMint))}).`
