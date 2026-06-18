@@ -5,11 +5,14 @@
 import express, { type Request, type Response } from 'express';
 import {
   loadEnv,
-  getApiKey,
+  getTradingApiKey,
+  getDataApiKey,
   PUBLIC_DIR,
   SOLANA_RPC_URL,
   DEFAULT_SWAP_SERVICE_FEE_PCT,
   VYBE_API_BASE,
+  VYBE_DATA_API_BASE,
+  getSolanaRpcProviderLabel,
 } from './config.js';
 import { getSolanaRpcHost, logBrowserRpc429 } from './api/solana-connection.js';
 import { createClient } from './api/index.js';
@@ -27,19 +30,28 @@ import {
 } from './token-icon-cache.js';
 import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
 import { quoteFromBuild } from './api/map-enrichment.js';
-import { createHttpClient } from './api/client.js';
+import { createDataHttpClient } from './api/client.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams, type TradesSortField } from './api/trades.js';
 import { fetchRankedTopMarketsFromTrades } from './api/route-via-trades.js';
 
 loadEnv();
-const apiKey = getApiKey();
-console.log('VYBE_API_KEY loaded (length %d)', apiKey.length);
-console.log('Vybe API base → %s', VYBE_API_BASE);
+const tradingApiKey = getTradingApiKey();
+const dataApiKey = getDataApiKey();
+if (tradingApiKey) {
+  console.log('VYBE_API_KEY (trading) loaded (length %d)', tradingApiKey.length);
+} else {
+  console.log('VYBE_API_KEY (trading) not set — omitting X-API-Key for %s', VYBE_API_BASE);
+}
+console.log('VYBE_DATA_API_KEY loaded (length %d)', dataApiKey.length);
+console.log('Vybe trading API → %s', VYBE_API_BASE);
+if (VYBE_DATA_API_BASE !== VYBE_API_BASE) {
+  console.log('Vybe data API → %s (wallets, tokens, trades)', VYBE_DATA_API_BASE);
+}
 
 const SWAP_PROTOCOL_SET = new Set<string>(VYBE_SWAP_PROTOCOLS);
 
 const app = express();
-const client = createClient(apiKey);
+const client = createClient(tradingApiKey, dataApiKey);
 
 app.use(express.json());
 app.use((req, res, next) => {
@@ -404,7 +416,7 @@ app.get('/api/trades', async (req: Request, res: Response) => {
       delete params.quoteMintAddress;
     }
 
-    const http = createHttpClient(apiKey);
+    const http = createDataHttpClient(dataApiKey);
     const data = await getTrades(http, params);
     res.json(data);
   } catch (err) {
@@ -430,7 +442,7 @@ app.get('/api/route-via-trades/top-markets', async (req: Request, res: Response)
     }
     const limitRaw = qNum(req, 'limit');
     const topNRaw = qNum(req, 'topN');
-    const http = createHttpClient(apiKey);
+    const http = createDataHttpClient(dataApiKey);
     const result = await fetchRankedTopMarketsFromTrades(http, {
       inputMintAddress,
       outputMintAddress,
@@ -657,6 +669,6 @@ app.get('/api/health', (_req: Request, res: Response) => {
 const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
-  console.log(`Solana RPC for sim/validate: ${getSolanaRpcHost()}`);
+  console.log(`Solana RPC (${getSolanaRpcProviderLabel()}): ${getSolanaRpcHost()}`);
   console.log('Open in browser for swap quote and build.');
 });

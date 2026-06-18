@@ -2,7 +2,7 @@
  * Vybe API client: single entry point wiring the API modules.
  */
 
-import { createHttpClient } from './client.js';
+import { createTradingHttpClient, createDataHttpClient } from './client.js';
 import { getToken } from './tokens.js';
 import { getSwapQuote, type GetSwapQuoteParams } from './swap-quote.js';
 import { buildSwap, buildSwapWithFallback, type BuildSwapParams, type SwapProxyRouter } from './swap-build.js';
@@ -59,20 +59,21 @@ export interface VybeClient {
   }): Promise<LowSolTradeWarningResult>;
 }
 
-export function createClient(apiKey: string): VybeClient {
-  const http = createHttpClient(apiKey);
+export function createClient(tradingApiKey: string, dataApiKey: string): VybeClient {
+  const tradingHttp = createTradingHttpClient(tradingApiKey);
+  const dataHttp = createDataHttpClient(dataApiKey);
   return {
-    getToken: (mintAddress: string) => getToken(http, mintAddress),
-    getSwapQuote: (params: GetSwapQuoteParams) => getSwapQuote(http, params),
-    buildSwap: (body: BuildSwapParams) => buildSwap(http, body),
-    buildSwapWithFallback: (body: BuildSwapParams) => buildSwapWithFallback(http, body),
-    resolveTokenPrices: (mints, options) => resolveTokenPrices(http, mints, options),
-    buildVybeQuote: (params) => buildVybeQuoteFromPriceAndSwap(http, params),
-    getWalletTokenBalance: (params) => getWalletTokenBalance(http, params),
+    getToken: (mintAddress: string) => getToken(dataHttp, mintAddress),
+    getSwapQuote: (params: GetSwapQuoteParams) => getSwapQuote(tradingHttp, params),
+    buildSwap: (body: BuildSwapParams) => buildSwap(tradingHttp, body),
+    buildSwapWithFallback: (body: BuildSwapParams) => buildSwapWithFallback(tradingHttp, body),
+    resolveTokenPrices: (mints, options) => resolveTokenPrices(dataHttp, mints, options),
+    buildVybeQuote: (params) => buildVybeQuoteFromPriceAndSwap(tradingHttp, params, dataHttp),
+    getWalletTokenBalance: (params) => getWalletTokenBalance(dataHttp, params),
     assertWalletHasSellAmount: (ownerAddress, inputMint, amountUi, symbolHint) =>
-      assertWalletHasSellAmount(http, ownerAddress, inputMint, amountUi, symbolHint),
+      assertWalletHasSellAmount(dataHttp, ownerAddress, inputMint, amountUi, symbolHint),
     listWalletTokenBalances: (ownerAddress, limit) =>
-      listWalletTokenBalances(http, ownerAddress, limit),
-    evaluateLowSolTradeWarning: (params) => evaluateLowSolTradeWarning(http, params),
+      listWalletTokenBalances(dataHttp, ownerAddress, limit),
+    evaluateLowSolTradeWarning: (params) => evaluateLowSolTradeWarning(dataHttp, params),
   };
 }

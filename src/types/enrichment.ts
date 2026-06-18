@@ -91,6 +91,18 @@ export interface EnrichmentSimulated {
   unitsConsumed: number | null;
 }
 
+export interface EnrichmentSimulationOutputWarning {
+  warn: true;
+  thresholdPct: number;
+  shortfallPct: number;
+  quotedOutRaw: string;
+  simulatedOutRaw: string;
+  adjustedSimulatedOutRaw: string;
+  excludedRentPaidRaw: string;
+  excludedReclaimRaw: string;
+  excludedNetRentRaw: string;
+}
+
 export interface SwapEnrichment {
   simulated: EnrichmentSimulated;
   quotedOutRaw: string;
@@ -123,4 +135,5 @@ export interface SwapEnrichment {
   youReceive: EnrichmentYouReceive;
   routePlan: EnrichmentRouteStep[];
   tokens: Record<string, EnrichmentTokenMeta>;
+  simulationOutputWarning?: EnrichmentSimulationOutputWarning | null;
 }

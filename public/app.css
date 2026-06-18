@@ -2025,6 +2025,50 @@ tr:hover td {
   gap: 0.6rem;
 }
 
+.swap-quote-simulation-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: #fbbf24;
+  background: rgba(251, 191, 36, 0.08);
+  border: 1px solid rgba(251, 191, 36, 0.28);
+  border-radius: 10px;
+  padding: 0.55rem 0.7rem;
+}
+
+.swap-quote-simulation-warning__icon {
+  flex-shrink: 0;
+  font-size: 0.95rem;
+  line-height: 1.45;
+}
+
+.swap-quote-simulation-warning__text {
+  min-width: 0;
+}
+
+.swap-quote-route-title-text {
+  vertical-align: middle;
+}
+
+.swap-quote-route-warning {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 0.35rem;
+  color: #fbbf24;
+  font-size: 0.95rem;
+  line-height: 1;
+  vertical-align: middle;
+  cursor: help;
+}
+
+.swap-simulation-warning::before {
+  content: '⚠ ';
+}
+
 .swap-quote-summary-arrow {
   display: flex;
   align-items: center;
@@ -2525,8 +2569,7 @@ tr:hover td {
   border-radius: 14px;
   padding: 1rem 0.85rem;
   min-height: 310px;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: hidden;
 }
 
 .swap-quote-details-routing .routing-canvas {
@@ -2534,7 +2577,8 @@ tr:hover td {
 }
 
 .swap-quote-details-routing:has(.routing-canvas--has-fees) {
-  min-height: 310px;
+  min-height: 340px;
+  max-height: 340px;
 }
 
 .routing-dialog-body {
@@ -2543,12 +2587,88 @@ tr:hover td {
   border-radius: 14px;
   padding: 1rem 0.85rem;
   min-height: 120px;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: hidden;
 }
 
 .routing-dialog-body .routing-canvas {
   min-width: min-content;
+}
+
+.routing-diagram-host {
+  position: relative;
+}
+
+.routing-diagram-viewport {
+  width: 100%;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.routing-diagram-host--zoomed .routing-diagram-viewport {
+  overflow: auto;
+  cursor: grab;
+  touch-action: none;
+}
+
+.routing-diagram-viewport--dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.routing-diagram-viewport--dragging * {
+  pointer-events: none;
+}
+
+.routing-diagram-scroll-sizer {
+  position: relative;
+}
+
+.routing-diagram-scaler {
+  transform-origin: top left;
+}
+
+.routing-diagram-zoom-controls {
+  position: absolute;
+  right: 0.45rem;
+  bottom: 0.45rem;
+  z-index: 12;
+  display: inline-flex;
+  gap: 0.3rem;
+  padding: 0.2rem;
+  border-radius: 10px;
+  background: rgba(9, 9, 11, 0.82);
+  border: 1px solid #3f3f46;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+
+.routing-diagram-zoom-btn {
+  width: 1.65rem;
+  height: 1.65rem;
+  border: 1px solid #52525b;
+  border-radius: 8px;
+  background: #18181b;
+  color: #e4e4e7;
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.routing-diagram-zoom-btn:hover:not(:disabled) {
+  background: #27272a;
+  border-color: #71717a;
+  color: #fafafa;
+}
+
+.routing-diagram-zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 /* Jupiter-style horizontal routing diagram */

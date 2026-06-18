@@ -176,13 +176,19 @@ export async function listWalletTokenBalances(
   ownerAddress: string,
   limit = 50,
 ): Promise<WalletBalanceListItem[]> {
-  const [balance, rpcByMint] = await Promise.all([
+  const [balanceResult, rpcByMint] = await Promise.all([
     getWalletTokenBalance(http, {
       ownerAddress,
       includeNoPriceBalance: true,
+    }).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[wallet-balance] Vybe token list failed, using RPC-only: ${msg}`);
+      return null;
     }),
     fetchRpcWalletBalancesSafe(ownerAddress),
   ]);
+
+  const balance = balanceResult ?? { data: [] };
 
   const items = balance.data
     .map((row) => {

@@ -186,6 +186,7 @@
           </div>
           <span class="section-error swap-widget-error" id="swapQuoteError" hidden aria-hidden="true"></span>
           <span class="section-warning swap-widget-warning" id="swapQuoteWarning" hidden aria-hidden="true" role="status"></span>
+          <span class="section-warning swap-widget-warning swap-simulation-warning" id="swapSimulationWarning" hidden aria-hidden="true" role="status"></span>
         </div>
         <div class="section-lede meta">
           Get a swap quote from the Vybe Trading API, review routing and price impact, then build an unsigned transaction to sign in your wallet. This demo does not broadcast.
@@ -385,7 +386,7 @@
                     <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
                     <span>Multiple Quotes</span>
                   </span>
-                  <span class="swap-toggle-row__hint">Up to 3 pool scans</span>
+                  <span class="swap-toggle-row__hint">Enumerate markets</span>
                 </div>
                 <label class="swap-pill-switch" title="Build all discovered routes (trades + RPC) instead of stopping at the first pool">
                   <input type="checkbox" id="swapEnumerateRoutes" class="swap-pill-switch__input" checked />

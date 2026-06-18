@@ -6,6 +6,7 @@
 import axios, { AxiosError, type AxiosInstance } from 'axios';
 import {
   VYBE_API_BASE,
+  VYBE_DATA_API_BASE,
   VYBE_MAX_RETRIES,
   VYBE_RETRY_DELAY_MS,
   VYBE_TIMEOUT_MS,
@@ -106,22 +107,45 @@ export async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
   throw lastErr;
 }
 
-/**
- * Create an authenticated axios instance for Vybe API.
- * @param apiKey - VYBE_API_KEY (trimmed)
- */
-export function createHttpClient(apiKey: string): AxiosInstance {
+function vybeRequestHeaders(apiKey: string): Record<string, string> {
   const key = apiKey.trim();
-  if (!key) {
-    throw new Error('VYBE_API_KEY is required (pass to createClient or set in .env).');
-  }
+  return {
+    ...(key ? { 'X-API-Key': key } : {}),
+    Accept: 'application/json',
+  };
+}
+
+/** Trading client (`VYBE_API_BASE`). Omits `X-API-Key` when key is empty (local Rust). */
+export function createTradingHttpClient(apiKey: string): AxiosInstance {
   return axios.create({
     baseURL: VYBE_API_BASE,
     timeout: VYBE_TIMEOUT_MS,
-    headers: {
-      'X-API-Key': key,
-      Accept: 'application/json',
-    },
+    headers: vybeRequestHeaders(apiKey),
   });
+}
+
+/**
+ * Generic Vybe client for a custom base URL.
+ * @param requireKey - when true (default), throws if apiKey is empty
+ */
+export function createHttpClient(
+  apiKey: string,
+  baseURL: string = VYBE_API_BASE,
+  requireKey = true,
+): AxiosInstance {
+  const key = apiKey.trim();
+  if (requireKey && !key) {
+    throw new Error('Vybe API key is required for this endpoint.');
+  }
+  return axios.create({
+    baseURL,
+    timeout: VYBE_TIMEOUT_MS,
+    headers: vybeRequestHeaders(apiKey),
+  });
+}
+
+/** Wallets, tokens, trades (`VYBE_DATA_API_BASE`) — always requires a key. */
+export function createDataHttpClient(apiKey: string): AxiosInstance {
+  return createHttpClient(apiKey, VYBE_DATA_API_BASE, true);
 }
 

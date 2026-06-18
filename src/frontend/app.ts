@@ -90,6 +90,8 @@ import {
   renderRouteOptionsPanel,
   bindRoutingDiagramZoomListeners,
   scheduleRoutingDiagramZoom,
+  mountRoutingDiagram,
+  clearRoutingDiagram,
   normalizeRouterId,
   routerDisplayLabel,
   getQuoteWalletCostBucketsUsd,
@@ -166,6 +168,7 @@ let lastAutoAppliedWalletAddress = '';
 const swapQuoteLoading = document.getElementById('swapQuoteLoading') as HTMLElement | null;
 const swapQuoteError = document.getElementById('swapQuoteError') as HTMLElement | null;
 const swapQuoteWarning = document.getElementById('swapQuoteWarning') as HTMLElement | null;
+const swapSimulationWarning = document.getElementById('swapSimulationWarning') as HTMLElement | null;
 const swapWalletAddressInput = document.getElementById('swapWalletAddress') as HTMLInputElement | null;
 const swapInputMintInput = document.getElementById('swapInputMint') as HTMLInputElement | null;
 const swapOutputMintInput = document.getElementById('swapOutputMint') as HTMLInputElement | null;
@@ -617,10 +620,7 @@ function refreshPendingQuoteUi(loading = swapQuoteFetching): void {
   if (swapQuoteSummaryEl) {
     swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder(loading);
   }
-  if (swapQuoteDetailsRoutingEl) {
-    swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagramPlaceholder(loading);
-  }
-  scheduleRoutingDiagramZoom();
+  mountRoutingDiagram(swapQuoteDetailsRoutingEl, renderRoutingDiagramPlaceholder(loading));
   if (swapQuoteDetailsRouteStepsEl) {
     swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(loading);
   }
@@ -637,6 +637,7 @@ function applyQuoteLoadingUi(): void {
   setBuyFiatLoading(true);
   refreshPendingQuoteUi(true);
   updateSwapPairCards(undefined, true);
+  syncSwapSellAmountUi();
 }
 
 /** Mint → symbol cache for route hop labels (filled after quote). */
@@ -667,6 +668,56 @@ function clearInlineWarning(el: HTMLElement): void {
   el.removeAttribute('title');
   el.hidden = true;
   el.setAttribute('aria-hidden', 'true');
+}
+
+type SimulationOutputWarning = {
+  warn: true;
+  thresholdPct?: number;
+  shortfallPct: number;
+};
+
+function getSimulationOutputWarning(quote: Record<string, unknown>): SimulationOutputWarning | null {
+  const w = quote._simulationOutputWarning;
+  if (!w || typeof w !== 'object') return null;
+  const rec = w as Record<string, unknown>;
+  if (rec.warn !== true) return null;
+  const shortfallPct = Number(rec.shortfallPct);
+  if (!Number.isFinite(shortfallPct)) return null;
+  return {
+    warn: true,
+    thresholdPct: Number(rec.thresholdPct ?? 20),
+    shortfallPct,
+  };
+}
+
+function formatSimulationOutputWarningMessage(
+  warning: SimulationOutputWarning,
+  outSym?: string,
+): string {
+  const thresh = Number.isFinite(warning.thresholdPct) ? warning.thresholdPct! : 20;
+  const sym = outSym?.trim() ? ` ${outSym.trim()}` : '';
+  return `Simulation delivers ${warning.shortfallPct.toFixed(1)}% less${sym} than quoted (≥${thresh}% threshold). Token account rent and reclaim are excluded from this comparison.`;
+}
+
+function renderSimulationOutputWarningHtml(
+  warning: SimulationOutputWarning,
+  outSym?: string,
+): string {
+  const msg = formatSimulationOutputWarningMessage(warning, outSym);
+  return `<div class="swap-quote-simulation-warning" role="status">
+      <span class="swap-quote-simulation-warning__icon" aria-hidden="true">⚠</span>
+      <span class="swap-quote-simulation-warning__text">${escapeHtml(msg)}</span>
+    </div>`;
+}
+
+function syncSimulationOutputWarning(quote: Record<string, unknown>): void {
+  if (!swapSimulationWarning) return;
+  const warning = getSimulationOutputWarning(quote);
+  if (!warning) {
+    clearInlineWarning(swapSimulationWarning);
+    return;
+  }
+  showInlineWarning(swapSimulationWarning, formatSimulationOutputWarningMessage(warning, getSwapOutSym()));
 }
 
 async function refreshLowSolTradeWarning(): Promise<void> {
@@ -952,6 +1003,13 @@ function formatFeeStackAmount(n: number, sigFigs = 3): string {
   const decPlaces = Math.max(0, -exp + (sigFigs - 1));
   let out = rounded.toFixed(Math.min(decPlaces, 14));
   out = out.replace(/(\.\d*?)0+$/, '$1');
+  // toFixed(14) can round tiny values to "0.00000000000000" → strip → "0."
+  if (out === '0.' || (out === '0' && rounded > 0)) {
+    out = rounded
+      .toPrecision(sigFigs)
+      .replace(/(\.\d*?)0+$/, '$1')
+      .replace(/\.0+$/, '');
+  }
   return sign + out;
 }
 
@@ -1038,7 +1096,7 @@ function syncSwapSellAmountUi(): void {
     if (swapFooterMinOutEl) swapFooterMinOutEl.textContent = '—';
     if (swapFooterMaxSlippageEl) swapFooterMaxSlippageEl.textContent = '—';
     setRouteChipLabel('—', true);
-    if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = '';
+    clearRoutingDiagram(routingDialogBodyEl);
     syncSwapQuoteButtonState();
     return;
   }
@@ -1119,7 +1177,7 @@ function resetSwapQuoteToMock(): void {
   if (swapFooterMinOutEl) swapFooterMinOutEl.textContent = '—';
   if (swapFooterMaxSlippageEl) swapFooterMaxSlippageEl.textContent = '—';
   setRouteChipLabel('—', true);
-  if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = '';
+  clearRoutingDiagram(routingDialogBodyEl);
   if (swapTxBase64El) swapTxBase64El.value = '';
   syncSwapBuildResultPanel();
   resetSwapQuoteDetailsPanel();
@@ -1829,9 +1887,25 @@ function quoteOutputUiAmount(quote: Record<string, unknown>): number | null {
 /** `swapUsdValue` from the swap/quote response (input leg USD at quote time). */
 function getQuoteSwapUsdValue(quote: Record<string, unknown>): number | null {
   const v = quote.swapUsdValue;
-  if (v == null || v === '') return null;
-  const n = Number(String(v).replace(/,/g, ''));
-  return Number.isFinite(n) && n > 0 ? n : null;
+  if (v != null && v !== '') {
+    const n = Number(String(v).replace(/,/g, ''));
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+
+  const youPay = quote._youPay as { swapUsd?: number } | undefined;
+  if (youPay?.swapUsd != null) {
+    const swapUsd = Number(youPay.swapUsd);
+    if (Number.isFinite(swapUsd) && swapUsd > 0) return swapUsd;
+  }
+
+  const inUi = quoteInAmountUi(quote);
+  const inMint = quoteInputMint(quote) ?? '';
+  const price = lookupMintPriceUsd(inMint, quote);
+  if (inUi != null && inUi > 0 && Number.isFinite(price) && price > 0) {
+    return inUi * price;
+  }
+
+  return null;
 }
 
 function quoteQuotedOutUiAmount(quote: Record<string, unknown>): number | null {
@@ -2413,17 +2487,40 @@ function updateSwapSideChanges(loading = false): void {
   const outMint = swapOutputMintInput?.value.trim() ?? '';
   const sellEl = document.getElementById('swapSellChanges');
   const buyEl = document.getElementById('swapBuyChanges');
-  if (sellEl) sellEl.innerHTML = renderSwapSideChangeHtml(inMint ? pairTokenStats[inMint] : undefined);
+  const quote = lastSwapQuoteOk ?? undefined;
+  if (sellEl) {
+    sellEl.innerHTML = renderSwapSideChangeHtml(
+      inMint ? pairCardEffectiveStats(inMint, quote) : undefined,
+    );
+  }
   if (buyEl) {
     buyEl.innerHTML = renderSwapSideChangeHtml(
-      outMint ? pairTokenStats[outMint] : undefined,
+      outMint ? pairCardEffectiveStats(outMint, quote) : undefined,
       loading,
     );
   }
 }
 
+function mergeTokenPriceStats(
+  prev: TokenPriceStats | undefined,
+  next: TokenPriceStats,
+): TokenPriceStats {
+  return {
+    decimals: next.decimals ?? prev?.decimals,
+    price: next.price ?? prev?.price,
+    price1d: next.price1d ?? prev?.price1d,
+    price7d: next.price7d ?? prev?.price7d,
+    priceUpdateTime: next.priceUpdateTime ?? prev?.priceUpdateTime,
+    priceFetchedAt: next.priceFetchedAt ?? prev?.priceFetchedAt,
+  };
+}
+
 function updateSwapPairCards(stats?: Record<string, TokenPriceStats>, loading = false): void {
-  if (stats) pairTokenStats = { ...pairTokenStats, ...stats };
+  if (stats) {
+    for (const [mint, incoming] of Object.entries(stats)) {
+      pairTokenStats[mint] = mergeTokenPriceStats(pairTokenStats[mint], incoming);
+    }
+  }
   const inMint = swapInputMintInput?.value.trim() ?? '';
   const outMint = swapOutputMintInput?.value.trim() ?? '';
   applyTokenBoxColor(swapCardSellEl, inMint, getSwapInSym());
@@ -2676,6 +2773,7 @@ function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<stri
     swapFeeRaw: enrichment.swapFeeRaw,
     outputFromSimulation: enrichment.outputFromSimulation,
     walletPayDebitRaw: enrichment.walletPayDebitRaw,
+    simulationOutputWarning: enrichment.simulationOutputWarning ?? null,
   };
 
   return {
@@ -2693,6 +2791,7 @@ function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<stri
     _outputPriceUsd: enrichment.outputPriceUsd,
     _otherAmountThresholdRaw: enrichment.otherAmountThresholdRaw,
     _otherAmountThresholdUi: enrichment.otherAmountThresholdUi,
+    _simulationOutputWarning: enrichment.simulationOutputWarning ?? null,
   };
 }
 
@@ -2761,6 +2860,18 @@ function applyFeeEnrichmentToQuote(
     buildPayload?._walletTokenAccountCloses ?? quote._walletTokenAccountCloses;
   if (Array.isArray(walletTokenAccountCloses)) {
     next._walletTokenAccountCloses = walletTokenAccountCloses;
+  }
+
+  const simulationOutputWarning =
+    buildPayload?._simulationOutputWarning ??
+    source?.simulationOutputWarning ??
+    buildEnrichment?.simulationOutputWarning ??
+    quote._simulationOutputWarning ??
+    null;
+  if (simulationOutputWarning && typeof simulationOutputWarning === 'object') {
+    next._simulationOutputWarning = simulationOutputWarning;
+  } else {
+    next._simulationOutputWarning = null;
   }
 
   if (typeof simulatedOutRaw === 'string' && simulatedOutRaw.length > 0) {
@@ -2978,12 +3089,14 @@ function renderQuoteSummary(quote: Record<string, unknown>): string {
   const payValueHtml = renderQuotePayHeroValueHtml(quote, inSym, payAmt);
   const receiveValueHtml = renderQuoteReceiveHeroValueHtml(quote, outSym, outAmt.display);
   const receiveSub = getQuoteYouReceiveSubLabel(quote);
+  const simWarn = getSimulationOutputWarning(quote);
+  const warnHtml = simWarn ? renderSimulationOutputWarningHtml(simWarn, outSym) : '';
 
   return `<div class="swap-quote-summary-primary">
       ${renderQuoteSummaryHeroTile('You pay', payAmt, inSym, 'pay', inMint, paySub, false, false, payValueHtml)}
       <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
       ${renderQuoteSummaryHeroTile('You receive', outAmt.display, outSym, 'receive', outMint, receiveSub, false, false, receiveValueHtml)}
-    </div>`;
+    </div>${warnHtml}`;
 }
 
 function renderQuoteFieldCellHtml(key: string, v: unknown): string {
@@ -3193,9 +3306,10 @@ function resetSwapQuoteDetailsPanel(): void {
     swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder(swapQuoteFetching);
     swapQuoteSummaryEl.hidden = false;
   }
-  if (swapQuoteDetailsRoutingEl) {
-    swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagramPlaceholder(swapQuoteFetching);
-  }
+  mountRoutingDiagram(
+    swapQuoteDetailsRoutingEl,
+    renderRoutingDiagramPlaceholder(swapQuoteFetching),
+  );
   if (swapQuoteDetailsRouteStepsEl) {
     swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(swapQuoteFetching);
   }
@@ -3313,9 +3427,10 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   setRouteChipLabel(formatRouteChipLabel(plan), plan.length === 0);
 
-  if (routingDialogBodyEl) routingDialogBodyEl.innerHTML = renderRoutingDiagram(quote);
+  mountRoutingDiagram(routingDialogBodyEl, renderRoutingDiagram(quote));
 
   renderSwapQuoteDetailsPanel(quote);
+  syncSimulationOutputWarning(quote);
   updateSwapPairCards();
 }
 
@@ -4383,6 +4498,7 @@ async function fetchSwapQuote(): Promise<void> {
   resetSwapQuoteDetailsPanel();
   if (swapQuoteError) clearInlineError(swapQuoteError);
   if (swapQuoteWarning) clearInlineWarning(swapQuoteWarning);
+  if (swapSimulationWarning) clearInlineWarning(swapSimulationWarning);
   applyQuoteLoadingUi();
 
   try {

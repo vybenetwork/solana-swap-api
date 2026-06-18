@@ -456,12 +456,13 @@ function aliasNativeSolPriceStats(
 export async function buildVybeQuoteFromPriceAndSwap(
   http: AxiosInstance,
   params: VybeQuoteParams,
+  dataHttp: AxiosInstance = http,
 ): Promise<VybeQuoteResult> {
   const uiInputMint = params.inputMintAddress.trim();
   const uiOutputMint = params.outputMintAddress.trim();
   const selected = normalizeRouterId(params.router ?? 'vybe') as SwapProxyRouter;
 
-  const enriched = await enrichBuildParamsWithAtaHints(http, {
+  const enriched = await enrichBuildParamsWithAtaHints(dataHttp, {
     ...params,
     router: selected,
     inputMintAddress: uiInputMint,
@@ -474,7 +475,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
   const inputSymbolHint =
     params.tokenHints?.[uiInputMint]?.symbol ?? params.tokenHints?.[vybeInputMint]?.symbol;
   await assertWalletHasSellAmount(
-    http,
+    dataHttp,
     enriched.accountAddress,
     uiInputMint,
     enriched.amount,
@@ -491,7 +492,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
     hints[uiOutputMint] = hints[vybeOutputMint];
   }
 
-  const { stats: rawStats } = await resolveTokenPrices(http, [priceMint, uiOutputMint], {
+  const { stats: rawStats } = await resolveTokenPrices(dataHttp, [priceMint, uiOutputMint], {
     tokenHints: hints,
     forceFullDetailsMints: forceFull,
   });

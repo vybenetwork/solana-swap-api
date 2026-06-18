@@ -89,6 +89,7 @@ export function mapEnrichmentToQuote(
     _ataRentLamportsTotal: e.ataRentLamportsTotal,
     _networkFeeLamports: e.networkFeeLamports,
     _simulated: e.simulated,
+    _simulationOutputWarning: e.simulationOutputWarning ?? null,
   };
   if (e.simulated?.err != null) quote._simulationErr = e.simulated.err;
   return quote;

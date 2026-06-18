@@ -478,12 +478,20 @@ function hasInputMintRentReclaim(quote: Record<string, unknown>, mint: string): 
 
 /** USD value of input ATA rent returned to wallet (WSOL) on full-balance sells. */
 function sumInputQuoteRentReclaimUsd(quote: Record<string, unknown>): number {
-  return sumRentReclaimUsd(
+  const fromCloses = sumRentReclaimUsd(
     getQuoteWalletTokenAccountCloses(quote)
       .filter((c) => c.category === 'input')
       .map(closeEntryToReclaimFeeItem),
     quote,
   );
+  if (fromCloses > 0) return fromCloses;
+
+  const enriched = quote._youReceive as { reclaimUsd?: number } | undefined;
+  const reclaimUsd = enriched?.reclaimUsd;
+  if (typeof reclaimUsd === 'number' && Number.isFinite(reclaimUsd) && reclaimUsd > 0) {
+    return reclaimUsd;
+  }
+  return 0;
 }
 
 function quoteHasAtaRentReclaim(quote: Record<string, unknown>): boolean {
@@ -965,7 +973,11 @@ function resolveHopRetentionPctsAtHop(
     typeof enrichedOut === 'number' &&
     Number.isFinite(enrichedOut)
   ) {
-    return { inPct: enrichedIn, outPct: enrichedOut, outTitle };
+    return {
+      inPct: enrichedIn,
+      outPct: enrichedOut,
+      outTitle,
+    };
   }
 
   const inPct =
@@ -1134,11 +1146,20 @@ export function resolveQuoteYouPayUsd(quote: Record<string, unknown>): QuoteYouP
     | { swapUsd?: number; feeUsd?: number; rentUsd?: number; totalUsd?: number }
     | undefined;
   if (enriched && typeof enriched === 'object' && Number(enriched.totalUsd) > 0) {
-    const feeUsd = Number(enriched.feeUsd ?? 0);
+    const buckets = getQuoteWalletCostBucketsUsd(quote);
+    let feeUsd = Number(enriched.feeUsd ?? 0);
     const rentUsd = Number(enriched.rentUsd ?? 0);
+    const reconciledFeeUsd = resolveQuoteYouPayFeeUsd(quote, buckets);
+    // ix-builder residual feeUsd can underflow to ~0 while hop items / pay debit show real fees.
+    if (
+      reconciledFeeUsd != null &&
+      (feeUsd < 1e-6 || reconciledFeeUsd > feeUsd + 1e-6)
+    ) {
+      feeUsd = reconciledFeeUsd;
+    }
     return {
       swapUsd: Number(enriched.swapUsd ?? 0),
-      feeUsd: feeUsd > 0 ? feeUsd : null,
+      feeUsd: feeUsd > 0 ? feeUsd : reconciledFeeUsd,
       rentUsd: rentUsd > 0 ? rentUsd : null,
       totalUsd: Number(enriched.totalUsd),
     };
@@ -2067,12 +2088,32 @@ function renderDiagramInputFeeStackHtml(
   return `<div class="routing-input-addon-stack">${lines.join('')}</div>`;
 }
 
-function countDiagramInputFeeLines(
+/** Matches rendered line count in renderDiagramInputFeeStackHtml (fee groups + rent rows). */
+function countDiagramInputFeeDisplayLines(
   feeRows: QuotePayHeroCostStackItem[],
   showAllEndpointLabels: boolean,
 ): number {
-  if (feeRows.length > 0) return feeRows.length;
+  if (feeRows.length === 0) {
+    return showAllEndpointLabels ? 1 : 0;
+  }
+  const feeMints = new Set<string>();
+  let rentCount = 0;
+  for (const row of feeRows) {
+    if (row.kind === 'rent') {
+      rentCount += 1;
+      continue;
+    }
+    feeMints.add(row.mint.trim());
+  }
+  return feeMints.size + rentCount;
+}
+
+function countDiagramOutputTopRows(
+  outputFeesUsdLabel: string | null,
+  showAllEndpointLabels: boolean,
+): number {
   if (showAllEndpointLabels) return 1;
+  if (outputFeesUsdLabel != null && outputFeesUsdLabel !== '—') return 1;
   return 0;
 }
 
@@ -2360,34 +2401,6 @@ function sumQuoteRentReclaimUsd(quote: Record<string, unknown>): number {
   );
 }
 
-function computeHopRentReclaimBonusPct(
-  quote: Record<string, unknown>,
-  planIndex: number,
-  isLastHop: boolean,
-): number {
-  const items = getHopAtaRentReclaimItems(quote, planIndex, isLastHop);
-  const reclaimUsd = sumRentReclaimUsd(items, quote);
-  if (!(reclaimUsd > 0)) return 0;
-  const payUsd =
-    getQuoteTotalWalletPayUsd(quote, planIndex) ?? resolveQuoteYouPayUsd(quote)?.totalUsd ?? null;
-  if (payUsd == null || payUsd <= 0) return 0;
-  const pct = (reclaimUsd / payUsd) * 100;
-  return Number.isFinite(pct) && pct > 0 ? pct : 0;
-}
-
-function renderRoutePctBadgeWithReclaim(
-  basePct: number,
-  reclaimBonusPct: number,
-  title: string | null,
-): string {
-  const totalPct = basePct + reclaimBonusPct;
-  const pctText = formatHopPctLabel(totalPct);
-  const bonusLabel = formatHopPctLabel(reclaimBonusPct);
-  const bonusTitle = `Includes +${bonusLabel} rent reclaimed to wallet`;
-  const fullTitle = title ? `${title} · ${bonusTitle}` : bonusTitle;
-  return renderRoutePctBadge(pctText, 'out', fullTitle);
-}
-
 function renderHopIndexBadge(label: string): string {
   return `<span class="routing-hop-index-badge">Hop #${deps.escapeHtml(label)}</span>`;
 }
@@ -2486,10 +2499,47 @@ function accRentFeeAmountEquiv(item: HopFeeItemLite, quote: Record<string, unkno
 }
 
 function feeEquivForHopItem(item: HopFeeItemLite, quote: Record<string, unknown>): FeeAmountEquiv {
+  const fromEnrichment = feeEquivFromEnrichmentItem(item, quote);
+  if (fromEnrichment) return fromEnrichment;
   if (isAccRentWalletFeeItem(item) || isAccRentReclaimItem(item)) {
     return accRentFeeAmountEquiv(item, quote);
   }
   return computeFeeEquivalents(item.amountRaw, item.mint, quote);
+}
+
+/** Prefer ix-builder `ui` / `usd` on fee items — do not reprice from token-details. */
+function feeEquivFromEnrichmentItem(
+  item: HopFeeItemLite,
+  quote: Record<string, unknown>,
+): FeeAmountEquiv | null {
+  if (typeof item.usd !== 'number' || !Number.isFinite(item.usd) || item.usd <= 0) return null;
+  const sellMint = quoteInputMint(quote);
+  const inputSym = deps.getSwapInSym();
+  const feeMint =
+    isAccRentWalletFeeItem(item) || isAccRentReclaimItem(item) ? WSOL_MINT : item.mint;
+  const feeSym = mintSymbolSync(feeMint);
+  const feeUi =
+    typeof item.ui === 'number' && Number.isFinite(item.ui) && item.ui > 0
+      ? item.ui
+      : feeAmountToUi(item.amountRaw, feeMint);
+  const primary =
+    feeUi != null && feeUi > 0
+      ? deps.formatFeeEquivSmallAmount(feeUi)
+      : deps.formatRawTokenAmount(item.amountRaw, feeMint).display;
+  const usd = deps.formatFeeEquivUsdFiatDisplay(item.usd);
+  const foreign = isForeignFeeMint(feeMint, quote);
+  let inputEquiv: string | null = null;
+  if (foreign) {
+    inputEquiv = solEquivSublineFromUsd(item.usd, quote);
+  } else if (feeUi != null && sellMint) {
+    const sellLegUi = convertFeeUiToSellLeg(feeUi, feeMint, quote);
+    if (sellLegUi != null) {
+      inputEquiv = `≈ ${deps.formatFeeEquivSmallAmount(sellLegUi)} ${inputSym}`;
+    } else {
+      inputEquiv = solEquivSublineFromUsd(item.usd, quote);
+    }
+  }
+  return { feeMint, feeSym, primary, inputEquiv, inputSym, usd };
 }
 
 /** Expand legacy nested token-acc rent onto the same row as other hop fees. */
@@ -2504,6 +2554,11 @@ function flattenHopFeeItems(items: HopFeeItemLite[]): HopFeeItemLite[] {
       destinationAddress: item.destinationAddress,
       destinationKind: item.destinationKind,
       destinationNote: item.destinationNote,
+      ...(typeof item.usd === 'number' && Number.isFinite(item.usd) ? { usd: item.usd } : {}),
+      ...(typeof item.ui === 'number' && Number.isFinite(item.ui) ? { ui: item.ui } : {}),
+      ...(typeof item.decimals === 'number' && Number.isFinite(item.decimals)
+        ? { decimals: item.decimals }
+        : {}),
     });
     if (item.pdaRent) {
       flat.push({
@@ -2524,6 +2579,7 @@ function dedupeHopFeeDisplayItems(items: HopFeeItemLite[]): HopFeeItemLite[] {
       item.label,
       item.amountRaw,
       item.mint,
+      item.destinationKind ?? '',
       item.destinationAddress ?? '',
       item.accountMint ?? '',
     ].join('|');
@@ -2676,8 +2732,8 @@ export function attachQuoteTokenPriceMeta(
 
   const next: Record<string, unknown> = { ...quote };
   if (Object.keys(tokenStats).length > 0) next._tokenStats = tokenStats;
-  if (inputStats?.price) next._inputPriceUsd = inputStats.price;
-  if (outputStats?.price) next._outputPriceUsd = outputStats.price;
+  if (inputStats?.price && next._inputPriceUsd == null) next._inputPriceUsd = inputStats.price;
+  if (outputStats?.price && next._outputPriceUsd == null) next._outputPriceUsd = outputStats.price;
   return next;
 }
 
@@ -3477,9 +3533,7 @@ function routePlanMaxAccRentAboveCount(
   for (let i = 0; i < plan.length; i++) {
     const step = plan[i]!;
     const isLastHop = i === plan.length - 1;
-    const { accRentItems } = partitionHopFeeDisplayItems(getHopFeeDisplayItems(step));
-    const reclaimItems = getHopAtaRentReclaimItems(quote, i, isLastHop);
-    const count = accRentItems.length + reclaimItems.length;
+    const count = hopAccRentDisplayItems(step, quote, i, isLastHop).length;
     if (count > max) max = count;
   }
   return max;
@@ -3798,6 +3852,19 @@ function renderRoutingFeeConnectors(
   </svg>`;
 }
 
+function hopAccRentDisplayItems(
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+  planIndex: number,
+  isLastHop: boolean,
+): HopFeeItemLite[] {
+  const { accRentItems } = partitionHopFeeDisplayItems(getHopFeeDisplayItems(step));
+  if (accRentItems.some(isAccRentReclaimItem)) return accRentItems;
+  const synthetic = getHopAtaRentReclaimItems(quote, planIndex, isLastHop);
+  if (synthetic.length === 0) return accRentItems;
+  return dedupeHopFeeDisplayItems([...accRentItems, ...synthetic]);
+}
+
 function partitionHopFeeDisplayItems(items: HopFeeItemLite[]): {
   accRentItems: HopFeeItemLite[];
   routeFeeItems: HopFeeItemLite[];
@@ -3805,7 +3872,7 @@ function partitionHopFeeDisplayItems(items: HopFeeItemLite[]): {
   const accRentItems: HopFeeItemLite[] = [];
   const routeFeeItems: HopFeeItemLite[] = [];
   for (const item of items) {
-    if (isAccRentWalletFeeItem(item)) accRentItems.push(item);
+    if (isAccRentWalletFeeItem(item) || isAccRentReclaimItem(item)) accRentItems.push(item);
     else routeFeeItems.push(item);
   }
   return { accRentItems, routeFeeItems };
@@ -3814,20 +3881,21 @@ function partitionHopFeeDisplayItems(items: HopFeeItemLite[]): {
 function renderHopFeesAboveBranch(
   step: VybeRoutePlanStepLite,
   quote: Record<string, unknown>,
-  reclaimItems: HopFeeItemLite[],
+  planIndex: number,
+  isLastHop: boolean,
 ): string {
-  const { accRentItems } = partitionHopFeeDisplayItems(getHopFeeDisplayItems(step));
-  const allItems = [...accRentItems, ...reclaimItems];
+  const allItems = hopAccRentDisplayItems(step, quote, planIndex, isLastHop);
   if (allItems.length === 0) return '';
 
   const feeCount = allItems.length;
   const countMod = feeCount >= 4 ? 'many' : String(feeCount);
-  const hasReclaim = reclaimItems.length > 0;
+  const hasReclaim = allItems.some(isAccRentReclaimItem);
   const slots = allItems
-    .map((item, idx) => {
+    .map((item) => {
       const chip = renderHopFeeChip(item, quote);
-      const isReclaim = idx >= accRentItems.length;
-      const slotCls = isReclaim ? 'routing-fee-slot--acc-rent-reclaim' : 'routing-fee-slot--acc-rent';
+      const slotCls = isAccRentReclaimItem(item)
+        ? 'routing-fee-slot--acc-rent-reclaim'
+        : 'routing-fee-slot--acc-rent';
       return `<div class="routing-fee-slot ${slotCls}">${chip}</div>`;
     })
     .join('');
@@ -3873,11 +3941,7 @@ function renderRouteMarketNode(
   const sym = deps.escapeHtml(leg.outSym);
   const accRentStackAbove = dexLoading
     ? ''
-    : renderHopFeesAboveBranch(
-        meta.step,
-        quote,
-        getHopAtaRentReclaimItems(quote, meta.planIndex, isLastHop),
-      );
+    : renderHopFeesAboveBranch(meta.step, quote, meta.planIndex, isLastHop);
   const feeBranchBelow = dexLoading ? '' : renderRoutingFeeBranch(meta.step, leg, quote);
   const hasFees = Boolean(accRentStackAbove || feeBranchBelow);
   const railNode = `<div class="routing-market-node">
@@ -3915,14 +3979,6 @@ function renderHopOutgoingLinkBadge(
   isLastHop: boolean,
 ): string {
   const retention = resolveHopRetentionPctsAtHop(quote, planIndex, step, isLastHop);
-  const reclaimBonusPct = computeHopRentReclaimBonusPct(quote, planIndex, isLastHop);
-  const baseOutPct =
-    retention.outPct < retention.inPct - 0.001 ? retention.outPct : retention.inPct;
-
-  if (reclaimBonusPct > 0.001) {
-    return renderRoutePctBadgeWithReclaim(baseOutPct, reclaimBonusPct, retention.outTitle);
-  }
-
   return renderRoutePctBadge(
     formatHopPctLabel(retention.outPct),
     'out',
@@ -4036,14 +4092,12 @@ function renderRoutingFrame(
     showAllEndpointLabels,
     deps.getFormInputMint(),
   );
-  const inputFeeLineCount = countDiagramInputFeeLines(feeRows, showAllEndpointLabels);
-  const outputFeesShown =
-    showAllEndpointLabels || (outputFeesUsdLabel != null && outputFeesUsdLabel !== '—');
-  const outputFeeSpacerCount =
-    outputFeesShown && inputFeeLineCount > 1 ? inputFeeLineCount - 1 : 0;
+  const inputTopRowCount = countDiagramInputFeeDisplayLines(feeRows, showAllEndpointLabels);
+  const outputTopRowCount = countDiagramOutputTopRows(outputFeesUsdLabel, showAllEndpointLabels);
+  const outputFeeSpacerCount = Math.max(0, inputTopRowCount - outputTopRowCount);
   const outputFeeSpacerHtml = renderDiagramOutputFeeAlignSpacers(
     outputFeeSpacerCount,
-    feeRows.length > 1,
+    inputTopRowCount > 1,
   );
   const multiInputFeesClass = feeRows.length > 1 ? ' routing-frame--multi-input-fees' : '';
   const multiAccRentClass =
@@ -4312,36 +4366,312 @@ export function formatRouteDiagramTitle(quote: Record<string, unknown>): string 
   return `Route · ${routerDisplayLabel(selected)}`;
 }
 
+function simulationOutputWarningFromQuote(quote: Record<string, unknown>): Record<string, unknown> | null {
+  const w = quote._simulationOutputWarning;
+  if (!w || typeof w !== 'object') return null;
+  const rec = w as Record<string, unknown>;
+  if (rec.warn !== true) return null;
+  const shortfallPct = Number(rec.shortfallPct);
+  if (!Number.isFinite(shortfallPct)) return null;
+  return rec;
+}
+
+function simulationOutputWarningTitle(w: Record<string, unknown>): string {
+  const thresh = Number(w.thresholdPct ?? 20);
+  return `Simulated output is ${Number(w.shortfallPct).toFixed(1)}% below quote (≥${thresh}% threshold). Token account rent/reclaim excluded.`;
+}
+
 export function updateRouteDiagramTitle(quote: Record<string, unknown>): void {
-  const title = formatRouteDiagramTitle(quote);
-  if (deps.dom.swapQuoteRouteSubtitleEl) deps.dom.swapQuoteRouteSubtitleEl.textContent = title;
-  if (deps.dom.routingDialogTitleEl) deps.dom.routingDialogTitleEl.textContent = title;
+  const base = formatRouteDiagramTitle(quote);
+  const warn = simulationOutputWarningFromQuote(quote);
+  const warnTitle = warn ? simulationOutputWarningTitle(warn) : '';
+
+  const applyTitle = (el: HTMLElement | null) => {
+    if (!el) return;
+    if (warn) {
+      el.innerHTML = `<span class="swap-quote-route-title-text">${deps.escapeHtml(base)}</span><span class="swap-quote-route-warning" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`;
+    } else {
+      el.textContent = base;
+    }
+  };
+
+  applyTitle(deps.dom.swapQuoteRouteSubtitleEl);
+  applyTitle(deps.dom.routingDialogTitleEl);
 }
 export function renderRoutePanels(quote: Record<string, unknown>): void {
   updateRouteDiagramTitle(quote);
   renderRouteOptionsPanel();
-  if (deps.dom.swapQuoteDetailsRoutingEl) deps.dom.swapQuoteDetailsRoutingEl.innerHTML = renderRoutingDiagram(quote);
+  mountRoutingDiagram(deps.dom.swapQuoteDetailsRoutingEl, renderRoutingDiagram(quote));
   if (deps.dom.swapQuoteDetailsRouteStepsEl) deps.dom.swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanSteps(quote);
   deps.syncRoutePlanStepsUi();
-  if (deps.dom.routingDialogBodyEl) deps.dom.routingDialogBodyEl.innerHTML = renderRoutingDiagram(quote);
+  mountRoutingDiagram(deps.dom.routingDialogBodyEl, renderRoutingDiagram(quote));
+}
+
+const ROUTING_DIAGRAM_ZOOM_STEP = 0.125;
+const ROUTING_DIAGRAM_ZOOM_MAX = 2.5;
+const ROUTING_DIAGRAM_DRAG_THRESHOLD_PX = 4;
+
+type RoutingDiagramDragState = {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  scrollLeft: number;
+  scrollTop: number;
+  dragging: boolean;
+};
+
+type RoutingDiagramHostState = {
+  fitScale: number;
+  userScale: number;
+  viewport: HTMLElement;
+  scrollSizer: HTMLElement;
+  scaler: HTMLElement;
+  zoomOutBtn: HTMLButtonElement;
+  zoomInBtn: HTMLButtonElement;
+  dragPanBound: boolean;
+};
+
+const routingDiagramHostState = new WeakMap<HTMLElement, RoutingDiagramHostState>();
+const routingDiagramDragState = new WeakMap<HTMLElement, RoutingDiagramDragState | null>();
+
+function bindRoutingDiagramDragPan(container: HTMLElement, state: RoutingDiagramHostState): void {
+  if (state.dragPanBound) return;
+  state.dragPanBound = true;
+
+  const viewport = state.viewport;
+
+  viewport.addEventListener('pointerdown', (event) => {
+    if (!container.classList.contains('routing-diagram-host--zoomed')) return;
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement | null)?.closest('.routing-diagram-zoom-controls')) return;
+
+    routingDiagramDragState.set(container, {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: viewport.scrollLeft,
+      scrollTop: viewport.scrollTop,
+      dragging: false,
+    });
+  });
+
+  viewport.addEventListener('pointermove', (event) => {
+    const drag = routingDiagramDragState.get(container);
+    if (!drag || event.pointerId !== drag.pointerId) return;
+
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.dragging) {
+      if (Math.hypot(dx, dy) < ROUTING_DIAGRAM_DRAG_THRESHOLD_PX) return;
+      drag.dragging = true;
+      viewport.setPointerCapture(event.pointerId);
+      viewport.classList.add('routing-diagram-viewport--dragging');
+    }
+
+    viewport.scrollLeft = drag.scrollLeft - dx;
+    viewport.scrollTop = drag.scrollTop - dy;
+    event.preventDefault();
+  });
+
+  const endDrag = (event: PointerEvent) => {
+    const drag = routingDiagramDragState.get(container);
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    if (drag.dragging) {
+      viewport.releasePointerCapture(event.pointerId);
+      viewport.classList.remove('routing-diagram-viewport--dragging');
+    }
+    routingDiagramDragState.set(container, null);
+  };
+
+  viewport.addEventListener('pointerup', endDrag);
+  viewport.addEventListener('pointercancel', endDrag);
+}
+
+function ensureRoutingDiagramHost(container: HTMLElement): RoutingDiagramHostState {
+  const existing = routingDiagramHostState.get(container);
+  if (existing) return existing;
+
+  container.classList.add('routing-diagram-host');
+
+  const viewport = document.createElement('div');
+  viewport.className = 'routing-diagram-viewport';
+
+  const scrollSizer = document.createElement('div');
+  scrollSizer.className = 'routing-diagram-scroll-sizer';
+
+  const scaler = document.createElement('div');
+  scaler.className = 'routing-diagram-scaler';
+  scrollSizer.appendChild(scaler);
+  viewport.appendChild(scrollSizer);
+
+  const controls = document.createElement('div');
+  controls.className = 'routing-diagram-zoom-controls';
+  controls.setAttribute('aria-label', 'Route diagram zoom');
+
+  const zoomOutBtn = document.createElement('button');
+  zoomOutBtn.type = 'button';
+  zoomOutBtn.className = 'routing-diagram-zoom-btn';
+  zoomOutBtn.dataset.zoom = 'out';
+  zoomOutBtn.setAttribute('aria-label', 'Zoom out');
+  zoomOutBtn.title = 'Zoom out';
+  zoomOutBtn.textContent = '−';
+
+  const zoomInBtn = document.createElement('button');
+  zoomInBtn.type = 'button';
+  zoomInBtn.className = 'routing-diagram-zoom-btn';
+  zoomInBtn.dataset.zoom = 'in';
+  zoomInBtn.setAttribute('aria-label', 'Zoom in');
+  zoomInBtn.title = 'Zoom in';
+  zoomInBtn.textContent = '+';
+
+  controls.append(zoomOutBtn, zoomInBtn);
+  container.append(viewport, controls);
+
+  const state: RoutingDiagramHostState = {
+    fitScale: 1,
+    userScale: 1,
+    viewport,
+    scrollSizer,
+    scaler,
+    zoomOutBtn,
+    zoomInBtn,
+    dragPanBound: false,
+  };
+  routingDiagramHostState.set(container, state);
+
+  bindRoutingDiagramDragPan(container, state);
+
+  if (!routingDiagramResizeObservers.has(container)) {
+    const observer = new ResizeObserver(() => scheduleRoutingDiagramZoom());
+    observer.observe(container);
+    observer.observe(viewport);
+    routingDiagramResizeObservers.set(container, observer);
+  }
+
+  controls.addEventListener('click', (event) => {
+    const target = (event.target as HTMLElement | null)?.closest<HTMLButtonElement>('[data-zoom]');
+    if (!target || target.disabled) return;
+    const dir = target.dataset.zoom;
+    if (dir === 'in') stepRoutingDiagramZoom(container, ROUTING_DIAGRAM_ZOOM_STEP);
+    else if (dir === 'out') stepRoutingDiagramZoom(container, -ROUTING_DIAGRAM_ZOOM_STEP);
+  });
+
+  return state;
+}
+
+function measureRoutingDiagramNaturalSize(scaler: HTMLElement): { width: number; height: number } {
+  const prevTransform = scaler.style.transform;
+  scaler.style.transform = 'none';
+  const width = Math.max(scaler.scrollWidth, scaler.offsetWidth);
+  const height = Math.max(scaler.scrollHeight, scaler.offsetHeight);
+  scaler.style.transform = prevTransform;
+  return { width, height };
+}
+
+function updateRoutingDiagramZoomButtons(state: RoutingDiagramHostState): void {
+  state.zoomOutBtn.disabled = state.userScale <= 1 + 1e-6;
+  state.zoomInBtn.disabled = state.userScale >= ROUTING_DIAGRAM_ZOOM_MAX - 1e-6;
+}
+
+function centerRoutingDiagramViewportScroll(viewport: HTMLElement): void {
+  const overflowX = viewport.scrollWidth - viewport.clientWidth;
+  if (overflowX > 2) viewport.scrollLeft = overflowX / 2;
+}
+
+function applyRoutingDiagramScale(container: HTMLElement): void {
+  const state = routingDiagramHostState.get(container);
+  if (!state || state.scaler.childElementCount === 0) return;
+
+  const { width: naturalWidth, height: naturalHeight } = measureRoutingDiagramNaturalSize(state.scaler);
+  if (naturalWidth <= 0 || naturalHeight <= 0) return;
+
+  const viewportWidth = Math.max(state.viewport.clientWidth, 1);
+  state.fitScale = Math.min(1, viewportWidth / naturalWidth);
+  const effectiveScale = state.fitScale * state.userScale;
+
+  state.scaler.style.width = `${naturalWidth}px`;
+  state.scaler.style.transform = `scale(${effectiveScale})`;
+  state.scaler.style.transformOrigin = 'top left';
+  state.scrollSizer.style.width = `${naturalWidth * effectiveScale}px`;
+  state.scrollSizer.style.height = `${naturalHeight * effectiveScale}px`;
+
+  const zoomed = state.userScale > 1 + 1e-6;
+  container.classList.toggle('routing-diagram-host--zoomed', zoomed);
+  state.viewport.style.overflowX = zoomed ? 'auto' : 'hidden';
+  state.viewport.style.overflowY = zoomed ? 'auto' : 'hidden';
+
+  if (zoomed) {
+    state.scrollSizer.style.marginLeft = '0';
+    centerRoutingDiagramViewportScroll(state.viewport);
+  } else {
+    const scaledWidth = naturalWidth * effectiveScale;
+    state.scrollSizer.style.marginLeft = `${Math.max(0, (viewportWidth - scaledWidth) / 2)}px`;
+    state.viewport.scrollLeft = 0;
+  }
+
+  updateRoutingDiagramZoomButtons(state);
+}
+
+function stepRoutingDiagramZoom(container: HTMLElement, delta: number): void {
+  const state = routingDiagramHostState.get(container);
+  if (!state) return;
+
+  const prevScale = state.userScale;
+  state.userScale = Math.min(
+    ROUTING_DIAGRAM_ZOOM_MAX,
+    Math.max(1, state.userScale + delta),
+  );
+  if (Math.abs(state.userScale - prevScale) < 1e-6) return;
+
+  applyRoutingDiagramScale(container);
+}
+
+function applyRoutingDiagramScaleForContainer(container: HTMLElement | null): void {
+  if (!container) return;
+  applyRoutingDiagramScale(container);
+}
+
+export function mountRoutingDiagram(container: HTMLElement | null, html: string): void {
+  if (!container) return;
+  const state = ensureRoutingDiagramHost(container);
+  state.userScale = 1;
+  state.scaler.innerHTML = html;
   scheduleRoutingDiagramZoom();
 }
 
-/** Center horizontal scroll when the route diagram is wider than its container. */
-function centerRoutingDiagramScroll(container: HTMLElement | null): void {
+export function clearRoutingDiagram(container: HTMLElement | null): void {
   if (!container) return;
-  const overflowX = container.scrollWidth - container.clientWidth;
-  if (overflowX > 2) container.scrollLeft = overflowX / 2;
+  const state = routingDiagramHostState.get(container);
+  if (!state) {
+    container.innerHTML = '';
+    return;
+  }
+  state.userScale = 1;
+  state.scaler.innerHTML = '';
+  container.classList.remove('routing-diagram-host--zoomed');
+  state.viewport.style.overflowX = 'hidden';
+  state.viewport.style.overflowY = 'hidden';
+  state.viewport.classList.remove('routing-diagram-viewport--dragging');
+  routingDiagramDragState.set(container, null);
+  state.viewport.scrollLeft = 0;
+  state.viewport.scrollTop = 0;
+  state.scrollSizer.style.width = '';
+  state.scrollSizer.style.height = '';
+  state.scrollSizer.style.marginLeft = '';
+  updateRoutingDiagramZoomButtons(state);
 }
 
 export function scheduleRoutingDiagramZoom(): void {
   requestAnimationFrame(() => {
-    centerRoutingDiagramScroll(deps.dom.swapQuoteDetailsRoutingEl);
-    centerRoutingDiagramScroll(deps.dom.routingDialogBodyEl);
+    requestAnimationFrame(() => {
+      applyRoutingDiagramScaleForContainer(deps.dom.swapQuoteDetailsRoutingEl);
+      applyRoutingDiagramScaleForContainer(deps.dom.routingDialogBodyEl);
+    });
   });
 }
 
 let routingDiagramScrollBound = false;
+const routingDiagramResizeObservers = new WeakMap<HTMLElement, ResizeObserver>();
 
 export function bindRoutingDiagramZoomListeners(): void {
   if (routingDiagramScrollBound) return;
@@ -4503,15 +4833,10 @@ function resolveHopCardRetentionPcts(
   }
 
   const retention = resolveHopRetentionPctsAtHop(quote, planIndex, step, isLastHop);
-  const reclaimBonusPct = computeHopRentReclaimBonusPct(quote, planIndex, isLastHop);
-  const baseOutPct =
-    retention.outPct < retention.inPct - 0.001 ? retention.outPct : retention.inPct;
-  const outPct =
-    reclaimBonusPct > 0.001 ? baseOutPct + reclaimBonusPct : retention.outPct;
 
   return {
     inPct: formatHopPctLabel(retention.inPct),
-    outPct: formatHopPctLabel(outPct),
+    outPct: formatHopPctLabel(retention.outPct),
     outTitle: retention.outTitle,
   };
 }

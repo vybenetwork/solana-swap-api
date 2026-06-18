@@ -53,12 +53,18 @@ Then open **http://localhost:3000**, set sell/buy mints and amount, connect a wa
 
 | Variable         | Required | Description                                              | Example                                |
 |------------------|----------|----------------------------------------------------------|----------------------------------------|
-| `VYBE_API_KEY`   | Yes      | Vybe API key used for all Vybe requests                  | `your_api_key_here`                    |
-| `SOLANA_RPC_URL` | No       | RPC for wallet balance checks, blockhash, tx prepare     | `https://api.mainnet-beta.solana.com` |
+| `VYBE_DATA_API_KEY`   | Yes*     | Key for wallets, tokens, trades (`VYBE_DATA_API_BASE`)   | `your_api_key_here`                    |
+| `VYBE_API_KEY`        | No       | Key for swap quote/build (`VYBE_API_BASE`); empty OK local | `your_api_key_here`                  |
+| `VYBE_API_BASE`       | No       | Trading API (swap quote/build); local Rust/proxy for dev | `https://api.vybenetwork.xyz`          |
+| `VYBE_DATA_API_BASE`  | No       | Wallets, tokens, trades (defaults prod when trading local)| `https://api.vybenetwork.xyz`         |
+| `HELIUS_API_KEY`      | No       | Helius RPC key (used when `SOLANA_RPC_URL` unset)        | `your_helius_key`                      |
+| `SOLANA_RPC_URL` | No       | Full RPC URL override (wins over `HELIUS_API_KEY`)       | `https://api.mainnet-beta.solana.com` |
 | `PORT`           | No       | HTTP server port                                         | `3000`                                 |
 | `TUNNEL`         | No       | Set to `1` to run behind a Cloudflare Tunnel             | `1`                                    |
 
-Get your API key at `https://vybe.fyi/api-pricing`.
+Get your API keys at `https://vybe.fyi/api-pricing`.
+
+\* `VYBE_DATA_API_KEY` is required unless `VYBE_API_KEY` is set (used as fallback for data endpoints).
 
 ---
 
@@ -299,7 +305,7 @@ The console will print a **Cloudflare Tunnel URL** if supported.
 
 ```text
 solana-swap-api/
-├── .env.example           # Copy to .env, fill in VYBE_API_KEY (and optional SOLANA_RPC_URL, PORT, TUNNEL)
+├── .env.example           # Copy to .env — VYBE_API_KEY, optional HELIUS_API_KEY / SOLANA_RPC_URL
 ├── package.json           # Scripts and pinned dependencies
 ├── README.md
 ├── screenshots/           # Screenshots referenced in this README
