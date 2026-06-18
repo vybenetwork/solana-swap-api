@@ -98,6 +98,25 @@ export const SPARSE_ROUTE_CANDIDATE_BYPASS_MAX = 3;
 /** @deprecated Use MIN_ROUTE_POOL_LIQUIDITY_USD */
 export const MIN_TICK_ARRAY_LIQUIDITY_USD = MIN_ROUTE_POOL_LIQUIDITY_USD;
 
+export interface LowLiquidityWarning {
+  warn: true;
+  thresholdUsd: number;
+  liquidityUsd: number;
+}
+
+export function computeLowLiquidityWarning(
+  marketScoreUsd: number | undefined | null,
+): LowLiquidityWarning | null {
+  const score = Number(marketScoreUsd);
+  if (!Number.isFinite(score) || score <= 0) return null;
+  if (score >= MIN_ROUTE_POOL_LIQUIDITY_USD) return null;
+  return {
+    warn: true,
+    thresholdUsd: MIN_ROUTE_POOL_LIQUIDITY_USD,
+    liquidityUsd: Math.round(score * 100) / 100,
+  };
+}
+
 export function isTickArrayProgram(programAddress: string): boolean {
   const proto = programAddressToIxBuilderProtocol(programAddress);
   return proto != null && TICK_ARRAY_IX_BUILDER_PROTOCOLS.has(proto);

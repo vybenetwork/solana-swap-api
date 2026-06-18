@@ -103,6 +103,12 @@ export interface EnrichmentSimulationOutputWarning {
   excludedNetRentRaw: string;
 }
 
+export interface EnrichmentLowLiquidityWarning {
+  warn: true;
+  thresholdUsd: number;
+  liquidityUsd: number;
+}
+
 export interface SwapEnrichment {
   simulated: EnrichmentSimulated;
   quotedOutRaw: string;
@@ -136,4 +142,5 @@ export interface SwapEnrichment {
   routePlan: EnrichmentRouteStep[];
   tokens: Record<string, EnrichmentTokenMeta>;
   simulationOutputWarning?: EnrichmentSimulationOutputWarning | null;
+  lowLiquidityWarning?: EnrichmentLowLiquidityWarning | null;
 }

@@ -68,6 +68,8 @@ export interface RouteUiDeps {
   getEnumeratedRoutesState: () => EnumeratedRoutesUiState | null;
   setEnumeratedRoutesExpanded: (expanded: boolean) => void;
   selectEnumeratedRoute: (index: number) => void;
+  vybeMarketDiscoveryActive: () => boolean;
+  isSwapQuoteFetching: () => boolean;
   dom: {
     swapRouteOptionsEl: HTMLElement | null;
     swapQuoteDetailsRoutingEl: HTMLElement | null;
@@ -143,11 +145,42 @@ function sourceBadgeLabel(source: string | undefined): string {
   return 'trades';
 }
 
+function renderRouteOptionsPlaceholder(loading = false): string {
+  const sym = deps.getSwapOutSym();
+  const cards = Array.from({ length: ROUTE_OPTIONS_UI_INITIAL }, (_, i) => {
+    const rank = i + 1;
+    const active = i === 0;
+    const spinner = deps.renderLoadingSpinner('sm');
+    const programName = loading
+      ? `<span class="swap-route-option__loading">${spinner}<span class="swap-route-option__loading-label">Finding pool…</span></span>`
+      : '—';
+    const outCell = loading ? spinner : '—';
+    return `<button type="button" class="swap-route-option swap-route-option--loading swap-route-option--disabled${active ? ' swap-route-option--active' : ''}" disabled aria-disabled="true" aria-pressed="${active ? 'true' : 'false'}">
+      <span class="swap-route-option__rank">#${rank}</span>
+      <span class="swap-route-option__program">
+        <span class="swap-route-option__program-name">${programName}</span>
+        <span class="swap-route-option__program-id">—</span>
+      </span>
+      <span class="swap-route-option__pool">—</span>
+      <span class="swap-route-option__out">${outCell} ${deps.escapeHtml(sym)}</span>
+      <span class="swap-route-option__meta">
+        <span class="swap-route-option__badge swap-route-option__badge--trades">trades</span>
+      </span>
+    </button>`;
+  });
+  return `<div class="swap-route-options__grid">${cards.join('')}</div>`;
+}
+
 export function renderRouteOptionsPanel(): void {
   const el = deps.dom.swapRouteOptionsEl;
   if (!el) return;
   const state = deps.getEnumeratedRoutesState();
   if (!state || state.routes.length === 0) {
+    if (deps.vybeMarketDiscoveryActive()) {
+      el.hidden = false;
+      el.innerHTML = renderRouteOptionsPlaceholder(deps.isSwapQuoteFetching());
+      return;
+    }
     el.hidden = true;
     el.innerHTML = '';
     return;
@@ -183,7 +216,19 @@ export function renderRouteOptionsPanel(): void {
       metaParts.length > 0
         ? `<span class="swap-route-option__trades">${metaParts.join(' · ')}</span>`
         : '';
-    return `<button type="button" class="swap-route-option${active ? ' swap-route-option--active' : ''}" data-route-index="${idx}" aria-pressed="${active ? 'true' : 'false'}">
+    const warnLevel = swapRouteWarningLevel(quote, marketScore);
+    const warnClass =
+      warnLevel === 'red'
+        ? ' swap-route-option--warn-severe'
+        : warnLevel === 'orange'
+          ? ' swap-route-option--warn-caution'
+          : '';
+    const warnTitle = warnLevel !== 'none' ? combinedRouteWarningTitle(quote, marketScore) : '';
+    const warnBadge =
+      warnLevel !== 'none'
+        ? `<span class="swap-route-option__warn" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`
+        : '';
+    return `<button type="button" class="swap-route-option${active ? ' swap-route-option--active' : ''}${warnClass}" data-route-index="${idx}" aria-pressed="${active ? 'true' : 'false'}">
       <span class="swap-route-option__rank">#${idx + 1}</span>
       <span class="swap-route-option__program">
         <span class="swap-route-option__program-name">${deps.escapeHtml(programLabel || '—')}</span>
@@ -194,6 +239,7 @@ export function renderRouteOptionsPanel(): void {
       <span class="swap-route-option__meta">
         <span class="swap-route-option__badge swap-route-option__badge--${deps.escapeHtml(source.replace(/\+/g, '-'))}">${deps.escapeHtml(source)}</span>
         ${metaDetail}
+        ${warnBadge}
       </span>
     </button>`;
   });
@@ -4376,20 +4422,71 @@ function simulationOutputWarningFromQuote(quote: Record<string, unknown>): Recor
   return rec;
 }
 
+function lowLiquidityWarningFromQuote(
+  quote: Record<string, unknown>,
+  marketScore?: number,
+): Record<string, unknown> | null {
+  const w = quote._lowLiquidityWarning;
+  if (w && typeof w === 'object') {
+    const rec = w as Record<string, unknown>;
+    if (rec.warn === true) {
+      const liquidityUsd = Number(rec.liquidityUsd);
+      if (Number.isFinite(liquidityUsd)) return rec;
+    }
+  }
+  const score = Number(marketScore);
+  if (Number.isFinite(score) && score > 0 && score < 1000) {
+    return { warn: true, thresholdUsd: 1000, liquidityUsd: score };
+  }
+  return null;
+}
+
+function swapRouteWarningLevel(
+  quote: Record<string, unknown>,
+  marketScore?: number,
+): 'none' | 'orange' | 'red' {
+  const sim = simulationOutputWarningFromQuote(quote);
+  const liq = lowLiquidityWarningFromQuote(quote, marketScore);
+  if (sim && liq) return 'red';
+  if (sim || liq) return 'orange';
+  return 'none';
+}
+
 function simulationOutputWarningTitle(w: Record<string, unknown>): string {
   const thresh = Number(w.thresholdPct ?? 20);
   return `Simulated output is ${Number(w.shortfallPct).toFixed(1)}% below quote (≥${thresh}% threshold). Token account rent/reclaim excluded.`;
 }
 
+function lowLiquidityWarningTitle(w: Record<string, unknown>): string {
+  const thresh = Number(w.thresholdUsd ?? 1000);
+  const liq = Number(w.liquidityUsd);
+  return `Pool liquidity is $${liq.toLocaleString(undefined, { maximumFractionDigits: 2 })} (below $${thresh.toLocaleString()} threshold).`;
+}
+
+function combinedRouteWarningTitle(quote: Record<string, unknown>, marketScore?: number): string {
+  const parts: string[] = [];
+  const liq = lowLiquidityWarningFromQuote(quote, marketScore);
+  const sim = simulationOutputWarningFromQuote(quote);
+  if (liq) parts.push(lowLiquidityWarningTitle(liq));
+  if (sim) parts.push(simulationOutputWarningTitle(sim));
+  return parts.join(' ');
+}
+
 export function updateRouteDiagramTitle(quote: Record<string, unknown>): void {
   const base = formatRouteDiagramTitle(quote);
-  const warn = simulationOutputWarningFromQuote(quote);
-  const warnTitle = warn ? simulationOutputWarningTitle(warn) : '';
+  const warnLevel = swapRouteWarningLevel(quote);
+  const warnTitle = warnLevel !== 'none' ? combinedRouteWarningTitle(quote) : '';
+  const warnClass =
+    warnLevel === 'red'
+      ? 'swap-quote-route-warning swap-quote-route-warning--severe'
+      : warnLevel === 'orange'
+        ? 'swap-quote-route-warning swap-quote-route-warning--caution'
+        : 'swap-quote-route-warning';
 
   const applyTitle = (el: HTMLElement | null) => {
     if (!el) return;
-    if (warn) {
-      el.innerHTML = `<span class="swap-quote-route-title-text">${deps.escapeHtml(base)}</span><span class="swap-quote-route-warning" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`;
+    if (warnLevel !== 'none') {
+      el.innerHTML = `<span class="swap-quote-route-title-text">${deps.escapeHtml(base)}</span><span class="${warnClass}" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`;
     } else {
       el.textContent = base;
     }

@@ -938,6 +938,7 @@ function buildAttemptsForCandidate(candidate: TradeMarketCandidate): BuildAttemp
 function buildSwapBodyForTradeAttempt(
   body: import('./swap-build.js').BuildSwapParams,
   attempt: BuildAttempt,
+  candidate: TradeMarketCandidate,
 ): import('./swap-build.js').BuildSwapParams {
   const { protocol: _omitProtocol, poolAddress: _omitPool, programAddress: _omitProgram, ...rest } =
     body;
@@ -951,6 +952,7 @@ function buildSwapBodyForTradeAttempt(
     poolAddress: attempt.poolAddress,
     programAddress: attempt.programAddress,
     protocol: attempt.protocol,
+    marketScore: candidate.marketScore,
   });
 }
 
@@ -1005,7 +1007,7 @@ async function tryQuoteProbeAttempt(
   };
   const attemptLabel = `${describeBuildAttempt(attempt)} (quote probe)`;
   try {
-    const build = await buildSwap(http, buildSwapBodyForTradeAttempt(body, attempt));
+    const build = await buildSwap(http, buildSwapBodyForTradeAttempt(body, attempt, candidate));
     const provider = String(build.provider ?? build.details?.quote?.provider ?? '').trim();
     if (!acceptTradeRoutedBuild(build, candidate, attempt)) {
       const lastError = 'Built tx missing expected pool/program accounts';
@@ -1064,7 +1066,7 @@ async function trySingleBuildAttempt(
   };
   const attemptLabel = describeBuildAttempt(attempt);
   try {
-    const build = await buildSwap(http, buildSwapBodyForTradeAttempt(body, attempt));
+    const build = await buildSwap(http, buildSwapBodyForTradeAttempt(body, attempt, candidate));
     const provider = String(build.provider ?? build.details?.quote?.provider ?? '').trim();
     const validation = validateTradeBuild(build, candidate);
     if (!validation.ok) {

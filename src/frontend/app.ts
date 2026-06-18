@@ -624,6 +624,7 @@ function refreshPendingQuoteUi(loading = swapQuoteFetching): void {
   if (swapQuoteDetailsRouteStepsEl) {
     swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(loading);
   }
+  renderRouteOptionsPanel();
   if (swapQuoteDetailsFieldsEl && loading) {
     swapQuoteDetailsFieldsEl.innerHTML = `<p class="routing-empty routing-empty--loading">${renderLoadingSpinner('sm')}</p>`;
   }
@@ -676,6 +677,14 @@ type SimulationOutputWarning = {
   shortfallPct: number;
 };
 
+type LowLiquidityWarning = {
+  warn: true;
+  thresholdUsd?: number;
+  liquidityUsd: number;
+};
+
+type SwapRouteWarningLevel = 'none' | 'orange' | 'red';
+
 function getSimulationOutputWarning(quote: Record<string, unknown>): SimulationOutputWarning | null {
   const w = quote._simulationOutputWarning;
   if (!w || typeof w !== 'object') return null;
@@ -690,6 +699,33 @@ function getSimulationOutputWarning(quote: Record<string, unknown>): SimulationO
   };
 }
 
+function getLowLiquidityWarning(quote: Record<string, unknown>): LowLiquidityWarning | null {
+  const w = quote._lowLiquidityWarning;
+  if (!w || typeof w !== 'object') return null;
+  const rec = w as Record<string, unknown>;
+  if (rec.warn !== true) return null;
+  const liquidityUsd = Number(rec.liquidityUsd);
+  if (!Number.isFinite(liquidityUsd)) return null;
+  return {
+    warn: true,
+    thresholdUsd: Number(rec.thresholdUsd ?? 1000),
+    liquidityUsd,
+  };
+}
+
+function swapRouteWarningLevel(quote: Record<string, unknown>): SwapRouteWarningLevel {
+  const sim = getSimulationOutputWarning(quote);
+  const liq = getLowLiquidityWarning(quote);
+  if (sim && liq) return 'red';
+  if (sim || liq) return 'orange';
+  return 'none';
+}
+
+function formatLowLiquidityWarningMessage(warning: LowLiquidityWarning): string {
+  const thresh = Number.isFinite(warning.thresholdUsd) ? warning.thresholdUsd! : 1000;
+  return `Pool liquidity is $${warning.liquidityUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })} (below $${thresh.toLocaleString()} threshold).`;
+}
+
 function formatSimulationOutputWarningMessage(
   warning: SimulationOutputWarning,
   outSym?: string,
@@ -699,25 +735,63 @@ function formatSimulationOutputWarningMessage(
   return `Simulation delivers ${warning.shortfallPct.toFixed(1)}% less${sym} than quoted (≥${thresh}% threshold). Token account rent and reclaim are excluded from this comparison.`;
 }
 
-function renderSimulationOutputWarningHtml(
-  warning: SimulationOutputWarning,
+function formatCombinedRouteWarningsMessage(
+  quote: Record<string, unknown>,
   outSym?: string,
-): string {
-  const msg = formatSimulationOutputWarningMessage(warning, outSym);
-  return `<div class="swap-quote-simulation-warning" role="status">
+): string | null {
+  const sim = getSimulationOutputWarning(quote);
+  const liq = getLowLiquidityWarning(quote);
+  const parts: string[] = [];
+  if (liq) parts.push(formatLowLiquidityWarningMessage(liq));
+  if (sim) parts.push(formatSimulationOutputWarningMessage(sim, outSym));
+  return parts.length > 0 ? parts.join(' ') : null;
+}
+
+function renderRouteWarningsHtml(quote: Record<string, unknown>, outSym?: string): string {
+  const level = swapRouteWarningLevel(quote);
+  if (level === 'none') return '';
+  const msg = formatCombinedRouteWarningsMessage(quote, outSym);
+  if (!msg) return '';
+  const levelClass =
+    level === 'red' ? ' swap-quote-simulation-warning--severe' : ' swap-quote-simulation-warning--caution';
+  return `<div class="swap-quote-simulation-warning${levelClass}" role="status">
       <span class="swap-quote-simulation-warning__icon" aria-hidden="true">⚠</span>
       <span class="swap-quote-simulation-warning__text">${escapeHtml(msg)}</span>
     </div>`;
 }
 
-function syncSimulationOutputWarning(quote: Record<string, unknown>): void {
+function renderSimulationOutputWarningHtml(
+  warning: SimulationOutputWarning,
+  outSym?: string,
+): string {
+  const msg = formatSimulationOutputWarningMessage(warning, outSym);
+  return `<div class="swap-quote-simulation-warning swap-quote-simulation-warning--caution" role="status">
+      <span class="swap-quote-simulation-warning__icon" aria-hidden="true">⚠</span>
+      <span class="swap-quote-simulation-warning__text">${escapeHtml(msg)}</span>
+    </div>`;
+}
+
+function syncSwapRouteWarnings(quote: Record<string, unknown>): void {
   if (!swapSimulationWarning) return;
-  const warning = getSimulationOutputWarning(quote);
-  if (!warning) {
+  const level = swapRouteWarningLevel(quote);
+  swapSimulationWarning.classList.remove('swap-simulation-warning--caution', 'swap-simulation-warning--severe');
+  if (level === 'none') {
     clearInlineWarning(swapSimulationWarning);
     return;
   }
-  showInlineWarning(swapSimulationWarning, formatSimulationOutputWarningMessage(warning, getSwapOutSym()));
+  const msg = formatCombinedRouteWarningsMessage(quote, getSwapOutSym());
+  if (!msg) {
+    clearInlineWarning(swapSimulationWarning);
+    return;
+  }
+  swapSimulationWarning.classList.add(
+    level === 'red' ? 'swap-simulation-warning--severe' : 'swap-simulation-warning--caution',
+  );
+  showInlineWarning(swapSimulationWarning, msg);
+}
+
+function syncSimulationOutputWarning(quote: Record<string, unknown>): void {
+  syncSwapRouteWarnings(quote);
 }
 
 async function refreshLowSolTradeWarning(): Promise<void> {
@@ -2774,6 +2848,7 @@ function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<stri
     outputFromSimulation: enrichment.outputFromSimulation,
     walletPayDebitRaw: enrichment.walletPayDebitRaw,
     simulationOutputWarning: enrichment.simulationOutputWarning ?? null,
+    lowLiquidityWarning: enrichment.lowLiquidityWarning ?? null,
   };
 
   return {
@@ -2792,6 +2867,7 @@ function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<stri
     _otherAmountThresholdRaw: enrichment.otherAmountThresholdRaw,
     _otherAmountThresholdUi: enrichment.otherAmountThresholdUi,
     _simulationOutputWarning: enrichment.simulationOutputWarning ?? null,
+    _lowLiquidityWarning: enrichment.lowLiquidityWarning ?? null,
   };
 }
 
@@ -2872,6 +2948,18 @@ function applyFeeEnrichmentToQuote(
     next._simulationOutputWarning = simulationOutputWarning;
   } else {
     next._simulationOutputWarning = null;
+  }
+
+  const lowLiquidityWarning =
+    buildPayload?._lowLiquidityWarning ??
+    source?.lowLiquidityWarning ??
+    buildEnrichment?.lowLiquidityWarning ??
+    quote._lowLiquidityWarning ??
+    null;
+  if (lowLiquidityWarning && typeof lowLiquidityWarning === 'object') {
+    next._lowLiquidityWarning = lowLiquidityWarning;
+  } else {
+    next._lowLiquidityWarning = null;
   }
 
   if (typeof simulatedOutRaw === 'string' && simulatedOutRaw.length > 0) {
@@ -3090,7 +3178,7 @@ function renderQuoteSummary(quote: Record<string, unknown>): string {
   const receiveValueHtml = renderQuoteReceiveHeroValueHtml(quote, outSym, outAmt.display);
   const receiveSub = getQuoteYouReceiveSubLabel(quote);
   const simWarn = getSimulationOutputWarning(quote);
-  const warnHtml = simWarn ? renderSimulationOutputWarningHtml(simWarn, outSym) : '';
+  const warnHtml = renderRouteWarningsHtml(quote, outSym) || (simWarn ? renderSimulationOutputWarningHtml(simWarn, outSym) : '');
 
   return `<div class="swap-quote-summary-primary">
       ${renderQuoteSummaryHeroTile('You pay', payAmt, inSym, 'pay', inMint, paySub, false, false, payValueHtml)}
@@ -3430,7 +3518,7 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
   mountRoutingDiagram(routingDialogBodyEl, renderRoutingDiagram(quote));
 
   renderSwapQuoteDetailsPanel(quote);
-  syncSimulationOutputWarning(quote);
+  syncSwapRouteWarnings(quote);
   updateSwapPairCards();
 }
 
@@ -5415,6 +5503,8 @@ initRouteUi({
     }
   },
   selectEnumeratedRoute,
+  vybeMarketDiscoveryActive,
+  isSwapQuoteFetching: () => swapQuoteFetching,
   dom: {
     swapRouteOptionsEl,
     swapQuoteDetailsRoutingEl,

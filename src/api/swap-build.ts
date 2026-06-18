@@ -98,6 +98,8 @@ export interface BuildSwapParams {
   /** Exact input balance string from wallet token-balance (UI units); used with closeInputAta. */
   inputBalanceExact?: string;
   inputDecimals?: number;
+  /** Known USD liquidity for pinned pool (route enumeration probes). */
+  marketScore?: number;
 }
 
 export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
@@ -148,6 +150,9 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
   }
   if (pinned.inputDecimals != null && Number.isFinite(pinned.inputDecimals)) {
     payload.inputDecimals = pinned.inputDecimals;
+  }
+  if (pinned.marketScore != null && Number.isFinite(pinned.marketScore) && pinned.marketScore > 0) {
+    payload.marketScore = pinned.marketScore;
   }
   if (pinned.marketFetchMode) payload.marketFetchMode = pinned.marketFetchMode;
   const routerIsVybe = router === 'vybe' || (router === undefined && (pinned.router ?? 'vybe') === 'vybe');

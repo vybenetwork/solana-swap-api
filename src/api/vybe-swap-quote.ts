@@ -6,6 +6,7 @@ import type { AxiosInstance } from 'axios';
 import {
   assertPinnedPoolParams,
   completePinnedSwapParams,
+  computeLowLiquidityWarning,
   programLabelForAddress,
 } from './pinned-swap-params.js';
 import { enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
@@ -424,6 +425,13 @@ async function buildEnumeratedRouteQuotes(
     if (uiInputMint === NATIVE_SOL_MINT) quote = { ...quote, inputMintAddress: NATIVE_SOL_MINT };
     if (uiOutputMint === NATIVE_SOL_MINT) quote = { ...quote, outputMintAddress: NATIVE_SOL_MINT };
     const candidate = entry.candidate as EnumeratedRouteCandidate;
+    const marketScore = candidate.marketScore ?? entry.selected.marketScore;
+    if (!quote._lowLiquidityWarning) {
+      const lowLiquidityWarning = computeLowLiquidityWarning(marketScore);
+      if (lowLiquidityWarning) {
+        quote = { ...quote, _lowLiquidityWarning: lowLiquidityWarning };
+      }
+    }
     const simulatedOutRaw = entry.build.enrichment?.simulatedOutRaw ?? undefined;
     routes.push({
       index: i,

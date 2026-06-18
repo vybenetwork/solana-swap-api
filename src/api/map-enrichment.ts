@@ -90,6 +90,7 @@ export function mapEnrichmentToQuote(
     _networkFeeLamports: e.networkFeeLamports,
     _simulated: e.simulated,
     _simulationOutputWarning: e.simulationOutputWarning ?? null,
+    _lowLiquidityWarning: e.lowLiquidityWarning ?? null,
   };
   if (e.simulated?.err != null) quote._simulationErr = e.simulated.err;
   return quote;
