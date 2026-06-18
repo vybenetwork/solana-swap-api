@@ -9,6 +9,7 @@ import { appendAtaHintsToPayload, enrichBuildParamsWithAtaHints, buildParamsHave
 import { assertPinnedPoolParams, completePinnedSwapParams } from './pinned-swap-params.js';
 import { withRetry } from './client.js';
 import { toVybeSwapMint } from './sol-mints.js';
+import type { TokenPriceHint } from './resolve-token-prices.js';
 
 export type { SwapWalletAtaHints } from './wallet-ata-hints.js';
 
@@ -100,6 +101,8 @@ export interface BuildSwapParams {
   inputDecimals?: number;
   /** Known USD liquidity for pinned pool (route enumeration probes). */
   marketScore?: number;
+  /** Cache-first USD prices/decimals from swap-api; ix-builder uses these for input/output legs. */
+  tokenHints?: Record<string, TokenPriceHint>;
 }
 
 export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
@@ -153,6 +156,9 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
   }
   if (pinned.marketScore != null && Number.isFinite(pinned.marketScore) && pinned.marketScore > 0) {
     payload.marketScore = pinned.marketScore;
+  }
+  if (pinned.tokenHints && Object.keys(pinned.tokenHints).length > 0) {
+    payload.tokenHints = pinned.tokenHints;
   }
   if (pinned.marketFetchMode) payload.marketFetchMode = pinned.marketFetchMode;
   const routerIsVybe = router === 'vybe' || (router === undefined && (pinned.router ?? 'vybe') === 'vybe');

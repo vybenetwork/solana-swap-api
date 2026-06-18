@@ -173,6 +173,7 @@ function pinnedSwapBody(params, pool) {
   if (params.closeWsolAta === true) body.closeWsolAta = true;
   if (params.inputBalanceExact) body.inputBalanceExact = params.inputBalanceExact;
   if (params.inputDecimals != null) body.inputDecimals = params.inputDecimals;
+  if (params.tokenHints && typeof params.tokenHints === 'object') body.tokenHints = params.tokenHints;
   return body;
 }
 
@@ -204,6 +205,7 @@ function mapSwapToIxBuilder(body) {
   if (body.closeWsolAta === true) mapped.closeWsolAta = true;
   if (body.inputBalanceExact) mapped.inputBalanceExact = body.inputBalanceExact;
   if (body.inputDecimals != null) mapped.inputDecimals = body.inputDecimals;
+  if (body.tokenHints && typeof body.tokenHints === 'object') mapped.tokenHints = body.tokenHints;
   return mapped;
 }
 

@@ -320,6 +320,7 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
   closeWsolAta?: boolean;
   inputBalanceExact?: string;
   inputDecimals?: number;
+  tokenHints?: Record<string, TokenPriceHint>;
 } | { error: string } {
   const accountAddress = typeof body.accountAddress === 'string' ? body.accountAddress.trim() : '';
   const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount);
@@ -375,6 +376,10 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
     inputDecimals:
       body.inputDecimals != null && Number.isFinite(Number(body.inputDecimals))
         ? Number(body.inputDecimals)
+        : undefined,
+    tokenHints:
+      body.tokenHints && typeof body.tokenHints === 'object'
+        ? (body.tokenHints as Record<string, TokenPriceHint>)
         : undefined,
   };
 }
