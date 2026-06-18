@@ -21,7 +21,6 @@ const IX_BUILDER = (process.env.IX_BUILDER_BASE_URL ?? 'http://127.0.0.1:8000').
 const UPSTREAM = (process.env.VYBE_UPSTREAM_URL ?? 'https://api.vybenetwork.xyz').replace(/\/$/, '');
 const PORT = Number(process.env.LOCAL_VYBE_PROXY_PORT ?? 8080);
 const MAX_ENUMERATE_ROUTES = 3;
-const MAX_ENUMERATE_PROBE_ATTEMPTS = 10;
 
 function log(...args) {
   console.log('[local-vybe-proxy]', ...args);
@@ -94,28 +93,10 @@ function vybeSwapFeeIxBuilder(body) {
   return router === 'vybe' ? swapFee * 100 : swapFee;
 }
 
-function discoverQueryString(body, forcePostLaunchLabRpc = false) {
+function discoverQueryString(body) {
   const mode = (body.marketFetchMode ?? 'full').trim();
   const enumerate = body.enumerateRoutes !== false;
-  let qs = `inputMint=${encodeURIComponent(body.inputMintAddress)}&outputMint=${encodeURIComponent(body.outputMintAddress)}&marketFetchMode=${encodeURIComponent(mode)}&enumerateRoutes=${enumerate}&rpcLaunchpads=true`;
-  if (forcePostLaunchLabRpc) qs += '&forcePostLaunchLabRpc=true';
-  return qs;
-}
-
-function swapHasSimulationOutputWarning(swap) {
-  return swap?.enrichment?.simulationOutputWarning?.warn === true;
-}
-
-function allSimulatedRoutesWarn(successes) {
-  return successes.length > 0 && successes.every((s) => swapHasSimulationOutputWarning(s.route));
-}
-
-function discoverRpcPostLaunchLabRan(discoverJson) {
-  return discoverJson?.meta?.rpcPostLaunchLabFallback === true;
-}
-
-function poolProbeKey(pool) {
-  return `${pool.marketAddress}\0${pool.programAddress}`;
+  return `inputMint=${encodeURIComponent(body.inputMintAddress)}&outputMint=${encodeURIComponent(body.outputMintAddress)}&marketFetchMode=${encodeURIComponent(mode)}&enumerateRoutes=${enumerate}&rpcLaunchpads=true`;
 }
 
 function quoteOutAmountRaw(swap) {
@@ -236,48 +217,17 @@ async function enumerateVybeSwapRoutes(body, headers) {
     return { status: 404, json: { message: 'No eligible pools found for this pair' } };
   }
 
-  const mode = String(body.marketFetchMode ?? 'full').trim();
-  const probedKeys = new Set();
+  const probeOrder = poolsForEnumerationProbe(pools);
   const successes = [];
-  let probeAttempts = 0;
-
-  const probePools = async (poolList, stopWhenFull) => {
-    const probeOrder = poolsForEnumerationProbe(poolList);
-    for (const pool of probeOrder) {
-      if ((stopWhenFull && successes.length >= MAX_ENUMERATE_ROUTES) || probeAttempts >= MAX_ENUMERATE_PROBE_ATTEMPTS) {
-        break;
-      }
-      const key = poolProbeKey(pool);
-      if (probedKeys.has(key)) continue;
-      probedKeys.add(key);
-      probeAttempts += 1;
-      const swapRes = await ixPost('swap', pinnedSwapBody(body, pool), headers);
-      if (swapRes.status < 400 && swapHasTransaction(swapRes.json) && quoteOutAmountRaw(swapRes.json) > 0n) {
-        const route = { ...swapRes.json };
-        route.poolAddress = pool.marketAddress;
-        route.programAddress = pool.programAddress;
-        if (pool.protocol) route.protocol = pool.protocol;
-        successes.push({ route, isRpc: isPureRpcPool(pool) });
-      }
-    }
-  };
-
-  await probePools(pools, true);
-
-  if (
-    allSimulatedRoutesWarn(successes) &&
-    !discoverRpcPostLaunchLabRan(discover.json) &&
-    mode.toLowerCase() === 'full'
-  ) {
-    log(
-      `enumerate: all ${successes.length} route(s) have simulation output warning — forcing post-LaunchLab RPC discovery`,
-    );
-    const rediscover = await ixGet('discover-pools', discoverQueryString(body, true), headers);
-    if (rediscover.status < 400) {
-      const newPools = (Array.isArray(rediscover.json?.pools) ? rediscover.json.pools : []).filter(
-        (p) => !probedKeys.has(poolProbeKey(p)),
-      );
-      if (newPools.length) await probePools(newPools, false);
+  for (const pool of probeOrder) {
+    if (successes.length >= MAX_ENUMERATE_ROUTES) break;
+    const swapRes = await ixPost('swap', pinnedSwapBody(body, pool), headers);
+    if (swapRes.status < 400 && swapHasTransaction(swapRes.json) && quoteOutAmountRaw(swapRes.json) > 0n) {
+      const route = { ...swapRes.json };
+      route.poolAddress = pool.marketAddress;
+      route.programAddress = pool.programAddress;
+      if (pool.protocol) route.protocol = pool.protocol;
+      successes.push({ route, isRpc: isPureRpcPool(pool) });
     }
   }
 
@@ -288,14 +238,13 @@ async function enumerateVybeSwapRoutes(body, headers) {
   const nonRpcLen = successes.filter((s) => !s.isRpc).length;
   let final = successes;
   if (nonRpcLen >= MAX_ENUMERATE_ROUTES) {
-    final = successes.filter((s) => !s.isRpc);
+    final = successes.filter((s) => !s.isRpc).slice(0, MAX_ENUMERATE_ROUTES);
   }
   final.sort((a, b) => {
     const da = quoteOutAmountRaw(a.route);
     const db = quoteOutAmountRaw(b.route);
     return db > da ? 1 : db < da ? -1 : 0;
   });
-  final = final.slice(0, MAX_ENUMERATE_ROUTES);
   final.forEach((s, i) => {
     s.route.index = i;
   });
