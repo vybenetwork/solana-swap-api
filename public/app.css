@@ -2224,6 +2224,14 @@ tr:hover td {
   letter-spacing: 0.02em;
 }
 
+.swap-quote-summary-hero-total-label {
+  font-size: 0.52rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #71717a;
+}
+
 .swap-token-color--sol .swap-quote-summary-value > .swap-quote-summary-sym {
   color: #c084fc;
 }
@@ -3751,7 +3759,7 @@ tr:hover td {
 }
 
 .routing-acc-rent-above {
-  --routing-fee-connector-h: 3rem;
+  --routing-fee-connector-h: 2.25rem;
   position: absolute;
   left: 50%;
   bottom: 100%;
@@ -3765,13 +3773,13 @@ tr:hover td {
 }
 
 .routing-acc-rent-above--2 {
-  --routing-fee-connector-h: 3rem;
+  --routing-fee-connector-h: 2.25rem;
   width: max-content;
 }
 
 .routing-acc-rent-above--3,
 .routing-acc-rent-above--many {
-  --routing-fee-connector-h: 3.15rem;
+  --routing-fee-connector-h: 2.36rem;
   width: max-content;
 }
 

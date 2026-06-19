@@ -72,8 +72,6 @@ export interface EnrichmentYouReceive {
 export interface EnrichmentSwapUiUsd {
   /** Total wallet debit in USD — routing diagram "USD Input". */
   inputTotalUsd: number;
-  /** Wallet + rent + pool/output-side fee rows counted for "(N fees)". */
-  inputFeeCount: number;
   /** Swap output valued in USD before output-side fee deductions — routing "USD Output" swap leg. */
   outputSwapUsd: number;
   /** ATA/WSOL rent reclaimed on output side (added to diagram USD Output subline). */

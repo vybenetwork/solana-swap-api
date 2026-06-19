@@ -1971,14 +1971,11 @@ function formatPayHeroFeeIncludesLabel(count: number): string {
   return `(includes ${count} ${feeWord} paid)`;
 }
 
-/** Routing diagram input USD line — total with wallet-cost item count (from ix-builder `swapUiUsd`). */
+/** Routing diagram input USD line — total wallet pay in USD (from ix-builder `swapUiUsd` or quote breakdown). */
 function formatQuoteDiagramInputTotalLabel(quote: Record<string, unknown>): string | null {
-  const ui = quote._swapUiUsd as { inputTotalUsd?: number; inputFeeCount?: number } | undefined;
+  const ui = quote._swapUiUsd as { inputTotalUsd?: number } | undefined;
   if (ui?.inputTotalUsd != null && Number(ui.inputTotalUsd) > 0) {
-    const totalLabel = `$${deps.formatSwapPayUsdAmount(Number(ui.inputTotalUsd))}`;
-    const n = Number(ui.inputFeeCount ?? 0);
-    if (n <= 0) return totalLabel;
-    return `${totalLabel} (${n} ${n > 1 ? 'fees' : 'fee'})`;
+    return `$${deps.formatSwapPayUsdAmount(Number(ui.inputTotalUsd))}`;
   }
 
   const breakdown = resolveQuoteYouPayUsd(quote);
@@ -2199,6 +2196,11 @@ function renderReceiveReclaimRow(item: QuoteReceiveHeroReclaimItem): string {
       </span>`;
 }
 
+/** Grey "total" suffix on the You receive hero amount line. */
+function renderQuoteReceiveHeroTotalLabel(): string {
+  return `<span class="swap-quote-summary-hero-total-label">total</span>`;
+}
+
 /** You receive hero value HTML — swap output plus rent reclaimed from closed input ATAs. */
 export function renderQuoteReceiveHeroValueHtml(
   quote: Record<string, unknown> | null,
@@ -2219,18 +2221,18 @@ export function renderQuoteReceiveHeroValueHtml(
   const outAmt = fallbackAmt;
   if (outAmt === '—') {
     return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(fallbackAmt)}</span>
-        <span class="swap-quote-summary-sym ${outSymCls}">${deps.escapeHtml(outSym)}</span>`;
+        <span class="swap-quote-summary-sym ${outSymCls}">${deps.escapeHtml(outSym)}</span>${renderQuoteReceiveHeroTotalLabel()}`;
   }
 
   const reclaimStack = quote ? getQuoteReceiveHeroReclaimStack(quote) : [];
   if (reclaimStack.length === 0) {
     return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(outAmt)}</span>
-        <span class="swap-quote-summary-sym ${outSymCls}">${deps.escapeHtml(outSym)}</span>`;
+        <span class="swap-quote-summary-sym ${outSymCls}">${deps.escapeHtml(outSym)}</span>${renderQuoteReceiveHeroTotalLabel()}`;
   }
 
   const reclaimRows = reclaimStack.map((row) => renderReceiveReclaimRow(row));
   return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(outAmt)}</span>
-      <span class="swap-quote-summary-sym ${outSymCls}">${deps.escapeHtml(outSym)}</span>
+      <span class="swap-quote-summary-sym ${outSymCls}">${deps.escapeHtml(outSym)}</span>${renderQuoteReceiveHeroTotalLabel()}
       <span class="swap-quote-summary-plus">+</span>
       <span class="swap-quote-summary-fee-stack">${reclaimRows.join('')}</span>`;
 }
@@ -2409,42 +2411,114 @@ function renderReceivePoolDeductionSummaryPart(
       </span>`;
 }
 
+/** Pool-side fees on the final hop, summed in receive mint raw units. */
+function sumQuoteReceivePoolDeductionInOutputRaw(quote: Record<string, unknown>): bigint {
+  const outMint = quoteOutputMint(quote);
+  if (!outMint) return 0n;
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const lastStep = plan.at(-1);
+  if (!lastStep) return 0n;
+  const hopOutMint = swapInfoOutputMint(lastStep.swapInfo);
+  if (!hopOutMint || !routeLegMintMatches(hopOutMint, outMint)) return 0n;
+
+  const hopFees = getHopFeeBreakdown(lastStep);
+  if (!hopFees?.items.length) return 0n;
+  const si = lastStep.swapInfo;
+  const inputMint = si?.inputMintAddress ?? quoteInputMint(quote) ?? '';
+  const inRaw =
+    parsePositiveBigInt(si?.inAmount) ??
+    (plan.length === 1 ? parsePositiveBigInt(String(quote.inAmount ?? '')) : null);
+  const quotedOutRaw =
+    parsePositiveBigInt(hopFees.quotedOutRaw) ??
+    parsePositiveBigInt(si?.outAmount) ??
+    parsePositiveBigInt(String(quote._quotedOutAmount ?? ''));
+  if (!quotedOutRaw) return 0n;
+  return sumHopFeeDeductionInOutputRaw(hopFees, outMint, inRaw, quotedOutRaw, inputMint, quote);
+}
+
+function getQuoteReceiveNetOutRaw(quote: Record<string, unknown>): bigint | null {
+  const raw =
+    quote._simulatedOutAmount != null && quote._simulatedOutAmount !== ''
+      ? String(quote._simulatedOutAmount)
+      : quote.outAmount != null && quote.outAmount !== ''
+        ? String(quote.outAmount)
+        : null;
+  return parsePositiveBigInt(raw?.replace(/,/g, ''));
+}
+
+function getQuoteReceiveGrossOutLabel(quote: Record<string, unknown>): string | null {
+  const outMint = quoteOutputMint(quote);
+  if (!outMint) return null;
+  const netRaw = getQuoteReceiveNetOutRaw(quote);
+  if (!netRaw) return null;
+
+  const poolRaw = sumQuoteReceivePoolDeductionInOutputRaw(quote);
+  if (poolRaw > 0n) {
+    return formatQuoteRawAmountLabel((netRaw + poolRaw).toString(), outMint);
+  }
+
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const lastStep = plan.at(-1);
+  if (lastStep) {
+    const amounts = resolveHopOutAmounts(lastStep, quote, true);
+    if (amounts && amounts.grossRaw > amounts.netRaw) {
+      return formatQuoteRawAmountLabel(amounts.grossRaw.toString(), outMint);
+    }
+  }
+  const deltaUi = getQuoteOutputFeeDeltaUi(quote);
+  if (deltaUi != null && deltaUi > 0) {
+    const deltaRawNum = Math.round(deltaUi * 10 ** deps.getMintDecimals(outMint));
+    if (Number.isFinite(deltaRawNum) && deltaRawNum > 0) {
+      try {
+        return formatQuoteRawAmountLabel((netRaw + BigInt(deltaRawNum)).toString(), outMint);
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+  return null;
+}
+
 function renderQuoteReceiveHeroSubPoolHtml(
   quote: Record<string, unknown> | null,
   placeholder = false,
 ): string | null {
-  const stack = quote ? getQuoteReceivePoolDeductionStack(quote) : [];
   const tooltipStack = quote ? getQuoteReceivePoolDeductionNativeStack(quote) : [];
-  const summaryRows = aggregateQuoteReceivePoolDeductionByMint(stack);
-  const hasPool = summaryRows.length > 0;
-  if (!hasPool && !placeholder) return null;
+  const grossLabel = quote ? getQuoteReceiveGrossOutLabel(quote) : null;
+  const netLabel = quote ? formatQuoteTokenAmount(quote, 'out').display : null;
+  const hasPool = tooltipStack.length > 0;
+  const showRow =
+    placeholder ||
+    (hasPool && grossLabel != null) ||
+    (grossLabel != null && netLabel != null && grossLabel !== netLabel);
+  if (!showRow) return null;
 
+  const outMint = (quote ? quoteOutputMint(quote) : deps.getFormOutputMint().trim()).trim();
+  const outSym = mintSymbolSync(outMint);
   const subCls = placeholder ? ' swap-quote-summary-sub-amt--placeholder' : '';
-  const poolLabel = 'deducted from pool';
+  const symCls = tokenSymColorClass(outMint, outSym);
+  const display = grossLabel ?? '—';
+  const qualifierLabel = '(without deductions)';
 
   if (!hasPool) {
-    return `<span class="swap-quote-summary-sub-pool${subCls}">
-        <span class="swap-quote-summary-sub-amt swap-quote-summary-amt--pool-deduct">—</span>
-        <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(poolLabel)}</span>
+    return `<span class="swap-quote-summary-sub-total${subCls}">
+        <span class="swap-quote-summary-sub-amt">${deps.escapeHtml(display)}</span>
+        <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(outSym)}</span>
+        <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(qualifierLabel)}</span>
       </span>`;
   }
 
-  const summaryParts = summaryRows.map((row, i) => {
-    const part = renderReceivePoolDeductionSummaryPart(row, subCls);
-    return i === 0 ? part : `<span class="swap-quote-summary-plus">+</span>${part}`;
-  });
   const tipHtml = renderReceivePoolDeductionTooltip(tooltipStack, subCls);
   const tipTitle = tooltipStack
     .map((row) => `${deps.formatFeeStackAmount(row.ui)} ${row.sym} ${row.detailLabel}`)
     .join(', ');
-  const summaryText = summaryRows
-    .map((row) => `${deps.formatFeeStackAmount(row.ui)} ${row.sym}`)
-    .join(' + ');
+  const summaryText = `${display} ${outSym} ${qualifierLabel}`;
 
-  return `<span class="swap-quote-summary-sub-pool${subCls}">
-      ${summaryParts.join('')}
-      <span class="swap-quote-summary-fee-trigger swap-quote-summary-fee-trigger--has-tip swap-quote-summary-fee-trigger--pool" tabindex="0" aria-label="${deps.escapeHtml(`${summaryText} ${poolLabel}: ${tipTitle}`)}">
-        <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(poolLabel)}</span>
+  return `<span class="swap-quote-summary-sub-total${subCls}">
+      <span class="swap-quote-summary-sub-amt">${deps.escapeHtml(display)}</span>
+      <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(outSym)}</span>
+      <span class="swap-quote-summary-fee-trigger swap-quote-summary-fee-trigger--has-tip swap-quote-summary-fee-trigger--pool" tabindex="0" aria-label="${deps.escapeHtml(`${summaryText}: ${tipTitle}`)}">
+        <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(qualifierLabel)}</span>
         ${tipHtml}
       </span>
     </span>`;
@@ -2688,25 +2762,12 @@ function countDiagramInputFeeDisplayLines(
   return feeMints.size + rentCount;
 }
 
-function countDiagramOutputTopRows(
-  outputFeesUsdLabel: string | null,
-  showAllEndpointLabels: boolean,
-): number {
-  if (showAllEndpointLabels) return 1;
-  if (outputFeesUsdLabel != null && outputFeesUsdLabel !== '—') return 1;
-  return 0;
-}
-
-function renderDiagramOutputFeeAlignSpacers(spacerCount: number, matchInputFeeStack: boolean): string {
+function renderDiagramOutputAlignSpacers(spacerCount: number): string {
   if (spacerCount <= 0) return '';
-  const spacers = Array.from(
+  return Array.from(
     { length: spacerCount },
     () => '<span class="routing-output-fees-spacer" aria-hidden="true">&nbsp;</span>',
-  );
-  if (matchInputFeeStack && spacerCount > 0) {
-    return `<div class="routing-input-addon-stack routing-output-fees-spacer-stack">${spacers.join('')}</div>`;
-  }
-  return spacers.join('');
+  ).join('');
 }
 
 /** @deprecated Prefer getQuoteDiagramInputFeeRows — kept for single-row callers. */
@@ -3479,23 +3540,6 @@ function getQuoteOutputFeeDeltaUi(quote: Record<string, unknown>): number | null
   } catch {
     return null;
   }
-}
-
-/** Net wallet fees in USD: paid fees + rent deposits minus ATA/WSOL rent returned to wallet. */
-function getQuoteNetWalletFeesUsd(quote: Record<string, unknown>): number | null {
-  const buckets = getQuoteWalletCostBucketsUsd(quote);
-  const gross = (buckets.feeUsd ?? 0) + (buckets.rentUsd ?? 0);
-  const reclaimUsd = sumQuoteRentReclaimUsd(quote);
-  if (gross <= 0 && reclaimUsd <= 0) return null;
-  const net = gross - reclaimUsd;
-  if (net <= 0.001) return null;
-  return net;
-}
-
-function getQuoteDiagramWalletFeesUsdLabel(quote: Record<string, unknown>): string | null {
-  const netUsd = getQuoteNetWalletFeesUsd(quote);
-  if (netUsd == null) return null;
-  return formatHopFeeUsdTotalDisplay(netUsd);
 }
 
 /** Append "+ $X reclaim" to a USD label so the diagram output matches the You-receive hero. */
@@ -4699,7 +4743,6 @@ function renderRoutingFrame(
   hasAccRentAbove = false,
   inputFeeRows: QuotePayHeroCostStackItem[] | null = null,
   inputTotalLabel: string | null = null,
-  outputFeesUsdLabel: string | null = null,
   outputUsdSubline: string | null = null,
   outputUsdTitle: string | null = null,
   showAllEndpointLabels = false,
@@ -4715,31 +4758,21 @@ function renderRoutingFrame(
     inputTotalLabel && inputTotalLabel !== '—'
       ? inputTotalLabel
       : showAllEndpointLabels
-        ? `$${ROUTING_PLACEHOLDER_DASH} (fee)`
+        ? `$${ROUTING_PLACEHOLDER_DASH}`
         : ROUTING_PLACEHOLDER_DASH;
-  const outputFeesVal =
-    outputFeesUsdLabel && outputFeesUsdLabel !== '—'
-      ? outputFeesUsdLabel
-      : `-${ROUTING_PLACEHOLDER_DASH}`;
   const outputUsdVal =
     outputUsdSubline && outputUsdSubline !== '—'
       ? outputUsdSubline
       : `≈ ${ROUTING_PLACEHOLDER_DASH}`;
 
-  const inputAddonHtml = renderDiagramInputFeeStackHtml(
-    feeRows,
-    inSym,
-    showAllEndpointLabels,
-    deps.getFormInputMint(),
+  const inputTopRowCount =
+    showAllEndpointLabels || (inputTotalLabel && inputTotalLabel !== '—') ? 1 : 0;
+  const outputTopRowCount =
+    showAllEndpointLabels || (outputUsdSubline && outputUsdSubline !== '—') ? 1 : 0;
+  const outputAlignSpacerHtml = renderDiagramOutputAlignSpacers(
+    Math.max(0, inputTopRowCount - outputTopRowCount),
   );
-  const inputTopRowCount = countDiagramInputFeeDisplayLines(feeRows, showAllEndpointLabels);
-  const outputTopRowCount = countDiagramOutputTopRows(outputFeesUsdLabel, showAllEndpointLabels);
-  const outputFeeSpacerCount = Math.max(0, inputTopRowCount - outputTopRowCount);
-  const outputFeeSpacerHtml = renderDiagramOutputFeeAlignSpacers(
-    outputFeeSpacerCount,
-    inputTopRowCount > 1,
-  );
-  const multiInputFeesClass = feeRows.length > 1 ? ' routing-frame--multi-input-fees' : '';
+  const multiInputFeesClass = '';
   const multiAccRentClass =
     maxAccRentAbove >= 2 ? ' routing-frame--multi-acc-rent-above' : '';
   const accRentSpreadClass =
@@ -4753,10 +4786,6 @@ function renderRoutingFrame(
     showAllEndpointLabels || (inputTotalLabel && inputTotalLabel !== '—')
       ? `<span class="routing-input-total">USD Input: <span class="routing-input-total__val">${deps.escapeHtml(inputTotalVal)}</span></span>`
       : '';
-  const outputFeesUsdHtml =
-    showAllEndpointLabels || (outputFeesUsdLabel && outputFeesUsdLabel !== '—')
-      ? `<span class="routing-output-fees-usd">USD Fees: <span class="routing-output-fees-usd__val">${deps.escapeHtml(outputFeesVal)}</span></span>`
-      : '';
   const outputUsdHtml =
     showAllEndpointLabels || (outputUsdSubline && outputUsdSubline !== '—')
       ? `<span class="routing-output-usd"${outputUsdTitle ? ` title="${deps.escapeHtml(outputUsdTitle)}"` : ''}>USD Output: <span class="routing-output-usd__val">${deps.escapeHtml(outputUsdVal)}</span></span>`
@@ -4765,17 +4794,15 @@ function renderRoutingFrame(
     <div class="routing-frame${multiInputFeesClass}${multiAccRentClass}">
       <div class="routing-endpoint routing-endpoint--in">
         <div class="routing-endpoint-stack">
-          ${inputAddonHtml}
-          ${renderRouteEndpointPill(inDisplay, inSym, undefined, loading && inDisplay === '—', deps.getFormInputMint())}
           ${inputTotalHtml}
+          ${renderRouteEndpointPill(inDisplay, inSym, undefined, loading && inDisplay === '—', deps.getFormInputMint())}
         </div>
       </div>
       <div class="routing-endpoint routing-endpoint--out">
         <div class="routing-endpoint-stack">
-          ${outputFeeSpacerHtml}
-          ${outputFeesUsdHtml}
-          ${renderRouteEndpointPill(outDisplay, outSym, outTitle, loading, deps.getFormOutputMint())}
+          ${outputAlignSpacerHtml}
           ${outputUsdHtml}
+          ${renderRouteEndpointPill(outDisplay, outSym, outTitle, loading, deps.getFormOutputMint())}
         </div>
       </div>
       <div class="routing-path">
@@ -4797,7 +4824,6 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
   const outAmt = formatQuoteTokenAmount(quote, 'out');
   const inputFeeRows = getQuoteDiagramInputFeeRows(quote, inSym);
   const inputTotalLabel = getQuoteDiagramInputTotalLabel(quote);
-  const outputFeesUsdLabel = getQuoteDiagramWalletFeesUsdLabel(quote);
   const outputUsdSubline = getQuoteDiagramOutputUsdSubline(quote);
   const outputUsdTitle = getQuoteDiagramOutputUsdTitle(quote);
 
@@ -4820,7 +4846,6 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
       false,
       inputFeeRows,
       inputTotalLabel,
-      outputFeesUsdLabel,
       outputUsdSubline,
       outputUsdTitle,
     );
@@ -4849,7 +4874,6 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
     hasAccRentAbove,
     inputFeeRows,
     inputTotalLabel,
-    outputFeesUsdLabel,
     outputUsdSubline,
     outputUsdTitle,
     false,
@@ -4870,7 +4894,6 @@ export function renderRoutingDiagramPlaceholder(loading = false): string {
   const hasIn = inChipDisplay !== '—';
   const inputFeeRows = lastQuote ? getQuoteDiagramInputFeeRows(lastQuote, inSym) : [];
   const inputTotalLabel = lastQuote ? getQuoteDiagramInputTotalLabel(lastQuote) : null;
-  const outputFeesUsdLabel = lastQuote ? getQuoteDiagramWalletFeesUsdLabel(lastQuote) : null;
   const outputUsdSubline = lastQuote ? getQuoteDiagramOutputUsdSubline(lastQuote) : null;
   const outputUsdTitle = lastQuote ? getQuoteDiagramOutputUsdTitle(lastQuote) : null;
   const outPctLabel =
@@ -4912,7 +4935,6 @@ export function renderRoutingDiagramPlaceholder(loading = false): string {
     true,
     inputFeeRows,
     inputTotalLabel,
-    outputFeesUsdLabel,
     outputUsdSubline,
     outputUsdTitle,
     true,
