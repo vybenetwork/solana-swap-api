@@ -92,7 +92,7 @@ function applyClientProvidedAtaHints(body: BuildSwapParams): BuildSwapParams {
     const dec = Number.isFinite(decimals) && (decimals ?? 0) >= 0 ? Number(decimals) : 6;
     const exactRaw = balanceAmountToRaw(exact, dec);
     const amountRaw = uiAmountToRaw(amount, dec);
-    if (exactRaw > 0n && amountRaw === exactRaw) {
+    if (exactRaw > 0n && amountRaw >= exactRaw) {
       amount = balanceAmountToUi(exact, dec);
       closeInputAta = true;
     }

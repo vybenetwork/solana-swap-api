@@ -21,6 +21,7 @@ import {
   getWalletBalanceAmountUi,
   getWalletBalanceListItem,
   maxSwapInputStringForWalletItem,
+  isVybeFullSplSellAmount,
   amountExceedsCachedWalletBalance,
   formatSwapInputAmountValueFloor,
   getWalletTotalBalanceUsd,
@@ -1604,7 +1605,12 @@ function syncSwapAmountMaxFromBalance(): void {
   const balancesReady = isWalletBalancesGateOpen(wallet);
   const sellable = getWalletSellableForUi(mint);
   if (sellable != null && sellable > 0) {
-    swapAmountInput.max = formatSwapInputAmountValue(sellable, getMintDecimals(mint));
+    const item = getWalletBalanceListItem(mint);
+    if (item && getSwapRouter() === 'vybe' && !isSolMint(mint)) {
+      swapAmountInput.max = maxSwapInputStringForWalletItem(item);
+    } else {
+      swapAmountInput.max = formatSwapInputAmountValue(sellable, getMintDecimals(mint));
+    }
   } else if (hasValidSwapWallet() && mint && balancesReady) {
     swapAmountInput.max = '0';
   } else {
@@ -1657,7 +1663,18 @@ function flashSellPct100Button(): void {
 
 function setSwapSellAmountToBalance(amountUi: number, mint: string, silent = false): void {
   if (!swapAmountInput) return;
-  const formatted = formatSwapInputAmountValue(amountUi, getMintDecimals(mint));
+  const item = getWalletBalanceListItem(mint);
+  let formatted: string;
+  if (
+    item &&
+    getSwapRouter() === 'vybe' &&
+    !isSolMint(mint) &&
+    isVybeFullSplSellAmount(amountUi, item, isVybeMaxSellSelected(mint))
+  ) {
+    formatted = maxSwapInputStringForWalletItem(item);
+  } else {
+    formatted = formatSwapInputAmountValue(amountUi, getMintDecimals(mint));
+  }
   swapAmountInput.value = formatted;
   syncSwapAmountMaxFromBalance();
   if (!silent) {
@@ -1678,9 +1695,17 @@ function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: bo
   if (item.decimals != null) routeMintDecimalsCache[swapMint] = item.decimals;
   syncSwapAmountMaxFromBalance();
   if (useMaxAmount) {
-    const sellable = getWalletSellableForUi(swapMint);
-    if (sellable != null && sellable > 0) {
-      setSwapSellAmountToBalance(sellable, swapMint, true);
+    const item = getWalletBalanceListItem(swapMint);
+    if (item && getSwapRouter() === 'vybe' && !isSolMint(swapMint)) {
+      if (swapAmountInput) {
+        swapAmountInput.value = maxSwapInputStringForWalletItem(item);
+        syncSwapAmountMaxFromBalance();
+      }
+    } else {
+      const sellable = getWalletSellableForUi(swapMint);
+      if (sellable != null && sellable > 0) {
+        setSwapSellAmountToBalance(sellable, swapMint, true);
+      }
     }
   }
   void refreshSwapSymbols();
@@ -3813,7 +3838,11 @@ function collectSwapBuildOptions(): Record<string, unknown> {
     ...(ataFromCache?.closeInputAta ? { closeInputAta: true } : {}),
     ...(ataFromCache?.inputBalanceExact ? { inputBalanceExact: ataFromCache.inputBalanceExact } : {}),
     ...(ataFromCache?.inputDecimals != null ? { inputDecimals: ataFromCache.inputDecimals } : {}),
-    ...(ataFromCache && ataFromCache.amountUi !== amountUi ? { amount: ataFromCache.amountUi } : {}),
+    ...(ataFromCache?.closeInputAta && ataFromCache.amountUi
+      ? { amount: ataFromCache.amountUi }
+      : ataFromCache && ataFromCache.amountUi !== amountUi
+        ? { amount: ataFromCache.amountUi }
+        : {}),
   };
 }
 

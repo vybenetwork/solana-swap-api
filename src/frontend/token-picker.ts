@@ -953,15 +953,45 @@ export function swapInputUiToRawBigInt(ui: string, decimals: number): bigint {
   return BigInt(`${negative ? '-' : ''}${digits || '0'}`);
 }
 
+/** Format sell input without rounding above wallet balance — preserves all mint decimals. */
 export function formatSwapInputAmountValueFloor(amount: number, decimals = 9): string {
   if (!Number.isFinite(amount) || amount <= 0) return '0';
-  const abs = Math.abs(amount);
-  if (abs >= 100_000) return String(Math.floor(amount));
-  const scale = Math.min(Math.max(decimals, 4), 12);
-  const factor = 10 ** scale;
-  const floored = Math.floor(amount * factor) / factor;
-  const fixed = floored.toFixed(scale).replace(/\.?0+$/, '');
-  return fixed || '0';
+  const d = Math.max(0, Math.min(decimals, 12));
+  const fixed = amount.toFixed(d);
+  const trimmed = fixed.replace(/\.?0+$/, '');
+  return trimmed || '0';
+}
+
+export function balanceExactRawToUiString(exactRaw: string, decimals: number): string {
+  const raw = exactRaw.trim().replace(/,/g, '');
+  if (!/^\d+$/.test(raw)) return '0';
+  const d = Math.max(0, decimals);
+  const base = 10n ** BigInt(d);
+  const r = BigInt(raw);
+  const whole = r / base;
+  const frac = r % base;
+  if (frac === 0n) return whole.toString();
+  const fracStr = frac.toString().padStart(d, '0').replace(/0+$/, '');
+  return `${whole}.${fracStr}`;
+}
+
+/** True when selling the full on-chain SPL balance (Vybe max / 100% / exact raw match). */
+export function isVybeFullSplSellAmount(
+  amountUi: number,
+  item: WalletBalanceListItem,
+  maxSellSelected = false,
+): boolean {
+  if (isSolMint(item.mintAddress)) return false;
+  const exact = item.amountExact?.trim().replace(/,/g, '');
+  if (!exact || !/^\d+$/.test(exact)) return false;
+  if (maxSellSelected) return true;
+  const decimals = Number.isFinite(item.decimals) ? item.decimals : 0;
+  const amountRaw = swapInputUiToRawBigInt(String(amountUi), decimals);
+  const exactRaw = BigInt(exact);
+  if (exactRaw > 0n && amountRaw >= exactRaw) return true;
+  const maxUi = Number(balanceExactRawToUiString(exact, decimals));
+  if (Number.isFinite(maxUi) && maxUi > 0 && amountUi >= maxUi * 0.999) return true;
+  return false;
 }
 
 export function amountExceedsCachedWalletBalance(amountUi: number, mint: string): boolean {
@@ -1019,10 +1049,14 @@ export function buildSwapAtaHintsFromWalletCache(params: {
     if (inputRow) {
       inputBalanceExact = inputRow.amountExact?.trim().replace(/,/g, '') || undefined;
       inputDecimals = inputRow.decimals;
-      const isFullSell = params.maxSellSelected === true;
+      const isFullSell = isVybeFullSplSellAmount(
+        params.amountUi,
+        inputRow,
+        params.maxSellSelected === true,
+      );
       if (isFullSell && inputBalanceExact) {
         closeInputAta = true;
-        if (inputRow.amountUi > 0) amountUi = inputRow.amountUi;
+        amountUi = Number(maxSwapInputStringForWalletItem(inputRow));
       }
     }
   }
