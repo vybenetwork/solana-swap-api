@@ -361,7 +361,10 @@ function truncateFeeTableTokenSymbol(sym: string): string {
 }
 
 function accRentFeeDisplayLabel(item: Pick<HopFeeItemLite, 'mint' | 'accountMint' | 'destinationKind' | 'label'>): string {
-  const sym = truncateFeeTableTokenSymbol(mintSymbolSync(accRentAccountMint(item)));
+  const accountMint = accRentAccountMint(item);
+  const sym = isSolMint(accountMint)
+    ? 'WSOL'
+    : truncateFeeTableTokenSymbol(mintSymbolSync(accountMint));
   return `${sym} Rent Fee`;
 }
 
@@ -535,6 +538,21 @@ function getHopAtaRentReclaimItems(
 function hasInputMintRentReclaim(quote: Record<string, unknown>, mint: string): boolean {
   return getQuoteWalletTokenAccountCloses(quote).some(
     (c) => c.category === 'input' && routeLegMintMatches(c.mint, mint),
+  );
+}
+
+/** Dedupe synthetic ATA-close rows when ix-builder already lists them in hopFees.items. */
+function dedupeSyntheticReclaimItems(
+  hopFeeItems: HopFeeItemLite[],
+  syntheticReclaimItems: HopFeeItemLite[],
+): HopFeeItemLite[] {
+  if (syntheticReclaimItems.length === 0) return syntheticReclaimItems;
+  const coveredAccountMints = new Set(
+    hopFeeItems.filter(isAccRentReclaimItem).map((item) => accRentAccountMint(item)),
+  );
+  if (coveredAccountMints.size === 0) return syntheticReclaimItems;
+  return syntheticReclaimItems.filter(
+    (item) => !coveredAccountMints.has(accRentAccountMint(item)),
   );
 }
 
@@ -1976,12 +1994,17 @@ function formatPayHeroFeeIncludesLabel(count: number): string {
 function formatQuoteDiagramInputTotalLabel(quote: Record<string, unknown>): string | null {
   const ui = quote._swapUiUsd as { inputTotalUsd?: number } | undefined;
   if (ui?.inputTotalUsd != null && Number(ui.inputTotalUsd) > 0) {
-    return `$${deps.formatSwapPayUsdAmount(Number(ui.inputTotalUsd))}`;
+    return `≈ $${deps.formatSwapPayUsdAmount(Number(ui.inputTotalUsd))}`;
   }
 
   const breakdown = resolveQuoteYouPayUsd(quote);
   if (!breakdown) return null;
-  return `$${deps.formatSwapPayUsdAmount(breakdown.totalUsd)}`;
+  return `≈ $${deps.formatSwapPayUsdAmount(breakdown.totalUsd)}`;
+}
+
+function getQuoteDiagramInputTotalPlaceholderLabel(): string | null {
+  const usdLabel = deps.getQuotePayUsdEstimateLabel();
+  return usdLabel ? `≈ ${usdLabel}` : null;
 }
 
 function countPayHeroCostStackItems(stack: QuotePayHeroCostStackItem[]): number {
@@ -3212,7 +3235,8 @@ function isInputSideWalletFeeItem(item: HopFeeItemLite, inputMint: string): bool
 
 function formatAccRentFeeSolSubline(equiv: FeeAmountEquiv): string {
   const amt = equiv.primary !== '—' ? equiv.primary.replace(/,/g, '') : '—';
-  const sym = equiv.feeSym && equiv.feeSym !== '—' ? equiv.feeSym : 'WSOL';
+  let sym = equiv.feeSym && equiv.feeSym !== '—' ? equiv.feeSym : 'SOL';
+  if (sym === 'WSOL') sym = 'SOL';
   return `${amt} ${sym}`;
 }
 
@@ -4239,18 +4263,25 @@ function renderHopPlanFeesSection(
 
   const walletRows: string[] = [];
   const poolRows: string[] = [];
+  const reclaimRowsFromHopFees: string[] = [];
   for (const { item, equiv } of rowData) {
     const row = renderHopFeeRow(item, equiv, destCtx, quote, leg.outMint);
-    if (isDeductedFromPoolFeeItem(item, quote, leg.outMint)) {
+    if (isAccRentReclaimItem(item)) {
+      reclaimRowsFromHopFees.push(row);
+    } else if (isDeductedFromPoolFeeItem(item, quote, leg.outMint)) {
       poolRows.push(row);
     } else {
       walletRows.push(row);
     }
   }
 
-  const reclaimRows = reclaimItems.map((item) =>
-    renderHopFeeRow(item, feeEquivForHopItem(item, quote), destCtx, quote),
-  );
+  const extraReclaimItems = dedupeSyntheticReclaimItems(hopFees.items, reclaimItems);
+  const reclaimRows = [
+    ...reclaimRowsFromHopFees,
+    ...extraReclaimItems.map((item) =>
+      renderHopFeeRow(item, feeEquivForHopItem(item, quote), destCtx, quote),
+    ),
+  ];
 
   const group = (title: string, rows: string[]) =>
     rows.length
@@ -4373,6 +4404,7 @@ function sumHopPlanFeeTotalsByMint(
   const totals = new Map<string, bigint>();
   const counts = new Map<string, number>();
   for (const { item } of rowData) {
+    if (isAccRentReclaimItem(item)) continue;
     const mint = item.mint.trim();
     if (!mint || !item.amountRaw || !/^\d+$/.test(item.amountRaw)) continue;
     try {
@@ -4855,12 +4887,12 @@ function renderRoutingFrame(
     inputTotalLabel && inputTotalLabel !== '—'
       ? inputTotalLabel
       : showAllEndpointLabels
-        ? `$${ROUTING_PLACEHOLDER_DASH}`
+        ? `≈ $${ROUTING_PLACEHOLDER_DASH}`
         : ROUTING_PLACEHOLDER_DASH;
   const outputUsdVal =
     outputUsdSubline && outputUsdSubline !== '—'
       ? outputUsdSubline
-      : `≈ ${ROUTING_PLACEHOLDER_DASH}`;
+      : `≈ $${ROUTING_PLACEHOLDER_DASH}`;
 
   const inputTopRowCount =
     showAllEndpointLabels || (inputTotalLabel && inputTotalLabel !== '—') ? 1 : 0;
@@ -4989,7 +5021,9 @@ export function renderRoutingDiagramPlaceholder(loading = false): string {
     : deps.getQuoteWalletPayLabel();
   const hasIn = inChipDisplay !== '—';
   const inputFeeRows = lastQuote ? getQuoteDiagramInputFeeRows(lastQuote, inSym) : [];
-  const inputTotalLabel = lastQuote ? getQuoteDiagramInputTotalLabel(lastQuote) : null;
+  const inputTotalLabel = lastQuote
+    ? getQuoteDiagramInputTotalLabel(lastQuote)
+    : getQuoteDiagramInputTotalPlaceholderLabel();
   const outputUsdSubline = lastQuote ? getQuoteDiagramOutputUsdSubline(lastQuote) : null;
   const outputUsdTitle = lastQuote ? getQuoteDiagramOutputUsdTitle(lastQuote) : null;
   const outPctLabel =
