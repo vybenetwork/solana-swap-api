@@ -1724,6 +1724,8 @@ export interface QuotePayHeroCostStackItem {
   kind: 'fee' | 'rent';
   /** Distinct wallet-fee line items rolled into this row (fee kind only). */
   count?: number;
+  /** Tooltip label, e.g. `Protocol fee` or `BONK Rent Fee (Reclaimable)`. */
+  detailLabel?: string;
 }
 
 export function getQuotePayHeroCostStack(
@@ -1735,8 +1737,11 @@ export function getQuotePayHeroCostStack(
 
   let feeUi = 0;
   let feeItemCount = 0;
+  const feeDetailLabels: string[] = [];
   let sameMintRentUi = 0;
+  let sameMintRentAccountSym = '';
   let foreignRentUi = 0;
+  let foreignRentAccountSym = '';
   let foundFee = false;
   let foundSameMintRent = false;
   let foundForeignRent = false;
@@ -1751,11 +1756,14 @@ export function getQuotePayHeroCostStack(
       const sameMint = routeLegMintMatches(item.mint, mint);
       if (isAccRentWalletFeeItem(item)) {
         if (sameMint && hasInputMintRentReclaim(quote, mint)) continue;
+        const accountSym = mintSymbolSync(accRentAccountMint(item));
         if (sameMint) {
           sameMintRentUi += ui;
+          sameMintRentAccountSym = accountSym;
           foundSameMintRent = true;
         } else if (isSolMint(item.mint)) {
           foreignRentUi += ui;
+          foreignRentAccountSym = accountSym;
           foundForeignRent = true;
         }
         continue;
@@ -1764,6 +1772,7 @@ export function getQuotePayHeroCostStack(
       if (sameMint) {
         feeUi += ui;
         feeItemCount += 1;
+        feeDetailLabels.push(displayFeeItemLabel(item));
         foundFee = true;
       }
     }
@@ -1818,10 +1827,17 @@ export function getQuotePayHeroCostStack(
       mint,
       kind: 'fee',
       count: Math.max(feeItemCount, 1),
+      detailLabel: summarizePayHeroFeeDetailLabels(feeDetailLabels),
     });
   }
   if (foundSameMintRent && sameMintRentUi > 0) {
-    stack.push({ ui: sameMintRentUi, sym: sellSym, mint, kind: 'rent' });
+    stack.push({
+      ui: sameMintRentUi,
+      sym: sellSym,
+      mint,
+      kind: 'rent',
+      detailLabel: formatPayHeroRentDetailLabel(sameMintRentAccountSym, sellSym),
+    });
   }
   if (foundForeignRent && foreignRentUi > 0) {
     stack.push({
@@ -1829,6 +1845,7 @@ export function getQuotePayHeroCostStack(
       sym: mintSymbolSync(NATIVE_SOL_MINT),
       mint: NATIVE_SOL_MINT,
       kind: 'rent',
+      detailLabel: formatPayHeroRentDetailLabel(foreignRentAccountSym, sellSym),
     });
   }
   return stack;
@@ -1869,6 +1886,36 @@ interface QuotePayHeroUsdStackItem {
   usd: number;
   kind: QuotePayHeroCostStackItem['kind'];
   count?: number;
+  detailLabel?: string;
+}
+
+function summarizePayHeroFeeDetailLabels(labels: string[]): string {
+  const unique = [...new Set(labels.map((l) => l.trim()).filter(Boolean))];
+  if (unique.length === 1) return unique[0]!;
+  if (unique.length > 1) return `${unique.length} Wallet Fees`;
+  return 'Wallet Fee';
+}
+
+function formatPayHeroRentDetailLabel(accountSym: string, fallbackSym: string): string {
+  const sym = truncateFeeTableTokenSymbol(accountSym.trim() || fallbackSym.trim() || 'Token');
+  return `${sym} Rent Fee (Reclaimable)`;
+}
+
+function formatPayHeroWalletFeeDetailLabel(base: string): string {
+  const trimmed = base.trim();
+  if (!trimmed) return 'Wallet Fee (Not Reclaimable)';
+  if (/\(not reclaimable\)/i.test(trimmed)) return trimmed;
+  return `${trimmed} (Not Reclaimable)`;
+}
+
+function payHeroCostRowDetailLabel(row: QuotePayHeroCostStackItem): string {
+  if (row.kind === 'rent') {
+    if (row.detailLabel?.trim()) return row.detailLabel.trim();
+    return formatPayHeroRentDetailLabel('', row.sym);
+  }
+  if (row.detailLabel?.trim()) return formatPayHeroWalletFeeDetailLabel(row.detailLabel.trim());
+  const base = row.count != null && row.count > 1 ? `${row.count} Wallet Fees` : 'Wallet Fee';
+  return formatPayHeroWalletFeeDetailLabel(base);
 }
 
 function getQuotePayHeroUsdStack(
@@ -1884,21 +1931,39 @@ function getQuotePayHeroUsdStack(
       usd: breakdown.feeUsd,
       kind: 'fee',
       count: feeRow?.count ?? 1,
+      detailLabel: feeRow?.detailLabel,
     });
   }
   if (breakdown.rentUsd != null && breakdown.rentUsd > 0) {
     const rentCount = countDeductedRentFeeItems(quote) || 1;
-    out.push({ usd: breakdown.rentUsd, kind: 'rent', count: rentCount });
+    const rentRows = tokenStack.filter((row) => row.kind === 'rent');
+    out.push({
+      usd: breakdown.rentUsd,
+      kind: 'rent',
+      count: rentCount,
+      detailLabel:
+        rentRows.length === 1
+          ? rentRows[0]?.detailLabel
+          : rentRows.length > 1
+            ? `${rentRows.length} Rent Fees (Reclaimable)`
+            : undefined,
+    });
   }
   return out;
 }
 
-function payHeroUsdCostKindLabel(
-  kind: QuotePayHeroCostStackItem['kind'],
-  count = 1,
-): string {
-  if (kind === 'rent') return count > 1 ? ' (rent fees)' : ' (rent fee)';
-  return count > 1 ? ' (fees)' : ' (fee)';
+function payHeroUsdCostDetailLabel(row: QuotePayHeroUsdStackItem, tokenRow?: QuotePayHeroCostStackItem): string {
+  if (row.kind === 'rent') {
+    if (row.detailLabel?.trim()) return row.detailLabel.trim();
+    if (tokenRow) return payHeroCostRowDetailLabel(tokenRow);
+    return row.count != null && row.count > 1
+      ? `${row.count} Rent Fees (Reclaimable)`
+      : 'Rent Fee (Reclaimable)';
+  }
+  if (row.detailLabel?.trim()) return formatPayHeroWalletFeeDetailLabel(row.detailLabel.trim());
+  if (tokenRow) return payHeroCostRowDetailLabel(tokenRow);
+  const base = row.count != null && row.count > 1 ? `${row.count} Wallet Fees` : 'Wallet Fee';
+  return formatPayHeroWalletFeeDetailLabel(base);
 }
 
 function formatPayHeroFeeIncludesLabel(count: number): string {
@@ -1921,14 +1986,6 @@ function formatQuoteDiagramInputTotalLabel(quote: Record<string, unknown>): stri
   return `$${deps.formatSwapPayUsdAmount(breakdown.totalUsd)}`;
 }
 
-function payHeroCostKindLabel(
-  kind: QuotePayHeroCostStackItem['kind'],
-  count = 1,
-): string {
-  if (kind === 'rent') return ' (rent)';
-  return count > 1 ? ' (fees)' : ' (fee)';
-}
-
 function countPayHeroCostStackItems(stack: QuotePayHeroCostStackItem[]): number {
   return stack.reduce(
     (n, row) => n + (row.kind === 'fee' ? Math.max(row.count ?? 1, 1) : 1),
@@ -1945,79 +2002,120 @@ function formatPayHeroCostDisplay(ui: number): string {
 }
 
 function renderPayHeroCostRow(
-  sym: string,
-  ui: number,
+  row: QuotePayHeroCostStackItem,
   amtCls: string,
-  mint: string,
-  kind: QuotePayHeroCostStackItem['kind'],
-  feeCount = 1,
 ): string {
+  const { sym, ui, mint, kind } = row;
   const symCls = tokenSymColorClass(mint, sym);
-  return `<span class="swap-quote-summary-fee-part">
-        <span class="swap-quote-summary-amt swap-quote-summary-amt--fee${amtCls}">${deps.escapeHtml(formatPayHeroCostDisplay(ui))}</span>
-        <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(sym)}</span><span class="swap-quote-summary-fee-kind">${payHeroCostKindLabel(kind, feeCount)}</span>
+  const isRent = kind === 'rent';
+  const amtMod = isRent ? ' swap-quote-summary-amt--rent' : ' swap-quote-summary-amt--fee';
+  const partMod = isRent ? ' swap-quote-summary-fee-part--rent' : ' swap-quote-summary-fee-part--wallet';
+  const detailLabel = payHeroCostRowDetailLabel(row);
+  return `<span class="swap-quote-summary-fee-part${partMod}">
+        <span class="swap-quote-summary-amt${amtMod}${amtCls}">${deps.escapeHtml(formatPayHeroCostDisplay(ui))}</span>
+        <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(sym)}</span><span class="swap-quote-summary-fee-kind">${deps.escapeHtml(detailLabel)}</span>
       </span>`;
 }
 
 function renderPayHeroFeeTooltip(stack: QuotePayHeroCostStackItem[], amtCls: string): string {
-  const rows = stack.map((row) =>
-    renderPayHeroCostRow(row.sym, row.ui, amtCls, row.mint, row.kind, row.count ?? 1),
-  );
+  const rows = stack.map((row) => renderPayHeroCostRow(row, amtCls));
   return `<span class="swap-quote-summary-fee-tip" role="tooltip">${rows.join('')}</span>`;
 }
 
 function renderPayHeroUsdFeeRow(
-  usd: number,
-  kind: QuotePayHeroCostStackItem['kind'],
-  count: number,
+  row: QuotePayHeroUsdStackItem,
+  tokenRow: QuotePayHeroCostStackItem | undefined,
   amtCls: string,
 ): string {
-  return `<span class="swap-quote-summary-fee-part">
-        <span class="swap-quote-summary-amt swap-quote-summary-amt--fee${amtCls}">$${deps.escapeHtml(deps.formatSwapPayUsdAmount(usd))}</span><span class="swap-quote-summary-fee-kind">${payHeroUsdCostKindLabel(kind, count)}</span>
+  const isRent = row.kind === 'rent';
+  const amtMod = isRent ? ' swap-quote-summary-amt--rent' : ' swap-quote-summary-amt--fee';
+  const partMod = isRent ? ' swap-quote-summary-fee-part--rent' : ' swap-quote-summary-fee-part--wallet';
+  const detailLabel = payHeroUsdCostDetailLabel(row, tokenRow);
+  return `<span class="swap-quote-summary-fee-part${partMod}">
+        <span class="swap-quote-summary-amt${amtMod}${amtCls}">$${deps.escapeHtml(deps.formatSwapPayUsdAmount(row.usd))}</span><span class="swap-quote-summary-fee-kind">${deps.escapeHtml(detailLabel)}</span>
       </span>`;
 }
 
-function renderPayHeroUsdFeeTooltip(stack: QuotePayHeroUsdStackItem[], amtCls: string): string {
-  const rows = stack.map((row) =>
-    renderPayHeroUsdFeeRow(row.usd, row.kind, row.count ?? 1, amtCls),
-  );
+function renderPayHeroUsdFeeTooltip(
+  stack: QuotePayHeroUsdStackItem[],
+  tokenStack: QuotePayHeroCostStackItem[],
+  amtCls: string,
+): string {
+  const kindIndex: Record<'fee' | 'rent', number> = { fee: 0, rent: 0 };
+  const rows = stack.map((row) => {
+    const idx = kindIndex[row.kind];
+    kindIndex[row.kind] += 1;
+    const tokenRow = tokenStack.filter((t) => t.kind === row.kind)[idx];
+    return renderPayHeroUsdFeeRow(row, tokenRow, amtCls);
+  });
   return `<span class="swap-quote-summary-fee-tip" role="tooltip">${rows.join('')}</span>`;
 }
 
-/** You pay hero USD sub-label — total plus compact fee count with hover breakdown. */
-export function renderQuotePayHeroSubHtml(
+function renderQuotePayHeroSubTotalSolHtml(
   quote: Record<string, unknown>,
   inSym: string,
   placeholder = false,
 ): string | null {
+  const totalAmt = getQuoteWalletPayLabelFromQuote(quote);
+  if (totalAmt === '—') return null;
+  const mint = quoteInputMint(quote) ?? '';
+  const subCls = placeholder ? ' swap-quote-summary-sub-amt--placeholder' : '';
+  const symCls = tokenSymColorClass(mint, inSym);
+  return `<span class="swap-quote-summary-sub-total${subCls}">
+      <span class="swap-quote-summary-sub-amt">${deps.escapeHtml(totalAmt)}</span>
+      <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(inSym)}</span>
+      <span class="swap-quote-summary-sub-total-label">total</span>
+    </span>`;
+}
+
+function wrapQuotePayHeroSubStack(totalSolHtml: string | null, usdRowHtml: string): string {
+  if (!totalSolHtml) return usdRowHtml;
+  return `<span class="swap-quote-summary-sub-stack">${totalSolHtml}<span class="swap-quote-summary-sub-row">${usdRowHtml}</span></span>`;
+}
+
+/** You pay hero USD sub-label — total plus compact fee count with hover breakdown. */
+export function renderQuotePayHeroSubHtml(
+  quote: Record<string, unknown> | null,
+  inSym: string,
+  placeholder = false,
+): string | null {
+  if (!quote && placeholder) return renderQuotePayHeroSubPlaceholderHtml(inSym);
+  if (!quote) return null;
   const breakdown = resolveQuoteYouPayUsd(quote);
-  if (!breakdown) return null;
+  if (!breakdown) return renderQuotePayHeroSubTotalSolHtml(quote, inSym, placeholder);
 
   const subCls = placeholder ? ' swap-quote-summary-sub-amt--placeholder' : '';
   const totalLabel = `$${deps.formatSwapPayUsdAmount(breakdown.totalUsd)}`;
   const approxPrefix = '≈ ';
+  const totalSolHtml = renderQuotePayHeroSubTotalSolHtml(quote, inSym, placeholder);
   const tokenStack = getQuotePayHeroCostStack(quote, inSym);
   if (tokenStack.length === 0) {
-    return `<span class="swap-quote-summary-sub-amt${subCls}">${deps.escapeHtml(`${approxPrefix}${totalLabel}`)}</span>`;
+    const usdRow = `<span class="swap-quote-summary-sub-amt${subCls}">${deps.escapeHtml(`${approxPrefix}${totalLabel}`)}</span>`;
+    return wrapQuotePayHeroSubStack(totalSolHtml, usdRow);
   }
 
   const feeCount = countPayHeroCostStackItems(tokenStack);
   const includesLabel = formatPayHeroFeeIncludesLabel(feeCount);
   const usdStack = getQuotePayHeroUsdStack(quote, inSym, breakdown);
-  const tipHtml = renderPayHeroUsdFeeTooltip(usdStack, subCls);
+  const tipHtml = renderPayHeroUsdFeeTooltip(usdStack, tokenStack, subCls);
+  const kindIndex: Record<'fee' | 'rent', number> = { fee: 0, rent: 0 };
   const tipTitle = usdStack
     .map((row) => {
-      const kind = payHeroUsdCostKindLabel(row.kind, row.count ?? 1).trim();
-      return `$${deps.formatSwapPayUsdAmount(row.usd)} ${kind}`;
+      const idx = kindIndex[row.kind];
+      kindIndex[row.kind] += 1;
+      const tokenRow = tokenStack.filter((t) => t.kind === row.kind)[idx];
+      const label = payHeroUsdCostDetailLabel(row, tokenRow);
+      return `$${deps.formatSwapPayUsdAmount(row.usd)} ${label}`;
     })
     .join(', ');
   const subSummary = `${approxPrefix}${totalLabel} ${includesLabel}`;
 
-  return `<span class="swap-quote-summary-sub-amt${subCls}">${deps.escapeHtml(`${approxPrefix}${totalLabel}`)}</span>
+  const usdRow = `<span class="swap-quote-summary-sub-amt${subCls}">${deps.escapeHtml(`${approxPrefix}${totalLabel}`)}</span>
       <span class="swap-quote-summary-fee-trigger swap-quote-summary-fee-trigger--has-tip" tabindex="0" aria-label="${deps.escapeHtml(`${subSummary}: ${tipTitle}`)}">
         <span class="swap-quote-summary-fee-count">${deps.escapeHtml(includesLabel)}</span>
         ${tipHtml}
       </span>`;
+  return wrapQuotePayHeroSubStack(totalSolHtml, usdRow);
 }
 
 /** You pay hero value HTML — swap leg plus stacked fee / rent after +. */
@@ -2053,10 +2151,7 @@ export function renderQuotePayHeroValueHtml(
   const feeLabel = formatPayHeroFeeCountLabel(feeCount);
   const tipHtml = renderPayHeroFeeTooltip(stack, amtCls);
   const tipTitle = stack
-    .map((row) => {
-      const kind = payHeroCostKindLabel(row.kind, row.count ?? 1).trim();
-      return `${formatPayHeroCostDisplay(row.ui)} ${row.sym} ${kind}`;
-    })
+    .map((row) => `${formatPayHeroCostDisplay(row.ui)} ${row.sym} ${payHeroCostRowDetailLabel(row)}`)
     .join(', ');
 
   return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(swapAmt)}</span>
@@ -2138,6 +2233,280 @@ export function renderQuoteReceiveHeroValueHtml(
       <span class="swap-quote-summary-sym ${outSymCls}">${deps.escapeHtml(outSym)}</span>
       <span class="swap-quote-summary-plus">+</span>
       <span class="swap-quote-summary-fee-stack">${reclaimRows.join('')}</span>`;
+}
+
+export interface QuoteReceivePoolDeductionItem {
+  ui: number;
+  sym: string;
+  mint: string;
+  detailLabel: string;
+}
+
+/** Express one pool fee row in its hop's output mint UI (not rolled into final receive mint). */
+function poolFeeItemInHopOutMintUi(
+  item: HopFeeItemLite,
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+): { ui: number; mint: string; sym: string } | null {
+  const hopOutMint = swapInfoOutputMint(step.swapInfo);
+  if (!hopOutMint) return null;
+  if (!isDeductedFromPoolFeeItem(item, quote, hopOutMint)) return null;
+
+  const feeUi = feeAmountToUi(item.amountRaw, item.mint);
+  if (feeUi == null || feeUi <= 0) return null;
+
+  if (routeLegMintMatches(item.mint, hopOutMint)) {
+    return { ui: feeUi, mint: hopOutMint, sym: mintSymbolSync(hopOutMint) };
+  }
+
+  const feePrice = lookupMintPriceUsd(item.mint, quote);
+  const hopOutPrice = lookupMintPriceUsd(hopOutMint, quote);
+  if (
+    Number.isFinite(feePrice) &&
+    feePrice > 0 &&
+    Number.isFinite(hopOutPrice) &&
+    hopOutPrice > 0
+  ) {
+    return {
+      ui: (feeUi * feePrice) / hopOutPrice,
+      mint: hopOutMint,
+      sym: mintSymbolSync(hopOutMint),
+    };
+  }
+
+  const si = step.swapInfo;
+  const inputMint = si?.inputMintAddress ?? quoteInputMint(quote) ?? '';
+  const inRaw = parsePositiveBigInt(si?.inAmount);
+  const quotedOutRaw =
+    parsePositiveBigInt(getHopFeeBreakdown(step)?.quotedOutRaw) ??
+    parsePositiveBigInt(si?.outAmount);
+  const feeRaw = parsePositiveBigInt(item.amountRaw);
+  if (
+    inRaw &&
+    quotedOutRaw &&
+    quotedOutRaw > 0n &&
+    feeRaw &&
+    routeLegMintMatches(item.mint, inputMint)
+  ) {
+    const outRaw = (feeRaw * quotedOutRaw) / inRaw;
+    const outUi = deps.rawAmountToUiNumber(outRaw.toString(), deps.getMintDecimals(hopOutMint));
+    if (Number.isFinite(outUi) && outUi > 0) {
+      return { ui: outUi, mint: hopOutMint, sym: mintSymbolSync(hopOutMint) };
+    }
+  }
+
+  return { ui: feeUi, mint: item.mint, sym: mintSymbolSync(item.mint) };
+}
+
+/** Native pool fee amount as debited (no conversion to hop/final output mint). */
+function poolFeeItemNative(
+  item: HopFeeItemLite,
+  step: VybeRoutePlanStepLite,
+  quote: Record<string, unknown>,
+): QuoteReceivePoolDeductionItem | null {
+  const hopOutMint = swapInfoOutputMint(step.swapInfo);
+  if (!hopOutMint) return null;
+  if (!isDeductedFromPoolFeeItem(item, quote, hopOutMint)) return null;
+
+  const feeUi = feeAmountToUi(item.amountRaw, item.mint);
+  if (feeUi == null || feeUi <= 0) return null;
+  const label = normalizeFeeItemLabel(item.label).trim() || 'Pool fee';
+  return {
+    ui: feeUi,
+    sym: mintSymbolSync(item.mint),
+    mint: item.mint,
+    detailLabel: label,
+  };
+}
+
+/** Pool/output-side fees per hop, each in that hop's output mint (USDC, BONK, …). */
+export function getQuoteReceivePoolDeductionStack(
+  quote: Record<string, unknown>,
+): QuoteReceivePoolDeductionItem[] {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const out: QuoteReceivePoolDeductionItem[] = [];
+  for (const step of plan) {
+    for (const item of flattenHopFeeItems(getHopFeeBreakdown(step)?.items ?? [])) {
+      if (isAccRentFeeLabel(item.label)) continue;
+      const converted = poolFeeItemInHopOutMintUi(item, step, quote);
+      if (!converted || converted.ui <= 0) continue;
+      const label = normalizeFeeItemLabel(item.label).trim() || 'Pool fee';
+      out.push({
+        ui: converted.ui,
+        sym: converted.sym,
+        mint: converted.mint,
+        detailLabel: label,
+      });
+    }
+  }
+  return out;
+}
+
+/** Pool fees in the actual debited mint — for tooltip breakdown only. */
+function getQuoteReceivePoolDeductionNativeStack(
+  quote: Record<string, unknown>,
+): QuoteReceivePoolDeductionItem[] {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const out: QuoteReceivePoolDeductionItem[] = [];
+  for (const step of plan) {
+    for (const item of flattenHopFeeItems(getHopFeeBreakdown(step)?.items ?? [])) {
+      if (isAccRentFeeLabel(item.label)) continue;
+      const native = poolFeeItemNative(item, step, quote);
+      if (native) out.push(native);
+    }
+  }
+  return out;
+}
+
+/** One row per mint for the You receive sub-line (multi-hop: USDC + BONK + …). */
+function aggregateQuoteReceivePoolDeductionByMint(
+  stack: QuoteReceivePoolDeductionItem[],
+): QuoteReceivePoolDeductionItem[] {
+  const order: string[] = [];
+  const byMint = new Map<string, QuoteReceivePoolDeductionItem>();
+  for (const row of stack) {
+    const existing = byMint.get(row.mint);
+    if (existing) {
+      existing.ui += row.ui;
+      if (!existing.detailLabel.includes(row.detailLabel)) {
+        existing.detailLabel = `${existing.detailLabel}, ${row.detailLabel}`;
+      }
+      continue;
+    }
+    order.push(row.mint);
+    byMint.set(row.mint, { ...row });
+  }
+  return order.map((mint) => byMint.get(mint)!);
+}
+
+function renderReceivePoolDeductionRow(
+  row: QuoteReceivePoolDeductionItem,
+  amtCls: string,
+): string {
+  const symCls = tokenSymColorClass(row.mint, row.sym);
+  return `<span class="swap-quote-summary-fee-part swap-quote-summary-fee-part--pool">
+        <span class="swap-quote-summary-amt swap-quote-summary-amt--pool-deduct${amtCls}">${deps.escapeHtml(deps.formatFeeStackAmount(row.ui))}</span>
+        <span class="swap-quote-summary-sym swap-quote-summary-amt--pool-deduct ${symCls}">${deps.escapeHtml(row.sym)}</span><span class="swap-quote-summary-fee-kind swap-quote-summary-fee-kind--pool">${deps.escapeHtml(row.detailLabel)}</span>
+      </span>`;
+}
+
+function renderReceivePoolDeductionTooltip(
+  stack: QuoteReceivePoolDeductionItem[],
+  amtCls: string,
+): string {
+  const rows = stack.map((row) => renderReceivePoolDeductionRow(row, amtCls));
+  return `<span class="swap-quote-summary-fee-tip" role="tooltip">${rows.join('')}</span>`;
+}
+
+function renderReceivePoolDeductionSummaryPart(
+  row: QuoteReceivePoolDeductionItem,
+  amtCls: string,
+): string {
+  const symCls = tokenSymColorClass(row.mint, row.sym);
+  return `<span class="swap-quote-summary-pool-part">
+        <span class="swap-quote-summary-sub-amt swap-quote-summary-amt--pool-deduct${amtCls}">${deps.escapeHtml(deps.formatFeeStackAmount(row.ui))}</span>
+        <span class="swap-quote-summary-sym swap-quote-summary-amt--pool-deduct ${symCls}">${deps.escapeHtml(row.sym)}</span>
+      </span>`;
+}
+
+function renderQuoteReceiveHeroSubPoolHtml(
+  quote: Record<string, unknown> | null,
+  placeholder = false,
+): string | null {
+  const stack = quote ? getQuoteReceivePoolDeductionStack(quote) : [];
+  const tooltipStack = quote ? getQuoteReceivePoolDeductionNativeStack(quote) : [];
+  const summaryRows = aggregateQuoteReceivePoolDeductionByMint(stack);
+  const hasPool = summaryRows.length > 0;
+  if (!hasPool && !placeholder) return null;
+
+  const subCls = placeholder ? ' swap-quote-summary-sub-amt--placeholder' : '';
+  const poolLabel = 'deducted from pool';
+
+  if (!hasPool) {
+    return `<span class="swap-quote-summary-sub-pool${subCls}">
+        <span class="swap-quote-summary-sub-amt swap-quote-summary-amt--pool-deduct">—</span>
+        <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(poolLabel)}</span>
+      </span>`;
+  }
+
+  const summaryParts = summaryRows.map((row, i) => {
+    const part = renderReceivePoolDeductionSummaryPart(row, subCls);
+    return i === 0 ? part : `<span class="swap-quote-summary-plus">+</span>${part}`;
+  });
+  const tipHtml = renderReceivePoolDeductionTooltip(tooltipStack, subCls);
+  const tipTitle = tooltipStack
+    .map((row) => `${deps.formatFeeStackAmount(row.ui)} ${row.sym} ${row.detailLabel}`)
+    .join(', ');
+  const summaryText = summaryRows
+    .map((row) => `${deps.formatFeeStackAmount(row.ui)} ${row.sym}`)
+    .join(' + ');
+
+  return `<span class="swap-quote-summary-sub-pool${subCls}">
+      ${summaryParts.join('')}
+      <span class="swap-quote-summary-fee-trigger swap-quote-summary-fee-trigger--has-tip swap-quote-summary-fee-trigger--pool" tabindex="0" aria-label="${deps.escapeHtml(`${summaryText} ${poolLabel}: ${tipTitle}`)}">
+        <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(poolLabel)}</span>
+        ${tipHtml}
+      </span>
+    </span>`;
+}
+
+function renderQuotePayHeroSubPlaceholderHtml(inSym: string): string {
+  const inMint = deps.getFormInputMint().trim();
+  const subCls = ' swap-quote-summary-sub-amt--placeholder';
+  const symCls = tokenSymColorClass(inMint, inSym);
+  const totalHtml = `<span class="swap-quote-summary-sub-total${subCls}">
+      <span class="swap-quote-summary-sub-amt">—</span>
+      <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(inSym)}</span>
+      <span class="swap-quote-summary-sub-total-label">total</span>
+    </span>`;
+  const usdRow = `<span class="swap-quote-summary-sub-amt${subCls}">≈ —</span>
+      <span class="swap-quote-summary-fee-trigger">
+        <span class="swap-quote-summary-fee-count">(includes — fees paid)</span>
+      </span>`;
+  return wrapQuotePayHeroSubStack(totalHtml, usdRow);
+}
+
+/** You receive hero sub-label — per-hop pool deductions and USD estimate. */
+export function renderQuoteReceiveHeroSubHtml(
+  quote: Record<string, unknown> | null,
+  _outSym: string,
+  placeholder = false,
+): string | null {
+  const poolHtml = renderQuoteReceiveHeroSubPoolHtml(quote, placeholder);
+
+  const receiveUsd = quote ? deps.getQuoteReceiveUsd(quote) : null;
+  const reclaimUsd =
+    quote != null
+      ? (() => {
+          const enriched = quote._youReceive as { reclaimUsd?: number } | undefined;
+          return enriched && Number.isFinite(enriched.reclaimUsd)
+            ? Number(enriched.reclaimUsd)
+            : sumInputQuoteRentReclaimUsd(quote);
+        })()
+      : 0;
+
+  const subCls = placeholder ? ' swap-quote-summary-sub-amt--placeholder' : '';
+  let usdRow = '';
+  if (receiveUsd != null && receiveUsd > 0) {
+    const label = deps.formatSwapReceiveUsdLabel(receiveUsd);
+    if (label) {
+      usdRow = `<span class="swap-quote-summary-sub-amt${subCls}">≈ ${deps.escapeHtml(label)}</span>`;
+    }
+    if (reclaimUsd > 0.001) {
+      const reclaimLabel = deps.formatSwapReceiveUsdLabel(reclaimUsd);
+      if (reclaimLabel) {
+        usdRow += `<span class="swap-quote-summary-sub-reclaim"> + ${deps.escapeHtml(reclaimLabel)} reclaim</span>`;
+      }
+    }
+  } else if (placeholder) {
+    usdRow = `<span class="swap-quote-summary-sub-amt${subCls}">≈ —</span>`;
+  }
+
+  const rows: string[] = [];
+  if (poolHtml) rows.push(`<span class="swap-quote-summary-sub-row">${poolHtml}</span>`);
+  if (usdRow) rows.push(`<span class="swap-quote-summary-sub-row">${usdRow}</span>`);
+  if (rows.length === 0) return null;
+  return rows.length === 1 ? rows[0]! : `<span class="swap-quote-summary-sub-stack">${rows.join('')}</span>`;
 }
 
 /** Sub-label under You receive — pool output USD plus input rent reclaim when present. */
@@ -4298,6 +4667,23 @@ function routingCanvasHopClass(hopCount: number): string {
   return '';
 }
 
+function renderRoutingDiagramLegend(): string {
+  const items: Array<{ swatch: string; label: string }> = [
+    { swatch: 'routing-legend__swatch--retention-in', label: 'Input retention' },
+    { swatch: 'routing-legend__swatch--retention-out', label: 'Output retention' },
+    { swatch: 'routing-legend__swatch--pool-fee', label: 'Pool-side fee' },
+    { swatch: 'routing-legend__swatch--wallet-fee', label: 'Wallet fee' },
+    { swatch: 'routing-legend__swatch--refundable-rent', label: 'Refundable rent' },
+  ];
+  const rows = items
+    .map(
+      (item) =>
+        `<li class="routing-legend__item"><span class="routing-legend__swatch ${item.swatch}" aria-hidden="true"></span><span class="routing-legend__label">${deps.escapeHtml(item.label)}</span></li>`,
+    )
+    .join('');
+  return `<div class="routing-legend" aria-label="Diagram color key"><ul class="routing-legend__list">${rows}</ul></div>`;
+}
+
 function renderRoutingFrame(
   inDisplay: string,
   inSym: string,
@@ -4399,6 +4785,7 @@ function renderRoutingFrame(
         <div class="routing-track-wrap">${body}</div>
       </div>
     </div>
+    ${renderRoutingDiagramLegend()}
   </div>`;
 }
 

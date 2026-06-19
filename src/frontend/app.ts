@@ -103,7 +103,7 @@ import {
   renderQuotePayHeroValueHtml,
   renderQuotePayHeroSubHtml,
   renderQuoteReceiveHeroValueHtml,
-  getQuoteYouReceiveSubLabel,
+  renderQuoteReceiveHeroSubHtml,
   renderRouteViaTradesLogHtml,
   type EnumeratedRoutesUiState,
 } from './route-ui.js';
@@ -3251,12 +3251,26 @@ function renderQuoteSummaryPlaceholder(loading = false): string {
   );
   const paySubHtml =
     lastSwapQuoteOk && hasPay
-      ? renderQuotePayHeroSubHtml(lastSwapQuoteOk, inSym, !hasPay)
-      : null;
+      ? renderQuotePayHeroSubHtml(lastSwapQuoteOk, inSym, false)
+      : renderQuotePayHeroSubHtml(null, inSym, true);
+  const hasReceive =
+    lastSwapQuoteOk != null && formatQuoteTokenAmount(lastSwapQuoteOk, 'out').display !== '—';
+  const receiveAmt = hasReceive ? formatQuoteTokenAmount(lastSwapQuoteOk!, 'out').display : '—';
+  const receiveValueHtml = renderQuoteReceiveHeroValueHtml(
+    lastSwapQuoteOk,
+    outSym,
+    hasReceive ? receiveAmt : '—',
+    !hasReceive,
+    loading && !hasReceive,
+  );
+  const receiveSubHtml =
+    lastSwapQuoteOk && hasReceive
+      ? renderQuoteReceiveHeroSubHtml(lastSwapQuoteOk, outSym, false)
+      : renderQuoteReceiveHeroSubHtml(null, outSym, true);
   return `<div class="swap-quote-summary-primary" data-quote-placeholder="true">
       ${renderQuoteSummaryHeroTile('You pay', hasPay ? payAmt : '—', inSym, 'pay', inMint, paySub, !hasPay, loading && !hasPay, payValueHtml, paySubHtml)}
       <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
-      ${renderQuoteSummaryHeroTile('You receive', '—', outSym, 'receive', outMint, '≈ —', true, loading)}
+      ${renderQuoteSummaryHeroTile('You receive', hasReceive ? receiveAmt : '—', outSym, 'receive', outMint, null, !hasReceive, loading && !hasReceive, receiveValueHtml, receiveSubHtml)}
     </div>`;
 }
 
@@ -3275,14 +3289,14 @@ function renderQuoteSummary(quote: Record<string, unknown>): string {
   const payValueHtml = renderQuotePayHeroValueHtml(quote, inSym, payAmt);
   const paySubHtml = renderQuotePayHeroSubHtml(quote, inSym);
   const receiveValueHtml = renderQuoteReceiveHeroValueHtml(quote, outSym, outAmt.display);
-  const receiveSub = getQuoteYouReceiveSubLabel(quote);
+  const receiveSubHtml = renderQuoteReceiveHeroSubHtml(quote, outSym, false);
   const simWarn = getSimulationOutputWarning(quote);
   const warnHtml = renderRouteWarningsHtml(quote, outSym) || (simWarn ? renderSimulationOutputWarningHtml(simWarn, outSym) : '');
 
   return `<div class="swap-quote-summary-primary">
       ${renderQuoteSummaryHeroTile('You pay', payAmt, inSym, 'pay', inMint, paySub, false, false, payValueHtml, paySubHtml)}
       <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
-      ${renderQuoteSummaryHeroTile('You receive', outAmt.display, outSym, 'receive', outMint, receiveSub, false, false, receiveValueHtml)}
+      ${renderQuoteSummaryHeroTile('You receive', outAmt.display, outSym, 'receive', outMint, null, false, false, receiveValueHtml, receiveSubHtml)}
     </div>${warnHtml}`;
 }
 

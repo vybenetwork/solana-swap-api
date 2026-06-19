@@ -2354,14 +2354,122 @@ tr:hover td {
   color: #f87171;
 }
 
+.swap-quote-summary-amt--rent {
+  color: #fbbf24;
+}
+
+.swap-quote-summary-fee-part--rent .swap-quote-summary-fee-kind {
+  color: #fbbf24;
+}
+
+.swap-quote-summary-fee-part--wallet .swap-quote-summary-fee-kind {
+  color: #f87171;
+}
+
 .swap-quote-summary-sub {
+  display: flex;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 0.12rem;
+  font-size: 0.7rem;
+  color: #71717a;
+  margin-top: 0.1rem;
+  width: 100%;
+}
+
+.swap-quote-summary-sub-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.14rem;
+  width: 100%;
+}
+
+.swap-quote-summary-sub-row {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
   gap: 0.25rem 0.35rem;
-  font-size: 0.7rem;
+}
+
+.swap-quote-summary-sub-total {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.22rem 0.3rem;
+  line-height: 1.2;
+}
+
+.swap-quote-summary-sub-total .swap-quote-summary-sub-amt {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #fafafa;
+}
+
+.swap-quote-summary-sub-total .swap-quote-summary-sym {
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.swap-quote-summary-sub-total-label {
+  font-size: 0.52rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   color: #71717a;
-  margin-top: 0.1rem;
+}
+
+.swap-quote-summary-sub-pool {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.22rem 0.3rem;
+  line-height: 1.2;
+}
+
+.swap-quote-summary-pool-part {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.15rem 0.2rem;
+}
+
+.swap-quote-summary-sub-pool .swap-quote-summary-plus {
+  color: #71717a;
+  font-size: 0.62rem;
+  font-weight: 500;
+}
+
+.swap-quote-summary-amt--pool-deduct,
+.swap-quote-summary-sub-pool .swap-quote-summary-sym.swap-quote-summary-amt--pool-deduct {
+  color: #fb923c;
+}
+
+.swap-quote-summary-sub-pool-label {
+  font-size: 0.52rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: #fb923c;
+  text-decoration: underline dotted;
+  text-underline-offset: 0.12em;
+}
+
+.swap-quote-summary-fee-trigger--pool .swap-quote-summary-sub-pool-label {
+  cursor: help;
+}
+
+.swap-quote-summary-fee-part--pool .swap-quote-summary-fee-kind--pool {
+  color: #fb923c;
+}
+
+.swap-quote-summary-sub-reclaim {
+  font-size: 0.62rem;
+  font-weight: 500;
+  color: #4ade80;
+}
+
+.swap-quote-summary-tile--hero .swap-quote-summary-sub-row,
+.swap-quote-summary-tile--hero .swap-quote-summary-sub-amt:not(.swap-quote-summary-sub-total .swap-quote-summary-sub-amt) {
+  color: #86efac;
 }
 
 .swap-quote-summary-sub-amt {
@@ -2827,8 +2935,73 @@ tr:hover td {
 
 /* Jupiter-style horizontal routing diagram */
 .routing-canvas.routing-canvas--flow {
+  position: relative;
   display: block;
   min-width: max(100%, 520px);
+  padding-bottom: 1.85rem;
+}
+
+.routing-legend {
+  position: absolute;
+  left: 0.2rem;
+  bottom: 2.75rem;
+  z-index: 6;
+  pointer-events: none;
+}
+
+.routing-legend__list {
+  list-style: none;
+  margin: 0;
+  padding: 0.32rem 0.42rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  border-radius: 8px;
+  border: 1px solid #27272a;
+  background: rgba(9, 9, 11, 0.92);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+}
+
+.routing-legend__item {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-width: 0;
+}
+
+.routing-legend__swatch {
+  flex: 0 0 auto;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 2px;
+}
+
+.routing-legend__swatch--retention-in {
+  background: #86efac;
+}
+
+.routing-legend__swatch--retention-out {
+  background: #93c5fd;
+}
+
+.routing-legend__swatch--pool-fee {
+  background: #fb923c;
+}
+
+.routing-legend__swatch--wallet-fee {
+  background: #f87171;
+}
+
+.routing-legend__swatch--refundable-rent {
+  background: #fbbf24;
+}
+
+.routing-legend__label {
+  font-size: 0.5rem;
+  font-weight: 500;
+  line-height: 1.2;
+  color: #a1a1aa;
+  white-space: nowrap;
 }
 
 .routing-canvas--hops-2.routing-canvas--flow {
