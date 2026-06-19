@@ -3017,17 +3017,24 @@ function getQuoteDiagramWalletFeesUsdLabel(quote: Record<string, unknown>): stri
   return formatHopFeeUsdTotalDisplay(netUsd);
 }
 
+/** Append "+ $X reclaim" to a USD label so the diagram output matches the You-receive hero. */
+function appendOutputReclaimLabel(base: string, reclaimUsd: number): string {
+  if (!(reclaimUsd > 0.001)) return base;
+  const reclaimLabel = deps.formatSwapReceiveUsdLabel(reclaimUsd);
+  return reclaimLabel ? `${base} + ${reclaimLabel} reclaim` : base;
+}
+
 function getQuoteDiagramOutputUsdSubline(quote: Record<string, unknown>): string | null {
   const ui = quote._swapUiUsd as { outputSwapUsd?: number; outputReclaimUsd?: number } | undefined;
   if (ui?.outputSwapUsd != null && Number(ui.outputSwapUsd) > 0) {
     const label = deps.formatSwapReceiveUsdLabel(Number(ui.outputSwapUsd));
-    return label ? `≈ ${label}` : null;
+    return label ? appendOutputReclaimLabel(`≈ ${label}`, Number(ui.outputReclaimUsd ?? 0)) : null;
   }
 
   const swapUsd = deps.getQuoteReceiveUsd(quote);
   if (swapUsd != null && swapUsd > 0) {
     const label = deps.formatSwapReceiveUsdLabel(swapUsd);
-    return label ? `≈ ${label}` : null;
+    return label ? appendOutputReclaimLabel(`≈ ${label}`, sumQuoteRentReclaimUsd(quote)) : null;
   }
   const reclaimUsd = sumQuoteRentReclaimUsd(quote);
   if (reclaimUsd > 0) {
