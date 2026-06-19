@@ -1991,7 +1991,18 @@ function countPayHeroCostStackItems(stack: QuotePayHeroCostStackItem[]): number 
 }
 
 function formatPayHeroFeeCountLabel(count: number): string {
-  return count === 1 ? '1 fee' : `${count} fees`;
+  return count === 1 ? '1 Fee' : `${count} Fees`;
+}
+
+function formatReceivePoolFeeCountLabel(count: number): string {
+  if (count <= 0) return '· Fees';
+  return count === 1 ? '1 Fee' : `${count} Fees`;
+}
+
+function countQuoteReceivePoolFees(quote: Record<string, unknown>): number {
+  const nativeCount = getQuoteReceivePoolDeductionNativeStack(quote).length;
+  if (nativeCount > 0) return nativeCount;
+  return getQuoteReceivePoolDeductionStack(quote).length;
 }
 
 function formatPayHeroCostDisplay(ui: number): string {
@@ -2048,26 +2059,42 @@ function renderPayHeroUsdFeeTooltip(
   return `<span class="swap-quote-summary-fee-tip" role="tooltip">${rows.join('')}</span>`;
 }
 
-function renderQuotePayHeroSubTotalSolHtml(
+function renderQuotePayHeroBreakdownHtml(
   quote: Record<string, unknown>,
   inSym: string,
   placeholder = false,
 ): string | null {
-  const totalAmt = getQuoteWalletPayLabelFromQuote(quote);
-  if (totalAmt === '—') return null;
-  const mint = quoteInputMint(quote) ?? '';
+  const swapAmt = getQuoteSwapLegLabelFromQuote(quote);
+  if (swapAmt === '—') return null;
+  const stack = getQuotePayHeroCostStack(quote, inSym);
+  if (stack.length === 0) return null;
+
+  const inputMint = quoteInputMint(quote) ?? '';
   const subCls = placeholder ? ' swap-quote-summary-sub-amt--placeholder' : '';
-  const symCls = tokenSymColorClass(mint, inSym);
-  return `<span class="swap-quote-summary-sub-total${subCls}">
-      <span class="swap-quote-summary-sub-amt">${deps.escapeHtml(totalAmt)}</span>
+  const symCls = tokenSymColorClass(inputMint, inSym);
+  const feeCount = countPayHeroCostStackItems(stack);
+  const feeLabel = formatPayHeroFeeCountLabel(feeCount);
+  const tipHtml = renderPayHeroFeeTooltip(stack, subCls);
+  const tipTitle = stack
+    .map((row) => `${formatPayHeroCostDisplay(row.ui)} ${row.sym} ${payHeroCostRowDetailLabel(row)}`)
+    .join(', ');
+
+  return `<span class="swap-quote-summary-sub-breakdown">
+      <span class="swap-quote-summary-sub-amt${subCls}">${deps.escapeHtml(swapAmt)}</span>
       <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(inSym)}</span>
-      <span class="swap-quote-summary-sub-total-label">total</span>
+      <span class="swap-quote-summary-plus">+</span>
+      <span class="swap-quote-summary-fee-trigger swap-quote-summary-fee-trigger--has-tip" tabindex="0" aria-label="${deps.escapeHtml(tipTitle)}">
+        <span class="swap-quote-summary-fee-count">${deps.escapeHtml(feeLabel)}</span>
+        ${tipHtml}
+      </span>
     </span>`;
 }
 
-function wrapQuotePayHeroSubStack(totalSolHtml: string | null, usdRowHtml: string): string {
-  if (!totalSolHtml) return usdRowHtml;
-  return `<span class="swap-quote-summary-sub-stack">${totalSolHtml}<span class="swap-quote-summary-sub-row">${usdRowHtml}</span></span>`;
+function wrapQuotePayHeroSubStack(breakdownHtml: string | null, usdRowHtml: string): string {
+  const rows: string[] = [];
+  if (breakdownHtml) rows.push(breakdownHtml);
+  rows.push(`<span class="swap-quote-summary-sub-row">${usdRowHtml}</span>`);
+  return rows.length === 1 ? rows[0]! : `<span class="swap-quote-summary-sub-stack">${rows.join('')}</span>`;
 }
 
 /** You pay hero USD sub-label — total plus compact fee count with hover breakdown. */
@@ -2079,16 +2106,18 @@ export function renderQuotePayHeroSubHtml(
   if (!quote && placeholder) return renderQuotePayHeroSubPlaceholderHtml(inSym);
   if (!quote) return null;
   const breakdown = resolveQuoteYouPayUsd(quote);
-  if (!breakdown) return renderQuotePayHeroSubTotalSolHtml(quote, inSym, placeholder);
+  const tokenStack = getQuotePayHeroCostStack(quote, inSym);
+  const breakdownHtml = renderQuotePayHeroBreakdownHtml(quote, inSym, placeholder);
+  if (!breakdown) {
+    return breakdownHtml;
+  }
 
   const subCls = placeholder ? ' swap-quote-summary-sub-amt--placeholder' : '';
   const totalLabel = `$${deps.formatSwapPayUsdAmount(breakdown.totalUsd)}`;
   const approxPrefix = '≈ ';
-  const totalSolHtml = renderQuotePayHeroSubTotalSolHtml(quote, inSym, placeholder);
-  const tokenStack = getQuotePayHeroCostStack(quote, inSym);
   if (tokenStack.length === 0) {
     const usdRow = `<span class="swap-quote-summary-sub-amt${subCls}">${deps.escapeHtml(`${approxPrefix}${totalLabel}`)}</span>`;
-    return wrapQuotePayHeroSubStack(totalSolHtml, usdRow);
+    return wrapQuotePayHeroSubStack(breakdownHtml, usdRow);
   }
 
   const feeCount = countPayHeroCostStackItems(tokenStack);
@@ -2112,7 +2141,7 @@ export function renderQuotePayHeroSubHtml(
         <span class="swap-quote-summary-fee-count">${deps.escapeHtml(includesLabel)}</span>
         ${tipHtml}
       </span>`;
-  return wrapQuotePayHeroSubStack(totalSolHtml, usdRow);
+  return wrapQuotePayHeroSubStack(breakdownHtml, usdRow);
 }
 
 /** You pay hero value HTML — swap leg plus stacked fee / rent after +. */
@@ -2144,20 +2173,10 @@ export function renderQuotePayHeroValueHtml(
         <span class="swap-quote-summary-sym ${inputSymCls}">${deps.escapeHtml(inSym)}</span>`;
   }
 
-  const feeCount = countPayHeroCostStackItems(stack);
-  const feeLabel = formatPayHeroFeeCountLabel(feeCount);
-  const tipHtml = renderPayHeroFeeTooltip(stack, amtCls);
-  const tipTitle = stack
-    .map((row) => `${formatPayHeroCostDisplay(row.ui)} ${row.sym} ${payHeroCostRowDetailLabel(row)}`)
-    .join(', ');
-
-  return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(swapAmt)}</span>
+  const totalAmt = quote ? getQuoteWalletPayLabelFromQuote(quote) : fallbackAmt;
+  return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(totalAmt)}</span>
       <span class="swap-quote-summary-sym ${inputSymCls}">${deps.escapeHtml(inSym)}</span>
-      <span class="swap-quote-summary-plus">+</span>
-      <span class="swap-quote-summary-fee-trigger swap-quote-summary-fee-trigger--has-tip" tabindex="0" aria-label="${deps.escapeHtml(tipTitle)}">
-        <span class="swap-quote-summary-fee-count">${deps.escapeHtml(feeLabel)}</span>
-        ${tipHtml}
-      </span>`;
+      <span class="swap-quote-summary-hero-total-label">total</span>`;
 }
 
 export interface QuoteReceiveHeroReclaimItem {
@@ -2498,13 +2517,15 @@ function renderQuoteReceiveHeroSubPoolHtml(
   const subCls = placeholder ? ' swap-quote-summary-sub-amt--placeholder' : '';
   const symCls = tokenSymColorClass(outMint, outSym);
   const display = grossLabel ?? '—';
-  const qualifierLabel = '(without deductions)';
+  const feeCount = quote && !placeholder ? countQuoteReceivePoolFees(quote) : 0;
+  const feeLabel = formatReceivePoolFeeCountLabel(feeCount);
 
   if (!hasPool) {
     return `<span class="swap-quote-summary-sub-total${subCls}">
         <span class="swap-quote-summary-sub-amt">${deps.escapeHtml(display)}</span>
         <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(outSym)}</span>
-        <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(qualifierLabel)}</span>
+        <span class="swap-quote-summary-minus">−</span>
+        <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(feeLabel)}</span>
       </span>`;
   }
 
@@ -2512,13 +2533,14 @@ function renderQuoteReceiveHeroSubPoolHtml(
   const tipTitle = tooltipStack
     .map((row) => `${deps.formatFeeStackAmount(row.ui)} ${row.sym} ${row.detailLabel}`)
     .join(', ');
-  const summaryText = `${display} ${outSym} ${qualifierLabel}`;
+  const summaryText = `${display} ${outSym} − ${feeLabel}`;
 
   return `<span class="swap-quote-summary-sub-total${subCls}">
       <span class="swap-quote-summary-sub-amt">${deps.escapeHtml(display)}</span>
       <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(outSym)}</span>
+      <span class="swap-quote-summary-minus">−</span>
       <span class="swap-quote-summary-fee-trigger swap-quote-summary-fee-trigger--has-tip swap-quote-summary-fee-trigger--pool" tabindex="0" aria-label="${deps.escapeHtml(`${summaryText}: ${tipTitle}`)}">
-        <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(qualifierLabel)}</span>
+        <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(feeLabel)}</span>
         ${tipHtml}
       </span>
     </span>`;
@@ -2528,16 +2550,19 @@ function renderQuotePayHeroSubPlaceholderHtml(inSym: string): string {
   const inMint = deps.getFormInputMint().trim();
   const subCls = ' swap-quote-summary-sub-amt--placeholder';
   const symCls = tokenSymColorClass(inMint, inSym);
-  const totalHtml = `<span class="swap-quote-summary-sub-total${subCls}">
-      <span class="swap-quote-summary-sub-amt">—</span>
+  const breakdownHtml = `<span class="swap-quote-summary-sub-breakdown">
+      <span class="swap-quote-summary-sub-amt${subCls}">·</span>
       <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(inSym)}</span>
-      <span class="swap-quote-summary-sub-total-label">total</span>
-    </span>`;
-  const usdRow = `<span class="swap-quote-summary-sub-amt${subCls}">≈ —</span>
+      <span class="swap-quote-summary-plus">+</span>
       <span class="swap-quote-summary-fee-trigger">
-        <span class="swap-quote-summary-fee-count">(includes — fees paid)</span>
+        <span class="swap-quote-summary-fee-count">· Fees</span>
+      </span>
+    </span>`;
+  const usdRow = `<span class="swap-quote-summary-sub-amt${subCls}">≈ ·</span>
+      <span class="swap-quote-summary-fee-trigger">
+        <span class="swap-quote-summary-fee-count">(includes · fees paid)</span>
       </span>`;
-  return wrapQuotePayHeroSubStack(totalHtml, usdRow);
+  return wrapQuotePayHeroSubStack(breakdownHtml, usdRow);
 }
 
 /** You receive hero sub-label — per-hop pool deductions and USD estimate. */

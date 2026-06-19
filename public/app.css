@@ -2250,6 +2250,12 @@ tr:hover td {
   color: #71717a;
 }
 
+.swap-quote-summary-minus {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #71717a;
+}
+
 .swap-quote-summary-fee-trigger {
   position: relative;
   display: inline-flex;
@@ -2427,6 +2433,31 @@ tr:hover td {
   color: #71717a;
 }
 
+.swap-quote-summary-sub-breakdown {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.22rem 0.3rem;
+  line-height: 1.2;
+}
+
+.swap-quote-summary-sub-breakdown .swap-quote-summary-sub-amt {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #fafafa;
+}
+
+.swap-quote-summary-sub-breakdown .swap-quote-summary-sym {
+  font-size: 0.62rem;
+  font-weight: 700;
+}
+
+.swap-quote-summary-sub-breakdown .swap-quote-summary-plus {
+  color: #71717a;
+  font-size: 0.62rem;
+  font-weight: 500;
+}
+
 .swap-quote-summary-sub-pool {
   display: inline-flex;
   align-items: baseline;
@@ -2441,7 +2472,9 @@ tr:hover td {
   gap: 0.15rem 0.2rem;
 }
 
-.swap-quote-summary-sub-pool .swap-quote-summary-plus {
+.swap-quote-summary-sub-pool .swap-quote-summary-plus,
+.swap-quote-summary-sub-pool .swap-quote-summary-minus,
+.swap-quote-summary-sub-total .swap-quote-summary-minus {
   color: #71717a;
   font-size: 0.62rem;
   font-weight: 500;
@@ -2453,12 +2486,11 @@ tr:hover td {
 }
 
 .swap-quote-summary-sub-pool-label {
-  font-size: 0.52rem;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: #fb923c;
   text-decoration: underline dotted;
   text-underline-offset: 0.12em;
+  font-size: 0.6rem;
+  font-weight: 300;
+  color: #f87171;
 }
 
 .swap-quote-summary-fee-trigger--pool .swap-quote-summary-sub-pool-label {
