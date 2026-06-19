@@ -2242,6 +2242,74 @@ tr:hover td {
   color: #71717a;
 }
 
+.swap-quote-summary-fee-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+}
+
+.swap-quote-summary-fee-trigger--has-tip {
+  cursor: help;
+}
+
+.swap-quote-summary-fee-trigger--has-tip:hover,
+.swap-quote-summary-fee-trigger--has-tip:focus-within {
+  z-index: 40;
+}
+
+.swap-quote-summary-fee-trigger--has-tip:focus-visible {
+  outline: 1px solid rgba(248, 113, 113, 0.55);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.swap-quote-summary-fee-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #f87171;
+  border-bottom: 1px dotted rgba(248, 113, 113, 0.45);
+  line-height: 1.2;
+}
+
+.swap-quote-summary-fee-tip {
+  display: none;
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  min-width: 9rem;
+  padding: 0.45rem 0.55rem;
+  border-radius: 8px;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.28rem;
+  pointer-events: none;
+  text-align: left;
+  isolation: isolate;
+}
+
+.swap-quote-summary-fee-trigger--has-tip:hover .swap-quote-summary-fee-tip,
+.swap-quote-summary-fee-trigger--has-tip:focus-visible .swap-quote-summary-fee-tip,
+.swap-quote-summary-fee-trigger--has-tip:focus-within .swap-quote-summary-fee-tip {
+  display: flex;
+}
+
+.swap-quote-summary-fee-tip .swap-quote-summary-fee-part {
+  white-space: nowrap;
+}
+
+.swap-quote-summary-fee-tip .swap-quote-summary-amt {
+  font-size: 0.7rem;
+}
+
+.swap-quote-summary-fee-tip .swap-quote-summary-sym {
+  font-size: 0.4rem;
+}
+
 .swap-quote-summary-fee-stack {
   display: inline-flex;
   flex-direction: column;
@@ -2249,7 +2317,7 @@ tr:hover td {
   gap: 0.05rem;
 }
 
-.swap-quote-summary-tile--pay .swap-quote-summary-value:has(.swap-quote-summary-fee-stack) {
+.swap-quote-summary-tile--pay .swap-quote-summary-value:has(.swap-quote-summary-fee-trigger) {
   align-items: center;
 }
 
@@ -2287,13 +2355,42 @@ tr:hover td {
 }
 
 .swap-quote-summary-sub {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.35rem;
   font-size: 0.7rem;
   color: #71717a;
   margin-top: 0.1rem;
 }
 
+.swap-quote-summary-sub-amt {
+  font-variant-numeric: tabular-nums;
+}
+
+.swap-quote-summary-sub-amt--placeholder {
+  color: #52525b;
+}
+
 .swap-quote-summary-tile--hero .swap-quote-summary-sub {
   color: #86efac;
+}
+
+.swap-quote-summary-sub .swap-quote-summary-fee-count {
+  font-size: 0.6rem;
+  font-weight: 300;
+  color: #f87171;
+}
+
+.swap-quote-summary-sub .swap-quote-summary-fee-trigger--has-tip:hover,
+.swap-quote-summary-sub .swap-quote-summary-fee-trigger--has-tip:focus-within {
+  z-index: 40;
+}
+
+.swap-quote-summary-sub .swap-quote-summary-fee-tip {
+  top: calc(100% + 0.3rem);
+  left: 0;
+  transform: none;
 }
 
 .swap-quote-summary-amt--placeholder {
@@ -3730,7 +3827,7 @@ tr:hover td {
 
 .routing-chip-stack--fee-token-acc-rent .routing-chip-amt--usd,
 .routing-chip-stack--fee-pda-rent .routing-chip-amt--usd {
-  color: #fde68a;
+  color: #fbbf24;
 }
 
 .routing-chip-stack {
@@ -3818,9 +3915,12 @@ tr:hover td {
 
 .routing-chip-stack--fee-protocol .routing-chip-amt,
 .routing-chip-stack--fee-route .routing-chip-amt,
-.routing-chip-stack--fee-pool .routing-chip-amt,
 .routing-chip-stack--fee .routing-chip-amt {
   color: #fca5a5;
+}
+
+.routing-chip-stack--fee-pool-deduct .routing-chip-amt {
+  color: #fdba74;
 }
 
 .routing-chip-top--fee-label {
@@ -3841,8 +3941,8 @@ tr:hover td {
   color: #f87171;
 }
 
-.routing-chip-stack--fee-pool .routing-chip-top--fee-label {
-  color: #f87171;
+.routing-chip-stack--fee-pool-deduct .routing-chip-top--fee-label {
+  color: #fb923c;
 }
 
 .routing-chip-stack--fee .routing-chip-top--fee-label {
@@ -3867,10 +3967,12 @@ tr:hover td {
 
 .routing-chip-stack--fee-protocol .routing-chip-amt--usd,
 .routing-chip-stack--fee-route .routing-chip-amt--usd,
-.routing-chip-stack--fee-pool .routing-chip-amt--usd,
-.routing-chip-stack--fee-creator .routing-chip-amt--usd,
-.routing-chip-stack--fee-token-acc-rent .routing-chip-amt--usd {
+.routing-chip-stack--fee-creator .routing-chip-amt--usd {
   color: #f87171;
+}
+
+.routing-chip-stack--fee-pool-deduct .routing-chip-amt--usd {
+  color: #fb923c;
 }
 
 .routing-chip-stack--fee .routing-chip-amt--usd {
@@ -4297,9 +4399,12 @@ tr:hover td {
 
 .hop-fee-row--fee-protocol .hop-fee-row__label,
 .hop-fee-row--fee-route .hop-fee-row__label,
-.hop-fee-row--fee-pool .hop-fee-row__label,
 .hop-fee-row--fee-creator .hop-fee-row__label {
   color: #f87171;
+}
+
+.hop-fee-row--fee-pool-deduct .hop-fee-row__label {
+  color: #fb923c;
 }
 
 .hop-fee-row--fee-token-acc-rent .hop-fee-row__label {
@@ -4422,6 +4527,14 @@ tr:hover td {
 
 .hop-fee-row__usd--debit {
   color: #f87171;
+}
+
+.hop-fee-row--fee-pool-deduct .hop-fee-row__usd--debit {
+  color: #fb923c;
+}
+
+.hop-fee-row--fee-pool-deduct .hop-fee-row__amt-val {
+  color: #fb923c;
 }
 
 .hop-fee-row__usd--credit {
