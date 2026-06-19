@@ -2395,8 +2395,25 @@ tr:hover td {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.14rem;
+  gap: 0.34rem;
   width: 100%;
+}
+
+.swap-quote-summary-sub-bracketed {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.18rem 0.22rem;
+  line-height: 1.2;
+  max-width: 100%;
+}
+
+.swap-quote-summary-sub-bracket {
+  flex: 0 0 auto;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #fafafa;
+  line-height: 1.2;
 }
 
 .swap-quote-summary-sub-row {
@@ -2501,6 +2518,11 @@ tr:hover td {
   color: #fb923c;
 }
 
+.swap-quote-summary-fee-part--pool .swap-quote-summary-fee-kind--pool-alt {
+  color: #fb923c;
+  font-weight: 500;
+}
+
 .swap-quote-summary-sub-reclaim {
   font-size: 0.62rem;
   font-weight: 500;
@@ -2508,8 +2530,12 @@ tr:hover td {
 }
 
 .swap-quote-summary-tile--hero .swap-quote-summary-sub-row,
-.swap-quote-summary-tile--hero .swap-quote-summary-sub-amt:not(.swap-quote-summary-sub-total .swap-quote-summary-sub-amt) {
+.swap-quote-summary-tile--hero .swap-quote-summary-sub-amt:not(.swap-quote-summary-sub-total .swap-quote-summary-sub-amt):not(.swap-quote-summary-sub-breakdown .swap-quote-summary-sub-amt) {
   color: #86efac;
+}
+
+.swap-quote-summary-tile--hero .swap-quote-summary-sub-breakdown .swap-quote-summary-sub-amt {
+  color: #fafafa;
 }
 
 .swap-quote-summary-sub-amt {

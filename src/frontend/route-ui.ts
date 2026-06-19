@@ -2059,6 +2059,10 @@ function renderPayHeroUsdFeeTooltip(
   return `<span class="swap-quote-summary-fee-tip" role="tooltip">${rows.join('')}</span>`;
 }
 
+function wrapQuoteSummarySubBracketed(contentHtml: string): string {
+  return `<span class="swap-quote-summary-sub-bracketed"><span class="swap-quote-summary-sub-bracket" aria-hidden="true">[</span>${contentHtml}<span class="swap-quote-summary-sub-bracket" aria-hidden="true">]</span></span>`;
+}
+
 function renderQuotePayHeroBreakdownHtml(
   quote: Record<string, unknown>,
   inSym: string,
@@ -2079,7 +2083,7 @@ function renderQuotePayHeroBreakdownHtml(
     .map((row) => `${formatPayHeroCostDisplay(row.ui)} ${row.sym} ${payHeroCostRowDetailLabel(row)}`)
     .join(', ');
 
-  return `<span class="swap-quote-summary-sub-breakdown">
+  return wrapQuoteSummarySubBracketed(`<span class="swap-quote-summary-sub-breakdown">
       <span class="swap-quote-summary-sub-amt${subCls}">${deps.escapeHtml(swapAmt)}</span>
       <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(inSym)}</span>
       <span class="swap-quote-summary-plus">+</span>
@@ -2087,7 +2091,7 @@ function renderQuotePayHeroBreakdownHtml(
         <span class="swap-quote-summary-fee-count">${deps.escapeHtml(feeLabel)}</span>
         ${tipHtml}
       </span>
-    </span>`;
+    </span>`);
 }
 
 function wrapQuotePayHeroSubStack(breakdownHtml: string | null, usdRowHtml: string): string {
@@ -2261,6 +2265,10 @@ export interface QuoteReceivePoolDeductionItem {
   sym: string;
   mint: string;
   detailLabel: string;
+  /** Hop/output-mint equivalent when the debited mint differs. */
+  altUi?: number;
+  altSym?: string;
+  altMint?: string;
 }
 
 /** Express one pool fee row in its hop's output mint UI (not rolled into final receive mint). */
@@ -2363,7 +2371,7 @@ export function getQuoteReceivePoolDeductionStack(
   return out;
 }
 
-/** Pool fees in the actual debited mint — for tooltip breakdown only. */
+/** Pool fees in the actual debited mint. */
 function getQuoteReceivePoolDeductionNativeStack(
   quote: Record<string, unknown>,
 ): QuoteReceivePoolDeductionItem[] {
@@ -2377,6 +2385,53 @@ function getQuoteReceivePoolDeductionNativeStack(
     }
   }
   return out;
+}
+
+/** Tooltip rows — hop output mint primary, native debited mint in brackets when different. */
+function getQuoteReceivePoolDeductionTooltipStack(
+  quote: Record<string, unknown>,
+): QuoteReceivePoolDeductionItem[] {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const out: QuoteReceivePoolDeductionItem[] = [];
+  for (const step of plan) {
+    for (const item of flattenHopFeeItems(getHopFeeBreakdown(step)?.items ?? [])) {
+      if (isAccRentFeeLabel(item.label)) continue;
+      const native = poolFeeItemNative(item, step, quote);
+      if (!native) continue;
+      const converted = poolFeeItemInHopOutMintUi(item, step, quote);
+      if (
+        converted &&
+        converted.ui > 0 &&
+        !routeLegMintMatches(converted.mint, native.mint)
+      ) {
+        out.push({
+          ui: converted.ui,
+          sym: converted.sym,
+          mint: converted.mint,
+          detailLabel: native.detailLabel,
+          altUi: native.ui,
+          altSym: native.sym,
+          altMint: native.mint,
+        });
+        continue;
+      }
+      out.push(native);
+    }
+  }
+  return out;
+}
+
+function formatReceivePoolDeductionTooltipAmount(row: QuoteReceivePoolDeductionItem): string {
+  const base = `${deps.formatFeeStackAmount(row.ui)} ${row.sym}`;
+  if (
+    row.altUi == null ||
+    !row.altSym ||
+    !row.altMint ||
+    routeLegMintMatches(row.altMint, row.mint)
+  ) {
+    return base;
+  }
+  return `${base} (${deps.formatFeeStackAmount(row.altUi)} ${row.altSym})`;
 }
 
 /** One row per mint for the You receive sub-line (multi-hop: USDC + BONK + …). */
@@ -2405,9 +2460,16 @@ function renderReceivePoolDeductionRow(
   amtCls: string,
 ): string {
   const symCls = tokenSymColorClass(row.mint, row.sym);
+  const altHtml =
+    row.altUi != null &&
+    row.altSym &&
+    row.altMint &&
+    !routeLegMintMatches(row.altMint, row.mint)
+      ? `<span class="swap-quote-summary-fee-kind swap-quote-summary-fee-kind--pool-alt"> (${deps.escapeHtml(deps.formatFeeStackAmount(row.altUi))} ${deps.escapeHtml(row.altSym)})</span>`
+      : '';
   return `<span class="swap-quote-summary-fee-part swap-quote-summary-fee-part--pool">
         <span class="swap-quote-summary-amt swap-quote-summary-amt--pool-deduct${amtCls}">${deps.escapeHtml(deps.formatFeeStackAmount(row.ui))}</span>
-        <span class="swap-quote-summary-sym swap-quote-summary-amt--pool-deduct ${symCls}">${deps.escapeHtml(row.sym)}</span><span class="swap-quote-summary-fee-kind swap-quote-summary-fee-kind--pool">${deps.escapeHtml(row.detailLabel)}</span>
+        <span class="swap-quote-summary-sym swap-quote-summary-amt--pool-deduct ${symCls}">${deps.escapeHtml(row.sym)}</span>${altHtml}<span class="swap-quote-summary-fee-kind swap-quote-summary-fee-kind--pool">${deps.escapeHtml(row.detailLabel)}</span>
       </span>`;
 }
 
@@ -2502,7 +2564,7 @@ function renderQuoteReceiveHeroSubPoolHtml(
   quote: Record<string, unknown> | null,
   placeholder = false,
 ): string | null {
-  const tooltipStack = quote ? getQuoteReceivePoolDeductionNativeStack(quote) : [];
+  const tooltipStack = quote ? getQuoteReceivePoolDeductionTooltipStack(quote) : [];
   const grossLabel = quote ? getQuoteReceiveGrossOutLabel(quote) : null;
   const netLabel = quote ? formatQuoteTokenAmount(quote, 'out').display : null;
   const hasPool = tooltipStack.length > 0;
@@ -2521,21 +2583,21 @@ function renderQuoteReceiveHeroSubPoolHtml(
   const feeLabel = formatReceivePoolFeeCountLabel(feeCount);
 
   if (!hasPool) {
-    return `<span class="swap-quote-summary-sub-total${subCls}">
+    return wrapQuoteSummarySubBracketed(`<span class="swap-quote-summary-sub-total${subCls}">
         <span class="swap-quote-summary-sub-amt">${deps.escapeHtml(display)}</span>
         <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(outSym)}</span>
         <span class="swap-quote-summary-minus">−</span>
         <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(feeLabel)}</span>
-      </span>`;
+      </span>`);
   }
 
   const tipHtml = renderReceivePoolDeductionTooltip(tooltipStack, subCls);
   const tipTitle = tooltipStack
-    .map((row) => `${deps.formatFeeStackAmount(row.ui)} ${row.sym} ${row.detailLabel}`)
+    .map((row) => `${formatReceivePoolDeductionTooltipAmount(row)} ${row.detailLabel}`)
     .join(', ');
   const summaryText = `${display} ${outSym} − ${feeLabel}`;
 
-  return `<span class="swap-quote-summary-sub-total${subCls}">
+  return wrapQuoteSummarySubBracketed(`<span class="swap-quote-summary-sub-total${subCls}">
       <span class="swap-quote-summary-sub-amt">${deps.escapeHtml(display)}</span>
       <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(outSym)}</span>
       <span class="swap-quote-summary-minus">−</span>
@@ -2543,21 +2605,21 @@ function renderQuoteReceiveHeroSubPoolHtml(
         <span class="swap-quote-summary-sub-pool-label">${deps.escapeHtml(feeLabel)}</span>
         ${tipHtml}
       </span>
-    </span>`;
+    </span>`);
 }
 
 function renderQuotePayHeroSubPlaceholderHtml(inSym: string): string {
   const inMint = deps.getFormInputMint().trim();
   const subCls = ' swap-quote-summary-sub-amt--placeholder';
   const symCls = tokenSymColorClass(inMint, inSym);
-  const breakdownHtml = `<span class="swap-quote-summary-sub-breakdown">
+  const breakdownHtml = wrapQuoteSummarySubBracketed(`<span class="swap-quote-summary-sub-breakdown">
       <span class="swap-quote-summary-sub-amt${subCls}">·</span>
       <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(inSym)}</span>
       <span class="swap-quote-summary-plus">+</span>
       <span class="swap-quote-summary-fee-trigger">
         <span class="swap-quote-summary-fee-count">· Fees</span>
       </span>
-    </span>`;
+    </span>`);
   const usdRow = `<span class="swap-quote-summary-sub-amt${subCls}">≈ ·</span>
       <span class="swap-quote-summary-fee-trigger">
         <span class="swap-quote-summary-fee-count">(includes · fees paid)</span>
