@@ -1156,15 +1156,14 @@ function formatSwapReceiveFiatDisplay(v: unknown): string {
   return `~$${formatSwapLegUsdAmount(n)}`;
 }
 
-/** Buy-side fiat under the output token amount — pool output USD from ix-builder, fees excluded from label. */
+/** Buy-side fiat under the output token amount — pool output USD from ix-builder. */
 function renderSwapBuyFiatHtml(quote: Record<string, unknown> | null): string {
   if (!quote) return '~$0.00';
   const ui = quote._swapUiUsd as { buyBoxUsd?: number } | undefined;
   const enriched = quote._youReceive as { outUsd?: number } | undefined;
   const usd = ui?.buyBoxUsd ?? enriched?.outUsd;
   if (usd == null || !(Number(usd) > 0)) return '~$0.00';
-  const main = formatSwapReceiveFiatDisplay(usd);
-  return `${escapeHtml(main)} <span class="swap-fiat-qualifier">(without fees)</span>`;
+  return escapeHtml(formatSwapReceiveFiatDisplay(usd));
 }
 
 function syncSwapSellAmountUi(): void {
@@ -5829,6 +5828,10 @@ initRouteUi({
   getSwapRouter,
   getLastQuote: () => lastSwapQuoteOk,
   getQuoteWalletPayLabel,
+  getQuotePayUsdEstimateLabel: () => {
+    const payUsd = estimateSwapPayUsdFromInput();
+    return payUsd != null ? formatSwapPayUsdLabel(payUsd) : null;
+  },
   getWalletAddress: () => swapWalletAddressInput?.value.trim() ?? '',
   getWalletSnapshot: () => swapQuoteWalletSnapshot,
   getPairTokenStats: () => pairTokenStats,

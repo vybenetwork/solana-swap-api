@@ -41,6 +41,7 @@ export interface RouteUiDeps {
   getSwapRouter: () => string;
   getLastQuote: () => Record<string, unknown> | null;
   getQuoteWalletPayLabel: () => string;
+  getQuotePayUsdEstimateLabel: () => string | null;
   getWalletAddress: () => string;
   getWalletSnapshot: () => string;
   getPairTokenStats: () => Record<string, TokenPriceStats>;
@@ -2060,7 +2061,7 @@ function renderPayHeroUsdFeeTooltip(
 }
 
 function wrapQuoteSummarySubBracketed(contentHtml: string): string {
-  return `<span class="swap-quote-summary-sub-bracketed"><span class="swap-quote-summary-sub-bracket" aria-hidden="true">[</span>${contentHtml}<span class="swap-quote-summary-sub-bracket" aria-hidden="true">]</span></span>`;
+  return `<span class="swap-quote-summary-sub-bracketed"><span class="swap-quote-summary-sub-bracket" aria-hidden="true">(</span>${contentHtml}<span class="swap-quote-summary-sub-bracket" aria-hidden="true">)</span></span>`;
 }
 
 function renderQuotePayHeroBreakdownHtml(
@@ -2173,6 +2174,11 @@ export function renderQuotePayHeroValueHtml(
 
   const stack = quote ? getQuotePayHeroCostStack(quote, inSym) : [];
   if (stack.length === 0) {
+    if (!quote && fallbackAmt !== '—') {
+      return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(fallbackAmt)}</span>
+          <span class="swap-quote-summary-sym ${inputSymCls}">${deps.escapeHtml(inSym)}</span>
+          <span class="swap-quote-summary-hero-total-label">total</span>`;
+    }
     return `<span class="swap-quote-summary-amt${amtCls}">${deps.escapeHtml(swapAmt)}</span>
         <span class="swap-quote-summary-sym ${inputSymCls}">${deps.escapeHtml(inSym)}</span>`;
   }
@@ -2612,15 +2618,19 @@ function renderQuotePayHeroSubPlaceholderHtml(inSym: string): string {
   const inMint = deps.getFormInputMint().trim();
   const subCls = ' swap-quote-summary-sub-amt--placeholder';
   const symCls = tokenSymColorClass(inMint, inSym);
+  const payLabel = deps.getQuoteWalletPayLabel();
+  const swapDisplay = payLabel !== '—' ? payLabel : '·';
+  const usdLabel = deps.getQuotePayUsdEstimateLabel();
+  const usdDisplay = usdLabel ? `≈ ${usdLabel}` : '≈ ·';
   const breakdownHtml = wrapQuoteSummarySubBracketed(`<span class="swap-quote-summary-sub-breakdown">
-      <span class="swap-quote-summary-sub-amt${subCls}">·</span>
+      <span class="swap-quote-summary-sub-amt${subCls}">${deps.escapeHtml(swapDisplay)}</span>
       <span class="swap-quote-summary-sym ${symCls}">${deps.escapeHtml(inSym)}</span>
       <span class="swap-quote-summary-plus">+</span>
       <span class="swap-quote-summary-fee-trigger">
         <span class="swap-quote-summary-fee-count">· Fees</span>
       </span>
     </span>`);
-  const usdRow = `<span class="swap-quote-summary-sub-amt${subCls}">≈ ·</span>
+  const usdRow = `<span class="swap-quote-summary-sub-amt${subCls}">${deps.escapeHtml(usdDisplay)}</span>
       <span class="swap-quote-summary-fee-trigger">
         <span class="swap-quote-summary-fee-count">(includes · fees paid)</span>
       </span>`;

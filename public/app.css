@@ -2403,7 +2403,7 @@ tr:hover td {
   display: inline-flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 0.18rem 0.22rem;
+  gap: 0.18rem 0.04rem;
   line-height: 1.2;
   max-width: 100%;
 }
@@ -2411,7 +2411,7 @@ tr:hover td {
 .swap-quote-summary-sub-bracket {
   flex: 0 0 auto;
   font-size: 0.78rem;
-  font-weight: 600;
+  font-weight: 400;
   color: #fafafa;
   line-height: 1.2;
 }
@@ -2432,14 +2432,14 @@ tr:hover td {
 }
 
 .swap-quote-summary-sub-total .swap-quote-summary-sub-amt {
-  font-size: 0.78rem;
-  font-weight: 600;
+  font-size: 0.68rem;
+  font-weight: 300;
   color: #fafafa;
 }
 
 .swap-quote-summary-sub-total .swap-quote-summary-sym {
   font-size: 0.62rem;
-  font-weight: 700;
+  font-weight: 300;
 }
 
 .swap-quote-summary-sub-total-label {
@@ -2460,13 +2460,13 @@ tr:hover td {
 
 .swap-quote-summary-sub-breakdown .swap-quote-summary-sub-amt {
   font-size: 0.78rem;
-  font-weight: 600;
+  font-weight: 300;
   color: #fafafa;
 }
 
 .swap-quote-summary-sub-breakdown .swap-quote-summary-sym {
   font-size: 0.62rem;
-  font-weight: 700;
+  font-weight: 300;
 }
 
 .swap-quote-summary-sub-breakdown .swap-quote-summary-plus {
