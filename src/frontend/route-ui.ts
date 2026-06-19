@@ -5200,7 +5200,7 @@ function swapRouteWarningLevel(
 }
 
 function simulationOutputWarningTitle(w: Record<string, unknown>): string {
-  const thresh = Number(w.thresholdPct ?? 20);
+  const thresh = Number.isFinite(Number(w.thresholdPct)) ? Number(w.thresholdPct) : 2;
   return `Simulated output is ${Number(w.shortfallPct).toFixed(1)}% below quote (≥${thresh}% threshold). Token account rent/reclaim excluded.`;
 }
 

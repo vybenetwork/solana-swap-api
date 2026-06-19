@@ -1064,6 +1064,19 @@ body {
 }
 .section-card--swap .section-header__marker { background: #22d3ee; box-shadow: 0 0 10px rgba(34, 211, 238, 0.45); }
 .section-card--chart .section-header__marker { background: #60a5fa; box-shadow: 0 0 10px rgba(96, 165, 250, 0.45); }
+.section-card--swap .section-header {
+  max-height: none;
+  min-height: 40px;
+  height: auto;
+  align-items: flex-start;
+  row-gap: 0.35rem;
+}
+.section-card--swap .section-header .section-warning {
+  white-space: normal;
+  max-height: none;
+  flex: 1 1 100%;
+  line-height: 1.35;
+}
 .section-card.panel.section-card--swap {
   border: 1px solid rgba(34, 211, 238, 0.32);
   background:

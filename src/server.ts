@@ -594,6 +594,8 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
           swapFeeRaw: enrichment.swapFeeRaw,
           outputFromSimulation: enrichment.outputFromSimulation,
           walletPayDebitRaw: enrichment.walletPayDebitRaw,
+          simulationOutputWarning: enrichment.simulationOutputWarning ?? null,
+          lowLiquidityWarning: enrichment.lowLiquidityWarning ?? null,
         }
       : undefined;
 
@@ -604,6 +606,8 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
       _quotedOutAmount: enrichment?.quotedOutRaw ?? data.details?.quote?.outAmount,
       _walletPayDebitRaw: enrichment?.walletPayDebitRaw ?? null,
       _walletTokenAccountCloses: enrichment?.walletTokenAccountCloses ?? [],
+      _simulationOutputWarning: enrichment?.simulationOutputWarning ?? null,
+      _lowLiquidityWarning: enrichment?.lowLiquidityWarning ?? null,
       // Print-ready display fields (so the You pay/receive hero + slippage stay correct
       // even when the final build re-simulates at a reduced SPL sell amount).
       ...(enrichment

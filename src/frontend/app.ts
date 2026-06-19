@@ -173,7 +173,7 @@ let lastAutoAppliedWalletAddress = '';
 const swapQuoteLoading = document.getElementById('swapQuoteLoading') as HTMLElement | null;
 const swapQuoteError = document.getElementById('swapQuoteError') as HTMLElement | null;
 const swapQuoteWarning = document.getElementById('swapQuoteWarning') as HTMLElement | null;
-const swapSimulationWarning = document.getElementById('swapSimulationWarning') as HTMLElement | null;
+const swapRouteOptionsWarningEl = document.getElementById('swapRouteOptionsWarning') as HTMLElement | null;
 const swapWalletAddressInput = document.getElementById('swapWalletAddress') as HTMLInputElement | null;
 const swapInputMintInput = document.getElementById('swapInputMint') as HTMLInputElement | null;
 const swapOutputMintInput = document.getElementById('swapOutputMint') as HTMLInputElement | null;
@@ -682,6 +682,7 @@ type SimulationOutputWarning = {
   warn: true;
   thresholdPct?: number;
   shortfallPct: number;
+  source?: string;
 };
 
 type LowLiquidityWarning = {
@@ -692,6 +693,14 @@ type LowLiquidityWarning = {
 
 type SwapRouteWarningLevel = 'none' | 'orange' | 'red';
 
+function resolveOutputWarnThresholdPct(thresholdPct?: number): number {
+  const fromWarning = Number(thresholdPct);
+  if (Number.isFinite(fromWarning) && fromWarning >= 0) return fromWarning;
+  const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : NaN;
+  if (Number.isFinite(slippage) && slippage >= 0) return slippage;
+  return DEFAULT_SWAP_SLIPPAGE_PCT;
+}
+
 function getSimulationOutputWarning(quote: Record<string, unknown>): SimulationOutputWarning | null {
   const w = quote._simulationOutputWarning;
   if (!w || typeof w !== 'object') return null;
@@ -699,10 +708,12 @@ function getSimulationOutputWarning(quote: Record<string, unknown>): SimulationO
   if (rec.warn !== true) return null;
   const shortfallPct = Number(rec.shortfallPct);
   if (!Number.isFinite(shortfallPct)) return null;
+  const source = typeof rec.source === 'string' ? rec.source : undefined;
   return {
     warn: true,
-    thresholdPct: Number(rec.thresholdPct ?? 20),
+    thresholdPct: resolveOutputWarnThresholdPct(Number(rec.thresholdPct)),
     shortfallPct,
+    ...(source ? { source } : {}),
   };
 }
 
@@ -737,8 +748,11 @@ function formatSimulationOutputWarningMessage(
   warning: SimulationOutputWarning,
   outSym?: string,
 ): string {
-  const thresh = Number.isFinite(warning.thresholdPct) ? warning.thresholdPct! : 20;
+  const thresh = resolveOutputWarnThresholdPct(warning.thresholdPct);
   const sym = outSym?.trim() ? ` ${outSym.trim()}` : '';
+  if (warning.source === 'price_impact') {
+    return `Quoted output is ${warning.shortfallPct.toFixed(1)}% below spot price${sym ? ` for${sym}` : ''} (≥${thresh}% threshold). Pool may have low liquidity or high price impact.`;
+  }
   return `Simulation delivers ${warning.shortfallPct.toFixed(1)}% less${sym} than quoted (≥${thresh}% threshold). Token account rent and reclaim are excluded from this comparison.`;
 }
 
@@ -767,38 +781,22 @@ function renderRouteWarningsHtml(quote: Record<string, unknown>, outSym?: string
     </div>`;
 }
 
-function renderSimulationOutputWarningHtml(
-  warning: SimulationOutputWarning,
-  outSym?: string,
-): string {
-  const msg = formatSimulationOutputWarningMessage(warning, outSym);
-  return `<div class="swap-quote-simulation-warning swap-quote-simulation-warning--caution" role="status">
-      <span class="swap-quote-simulation-warning__icon" aria-hidden="true">⚠</span>
-      <span class="swap-quote-simulation-warning__text">${escapeHtml(msg)}</span>
-    </div>`;
+function syncRouteOptionsWarningBanner(quote: Record<string, unknown>): void {
+  if (!swapRouteOptionsWarningEl) return;
+  const html = renderRouteWarningsHtml(quote, getSwapOutSym());
+  if (!html) {
+    swapRouteOptionsWarningEl.hidden = true;
+    swapRouteOptionsWarningEl.setAttribute('aria-hidden', 'true');
+    swapRouteOptionsWarningEl.innerHTML = '';
+    return;
+  }
+  swapRouteOptionsWarningEl.innerHTML = html;
+  swapRouteOptionsWarningEl.hidden = false;
+  swapRouteOptionsWarningEl.removeAttribute('aria-hidden');
 }
 
 function syncSwapRouteWarnings(quote: Record<string, unknown>): void {
-  if (!swapSimulationWarning) return;
-  const level = swapRouteWarningLevel(quote);
-  swapSimulationWarning.classList.remove('swap-simulation-warning--caution', 'swap-simulation-warning--severe');
-  if (level === 'none') {
-    clearInlineWarning(swapSimulationWarning);
-    return;
-  }
-  const msg = formatCombinedRouteWarningsMessage(quote, getSwapOutSym());
-  if (!msg) {
-    clearInlineWarning(swapSimulationWarning);
-    return;
-  }
-  swapSimulationWarning.classList.add(
-    level === 'red' ? 'swap-simulation-warning--severe' : 'swap-simulation-warning--caution',
-  );
-  showInlineWarning(swapSimulationWarning, msg);
-}
-
-function syncSimulationOutputWarning(quote: Record<string, unknown>): void {
-  syncSwapRouteWarnings(quote);
+  syncRouteOptionsWarningBanner(quote);
 }
 
 async function refreshLowSolTradeWarning(): Promise<void> {
@@ -1198,6 +1196,15 @@ function syncSwapSellAmountUi(): void {
     if (sellMint && Number.isFinite(price) && price > 0 && swapSellFiatEl) {
       swapSellFiatEl.textContent = formatSwapPayFiatDisplay(amount * price);
     }
+    // Keep the live quote (including route warnings) visible once vybe-quote returns,
+    // even if swapQuoteFetching is still true until fetchSwapQuote's finally block runs.
+    if (lastSwapQuoteOk) {
+      setBuyReadoutLoading(false);
+      setBuyFiatLoading(false);
+      renderSwapQuoteUI(lastSwapQuoteOk);
+      syncSwapQuoteButtonState();
+      return;
+    }
     setBuyReadoutLoading(true);
     setBuyFiatLoading(true);
     refreshPendingQuoteUi(true);
@@ -1269,6 +1276,11 @@ function resetSwapQuoteToMock(): void {
   if (swapFooterMaxSlippageEl) swapFooterMaxSlippageEl.textContent = '—';
   setRouteChipLabel('—', true);
   clearRoutingDiagram(routingDialogBodyEl);
+  if (swapRouteOptionsWarningEl) {
+    swapRouteOptionsWarningEl.hidden = true;
+    swapRouteOptionsWarningEl.setAttribute('aria-hidden', 'true');
+    swapRouteOptionsWarningEl.innerHTML = '';
+  }
   if (swapTxBase64El) swapTxBase64El.value = '';
   syncSwapBuildResultPanel();
   resetSwapQuoteDetailsPanel();
@@ -3289,14 +3301,12 @@ function renderQuoteSummary(quote: Record<string, unknown>): string {
   const paySubHtml = renderQuotePayHeroSubHtml(quote, inSym);
   const receiveValueHtml = renderQuoteReceiveHeroValueHtml(quote, outSym, outAmt.display);
   const receiveSubHtml = renderQuoteReceiveHeroSubHtml(quote, outSym, false);
-  const simWarn = getSimulationOutputWarning(quote);
-  const warnHtml = renderRouteWarningsHtml(quote, outSym) || (simWarn ? renderSimulationOutputWarningHtml(simWarn, outSym) : '');
 
   return `<div class="swap-quote-summary-primary">
       ${renderQuoteSummaryHeroTile('You pay', payAmt, inSym, 'pay', inMint, paySub, false, false, payValueHtml, paySubHtml)}
       <span class="swap-quote-summary-arrow" aria-hidden="true"><span class="swap-quote-summary-arrow-icon">→</span></span>
       ${renderQuoteSummaryHeroTile('You receive', outAmt.display, outSym, 'receive', outMint, null, false, false, receiveValueHtml, receiveSubHtml)}
-    </div>${warnHtml}`;
+    </div>`;
 }
 
 function renderQuoteFieldCellHtml(key: string, v: unknown): string {
@@ -4165,6 +4175,10 @@ function applyActiveRouteQuoteToUi(
 ): void {
   const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   let quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(body), selectedRouter);
+  const buildPayload = body._build as Record<string, unknown> | undefined;
+  if (buildPayload) {
+    quote = applyFeeEnrichmentToQuote(quote, undefined, projectSwapBuildForBrowser(buildPayload));
+  }
   quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
   if (!quote._walletPayDebitRaw) {
     const estimatedPay = estimateInputSideWalletPayDebitFromQuote(quote);
@@ -4942,7 +4956,11 @@ async function fetchSwapQuote(): Promise<void> {
   resetSwapQuoteDetailsPanel();
   if (swapQuoteError) clearInlineError(swapQuoteError);
   if (swapQuoteWarning) clearInlineWarning(swapQuoteWarning);
-  if (swapSimulationWarning) clearInlineWarning(swapSimulationWarning);
+  if (swapRouteOptionsWarningEl) {
+    swapRouteOptionsWarningEl.hidden = true;
+    swapRouteOptionsWarningEl.setAttribute('aria-hidden', 'true');
+    swapRouteOptionsWarningEl.innerHTML = '';
+  }
   applyQuoteLoadingUi();
 
   try {

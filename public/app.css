@@ -2058,6 +2058,22 @@ tr:hover td {
   gap: 0.6rem;
 }
 
+.swap-widget-footer {
+  margin-top: 0.85rem;
+}
+
+.swap-route-options-warning {
+  margin: 0.65rem 0 0.85rem;
+}
+
+.swap-route-options-warning .swap-quote-simulation-warning {
+  margin-top: 0;
+}
+
+.swap-route-options-warning[hidden] {
+  display: none !important;
+}
+
 .swap-quote-simulation-warning {
   display: flex;
   align-items: flex-start;

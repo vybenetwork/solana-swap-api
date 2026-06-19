@@ -186,7 +186,6 @@
           </div>
           <span class="section-error swap-widget-error" id="swapQuoteError" hidden aria-hidden="true"></span>
           <span class="section-warning swap-widget-warning" id="swapQuoteWarning" hidden aria-hidden="true" role="status"></span>
-          <span class="section-warning swap-widget-warning swap-simulation-warning" id="swapSimulationWarning" hidden aria-hidden="true" role="status"></span>
         </div>
         <div class="section-lede meta">
           Get a swap quote from the Vybe Trading API, review routing and price impact, then build an unsigned transaction to sign in your wallet. This demo does not broadcast.
@@ -599,6 +598,7 @@
                 <section class="swap-quote-details-routing-section">
                   <h4 class="swap-quote-details-subtitle" id="swapQuoteRouteSubtitle">Route</h4>
                   <div id="swapRouteOptions" class="swap-route-options" hidden></div>
+                  <div id="swapRouteOptionsWarning" class="swap-route-options-warning" hidden aria-hidden="true"></div>
                   <div id="swapQuoteDetailsRouting" class="swap-quote-details-routing"></div>
                 </section>
                 <details class="swap-quote-details-collapsible" id="swapQuoteRoutePlanDetails" open>
@@ -714,7 +714,7 @@
       import bs58 from 'bs58';
       window.bs58 = bs58;
     </script>
-    <script type="module" src="app.js?v=49"></script>
+    <script type="module" src="app.js?v=52"></script>
   </body>
 </html>
 
