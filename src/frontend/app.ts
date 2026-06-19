@@ -2044,12 +2044,45 @@ function quoteWalletPayUsd(quote: Record<string, unknown>): number | null {
   return scaleQuoteSwapUsdBySameMintRatio(quote, payUi, inUi) ?? getQuoteSwapUsdValue(quote);
 }
 
+/** USD for the selected pool's net output (per-route when enumerating). */
+function quotePoolOutputUsd(quote: Record<string, unknown>): number | null {
+  const enriched = quote._youReceive as { outUsd?: number } | undefined;
+  const enrichedOutUsd = enriched?.outUsd;
+  if (enrichedOutUsd != null && Number.isFinite(enrichedOutUsd) && enrichedOutUsd > 0) {
+    return enrichedOutUsd;
+  }
+
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const lastHop = plan.at(-1);
+  if (lastHop) {
+    const hopOutUsd = lastHop._outUsd ?? (lastHop as { outUsd?: number }).outUsd;
+    if (hopOutUsd != null && Number.isFinite(Number(hopOutUsd)) && Number(hopOutUsd) > 0) {
+      return Number(hopOutUsd);
+    }
+  }
+
+  const outMint = quoteOutputMint(quote);
+  const netUi = quoteOutputUiAmount(quote);
+  if (netUi != null && netUi > 0 && outMint) {
+    const enrichedOutPrice = Number(quote._outputPriceUsd);
+    if (Number.isFinite(enrichedOutPrice) && enrichedOutPrice > 0) {
+      return netUi * enrichedOutPrice;
+    }
+    const outPrice = lookupMintPriceUsd(outMint, quote);
+    if (Number.isFinite(outPrice) && outPrice > 0) return netUi * outPrice;
+  }
+
+  return null;
+}
+
 /**
- * USD notional of receive/output — from quote fields only.
- * Uses swapUsdValue × (net out ÷ quoted out) when both are in the output mint;
- * otherwise falls back to swapUsdValue adjusted by priceImpactPct.
+ * USD notional of receive/output — pool output × output mint price for the active route.
+ * Falls back to swapUsdValue parity only when enrichment lacks output pricing.
  */
 function getQuoteReceiveUsd(quote: Record<string, unknown>): number | null {
+  const poolOut = quotePoolOutputUsd(quote);
+  if (poolOut != null) return poolOut;
+
   const swapUsd = getQuoteSwapUsdValue(quote);
   if (swapUsd == null) return null;
 
@@ -2060,8 +2093,6 @@ function getQuoteReceiveUsd(quote: Record<string, unknown>): number | null {
     if (netUi <= quotedUi) {
       return swapUsd * (netUi / quotedUi);
     }
-    /* Vybe synthesized routes can report simulated net out above hop quoted out.
-       Do not inflate receive USD past swap pay — use output mint spot instead. */
     const outMint = quoteOutputMint(quote);
     const outPrice = lookupMintPriceUsd(outMint ?? '', quote);
     if (Number.isFinite(outPrice) && outPrice > 0) {
@@ -2080,23 +2111,36 @@ function getQuoteReceiveUsd(quote: Record<string, unknown>): number | null {
 
 /** Tooltip explaining quote-response USD basis (not token-details prefetch). */
 function quoteOutputPriceSourceTitle(quote: Record<string, unknown>): string {
-  const swapUsd = getQuoteSwapUsdValue(quote);
-  const netUi = quoteOutputUiAmount(quote);
-  const quotedUi = quoteQuotedOutUiAmount(quote);
-  if (swapUsd == null) {
-    return 'USD estimate unavailable — swap quote did not include swapUsdValue';
-  }
-  if (netUi != null && quotedUi != null && quotedUi > 0) {
-    if (netUi <= quotedUi) {
-      return `swapUsdValue $${formatSwapLegUsdAmount(swapUsd)} × net out ÷ quoted out (from quote response)`;
+  const enriched = quote._youReceive as { outUsd?: number } | undefined;
+  const enrichedOutUsd = enriched?.outUsd;
+  if (enrichedOutUsd != null && Number.isFinite(enrichedOutUsd) && enrichedOutUsd > 0) {
+    const outUi = quoteOutputUiAmount(quote);
+    const outSym = getSwapOutSym();
+    if (outUi != null && outUi > 0) {
+      return `Pool output ${outUi} ${outSym} × output mint USD price (enrichment youReceive.outUsd)`;
     }
-    return `net out × output mint USD price (simulated out exceeds hop quoted out on this route)`;
+    return 'Pool output USD from enrichment youReceive.outUsd';
   }
-  const impact = parseQuotePriceImpactPct(quote);
-  if (impact != null) {
-    return `swapUsdValue $${formatSwapLegUsdAmount(swapUsd)} × (1 ${impact >= 0 ? '+' : ''}${impact}%) price impact (from quote response)`;
+
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const lastHop = plan.at(-1);
+  const hopOutUsd = lastHop?._outUsd ?? (lastHop as { outUsd?: number } | undefined)?.outUsd;
+  if (hopOutUsd != null && Number.isFinite(Number(hopOutUsd)) && Number(hopOutUsd) > 0) {
+    return 'Last hop net output × output mint USD price (routePlan.outUsd)';
   }
-  return `swapUsdValue $${formatSwapLegUsdAmount(swapUsd)} (from quote response)`;
+
+  const outMint = quoteOutputMint(quote);
+  const netUi = quoteOutputUiAmount(quote);
+  const outPrice = outMint ? lookupMintPriceUsd(outMint, quote) : NaN;
+  if (netUi != null && netUi > 0 && Number.isFinite(outPrice) && outPrice > 0) {
+    return `Pool output ${netUi} × $${formatSwapLegUsdAmount(outPrice)} output mint price`;
+  }
+
+  const swapUsd = getQuoteSwapUsdValue(quote);
+  if (swapUsd == null) {
+    return 'USD estimate unavailable — swap quote did not include output or swapUsdValue';
+  }
+  return `Fallback: swapUsdValue $${formatSwapLegUsdAmount(swapUsd)} (input-leg parity)`;
 }
 
 function getMintDecimals(mint: string): number {
@@ -3695,6 +3739,12 @@ function vybeMarketDiscoveryActive(): boolean {
   return getSwapRouter() === 'vybe' && !isSwapRoutePinMode();
 }
 
+function swapRouteOptionsPanelActive(): boolean {
+  if (isSwapRoutePinMode()) return false;
+  const router = normalizeRouterId(getSwapRouter());
+  return router === 'vybe' || router === 'jupiter' || router === 'titan';
+}
+
 function collectSwapBuildOptions(): Record<string, unknown> {
   const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : undefined;
   const router = getSwapRouter();
@@ -3819,21 +3869,208 @@ function cacheVybeQuoteBuild(
   return null;
 }
 
+function mapEnumeratedRouteEntry(
+  r: Record<string, unknown>,
+  i: number,
+): EnumeratedRoutesUiState['routes'][0] {
+  return {
+    index: Number(r.index ?? i),
+    source: typeof r.source === 'string' ? r.source : undefined,
+    candidate: r.candidate as EnumeratedRoutesUiState['routes'][0]['candidate'],
+    quote: (r.quote as Record<string, unknown> | undefined) ?? undefined,
+  };
+}
+
+function poolAddressFromQuoteBody(body: Record<string, unknown>): string {
+  const build = body._build as Record<string, unknown> | undefined;
+  const top = String(body.poolAddress ?? build?.poolAddress ?? '').trim();
+  if (top) return top;
+  const details = build?.details as Record<string, unknown> | undefined;
+  const fromDetails = String(details?.poolAddress ?? '').trim();
+  if (fromDetails) return fromDetails;
+  const quoteDetails = details?.quote as Record<string, unknown> | undefined;
+  const fromQuote = String(quoteDetails?.poolAddress ?? quoteDetails?.pool ?? '').trim();
+  if (fromQuote) return fromQuote;
+  const plan = body.routePlan;
+  if (Array.isArray(plan) && plan.length > 0) {
+    const swapInfo = (plan[0] as { swapInfo?: { ammKey?: string } })?.swapInfo;
+    const amm = String(swapInfo?.ammKey ?? '').trim();
+    if (amm) return amm;
+  }
+  return '';
+}
+
+function programAddressFromQuoteBody(body: Record<string, unknown>): string {
+  const build = body._build as Record<string, unknown> | undefined;
+  return String(body.programAddress ?? build?.programAddress ?? '').trim();
+}
+
+function tradeCandidateFromRoutePlan(
+  body: Record<string, unknown>,
+): EnumeratedRoutesUiState['routes'][0]['candidate'] | null {
+  const plan = body.routePlan;
+  if (!Array.isArray(plan)) return null;
+  for (const step of plan) {
+    const si = (step as VybeRoutePlanStepLite).swapInfo;
+    if (!si) continue;
+    const marketAddress = String(si.ammKey ?? '').trim();
+    const programLabel = String(si.label ?? '').trim();
+    if (marketAddress || programLabel) {
+      return {
+        marketAddress,
+        programAddress: '',
+        programLabel: programLabel || undefined,
+        tradeCount: 0,
+      };
+    }
+  }
+  return null;
+}
+
+function tradeCandidateFromRouterOnly(
+  body: Record<string, unknown>,
+): EnumeratedRoutesUiState['routes'][0]['candidate'] | null {
+  const router = normalizeRouterId(
+    String(
+      body._effectiveRouter ??
+        body._selectedRouter ??
+        body._buildRouter ??
+        body.router ??
+        getSwapRouter(),
+    ),
+  );
+  if (router !== 'jupiter' && router !== 'titan') return null;
+  if (quoteOutputUiAmount(body) == null) return null;
+  return {
+    marketAddress: poolAddressFromQuoteBody(body),
+    programAddress: programAddressFromQuoteBody(body),
+    programLabel: routerDisplayLabel(router),
+    tradeCount: 0,
+  };
+}
+
+function routeOptionCandidatePresent(
+  candidate: EnumeratedRoutesUiState['routes'][0]['candidate'] | null | undefined,
+): boolean {
+  return !!(
+    candidate?.marketAddress?.trim() ||
+    candidate?.programAddress?.trim() ||
+    candidate?.programLabel?.trim()
+  );
+}
+
+function tradeCandidateFromActiveQuote(
+  body: Record<string, unknown>,
+): EnumeratedRoutesUiState['routes'][0]['candidate'] | null {
+  const rvt = body._routeViaTrades as { selected?: Record<string, unknown> } | undefined;
+  const selected = rvt?.selected;
+  if (selected && typeof selected === 'object') {
+    const marketAddress = String(selected.marketAddress ?? '').trim();
+    const programAddress = String(selected.programAddress ?? '').trim();
+    if (marketAddress || programAddress) {
+      return {
+        marketAddress: marketAddress || poolAddressFromQuoteBody(body),
+        programAddress: programAddress || programAddressFromQuoteBody(body),
+        protocol: typeof selected.protocol === 'string' ? selected.protocol : undefined,
+        tradeCount: Number(selected.tradeCount ?? 0),
+        programLabel:
+          typeof selected.programLabel === 'string' ? selected.programLabel.trim() || undefined : undefined,
+        marketScore:
+          selected.marketScore != null && Number.isFinite(Number(selected.marketScore))
+            ? Number(selected.marketScore)
+            : undefined,
+      };
+    }
+  }
+  const marketAddress = poolAddressFromQuoteBody(body);
+  const programAddress = programAddressFromQuoteBody(body);
+  if (marketAddress || programAddress) {
+    const build = body._build as Record<string, unknown> | undefined;
+    const protocolRaw = body.protocol ?? build?.protocol;
+    return {
+      marketAddress,
+      programAddress,
+      protocol: typeof protocolRaw === 'string' ? protocolRaw : undefined,
+      tradeCount: 0,
+    };
+  }
+  return tradeCandidateFromRoutePlan(body) ?? tradeCandidateFromRouterOnly(body);
+}
+
+function inferDirectRouteSource(
+  rvt: {
+    tradesFetched?: number;
+    pairTradeCount?: number;
+  },
+): string {
+  if ((rvt.tradesFetched ?? 0) > 0 || (rvt.pairTradeCount ?? 0) > 0) return 'trades';
+  return 'markets';
+}
+
+function inferRouteOptionSource(
+  body: Record<string, unknown>,
+  rvt: {
+    tradesFetched?: number;
+    pairTradeCount?: number;
+  },
+): string {
+  const router = normalizeRouterId(
+    String(
+      body._effectiveRouter ??
+        body._selectedRouter ??
+        body._buildRouter ??
+        body.router ??
+        getSwapRouter(),
+    ),
+  );
+  if (router === 'jupiter' || router === 'titan') return router;
+  return inferDirectRouteSource(rvt);
+}
+
 function syncEnumeratedRoutesFromBody(body: Record<string, unknown>): void {
-  const rvt = body._routeViaTrades as { routes?: Array<Record<string, unknown>> } | undefined;
-  if (!Array.isArray(rvt?.routes) || rvt.routes.length === 0) {
+  const rvt = body._routeViaTrades as
+    | {
+        routes?: Array<Record<string, unknown>>;
+        enabled?: boolean;
+        outcome?: string;
+        selected?: Record<string, unknown>;
+        tradesFetched?: number;
+        pairTradeCount?: number;
+      }
+    | undefined;
+  if (Array.isArray(rvt?.routes) && rvt.routes.length > 0) {
+    lastVybeQuoteBodyForRoutes = body;
+    enumeratedRoutesUiState = {
+      routes: rvt.routes.map(mapEnumeratedRouteEntry),
+      selectedIndex: 0,
+      expanded: false,
+    };
+    return;
+  }
+
+  if (!swapRouteOptionsPanelActive()) {
     enumeratedRoutesUiState = null;
     lastVybeQuoteBodyForRoutes = null;
     return;
   }
+
+  const candidate = tradeCandidateFromActiveQuote(body);
+  if (!routeOptionCandidatePresent(candidate)) {
+    enumeratedRoutesUiState = null;
+    lastVybeQuoteBodyForRoutes = null;
+    return;
+  }
+
   lastVybeQuoteBodyForRoutes = body;
   enumeratedRoutesUiState = {
-    routes: rvt.routes.map((r, i) => ({
-      index: Number(r.index ?? i),
-      source: typeof r.source === 'string' ? r.source : undefined,
-      candidate: r.candidate as EnumeratedRoutesUiState['routes'][0]['candidate'],
-      quote: (r.quote as Record<string, unknown> | undefined) ?? undefined,
-    })),
+    routes: [
+      {
+        index: 0,
+        source: inferRouteOptionSource(body, rvt ?? {}),
+        candidate,
+        quote: stripVybeQuoteMetadata(body),
+      },
+    ],
     selectedIndex: 0,
     expanded: false,
   };
@@ -4271,6 +4508,8 @@ function applyAggregatorBuildToUi(
   quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
   lastSwapQuoteOk = quote;
   swapQuoteWalletSnapshot = wallet;
+
+  syncEnumeratedRoutesFromBody({ ...quote, _build: swapBody });
 
   const buildTx = extractSwapBuildTransaction(swapBody);
   if (buildTx) {
@@ -5558,6 +5797,7 @@ initRouteUi({
   },
   selectEnumeratedRoute,
   vybeMarketDiscoveryActive,
+  swapRouteOptionsPanelActive,
   isSwapQuoteFetching: () => swapQuoteFetching,
   dom: {
     swapRouteOptionsEl,

@@ -69,6 +69,7 @@ export interface RouteUiDeps {
   setEnumeratedRoutesExpanded: (expanded: boolean) => void;
   selectEnumeratedRoute: (index: number) => void;
   vybeMarketDiscoveryActive: () => boolean;
+  swapRouteOptionsPanelActive: () => boolean;
   isSwapQuoteFetching: () => boolean;
   dom: {
     swapRouteOptionsEl: HTMLElement | null;
@@ -139,23 +140,22 @@ export function formatLiquidityUsd(n: number): string {
 }
 
 function sourceBadgeLabel(source: string | undefined): string {
+  if (source === 'jupiter') return 'jupiter';
+  if (source === 'titan') return 'titan';
   if (source === 'both' || source === 'trades+rpc' || source === 'trades') return 'trades';
   if (source === 'markets+rpc' || source === 'markets') return 'markets';
   if (source === 'rpc') return 'rpc';
   return 'trades';
 }
 
-function renderRouteOptionsPlaceholder(loading = false): string {
+function renderRouteOptionPlaceholderCard(rank: number, active: boolean, loading: boolean): string {
   const sym = deps.getSwapOutSym();
-  const cards = Array.from({ length: ROUTE_OPTIONS_UI_INITIAL }, (_, i) => {
-    const rank = i + 1;
-    const active = i === 0;
-    const spinner = deps.renderLoadingSpinner('sm');
-    const programName = loading
-      ? `<span class="swap-route-option__loading">${spinner}<span class="swap-route-option__loading-label">Finding pool…</span></span>`
-      : '—';
-    const outCell = loading ? spinner : '—';
-    return `<button type="button" class="swap-route-option swap-route-option--loading swap-route-option--disabled${active ? ' swap-route-option--active' : ''}" disabled aria-disabled="true" aria-pressed="${active ? 'true' : 'false'}">
+  const spinner = deps.renderLoadingSpinner('sm');
+  const programName = loading
+    ? `<span class="swap-route-option__loading">${spinner}<span class="swap-route-option__loading-label">Finding pool…</span></span>`
+    : '—';
+  const outCell = loading ? spinner : '—';
+  return `<button type="button" class="swap-route-option swap-route-option--loading swap-route-option--disabled${active ? ' swap-route-option--active' : ''}" disabled aria-disabled="true" aria-pressed="${active ? 'true' : 'false'}">
       <span class="swap-route-option__rank">#${rank}</span>
       <span class="swap-route-option__program">
         <span class="swap-route-option__program-name">${programName}</span>
@@ -167,68 +167,54 @@ function renderRouteOptionsPlaceholder(loading = false): string {
         <span class="swap-route-option__badge swap-route-option__badge--trades">trades</span>
       </span>
     </button>`;
-  });
+}
+
+function renderRouteOptionsPlaceholder(loading = false): string {
+  const cards = Array.from({ length: ROUTE_OPTIONS_UI_INITIAL }, (_, i) =>
+    renderRouteOptionPlaceholderCard(i + 1, i === 0, loading),
+  );
   return `<div class="swap-route-options__grid">${cards.join('')}</div>`;
 }
 
-export function renderRouteOptionsPanel(): void {
-  const el = deps.dom.swapRouteOptionsEl;
-  if (!el) return;
-  const state = deps.getEnumeratedRoutesState();
-  if (!state || state.routes.length === 0) {
-    if (deps.vybeMarketDiscoveryActive()) {
-      el.hidden = false;
-      el.innerHTML = renderRouteOptionsPlaceholder(deps.isSwapQuoteFetching());
-      return;
-    }
-    el.hidden = true;
-    el.innerHTML = '';
-    return;
+function renderRouteOptionCard(route: EnumeratedRouteUiEntry, selectedIndex: number): string {
+  const idx = route.index;
+  const active = idx === selectedIndex;
+  const quote = route.quote ?? {};
+  const outUi = deps.quoteOutputUiAmount(quote);
+  const outLabel = outUi != null ? deps.formatSwapAmountValue(outUi) : '—';
+  const sym = deps.getSwapOutSym();
+  const pool = shortPoolId(route.candidate?.marketAddress);
+  const programAddr = route.candidate?.programAddress ?? '';
+  const programShort = shortPoolId(programAddr);
+  const programLabel =
+    route.candidate?.programLabel?.trim() || programShort || '—';
+  const trades = route.candidate?.tradeCount ?? 0;
+  const marketScore = route.candidate?.marketScore;
+  const source = sourceBadgeLabel(route.source);
+  const metaParts: string[] = [];
+  if (marketScore != null && marketScore > 0) {
+    metaParts.push(`$${formatLiquidityUsd(marketScore)} liq`);
   }
-  el.hidden = false;
-  const visibleCount = state.expanded
-    ? state.routes.length
-    : Math.min(ROUTE_OPTIONS_UI_INITIAL, state.routes.length);
-  const hiddenCount = state.routes.length - visibleCount;
-  const cards = state.routes.slice(0, visibleCount).map((route) => {
-    const idx = route.index;
-    const active = idx === state.selectedIndex;
-    const quote = route.quote ?? {};
-    const outUi = deps.quoteOutputUiAmount(quote);
-    const outLabel = outUi != null ? deps.formatSwapAmountValue(outUi) : '—';
-    const sym = deps.getSwapOutSym();
-    const pool = shortPoolId(route.candidate?.marketAddress);
-    const programAddr = route.candidate?.programAddress ?? '';
-    const programShort = shortPoolId(programAddr);
-    const programLabel =
-      route.candidate?.programLabel?.trim() || programShort || '—';
-    const trades = route.candidate?.tradeCount ?? 0;
-    const marketScore = route.candidate?.marketScore;
-    const source = sourceBadgeLabel(route.source);
-    const metaParts: string[] = [];
-    if (marketScore != null && marketScore > 0) {
-      metaParts.push(`$${formatLiquidityUsd(marketScore)} liq`);
-    }
-    if (trades > 0) {
-      metaParts.push(`${trades} trades`);
-    }
-    const metaDetail =
-      metaParts.length > 0
-        ? `<span class="swap-route-option__trades">${metaParts.join(' · ')}</span>`
+  if (trades > 0) {
+    metaParts.push(`${trades} trades`);
+  }
+  const metaDetail =
+    metaParts.length > 0
+      ? `<span class="swap-route-option__trades">${metaParts.join(' · ')}</span>`
+      : '';
+  const warnLevel = swapRouteWarningLevel(quote, marketScore);
+  const warnClass =
+    warnLevel === 'red'
+      ? ' swap-route-option--warn-severe'
+      : warnLevel === 'orange'
+        ? ' swap-route-option--warn-caution'
         : '';
-    const warnLevel = swapRouteWarningLevel(quote, marketScore);
-    const warnClass =
-      warnLevel === 'red'
-        ? ' swap-route-option--warn-severe'
-        : warnLevel === 'orange'
-          ? ' swap-route-option--warn-caution'
-          : '';
-    const warnTitle = warnLevel !== 'none' ? combinedRouteWarningTitle(quote, marketScore) : '';
-    const warnBadge =
-      warnLevel !== 'none'
-        ? `<span class="swap-route-option__warn" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`
-        : '';
-    return `<button type="button" class="swap-route-option${active ? ' swap-route-option--active' : ''}${warnClass}" data-route-index="${idx}" aria-pressed="${active ? 'true' : 'false'}">
+  const warnTitle = warnLevel !== 'none' ? combinedRouteWarningTitle(quote, marketScore) : '';
+  const warnBadge =
+    warnLevel !== 'none'
+      ? `<span class="swap-route-option__warn" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`
+      : '';
+  return `<button type="button" class="swap-route-option${active ? ' swap-route-option--active' : ''}${warnClass}" data-route-index="${idx}" aria-pressed="${active ? 'true' : 'false'}">
       <span class="swap-route-option__rank">#${idx + 1}</span>
       <span class="swap-route-option__program">
         <span class="swap-route-option__program-name">${deps.escapeHtml(programLabel || '—')}</span>
@@ -242,7 +228,36 @@ export function renderRouteOptionsPanel(): void {
         ${warnBadge}
       </span>
     </button>`;
-  });
+}
+
+export function renderRouteOptionsPanel(): void {
+  const el = deps.dom.swapRouteOptionsEl;
+  if (!el) return;
+  const state = deps.getEnumeratedRoutesState();
+  if (!state || state.routes.length === 0) {
+    if (deps.swapRouteOptionsPanelActive()) {
+      el.hidden = false;
+      el.innerHTML = renderRouteOptionsPlaceholder(deps.isSwapQuoteFetching());
+      return;
+    }
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
+  el.hidden = false;
+  const loading = deps.isSwapQuoteFetching();
+  const visibleCount = state.expanded
+    ? state.routes.length
+    : Math.min(ROUTE_OPTIONS_UI_INITIAL, state.routes.length);
+  const hiddenCount = state.routes.length - visibleCount;
+  const cards = state.routes.slice(0, visibleCount).map((route) =>
+    renderRouteOptionCard(route, state.selectedIndex),
+  );
+  if (!state.expanded && state.routes.length < ROUTE_OPTIONS_UI_INITIAL) {
+    for (let rank = state.routes.length + 1; rank <= ROUTE_OPTIONS_UI_INITIAL; rank++) {
+      cards.push(renderRouteOptionPlaceholderCard(rank, false, loading));
+    }
+  }
   const moreBtn =
     !state.expanded && hiddenCount > 0
       ? `<button type="button" class="swap-route-options__more" data-route-expand="1">Show ${hiddenCount} more route${hiddenCount === 1 ? '' : 's'}</button>`
@@ -1240,23 +1255,9 @@ export function resolveQuoteYouPayUsd(quote: Record<string, unknown>): QuoteYouP
   };
 }
 
-/** Same string as the You pay hero sub-label, e.g. `≈ $1.24 + $0.01 (fee) + $0.13 (rent)`. */
+/** Same string as the You pay hero sub-label, e.g. `$1.24 (includes $0.01 fees + $0.13 rent fee)`. */
 export function getQuoteYouPaySubLabel(quote: Record<string, unknown>): string | null {
-  const breakdown = resolveQuoteYouPayUsd(quote);
-  if (!breakdown) return null;
-
-  const feeCount = getQuotePayHeroCostStack(quote, deps.getSwapInSym())
-    .filter((row) => row.kind === 'fee')
-    .reduce((total, row) => total + (row.count ?? 1), 0);
-
-  const parts: string[] = [`≈ $${deps.formatSwapPayUsdAmount(breakdown.swapUsd)}`];
-  if (breakdown.feeUsd != null && breakdown.feeUsd > 0) {
-    parts.push(`+ $${deps.formatSwapPayUsdAmount(breakdown.feeUsd)} (${feeCount > 1 ? 'fees' : 'fee'})`);
-  }
-  if (breakdown.rentUsd != null && breakdown.rentUsd > 0) {
-    parts.push(`+ $${deps.formatSwapPayUsdAmount(breakdown.rentUsd)} (rent)`);
-  }
-  return parts.join(' ');
+  return formatQuoteYouPayUsdSubLabel(quote);
 }
 
 export interface FinalReceivePctBreakdown {
@@ -1833,6 +1834,47 @@ export function getQuotePayHeroCostStack(
   return stack;
 }
 
+/** Acc-rent rows debited from wallet and not reclaimed via an input close in the same tx. */
+function countDeductedRentFeeItems(quote: Record<string, unknown>): number {
+  const mint = quoteInputMint(quote);
+  if (!mint) return 0;
+  let count = 0;
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  for (const step of plan) {
+    for (const item of getHopFeeDisplayItems(step)) {
+      if (!isWalletCostFeeItem(item, quote)) continue;
+      if (!isAccRentWalletFeeItem(item)) continue;
+      const ui = feeAmountToUi(item.amountRaw, item.mint);
+      if (ui == null || ui <= 0) continue;
+      const sameMint = routeLegMintMatches(item.mint, mint);
+      if (sameMint && hasInputMintRentReclaim(quote, mint)) continue;
+      if (sameMint || isSolMint(item.mint)) count += 1;
+    }
+  }
+  return count;
+}
+
+function formatQuoteYouPayUsdSubLabel(quote: Record<string, unknown>): string | null {
+  const breakdown = resolveQuoteYouPayUsd(quote);
+  if (!breakdown) return null;
+
+  const hasFee = breakdown.feeUsd != null && breakdown.feeUsd > 0;
+  const hasRent = breakdown.rentUsd != null && breakdown.rentUsd > 0;
+  const totalLabel = `$${deps.formatSwapPayUsdAmount(breakdown.totalUsd)}`;
+  if (!hasFee && !hasRent) return totalLabel;
+
+  const includes: string[] = [];
+  if (hasFee) {
+    includes.push(`$${deps.formatSwapPayUsdAmount(breakdown.feeUsd!)} fees`);
+  }
+  if (hasRent) {
+    const rentCount = countDeductedRentFeeItems(quote);
+    const rentWord = rentCount > 1 ? 'rent fees' : 'rent fee';
+    includes.push(`$${deps.formatSwapPayUsdAmount(breakdown.rentUsd!)} ${rentWord}`);
+  }
+  return `${totalLabel} (includes ${includes.join(' + ')})`;
+}
+
 function payHeroCostKindLabel(
   kind: QuotePayHeroCostStackItem['kind'],
   count = 1,
@@ -1971,14 +2013,10 @@ export function renderQuoteReceiveHeroValueHtml(
       <span class="swap-quote-summary-fee-stack">${reclaimRows.join('')}</span>`;
 }
 
-/** Sub-label under You receive — swap output USD plus input rent reclaim when present. */
+/** Sub-label under You receive — pool output USD plus input rent reclaim when present. */
 export function getQuoteYouReceiveSubLabel(quote: Record<string, unknown>): string | null {
-  // ix-builder enrichment carries the receive + reclaim USD — print it, don't recompute.
-  const enriched = quote._youReceive as { outUsd?: number; reclaimUsd?: number } | undefined;
-  const receiveUsd =
-    enriched && Number.isFinite(enriched.outUsd)
-      ? Number(enriched.outUsd)
-      : deps.getQuoteReceiveUsd(quote);
+  const enriched = quote._youReceive as { reclaimUsd?: number } | undefined;
+  const receiveUsd = deps.getQuoteReceiveUsd(quote);
   const reclaimUsd =
     enriched && Number.isFinite(enriched.reclaimUsd)
       ? Number(enriched.reclaimUsd)
@@ -2186,22 +2224,7 @@ export function getQuoteDiagramInputFeeAddon(quote: Record<string, unknown>): st
 }
 
 function getQuoteDiagramInputTotalLabel(quote: Record<string, unknown>): string | null {
-  const breakdown = resolveQuoteYouPayUsd(quote);
-  if (!breakdown) return null;
-
-  const stack = getQuotePayHeroCostStack(quote, deps.getSwapInSym());
-  const feeCount = stack
-    .filter((row) => row.kind === 'fee')
-    .reduce((total, row) => total + (row.count ?? 1), 0);
-  const hasFee = breakdown.feeUsd != null && breakdown.feeUsd > 0;
-  const hasRent = breakdown.rentUsd != null && breakdown.rentUsd > 0;
-
-  let suffix = '';
-  if (hasFee && hasRent) suffix = feeCount > 1 ? ' (fees + rent)' : ' (fee + rent)';
-  else if (hasFee) suffix = feeCount > 1 ? ' (fees)' : ' (fee)';
-  else if (hasRent) suffix = ' (rent)';
-
-  return `≈ $${deps.formatSwapPayUsdAmount(breakdown.totalUsd)}${suffix}`;
+  return formatQuoteYouPayUsdSubLabel(quote);
 }
 
 /** Extra wallet debit above swap leg (fees/rent on input side), e.g. +0.002181 SOL. */
