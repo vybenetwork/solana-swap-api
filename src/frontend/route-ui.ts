@@ -3020,18 +3020,21 @@ function getQuoteDiagramWalletFeesUsdLabel(quote: Record<string, unknown>): stri
 function getQuoteDiagramOutputUsdSubline(quote: Record<string, unknown>): string | null {
   const ui = quote._swapUiUsd as { outputSwapUsd?: number; outputReclaimUsd?: number } | undefined;
   if (ui?.outputSwapUsd != null && Number(ui.outputSwapUsd) > 0) {
-    const totalUsd = Number(ui.outputSwapUsd) + Number(ui.outputReclaimUsd ?? 0);
-    const label = deps.formatSwapReceiveUsdLabel(totalUsd);
+    const label = deps.formatSwapReceiveUsdLabel(Number(ui.outputSwapUsd));
     return label ? `≈ ${label}` : null;
   }
 
   const swapUsd = deps.getQuoteReceiveUsd(quote);
+  if (swapUsd != null && swapUsd > 0) {
+    const label = deps.formatSwapReceiveUsdLabel(swapUsd);
+    return label ? `≈ ${label}` : null;
+  }
   const reclaimUsd = sumQuoteRentReclaimUsd(quote);
-  const totalUsd =
-    swapUsd != null ? swapUsd + reclaimUsd : reclaimUsd > 0 ? reclaimUsd : null;
-  if (totalUsd == null || !(totalUsd > 0)) return null;
-  const label = deps.formatSwapReceiveUsdLabel(totalUsd);
-  return label ? `≈ ${label}` : null;
+  if (reclaimUsd > 0) {
+    const label = deps.formatSwapReceiveUsdLabel(reclaimUsd);
+    return label ? `≈ ${label}` : null;
+  }
+  return null;
 }
 
 function getQuoteDiagramOutputUsdTitle(quote: Record<string, unknown>): string | null {
