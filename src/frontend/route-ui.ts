@@ -4812,7 +4812,6 @@ function renderRoutingFrame(
         <div class="routing-track-wrap">${body}</div>
       </div>
     </div>
-    ${renderRoutingDiagramLegend()}
   </div>`;
 }
 
@@ -5239,7 +5238,12 @@ function ensureRoutingDiagramHost(container: HTMLElement): RoutingDiagramHostSta
   zoomInBtn.textContent = '+';
 
   controls.append(zoomOutBtn, zoomInBtn);
-  container.append(viewport, controls);
+
+  const legend = document.createElement('div');
+  legend.innerHTML = renderRoutingDiagramLegend();
+  const legendEl = legend.firstElementChild as HTMLElement | null;
+  if (legendEl) container.append(viewport, legendEl, controls);
+  else container.append(viewport, controls);
 
   const state: RoutingDiagramHostState = {
     fitScale: 1,

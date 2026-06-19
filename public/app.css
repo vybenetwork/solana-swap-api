@@ -2946,14 +2946,13 @@ tr:hover td {
   position: relative;
   display: block;
   min-width: max(100%, 520px);
-  padding-bottom: 1.85rem;
 }
 
-.routing-legend {
+.routing-diagram-host > .routing-legend {
   position: absolute;
-  left: 0.2rem;
-  bottom: 2.75rem;
-  z-index: 6;
+  left: 0.45rem;
+  bottom: 0.45rem;
+  z-index: 12;
   pointer-events: none;
 }
 
