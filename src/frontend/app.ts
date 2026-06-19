@@ -1154,6 +1154,17 @@ function formatSwapReceiveFiatDisplay(v: unknown): string {
   return `~$${formatSwapLegUsdAmount(n)}`;
 }
 
+/** Buy-side fiat under the output token amount — pool output USD from ix-builder, fees excluded from label. */
+function renderSwapBuyFiatHtml(quote: Record<string, unknown> | null): string {
+  if (!quote) return '~$0.00';
+  const ui = quote._swapUiUsd as { buyBoxUsd?: number } | undefined;
+  const enriched = quote._youReceive as { outUsd?: number } | undefined;
+  const usd = ui?.buyBoxUsd ?? enriched?.outUsd;
+  if (usd == null || !(Number(usd) > 0)) return '~$0.00';
+  const main = formatSwapReceiveFiatDisplay(usd);
+  return `${escapeHtml(main)} <span class="swap-fiat-qualifier">(without fees)</span>`;
+}
+
 function syncSwapSellAmountUi(): void {
   const amount = Number(swapAmountInput?.value);
   const hasPositiveAmount = Number.isFinite(amount) && amount > 0;
@@ -1204,7 +1215,7 @@ function syncSwapSellAmountUi(): void {
       else swapBuyAmountDisplayEl.removeAttribute('title');
     }
     if (swapBuyFiatEl) {
-      swapBuyFiatEl.textContent = formatSwapReceiveFiatDisplay(getQuoteReceiveUsd(lastSwapQuoteOk));
+      swapBuyFiatEl.innerHTML = renderSwapBuyFiatHtml(lastSwapQuoteOk);
     }
     if (swapSellFiatEl) {
       swapSellFiatEl.textContent = formatSwapPayFiatDisplay(getQuotePayUsd(lastSwapQuoteOk));
@@ -2912,6 +2923,7 @@ function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<stri
     _walletTokenAccountCloses: enrichment.walletTokenAccountCloses ?? [],
     _youPay: enrichment.youPay,
     _youReceive: enrichment.youReceive,
+    _swapUiUsd: enrichment.swapUiUsd,
     _maxSlippagePct: enrichment.maxSlippagePct,
     _tokens: enrichment.tokens,
     _inputPriceUsd: enrichment.inputPriceUsd,
@@ -2967,6 +2979,7 @@ function applyFeeEnrichmentToQuote(
   for (const key of [
     '_youPay',
     '_youReceive',
+    '_swapUiUsd',
     '_maxSlippagePct',
     '_tokens',
     '_inputPriceUsd',
@@ -3526,10 +3539,9 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
   }
 
   const payUsdLabel = formatSwapPayFiatDisplay(getQuotePayUsd(quote));
-  const receiveUsdLabel = formatSwapReceiveFiatDisplay(getQuoteReceiveUsd(quote));
   if (swapSellFiatEl) swapSellFiatEl.textContent = payUsdLabel;
   if (swapBuyFiatEl) {
-    swapBuyFiatEl.textContent = receiveUsdLabel;
+    swapBuyFiatEl.innerHTML = renderSwapBuyFiatHtml(quote);
     swapBuyFiatEl.title = quoteOutputPriceSourceTitle(quote);
   }
 

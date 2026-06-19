@@ -1875,6 +1875,21 @@ function formatQuoteYouPayUsdSubLabel(quote: Record<string, unknown>): string | 
   return `${totalLabel} (includes ${includes.join(' + ')})`;
 }
 
+/** Routing diagram input USD line — total with wallet-cost item count (from ix-builder `swapUiUsd`). */
+function formatQuoteDiagramInputTotalLabel(quote: Record<string, unknown>): string | null {
+  const ui = quote._swapUiUsd as { inputTotalUsd?: number; inputFeeCount?: number } | undefined;
+  if (ui?.inputTotalUsd != null && Number(ui.inputTotalUsd) > 0) {
+    const totalLabel = `$${deps.formatSwapPayUsdAmount(Number(ui.inputTotalUsd))}`;
+    const n = Number(ui.inputFeeCount ?? 0);
+    if (n <= 0) return totalLabel;
+    return `${totalLabel} (${n} ${n > 1 ? 'fees' : 'fee'})`;
+  }
+
+  const breakdown = resolveQuoteYouPayUsd(quote);
+  if (!breakdown) return null;
+  return `$${deps.formatSwapPayUsdAmount(breakdown.totalUsd)}`;
+}
+
 function payHeroCostKindLabel(
   kind: QuotePayHeroCostStackItem['kind'],
   count = 1,
@@ -2224,7 +2239,7 @@ export function getQuoteDiagramInputFeeAddon(quote: Record<string, unknown>): st
 }
 
 function getQuoteDiagramInputTotalLabel(quote: Record<string, unknown>): string | null {
-  return formatQuoteYouPayUsdSubLabel(quote);
+  return formatQuoteDiagramInputTotalLabel(quote);
 }
 
 /** Extra wallet debit above swap leg (fees/rent on input side), e.g. +0.002181 SOL. */
@@ -3003,6 +3018,13 @@ function getQuoteDiagramWalletFeesUsdLabel(quote: Record<string, unknown>): stri
 }
 
 function getQuoteDiagramOutputUsdSubline(quote: Record<string, unknown>): string | null {
+  const ui = quote._swapUiUsd as { outputSwapUsd?: number; outputReclaimUsd?: number } | undefined;
+  if (ui?.outputSwapUsd != null && Number(ui.outputSwapUsd) > 0) {
+    const totalUsd = Number(ui.outputSwapUsd) + Number(ui.outputReclaimUsd ?? 0);
+    const label = deps.formatSwapReceiveUsdLabel(totalUsd);
+    return label ? `≈ ${label}` : null;
+  }
+
   const swapUsd = deps.getQuoteReceiveUsd(quote);
   const reclaimUsd = sumQuoteRentReclaimUsd(quote);
   const totalUsd =
@@ -3013,6 +3035,20 @@ function getQuoteDiagramOutputUsdSubline(quote: Record<string, unknown>): string
 }
 
 function getQuoteDiagramOutputUsdTitle(quote: Record<string, unknown>): string | null {
+  const ui = quote._swapUiUsd as { outputSwapUsd?: number; outputReclaimUsd?: number } | undefined;
+  if (ui?.outputSwapUsd != null && Number(ui.outputSwapUsd) > 0) {
+    const reclaimUsd = Number(ui.outputReclaimUsd ?? 0);
+    const baseTitle = deps.quoteOutputPriceSourceTitle(quote);
+    if (!(reclaimUsd > 0.001)) return baseTitle;
+    const swapLabel = deps.formatSwapReceiveUsdLabel(Number(ui.outputSwapUsd));
+    const reclaimLabel = deps.formatSwapReceiveUsdLabel(reclaimUsd);
+    const parts: string[] = [];
+    if (baseTitle) parts.push(baseTitle);
+    if (swapLabel) parts.push(`swap output ${swapLabel}`);
+    if (reclaimLabel) parts.push(`+ ATA/WSOL rent reclaimed ${reclaimLabel}`);
+    return parts.join(' · ');
+  }
+
   const reclaimUsd = sumQuoteRentReclaimUsd(quote);
   const baseTitle = deps.quoteOutputPriceSourceTitle(quote);
   if (!(reclaimUsd > 0.001)) return baseTitle;
@@ -4180,7 +4216,7 @@ function renderRoutingFrame(
   const feeBranchSpreadClass = maxRouteFeeBelow >= 4 ? ' routing-canvas--fee-branch-many' : '';
   const inputTotalHtml =
     showAllEndpointLabels || (inputTotalLabel && inputTotalLabel !== '—')
-      ? `<span class="routing-input-total">Total: <span class="routing-input-total__val">${deps.escapeHtml(inputTotalVal)}</span></span>`
+      ? `<span class="routing-input-total">USD Input: <span class="routing-input-total__val">${deps.escapeHtml(inputTotalVal)}</span></span>`
       : '';
   const outputFeesUsdHtml =
     showAllEndpointLabels || (outputFeesUsdLabel && outputFeesUsdLabel !== '—')

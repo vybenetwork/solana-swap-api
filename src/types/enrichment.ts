@@ -68,6 +68,20 @@ export interface EnrichmentYouReceive {
   mint: string;
 }
 
+/** Print-ready USD labels for routing diagram + buy box (ix-builder is source of truth). */
+export interface EnrichmentSwapUiUsd {
+  /** Total wallet debit in USD — routing diagram "USD Input". */
+  inputTotalUsd: number;
+  /** Wallet + rent + pool/output-side fee rows counted for "(N fees)". */
+  inputFeeCount: number;
+  /** Swap output valued in USD before output-side fee deductions — routing "USD Output" swap leg. */
+  outputSwapUsd: number;
+  /** ATA/WSOL rent reclaimed on output side (added to diagram USD Output subline). */
+  outputReclaimUsd: number;
+  /** Buy box USD under output amount — same as outputSwapUsd, "(without fees)" qualifier is UI-only. */
+  buyBoxUsd: number;
+}
+
 export type WalletTokenAccountCloseCategory = 'input' | 'output' | 'wsol' | 'other';
 
 export interface EnrichmentWalletClose {
@@ -139,6 +153,7 @@ export interface SwapEnrichment {
   networkFeeLamports: string;
   youPay: EnrichmentYouPay;
   youReceive: EnrichmentYouReceive;
+  swapUiUsd?: EnrichmentSwapUiUsd;
   routePlan: EnrichmentRouteStep[];
   tokens: Record<string, EnrichmentTokenMeta>;
   simulationOutputWarning?: EnrichmentSimulationOutputWarning | null;

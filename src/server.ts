@@ -610,6 +610,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
         ? {
             _youPay: enrichment.youPay,
             _youReceive: enrichment.youReceive,
+            _swapUiUsd: enrichment.swapUiUsd,
             _maxSlippagePct: enrichment.maxSlippagePct,
             _tokens: enrichment.tokens,
             _inputPriceUsd: enrichment.inputPriceUsd,

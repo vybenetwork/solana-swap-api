@@ -6020,6 +6020,10 @@ tr:hover td {
   white-space: nowrap;
 }
 
+.swap-fiat-qualifier {
+  font-weight: 400;
+}
+
 .swap-flip-fab {
   position: absolute;
   left: 50%;

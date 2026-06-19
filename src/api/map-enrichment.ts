@@ -83,6 +83,7 @@ export function mapEnrichmentToQuote(
     _walletTokenAccountCloses: e.walletTokenAccountCloses ?? [],
     _youPay: e.youPay,
     _youReceive: e.youReceive,
+    _swapUiUsd: e.swapUiUsd,
     _maxSlippagePct: e.maxSlippagePct,
     _tokens: e.tokens,
     _accountsCreated: e.accountsCreated,
