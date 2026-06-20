@@ -16,7 +16,9 @@ import {
   formatRouteViaTradesServerLog,
   normalizeBuildErrorMessage,
   parseVybeEnumeratedSwapRoutes,
+  rankedOutAmountRawFromBuild,
   ROUTE_VIA_TRADES_LIMIT,
+  validateTradeBuild,
   type BuildSwapViaTradeMarketsResult,
   type EnumeratedRouteCandidate,
   type QueuedMarketEntry,
@@ -270,19 +272,23 @@ async function runVybeSwapEnumeration(
       opts.uiOutputMint,
       opts.selected,
     );
-    const precomputedPrimaryQuote = enumRoutes[0]?.quote;
+    if (enumRoutes.length === 0) {
+      throw new Error(exhaustedMessage);
+    }
+    const primaryRoute = enumRoutes[0]!;
+    const precomputedPrimaryQuote = primaryRoute.quote;
     Object.assign(
       vybeParams,
       completePinnedSwapParams({
-        poolAddress: parsed.selected.marketAddress,
-        programAddress: parsed.selected.programAddress,
-        protocol: parsed.selected.protocol,
+        poolAddress: primaryRoute.candidate.marketAddress,
+        programAddress: primaryRoute.candidate.programAddress,
+        protocol: primaryRoute.candidate.protocol,
       }),
     );
     const routeViaTrades: RouteViaTradesMeta = {
       enabled: true,
       outcome: 'multi',
-      selected: parsed.selected,
+      selected: primaryRoute.candidate,
       selectedRouteIndex: 0,
       routes: enumRoutes,
       marketFetchMode: opts.marketFetchMode,
@@ -311,7 +317,7 @@ async function runVybeSwapEnumeration(
       userMessage,
     };
     logRouteViaTradesMeta(routeViaTrades);
-    return { build, routeViaTrades, precomputedPrimaryQuote };
+    return { build: primaryRoute.build, routeViaTrades, precomputedPrimaryQuote };
   }
 
   if (parsed.kind === 'direct') {
@@ -380,29 +386,31 @@ async function runVybeSwapEnumeration(
   throw new Error(exhaustedMessage);
 }
 
+function isEnumeratedRouteFeasible(entry: RouteViaTradesRouteEntry): boolean {
+  return validateTradeBuild(entry.build, entry.candidate).ok;
+}
+
 function quoteOutputRawFromEntry(entry: RouteViaTradesRouteEntry): bigint {
-  const sim = entry.simulatedOutRaw?.trim();
-  if (sim) {
-    try {
-      return BigInt(sim);
-    } catch {
-      /* fall through */
-    }
-  }
-  const fromQuote = String(entry.quote?.outAmount ?? entry.quote?._quotedOutAmount ?? '').trim();
-  if (fromQuote) {
-    try {
-      return BigInt(fromQuote);
-    } catch {
-      /* fall through */
-    }
-  }
-  return 0n;
+  return rankedOutAmountRawFromBuild(entry.build);
 }
 
 function sortRouteEntriesByOutput(routes: RouteViaTradesRouteEntry[]): RouteViaTradesRouteEntry[] {
-  const sorted = [...routes].sort((a, b) => Number(quoteOutputRawFromEntry(b) - quoteOutputRawFromEntry(a)));
+  const sorted = [...routes].sort((a, b) => {
+    const aOk = isEnumeratedRouteFeasible(a);
+    const bOk = isEnumeratedRouteFeasible(b);
+    if (aOk !== bOk) return aOk ? -1 : 1;
+    return Number(quoteOutputRawFromEntry(b) - quoteOutputRawFromEntry(a));
+  });
   return sorted.map((route, i) => ({ ...route, index: i }));
+}
+
+function finalizeEnumeratedRouteEntries(
+  routes: RouteViaTradesRouteEntry[],
+): RouteViaTradesRouteEntry[] {
+  const ranked = sortRouteEntriesByOutput(routes);
+  const feasible = ranked.filter(isEnumeratedRouteFeasible);
+  if (feasible.length > 0) return feasible;
+  return ranked;
 }
 
 async function buildEnumeratedRouteQuotes(
@@ -447,7 +455,7 @@ async function buildEnumeratedRouteQuotes(
       simulatedOutRaw: simulatedOutRaw ?? undefined,
     });
   }
-  return sortRouteEntriesByOutput(routes);
+  return finalizeEnumeratedRouteEntries(routes);
 }
 
 function aliasNativeSolPriceStats(
@@ -617,11 +625,23 @@ export async function buildVybeQuoteFromPriceAndSwap(
           uiOutputMint,
           selected,
         );
-        precomputedPrimaryQuote = enumRoutes[0]?.quote;
+        const primaryRoute = enumRoutes[0];
+        if (primaryRoute) {
+          build = primaryRoute.build;
+          Object.assign(
+            vybeParams,
+            completePinnedSwapParams({
+              poolAddress: primaryRoute.candidate.marketAddress,
+              programAddress: primaryRoute.candidate.programAddress,
+              protocol: primaryRoute.candidate.protocol,
+            }),
+          );
+        }
+        precomputedPrimaryQuote = primaryRoute?.quote;
         routeViaTrades = {
           enabled: true,
           outcome: 'multi',
-          selected: routed.selected,
+          selected: primaryRoute?.candidate ?? routed.selected,
           selectedRouteIndex: 0,
           routes: enumRoutes,
           ...baseRouteViaTradesMetaFromRouted(routed, marketFetchMode, true),

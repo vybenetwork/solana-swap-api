@@ -424,7 +424,7 @@ export function buildTxIncludesAddresses(
  * simulatable (wallet lacks bridge mint); pre-swap probe sim may fail during enumeration
  * without meaning the route is unroutable.
  */
-function validateTradeBuild(
+export function validateTradeBuild(
   build: import('../types/swap.js').VybeSwapBuildResponse,
   candidate: TradeMarketCandidate,
 ): { ok: boolean; reason: string } {
@@ -648,11 +648,42 @@ function quoteOutAmountRawFromBuild(build: import('../types/swap.js').VybeSwapBu
   }
 }
 
+/** True when ix-builder enrichment ran a sim and it failed. */
+export function buildHasFailedSimulation(
+  build: import('../types/swap.js').VybeSwapBuildResponse,
+): boolean {
+  const sim = build.enrichment?.simulated;
+  if (!sim) return false;
+  return sim.err != null || sim.ok === false;
+}
+
+/** Rank key for route ordering: failed sim → 0; else simulated out; else quoted out. */
+export function rankedOutAmountRawFromBuild(
+  build: import('../types/swap.js').VybeSwapBuildResponse,
+): bigint {
+  if (buildHasFailedSimulation(build)) return 0n;
+  const simRaw =
+    build.enrichment?.simulatedOutRaw?.trim() ??
+    (typeof build.enrichment?.simulated?.outputDeltaRaw === 'string'
+      ? build.enrichment.simulated.outputDeltaRaw.trim()
+      : '');
+  if (simRaw) {
+    try {
+      return BigInt(simRaw);
+    } catch {
+      /* fall through */
+    }
+  }
+  return quoteOutAmountRawFromBuild(build);
+}
+
 function sortRouteBuildSuccessesByQuotedOutput(successes: RouteBuildSuccess[]): RouteBuildSuccess[] {
-  return [...successes].sort(
-    (a, b) =>
-      Number(quoteOutAmountRawFromBuild(b.build) - quoteOutAmountRawFromBuild(a.build)),
-  );
+  return [...successes].sort((a, b) => {
+    const aFailed = buildHasFailedSimulation(a.build);
+    const bFailed = buildHasFailedSimulation(b.build);
+    if (aFailed !== bFailed) return aFailed ? 1 : -1;
+    return Number(rankedOutAmountRawFromBuild(b.build) - rankedOutAmountRawFromBuild(a.build));
+  });
 }
 
 /** Pure on-chain RPC scan rows — backfill only when trades/markets cannot fill enumerate slots. */
