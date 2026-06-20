@@ -2491,6 +2491,30 @@ tr:hover td {
   font-weight: 500;
 }
 
+.swap-quote-summary-sub-breakdown .swap-quote-summary-plus,
+.swap-quote-summary-sub-breakdown .swap-quote-summary-minus {
+  color: #71717a;
+  font-size: 0.62rem;
+  font-weight: 500;
+}
+
+.swap-quote-summary-sub-reclaim-label {
+  text-decoration: underline dotted;
+  text-underline-offset: 0.12em;
+  font-size: 0.6rem;
+  font-weight: 500;
+  color: #4ade80;
+}
+
+.swap-quote-summary-fee-trigger--reclaim .swap-quote-summary-sub-reclaim-label {
+  cursor: help;
+}
+
+.swap-quote-summary-fee-trigger--reclaim.swap-quote-summary-fee-trigger--has-tip:hover,
+.swap-quote-summary-fee-trigger--reclaim.swap-quote-summary-fee-trigger--has-tip:focus-within {
+  color: #86efac;
+}
+
 .swap-quote-summary-sub-pool {
   display: inline-flex;
   align-items: baseline;
@@ -2570,6 +2594,16 @@ tr:hover td {
   font-size: 0.6rem;
   font-weight: 300;
   color: #f87171;
+}
+
+.swap-quote-summary-sub-none {
+  font-size: 0.6rem;
+  font-weight: 300;
+  color: #71717a;
+}
+
+.swap-quote-summary-sub-none.swap-quote-summary-sub-amt--placeholder {
+  color: #52525b;
 }
 
 .swap-quote-summary-sub .swap-quote-summary-fee-trigger--has-tip:hover,
