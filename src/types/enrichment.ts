@@ -49,6 +49,7 @@ export interface EnrichmentRouteStep {
   retentionInPct: number;
   retentionOutPct: number;
   outgoingPct: number;
+  hopSimulation?: EnrichmentHopSimulation | null;
 }
 
 export interface EnrichmentYouPay {
@@ -103,6 +104,20 @@ export interface EnrichmentSimulated {
   unitsConsumed: number | null;
 }
 
+/** Per-hop simulation status (multi-hop routes: only hop 1 is required to pass). */
+export interface EnrichmentHopSimulation {
+  hopIndex: number;
+  hopCount: number;
+  role?: string;
+  label?: string;
+  inputMintAddress?: string | null;
+  outputMintAddress?: string | null;
+  simulated: EnrichmentSimulated;
+  skipped: boolean;
+  skipReason: string | null;
+  warning: string | null;
+}
+
 export interface EnrichmentSimulationOutputWarning {
   warn: true;
   thresholdPct: number;
@@ -153,6 +168,8 @@ export interface SwapEnrichment {
   youReceive: EnrichmentYouReceive;
   swapUiUsd?: EnrichmentSwapUiUsd;
   routePlan: EnrichmentRouteStep[];
+  hopSimulations?: EnrichmentHopSimulation[];
+  hopCount?: number;
   tokens: Record<string, EnrichmentTokenMeta>;
   simulationOutputWarning?: EnrichmentSimulationOutputWarning | null;
   lowLiquidityWarning?: EnrichmentLowLiquidityWarning | null;

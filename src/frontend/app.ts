@@ -604,9 +604,8 @@ function shouldUseSmallSwapAmountDecimals(value: string): boolean {
   if (!normalized || normalized === '—') return false;
   const dot = normalized.indexOf('.');
   if (dot === -1) return false;
-  const intValue = Number(normalized.slice(0, dot));
-  if (!Number.isFinite(intValue) || intValue < 1) return false;
-  return normalized.slice(dot + 1).length > 4;
+  const frac = normalized.slice(dot + 1);
+  return frac.length > 0 && /\d/.test(frac);
 }
 
 function renderSwapAmountDisplayHtml(value: string): string {
