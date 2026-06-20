@@ -6145,6 +6145,7 @@ tr:hover td {
   align-self: center;
 }
 
+.swap-side-body .swap-amount-field,
 .swap-side-body .swap-amount-input,
 .swap-side-body .swap-out-readout {
   grid-column: 2;
@@ -6366,12 +6367,59 @@ tr:hover td {
   display: none;
 }
 
+.swap-amount-field {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+}
+
+.swap-amount-display {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  line-height: 1;
+}
+
+.swap-amount-value {
+  display: inline-flex;
+  align-items: baseline;
+  max-width: 100%;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.swap-amount-frac {
+  font-size: 0.5em;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.swap-amount-dot {
+  font-size: 0.65em;
+  line-height: 1;
+}
+
+.swap-amount-field:focus-within .swap-amount-input {
+  caret-color: #fafafa;
+}
+
+.swap-amount-display.swap-out-readout:not(:empty) {
+  color: #fafafa;
+}
+
 .swap-amount-input {
   width: 100%;
   min-width: 0;
+  position: relative;
+  z-index: 1;
   background: transparent;
   border: none;
-  color: #fafafa;
+  color: transparent;
+  caret-color: transparent;
   font-size: 1.75rem;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -6379,6 +6427,11 @@ tr:hover td {
   padding: 0;
   appearance: textfield;
   -moz-appearance: textfield;
+}
+
+.swap-amount-input::selection {
+  background: rgba(250, 250, 250, 0.22);
+  color: transparent;
 }
 
 .swap-amount-input::placeholder {
@@ -6901,11 +6954,11 @@ tr:hover td {
 .swap-route-pin-row .swap-toggle-row--pin-protocol .swap-toggle-field__input--pin-protocol {
   flex: 1 1 auto;
   min-width: 0;
-  max-width: 11rem;
+  max-width: 102px;
 }
 
 .swap-route-pin-row .swap-toggle-row--pin-protocol .swap-toggle-field__input--pin-protocol {
-  max-width: 9rem;
+  max-width: 94px;
 }
 
 .swap-route-discovery-row .swap-pill-switch__input:disabled + .swap-pill-switch__track {
@@ -6975,8 +7028,8 @@ tr:hover td {
 .swap-toggle-field__input {
   display: block;
   width: 100%;
-  padding: 0.35rem 0.45rem;
-  font-size: 0.78rem;
+  padding: 0.32rem 0.4rem;
+  font-size: 0.75rem;
   border: 1px solid #3f3f46;
   border-radius: 8px;
   background: #09090b;

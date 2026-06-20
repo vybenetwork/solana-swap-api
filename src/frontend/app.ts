@@ -51,6 +51,7 @@ import {
   renderTokenIconImgHtml,
   tokenBoxColorClass,
   tokenSymColorClass,
+  getTokenMintColorKind,
   routingTokenDotClass,
   saveTokenPriceStats,
   saveWalletBalanceItemsToCache,
@@ -178,6 +179,7 @@ const swapWalletAddressInput = document.getElementById('swapWalletAddress') as H
 const swapInputMintInput = document.getElementById('swapInputMint') as HTMLInputElement | null;
 const swapOutputMintInput = document.getElementById('swapOutputMint') as HTMLInputElement | null;
 const swapAmountInput = document.getElementById('swapAmount') as HTMLInputElement | null;
+const swapAmountDisplayEl = document.getElementById('swapAmountDisplay') as HTMLElement | null;
 const swapInputTokenBtn = document.getElementById('swapInputTokenBtn') as HTMLButtonElement | null;
 const swapOutputTokenBtn = document.getElementById('swapOutputTokenBtn') as HTMLButtonElement | null;
 const swapInputTokenIconEl = document.getElementById('swapInputTokenIcon') as HTMLElement | null;
@@ -597,6 +599,47 @@ function setFooterStatsLoading(loading: boolean): void {
   if (swapRouteBtnEl) swapRouteBtnEl.disabled = true;
 }
 
+function shouldUseSmallSwapAmountDecimals(value: string): boolean {
+  const normalized = value.replace(/,/g, '').trim();
+  if (!normalized || normalized === '—') return false;
+  const dot = normalized.indexOf('.');
+  if (dot === -1) return false;
+  const intValue = Number(normalized.slice(0, dot));
+  if (!Number.isFinite(intValue) || intValue < 1) return false;
+  return normalized.slice(dot + 1).length > 4;
+}
+
+function renderSwapAmountDisplayHtml(value: string): string {
+  if (!shouldUseSmallSwapAmountDecimals(value)) return escapeHtml(value);
+  const lastDot = value.lastIndexOf('.');
+  if (lastDot === -1) return escapeHtml(value);
+  const intPart = value.slice(0, lastDot);
+  const decPart = value.slice(lastDot + 1);
+  return `<span class="swap-amount-value"><span class="swap-amount-int">${escapeHtml(intPart)}</span><span class="swap-amount-frac"><span class="swap-amount-dot">.</span>${escapeHtml(decPart)}</span></span>`;
+}
+
+function syncSwapAmountDisplayOverlay(): void {
+  if (!swapAmountDisplayEl || !swapAmountInput) return;
+  const raw = swapAmountInput.value.trim();
+  swapAmountDisplayEl.innerHTML = raw ? renderSwapAmountDisplayHtml(raw) : '';
+}
+
+function setSwapBuyAmountDisplay(
+  display: string,
+  opts?: { empty?: boolean; full?: string },
+): void {
+  if (!swapBuyAmountDisplayEl) return;
+  if (swapBuyAmountDisplayEl.dataset.loading === 'true') return;
+  swapBuyAmountDisplayEl.innerHTML = renderSwapAmountDisplayHtml(display);
+  if (opts?.empty !== undefined) {
+    swapBuyAmountDisplayEl.dataset.empty = opts.empty ? 'true' : 'false';
+  }
+  if (opts?.full !== undefined) {
+    if (opts.full) swapBuyAmountDisplayEl.title = opts.full;
+    else swapBuyAmountDisplayEl.removeAttribute('title');
+  }
+}
+
 function setBuyReadoutLoading(loading: boolean): void {
   if (!swapBuyAmountDisplayEl) return;
   if (loading) {
@@ -608,9 +651,7 @@ function setBuyReadoutLoading(loading: boolean): void {
   }
   if (swapBuyAmountDisplayEl.dataset.loading === 'true') {
     swapBuyAmountDisplayEl.dataset.loading = 'false';
-    swapBuyAmountDisplayEl.textContent = '0.00';
-    swapBuyAmountDisplayEl.dataset.empty = 'true';
-    swapBuyAmountDisplayEl.removeAttribute('title');
+    setSwapBuyAmountDisplay('0.00', { empty: true });
   }
 }
 
@@ -1165,6 +1206,7 @@ function renderSwapBuyFiatHtml(quote: Record<string, unknown> | null): string {
 }
 
 function syncSwapSellAmountUi(): void {
+  syncSwapAmountDisplayOverlay();
   const amount = Number(swapAmountInput?.value);
   const hasPositiveAmount = Number.isFinite(amount) && amount > 0;
 
@@ -1173,9 +1215,7 @@ function syncSwapSellAmountUi(): void {
     lastVybeBuild = null;
     if (swapBuildBtn) syncBuildButtonState();
     if (swapBuyAmountDisplayEl) {
-      swapBuyAmountDisplayEl.textContent = '0.00';
-      swapBuyAmountDisplayEl.dataset.empty = 'true';
-      swapBuyAmountDisplayEl.removeAttribute('title');
+      setSwapBuyAmountDisplay('0.00', { empty: true });
     }
     if (swapSellFiatEl) swapSellFiatEl.textContent = '~$0.00';
     if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
@@ -1217,10 +1257,7 @@ function syncSwapSellAmountUi(): void {
     setBuyFiatLoading(false);
     const outAmt = formatQuoteTokenAmount(lastSwapQuoteOk, 'out');
     if (swapBuyAmountDisplayEl && outAmt.display !== '—') {
-      swapBuyAmountDisplayEl.textContent = outAmt.display;
-      swapBuyAmountDisplayEl.dataset.empty = 'false';
-      if (outAmt.full) swapBuyAmountDisplayEl.title = outAmt.full;
-      else swapBuyAmountDisplayEl.removeAttribute('title');
+      setSwapBuyAmountDisplay(outAmt.display, { empty: false, full: outAmt.full || undefined });
     }
     if (swapBuyFiatEl) {
       swapBuyFiatEl.innerHTML = renderSwapBuyFiatHtml(lastSwapQuoteOk);
@@ -1265,9 +1302,7 @@ function resetSwapQuoteToMock(): void {
   setBuyReadoutLoading(false);
   setBuyFiatLoading(false);
   if (swapBuyAmountDisplayEl) {
-    swapBuyAmountDisplayEl.textContent = '0.00';
-    swapBuyAmountDisplayEl.dataset.empty = 'true';
-    swapBuyAmountDisplayEl.removeAttribute('title');
+    setSwapBuyAmountDisplay('0.00', { empty: true });
   }
   if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
   if (swapFooterRateEl) swapFooterRateEl.textContent = '—';
@@ -1872,6 +1907,11 @@ function swapPairMintsMatch(a: string, b: string): boolean {
   return preferNativeSolMint(left) === preferNativeSolMint(right);
 }
 
+function isSwapQuoteSolOrStableMint(mint: string, symbolHint?: string): boolean {
+  const kind = getTokenMintColorKind(mint, symbolHint);
+  return kind === 'sol' || kind === 'stable';
+}
+
 function parseFlipOutputAmountUi(): number | null {
   if (lastSwapQuoteOk) {
     const fromQuote = quoteOutputUiAmount(lastSwapQuoteOk);
@@ -1943,6 +1983,8 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
   const otherInput = side === 'input' ? swapOutputMintInput : swapInputMintInput;
   const symbolEl = side === 'input' ? swapInputSymbolEl : swapOutputSymbolEl;
   if (!input) return;
+  const previousInputMint = side === 'input' ? input.value.trim() : '';
+  const previousInputSym = side === 'input' ? swapInputSymbolEl?.textContent?.trim() : undefined;
   const resolvedMint = side === 'input' ? preferNativeSolMint(mint) : mint.trim();
   const otherMint = otherInput?.value.trim() ?? '';
 
@@ -1953,9 +1995,30 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
     return;
   }
 
+  let autoOutputMint: string | null = null;
+  if (
+    side === 'input' &&
+    previousInputMint &&
+    otherInput &&
+    isSwapQuoteSolOrStableMint(previousInputMint, previousInputSym) &&
+    !isSwapQuoteSolOrStableMint(resolvedMint) &&
+    !swapPairMintsMatch(resolvedMint, previousInputMint)
+  ) {
+    autoOutputMint = previousInputMint;
+  }
+
   input.value = resolvedMint;
   const meta = getCachedTokenMeta(resolvedMint);
   if (meta && symbolEl) symbolEl.textContent = meta.symbol === 'WSOL' || meta.symbol === 'wSOL' ? 'SOL' : meta.symbol;
+  if (autoOutputMint && swapOutputMintInput) {
+    swapOutputMintInput.value = autoOutputMint;
+    const outMeta = getCachedTokenMeta(autoOutputMint);
+    if (outMeta && swapOutputSymbolEl) {
+      swapOutputSymbolEl.textContent =
+        outMeta.symbol === 'WSOL' || outMeta.symbol === 'wSOL' ? 'SOL' : outMeta.symbol;
+    }
+    if (outMeta?.decimals != null) routeMintDecimalsCache[autoOutputMint] = outMeta.decimals;
+  }
   void syncSwapSideLabels();
   if (meta?.decimals != null) routeMintDecimalsCache[resolvedMint] = meta.decimals;
   updateSwapTokenIcons();
@@ -1967,7 +2030,8 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
     if (sellable != null && sellable > 0) {
       setSwapSellAmountToBalance(sellable, resolvedMint);
     }
-    void prefetchSwapPairPrices({ forceFullDetails: true, mints: [resolvedMint] }).then(() => {
+    const prefetchMints = [resolvedMint, ...(autoOutputMint ? [autoOutputMint] : [])];
+    void prefetchSwapPairPrices({ forceFullDetails: true, mints: prefetchMints }).then(() => {
       syncSwapQuoteButtonState();
     });
   } else {
@@ -3589,10 +3653,10 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
   setBuyFiatLoading(false);
   const outAmt = formatQuoteTokenAmount(quote, 'out');
   if (swapBuyAmountDisplayEl) {
-    swapBuyAmountDisplayEl.textContent = outAmt.display;
-    swapBuyAmountDisplayEl.dataset.empty = outAmt.display === '—' ? 'true' : 'false';
-    if (outAmt.full) swapBuyAmountDisplayEl.title = outAmt.full;
-    else swapBuyAmountDisplayEl.removeAttribute('title');
+    setSwapBuyAmountDisplay(outAmt.display, {
+      empty: outAmt.display === '—',
+      full: outAmt.full || undefined,
+    });
   }
 
   const payUsdLabel = formatSwapPayFiatDisplay(getQuotePayUsd(quote));
@@ -6137,6 +6201,7 @@ swapAmountInput?.addEventListener('change', () => {
 void ensureTokenCatalogLoaded().then(() => updateSwapTokenIcons());
 void refreshSwapSymbols();
 updateSwapPairCards();
+syncSwapAmountDisplayOverlay();
 syncSellPctButtonsState();
 bindRoutingDiagramZoomListeners();
 scheduleRoutingDiagramZoom();

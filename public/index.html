@@ -40,7 +40,7 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="shortcut icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="vybe-demo-shell.css?v=6" />
-    <link rel="stylesheet" href="app.css?v=18" />
+    <link rel="stylesheet" href="app.css?v=22" />
   </head>
   <body>
     <div class="container">
@@ -293,7 +293,10 @@
                   <span class="swap-token-chip-chevron" aria-hidden="true"></span>
                 </button>
                 <div class="swap-side-changes" id="swapSellChanges" aria-live="polite"></div>
-                <input type="number" id="swapAmount" class="swap-amount-input" min="0" step="any" value="0.05" placeholder="0.00" title="Amount to sell" />
+                <div class="swap-amount-field">
+                  <div class="swap-amount-display swap-out-readout" id="swapAmountDisplay" aria-hidden="true"></div>
+                  <input type="number" id="swapAmount" class="swap-amount-input" min="0" step="any" value="0.05" placeholder="0.00" title="Amount to sell" />
+                </div>
                 <span class="swap-fiat" id="swapSellFiat">~$0.00</span>
               </div>
               <input type="text" id="swapInputMint" class="swap-mint-field" value="11111111111111111111111111111111" autocomplete="off" spellcheck="false" title="Input mint" hidden />
@@ -414,21 +417,21 @@
                 <div class="swap-toggle-row__text">
                   <span class="swap-adv-label-row">
                     <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
-                    <span>Market address</span>
+                    <span>Market</span>
                   </span>
-                  <span class="swap-toggle-row__hint">Restrict to market</span>
+                  <span class="swap-toggle-row__hint">Pool</span>
                 </div>
-                <input type="text" id="swapPoolAddress" class="swap-toggle-field__input swap-toggle-field__input--pin-pool" placeholder="Market address" autocomplete="off" spellcheck="false" aria-label="Market address" />
+                <input type="text" id="swapPoolAddress" class="swap-toggle-field__input swap-toggle-field__input--pin-pool" placeholder="Market address" autocomplete="off" spellcheck="false" aria-label="Market" />
               </div>
               <div class="swap-toggle-row swap-toggle-row--pin-protocol">
                 <div class="swap-toggle-row__text" id="swapProtocolText">
                   <span class="swap-adv-label-row">
                     <span class="label-icon field-icon icon-tag swap-adv-label-icon" aria-hidden="true"></span>
-                    <span>Protocol</span>
+                    <span>Program</span>
                   </span>
-                  <span class="swap-toggle-row__hint">Force DEX route</span>
+                  <span class="swap-toggle-row__hint">Protocol</span>
                 </div>
-                <select id="swapProtocol" class="swap-protocol-select swap-toggle-field__input swap-toggle-field__input--pin-protocol" aria-label="DEX protocol">
+                <select id="swapProtocol" class="swap-protocol-select swap-toggle-field__input swap-toggle-field__input--pin-protocol" aria-label="Program">
                   <option value="PUMPFUN">Pumpfun</option>
                   <option value="PUMPSWAP">PumpSwap</option>
                   <option value="RAYDIUMAMMV4">Raydium AMM v4</option>
@@ -714,7 +717,7 @@
       import bs58 from 'bs58';
       window.bs58 = bs58;
     </script>
-    <script type="module" src="app.js?v=61"></script>
+    <script type="module" src="app.js?v=71"></script>
   </body>
 </html>
 
