@@ -1903,6 +1903,78 @@ export function getQuotePayHeroCostStack(
   return stack;
 }
 
+/** Individual wallet-fee rows for pay-hero tooltips (one line per protocol/creator/etc.). */
+function getQuotePayHeroWalletFeeLineItems(
+  quote: Record<string, unknown>,
+  sellSym: string,
+): QuotePayHeroCostStackItem[] {
+  const mint = quoteInputMint(quote);
+  if (!mint) return [];
+
+  const out: QuotePayHeroCostStackItem[] = [];
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  for (const step of plan) {
+    for (const item of getHopFeeDisplayItems(step)) {
+      if (!isWalletCostFeeItem(item, quote)) continue;
+      if (isAccRentWalletFeeItem(item)) continue;
+      const sellLegUi = walletCostFeeToSellMintUi(item, quote);
+      if (sellLegUi == null || sellLegUi <= 0) continue;
+      out.push({
+        ui: sellLegUi,
+        sym: sellSym,
+        mint,
+        kind: 'fee',
+        count: 1,
+        detailLabel: displayFeeItemLabel(item),
+      });
+    }
+  }
+  return out;
+}
+
+function getQuotePayHeroWalletFeeUsdLineItems(
+  quote: Record<string, unknown>,
+): QuotePayHeroUsdStackItem[] {
+  const mint = quoteInputMint(quote);
+  if (!mint) return [];
+
+  const out: QuotePayHeroUsdStackItem[] = [];
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  for (const step of plan) {
+    for (const item of getHopFeeDisplayItems(step)) {
+      if (!isWalletCostFeeItem(item, quote)) continue;
+      if (isAccRentWalletFeeItem(item)) continue;
+      const sellLegUi = walletCostFeeToSellMintUi(item, quote);
+      if (sellLegUi == null || sellLegUi <= 0) continue;
+      let usd = computeFeeUsdNumeric(item, quote);
+      if (usd == null || usd <= 0) {
+        const sellPrice = lookupMintPriceUsd(mint, quote);
+        if (Number.isFinite(sellPrice) && sellPrice > 0) usd = sellLegUi * sellPrice;
+      }
+      if (usd == null || usd <= 0) continue;
+      out.push({
+        usd,
+        kind: 'fee',
+        count: 1,
+        detailLabel: displayFeeItemLabel(item),
+      });
+    }
+  }
+  return out;
+}
+
+/** Expanded stack for pay-hero hover tips — per-fee lines plus rent rows. */
+function getQuotePayHeroTooltipStack(
+  quote: Record<string, unknown>,
+  sellSym: string,
+): QuotePayHeroCostStackItem[] {
+  const stack = getQuotePayHeroCostStack(quote, sellSym);
+  const feeLines = getQuotePayHeroWalletFeeLineItems(quote, sellSym);
+  const rentRows = stack.filter((row) => row.kind === 'rent');
+  if (feeLines.length > 0) return [...feeLines, ...rentRows];
+  return stack;
+}
+
 /** Acc-rent rows debited from wallet and not reclaimed via an input close in the same tx. */
 function countDeductedRentFeeItems(quote: Record<string, unknown>): number {
   const mint = quoteInputMint(quote);
@@ -1977,7 +2049,10 @@ function getQuotePayHeroUsdStack(
 ): QuotePayHeroUsdStackItem[] {
   const tokenStack = getQuotePayHeroCostStack(quote, inSym);
   const out: QuotePayHeroUsdStackItem[] = [];
-  if (breakdown.feeUsd != null && breakdown.feeUsd > 0) {
+  const feeUsdLines = getQuotePayHeroWalletFeeUsdLineItems(quote);
+  if (feeUsdLines.length > 0) {
+    out.push(...feeUsdLines);
+  } else if (breakdown.feeUsd != null && breakdown.feeUsd > 0) {
     const feeRow = tokenStack.find((row) => row.kind === 'fee');
     out.push({
       usd: breakdown.feeUsd,
@@ -2163,8 +2238,9 @@ function renderQuotePayHeroBreakdownHtml(
   const symCls = tokenSymColorClass(inputMint, inSym);
   const feeCount = countPayHeroCostStackItems(stack);
   const feeLabel = formatPayHeroFeeCountLabel(feeCount);
-  const tipHtml = renderPayHeroFeeTooltip(stack, subCls);
-  const tipTitle = stack
+  const tooltipStack = getQuotePayHeroTooltipStack(quote, inSym);
+  const tipHtml = renderPayHeroFeeTooltip(tooltipStack, subCls);
+  const tipTitle = tooltipStack
     .map((row) => `${formatPayHeroCostDisplay(row.ui)} ${row.sym} ${payHeroCostRowDetailLabel(row)}`)
     .join(', ');
 
@@ -2205,13 +2281,14 @@ export function renderQuotePayHeroSubHtml(
   const feeCount = countPayHeroCostStackItems(tokenStack);
   const includesLabel = formatPayHeroFeeIncludesLabel(feeCount);
   const usdStack = getQuotePayHeroUsdStack(quote, inSym, breakdown);
-  const tipHtml = renderPayHeroUsdFeeTooltip(usdStack, tokenStack, subCls);
+  const tooltipTokenStack = getQuotePayHeroTooltipStack(quote, inSym);
+  const tipHtml = renderPayHeroUsdFeeTooltip(usdStack, tooltipTokenStack, subCls);
   const kindIndex: Record<'fee' | 'rent', number> = { fee: 0, rent: 0 };
   const tipTitle = usdStack
     .map((row) => {
       const idx = kindIndex[row.kind];
       kindIndex[row.kind] += 1;
-      const tokenRow = tokenStack.filter((t) => t.kind === row.kind)[idx];
+      const tokenRow = tooltipTokenStack.filter((t) => t.kind === row.kind)[idx];
       const label = payHeroUsdCostDetailLabel(row, tokenRow);
       return `$${deps.formatSwapPayUsdAmount(row.usd)} ${label}`;
     })
