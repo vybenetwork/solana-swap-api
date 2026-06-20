@@ -407,7 +407,10 @@ function sortRouteEntriesByOutput(routes: RouteViaTradesRouteEntry[]): RouteViaT
 function finalizeEnumeratedRouteEntries(
   routes: RouteViaTradesRouteEntry[],
 ): RouteViaTradesRouteEntry[] {
-  return sortRouteEntriesByOutput(routes).filter(isEnumeratedRouteFeasible);
+  const ranked = sortRouteEntriesByOutput(routes);
+  const feasible = ranked.filter(isEnumeratedRouteFeasible);
+  if (feasible.length > 0) return feasible;
+  return ranked;
 }
 
 async function buildEnumeratedRouteQuotes(
