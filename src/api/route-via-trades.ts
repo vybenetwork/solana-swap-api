@@ -30,7 +30,7 @@ export {
 } from './pinned-swap-params.js';
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
 import { staticAccountKeysFromSwapTx, validateTradeBuildStatic } from './pool-address-validation.js';
-import { isQuoteBridgeBuild, type QuoteBridgeBuildDetails } from './quote-bridge-detect.js';
+import { isQuoteBridgeBuild, isMultiHopSwapBuild, type QuoteBridgeBuildDetails } from './quote-bridge-detect.js';
 import { toVybeSwapMint } from './sol-mints.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams } from './trades.js';
 
@@ -373,9 +373,12 @@ export function parseVybeEnumeratedSwapRoutes(
 ): VybeEnumeratedSwapParseResult {
   const routesRaw = build.routes;
   if (build.outcome === 'multi' && Array.isArray(routesRaw) && routesRaw.length > 0) {
-    const routes = routesRaw.map((route, i) =>
-      routeBuildSuccessFromVybeBuild(route as import('../types/swap.js').VybeSwapBuildResponse, i),
-    );
+    const routes = routesRaw
+      .map((route, i) =>
+        routeBuildSuccessFromVybeBuild(route as import('../types/swap.js').VybeSwapBuildResponse, i),
+      )
+      .filter((entry) => validateTradeBuild(entry.build, entry.selected).ok);
+    if (routes.length === 0) return { kind: 'none' };
     const primary = routes[0]!;
     return { kind: 'multi', routes, build: primary.build, selected: primary.selected };
   }
@@ -420,10 +423,36 @@ export function buildTxIncludesAddresses(
  * Validate a built route without re-simulating: static pool/program presence + ix-builder's
  * own simulation result (the build was requested with enrich:true). swap-api never simulates.
  *
- * Quote-bridge routes: accept when txs + quoted output are present. Main leg is often not
- * simulatable (wallet lacks bridge mint); pre-swap probe sim may fail during enumeration
- * without meaning the route is unroutable.
+ * Quote-bridge / multi-hop routes: accept when txs + quoted output are present. Main leg is
+ * often not simulatable (wallet lacks bridge mint); pre-swap probe sim may fail during
+ * enumeration without meaning the route is unroutable.
+ *
+ * Single-hop routes: require a successful ix-builder simulation (missing or failed sim rejects).
  */
+function validateSingleHopSimulation(
+  build: import('../types/swap.js').VybeSwapBuildResponse,
+): { ok: boolean; reason: string } {
+  const sim = build.enrichment?.simulated;
+  if (!sim) {
+    return { ok: false, reason: 'Swap simulation missing for single-hop route' };
+  }
+  if (sim.err != null || sim.ok === false) {
+    return { ok: false, reason: `Swap simulation failed: ${JSON.stringify(sim.err)}` };
+  }
+  const outDelta = sim.outputDeltaRaw;
+  if (outDelta === '0') {
+    return { ok: false, reason: 'Swap simulation returned zero output' };
+  }
+  const simulatedOut = build.enrichment?.simulatedOutRaw?.trim();
+  if (simulatedOut === '0') {
+    return { ok: false, reason: 'Swap simulation returned zero output' };
+  }
+  if ((outDelta == null || outDelta === '') && !simulatedOut) {
+    return { ok: false, reason: 'Swap simulation missing output amount' };
+  }
+  return { ok: true, reason: '' };
+}
+
 export function validateTradeBuild(
   build: import('../types/swap.js').VybeSwapBuildResponse,
   candidate: TradeMarketCandidate,
@@ -457,14 +486,8 @@ export function validateTradeBuild(
     return { ok: true, reason: '' };
   }
 
-  const sim = build.enrichment?.simulated;
-  if (sim) {
-    if (sim.err != null) {
-      return { ok: false, reason: `Swap simulation failed: ${JSON.stringify(sim.err)}` };
-    }
-    if (sim.outputDeltaRaw === '0') {
-      return { ok: false, reason: 'Swap simulation returned zero output' };
-    }
+  if (!isMultiHopSwapBuild(build)) {
+    return validateSingleHopSimulation(build);
   }
 
   return { ok: true, reason: '' };
@@ -648,13 +671,12 @@ function quoteOutAmountRawFromBuild(build: import('../types/swap.js').VybeSwapBu
   }
 }
 
-/** True when ix-builder enrichment ran a sim and it failed. */
+/** True when ix-builder enrichment ran a sim and it failed on a single-hop route. */
 export function buildHasFailedSimulation(
   build: import('../types/swap.js').VybeSwapBuildResponse,
 ): boolean {
-  const sim = build.enrichment?.simulated;
-  if (!sim) return false;
-  return sim.err != null || sim.ok === false;
+  if (isMultiHopSwapBuild(build)) return false;
+  return !validateSingleHopSimulation(build).ok;
 }
 
 /** Rank key for route ordering: failed sim → 0; else simulated out; else quoted out. */
@@ -1052,6 +1074,16 @@ async function tryQuoteProbeAttempt(
     const outAmount = quoteOutAmountRawFromBuild(build);
     if (outAmount <= 0n) {
       const lastError = 'Swap quote returned zero output';
+      return {
+        ok: false,
+        lastError,
+        queueEntry,
+        buildLog: [{ ...baseLog, attempt: attemptLabel, provider: provider || undefined, success: false, error: lastError }],
+      };
+    }
+    const validation = validateTradeBuild(build, candidate);
+    if (!validation.ok) {
+      const lastError = describeTradeBuildRejectReasonFromValidation(validation.reason);
       return {
         ok: false,
         lastError,

@@ -61,3 +61,9 @@ export function isQuoteBridgeBuild(build: VybeSwapBuildResponse): boolean {
     )
   );
 }
+
+/** Multi-hop swap (quote-bridge pre/main legs or routePlan with 2+ hops). */
+export function isMultiHopSwapBuild(build: VybeSwapBuildResponse): boolean {
+  if (isQuoteBridgeBuild(build)) return true;
+  return (build.enrichment?.routePlan?.length ?? 0) > 1;
+}
