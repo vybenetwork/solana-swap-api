@@ -813,20 +813,18 @@ function swapRouteWarningLevel(quote: Record<string, unknown>): SwapRouteWarning
 }
 
 function formatLowLiquidityWarningMessage(warning: LowLiquidityWarning): string {
-  const thresh = Number.isFinite(warning.thresholdUsd) ? warning.thresholdUsd! : 1000;
-  return `Pool liquidity is $${warning.liquidityUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })} (below $${thresh.toLocaleString()} threshold).`;
+  return `Pool liquidity is $${warning.liquidityUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`;
 }
 
 function formatSimulationOutputWarningMessage(
   warning: SimulationOutputWarning,
   outSym?: string,
 ): string {
-  const thresh = resolveOutputWarnThresholdPct(warning.thresholdPct);
   const sym = outSym?.trim() ? ` ${outSym.trim()}` : '';
   if (warning.source === 'price_impact') {
-    return `Quoted output is ${warning.shortfallPct.toFixed(1)}% below spot price${sym ? ` for${sym}` : ''} (≥${thresh}% threshold). Pool may have low liquidity or high price impact.`;
+    return `Quoted output is ${warning.shortfallPct.toFixed(1)}% below spot price${sym ? ` for${sym}` : ''}. Pool may have low liquidity or high price impact.`;
   }
-  return `Simulation delivers ${warning.shortfallPct.toFixed(1)}% less${sym} than quoted (≥${thresh}% threshold). Token account rent and reclaim are excluded from this comparison.`;
+  return `Simulation delivers ${warning.shortfallPct.toFixed(1)}% less${sym} than quoted. Token account rent and reclaim are excluded from this comparison.`;
 }
 
 function formatCombinedRouteWarningsMessage(

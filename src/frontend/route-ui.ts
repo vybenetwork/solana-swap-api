@@ -5456,14 +5456,12 @@ function swapRouteWarningLevel(
 }
 
 function simulationOutputWarningTitle(w: Record<string, unknown>): string {
-  const thresh = Number.isFinite(Number(w.thresholdPct)) ? Number(w.thresholdPct) : 2;
-  return `Simulated output is ${Number(w.shortfallPct).toFixed(1)}% below quote (≥${thresh}% threshold). Token account rent/reclaim excluded.`;
+  return `Simulated output is ${Number(w.shortfallPct).toFixed(1)}% below quote. Token account rent/reclaim excluded.`;
 }
 
 function lowLiquidityWarningTitle(w: Record<string, unknown>): string {
-  const thresh = Number(w.thresholdUsd ?? 1000);
   const liq = Number(w.liquidityUsd);
-  return `Pool liquidity is $${liq.toLocaleString(undefined, { maximumFractionDigits: 2 })} (below $${thresh.toLocaleString()} threshold).`;
+  return `Pool liquidity is $${liq.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`;
 }
 
 function combinedRouteWarningTitle(quote: Record<string, unknown>, marketScore?: number): string {
