@@ -100,10 +100,26 @@ function discoverQueryString(body) {
 }
 
 function quoteOutAmountRaw(swap) {
+  const enrichmentOut = swap?.enrichment?.outAmountRaw;
+  if (typeof enrichmentOut === 'string' && enrichmentOut) {
+    try {
+      return BigInt(enrichmentOut);
+    } catch {
+      /* ignore */
+    }
+  }
   const sim = swap?.enrichment?.simulatedOutRaw;
   if (typeof sim === 'string' && sim) {
     try {
       return BigInt(sim);
+    } catch {
+      /* ignore */
+    }
+  }
+  const postSwapOut = swap?.details?.postSwapQuote?.outAmount;
+  if (typeof postSwapOut === 'string' && postSwapOut) {
+    try {
+      return BigInt(postSwapOut);
     } catch {
       /* ignore */
     }
@@ -161,6 +177,7 @@ function pinnedSwapBody(params, pool) {
     fee: vybeSwapFeeIxBuilder(params),
     simulate: false,
     enrich: true,
+    enumerateRoutes: false,
     gasless: params.gasless ?? false,
     autoCalculateSlippage: params.autoCalculateSlippage ?? false,
     partner: params.partner ?? 'vybe',
@@ -168,6 +185,9 @@ function pinnedSwapBody(params, pool) {
     programAddress: pool.programAddress,
   };
   if (pool.protocol) body.protocol = pool.protocol;
+  if (pool.preSwapNeeded === true) body.preSwapNeeded = true;
+  if (pool.postSwapNeeded === true) body.postSwapNeeded = true;
+  if (pool.quoteBridge && typeof pool.quoteBridge === 'object') body.quoteBridge = pool.quoteBridge;
   if (params.closeInputAta === true) body.closeInputAta = true;
   if (params.createOutputAta === true) body.createOutputAta = true;
   if (params.closeWsolAta === true) body.closeWsolAta = true;
