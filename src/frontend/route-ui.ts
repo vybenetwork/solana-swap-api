@@ -365,6 +365,9 @@ function accRentFeeDisplayLabel(item: Pick<HopFeeItemLite, 'mint' | 'accountMint
   const sym = isSolMint(accountMint)
     ? 'WSOL'
     : truncateFeeTableTokenSymbol(mintSymbolSync(accountMint));
+  if (item.destinationKind === 'closed_token_account') {
+    return `${sym} Rent Reclaim`;
+  }
   return `${sym} Rent Fee`;
 }
 
@@ -4881,17 +4884,37 @@ function renderRoutingFeeConnectors(
   </svg>`;
 }
 
+function isEphemeralBridgeWsolReclaimItem(
+  item: HopFeeItemLite,
+  plan: VybeRoutePlanStepLite[],
+  hopIdx: number,
+): boolean {
+  if (!isAccRentReclaimItem(item)) return false;
+  if (!isSolMint(accRentAccountMint(item))) return false;
+  const step = plan[hopIdx];
+  const inMint = step?.swapInfo?.inputMintAddress;
+  if (!inMint || !isSolMint(String(inMint))) return false;
+  const prevOut = plan[hopIdx - 1]?.swapInfo?.outputMintAddress;
+  return Boolean(prevOut && isSolMint(String(prevOut)));
+}
+
 function hopAccRentDisplayItems(
   step: VybeRoutePlanStepLite,
   quote: Record<string, unknown>,
   planIndex: number,
   isLastHop: boolean,
 ): HopFeeItemLite[] {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   const { accRentItems } = partitionHopFeeDisplayItems(getHopFeeDisplayItems(step));
-  if (accRentItems.some(isAccRentReclaimItem)) return accRentItems;
-  const synthetic = getHopAtaRentReclaimItems(quote, planIndex, isLastHop);
-  if (synthetic.length === 0) return accRentItems;
-  return dedupeHopFeeDisplayItems([...accRentItems, ...synthetic]);
+  let items = accRentItems.some(isAccRentReclaimItem)
+    ? accRentItems
+    : (() => {
+        const synthetic = getHopAtaRentReclaimItems(quote, planIndex, isLastHop);
+        if (synthetic.length === 0) return accRentItems;
+        return dedupeHopFeeDisplayItems([...accRentItems, ...synthetic]);
+      })();
+  items = items.filter((item) => !isEphemeralBridgeWsolReclaimItem(item, plan, planIndex));
+  return items;
 }
 
 function partitionHopFeeDisplayItems(items: HopFeeItemLite[]): {

@@ -13,7 +13,7 @@ export interface SwapWalletAtaHints {
   closeInputAta?: boolean;
   /** Create output SPL ATA idempotently before the swap (buy when wallet has no ATA). */
   createOutputAta?: boolean;
-  /** Ephemeral WSOL quote path on sell: create idempotent WSOL ATA, sync, then close. */
+  /** Ephemeral WSOL path: create + close when wallet has no WSOL ATA or WSOL balance is zero. */
   closeWsolAta?: boolean;
 }
 
@@ -50,6 +50,25 @@ function walletHasMintRow(
   mint: string,
 ): boolean {
   return rows.some((r) => r.mintAddress.trim() === mint);
+}
+
+function wsolRowHasNonZeroBalance(
+  rows: { mintAddress: string; amount: string; decimals: number }[],
+): boolean {
+  const row = rows.find((r) => r.mintAddress.trim() === WSOL_MINT);
+  if (!row) return false;
+  try {
+    return balanceAmountToRaw(row.amount, row.decimals) > 0n;
+  } catch {
+    return balanceAmountToUi(row.amount, row.decimals) > 0;
+  }
+}
+
+/** true = ephemeral WSOL (no ATA or zero balance); false = persistent WSOL with funds. */
+function resolveCloseWsolAtaFromWalletRows(
+  rows: { mintAddress: string; amount: string; decimals: number }[],
+): boolean {
+  return !wsolRowHasNonZeroBalance(rows);
 }
 
 export function appendAtaHintsToPayload(
@@ -147,7 +166,7 @@ export async function resolveSwapWalletAtaHints(
     : undefined;
 
   const hints: SwapWalletAtaHints = {
-    closeWsolAta: !walletHasMintRow(rows, WSOL_MINT),
+    closeWsolAta: resolveCloseWsolAtaFromWalletRows(rows),
   };
   if (!outputIsSol && outputMint !== WSOL_MINT) {
     hints.createOutputAta = !walletHasMintRow(rows, outputMint);

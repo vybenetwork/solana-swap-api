@@ -1014,6 +1014,16 @@ function walletHasMintInCache(mint: string): boolean {
   return walletBalanceCache.items.some((i) => i.mintAddress === m);
 }
 
+/** Ephemeral WSOL path when no WSOL row or WSOL balance is zero (from wallet fetch). */
+function resolveCloseWsolAtaFromCache(): boolean {
+  if (!walletBalanceCache) return true;
+  const row = walletBalanceCache.items.find((i) => i.mintAddress === WSOL_MINT);
+  if (!row) return true;
+  const exact = row.amountExact?.trim().replace(/,/g, '');
+  if (exact && /^\d+$/.test(exact)) return BigInt(exact) === 0n;
+  return !(Number.isFinite(row.amountUi) && row.amountUi > 0);
+}
+
 /**
  * Build Vybe ATA action flags from the cached wallet token-balance fetch (no extra API call).
  */
@@ -1037,7 +1047,7 @@ export function buildSwapAtaHintsFromWalletCache(params: {
 
   const inputMint = params.inputMint.trim();
   const outputMint = params.outputMint.trim();
-  const closeWsolAta = !walletHasMintInCache(WSOL_MINT);
+  const closeWsolAta = resolveCloseWsolAtaFromCache();
 
   let amountUi = params.amountUi;
   let closeInputAta: boolean | undefined;
