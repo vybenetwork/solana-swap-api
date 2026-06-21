@@ -445,11 +445,19 @@ function validateTradeBuild(
     const details = build.details as QuoteBridgeBuildDetails;
     const preNeeded =
       details.preSwapNeeded === true || (build as { preSwapNeeded?: boolean }).preSwapNeeded === true;
+    const postNeeded =
+      details.postSwapNeeded === true || (build as { postSwapNeeded?: boolean }).postSwapNeeded === true;
     const preTx =
       (build as { preSwapTransaction?: string }).preSwapTransaction ??
       details.preSwapTransaction;
+    const postTx =
+      (build as { postSwapTransaction?: string }).postSwapTransaction ??
+      details.postSwapTransaction;
     if (preNeeded && (!preTx || !String(preTx).trim())) {
       return { ok: false, reason: 'Quote-bridge build missing preSwapTransaction' };
+    }
+    if (postNeeded && (!postTx || !String(postTx).trim())) {
+      return { ok: false, reason: 'Quote-bridge build missing postSwapTransaction' };
     }
     if (quoteOutAmountRawFromBuild(build) <= 0n) {
       return { ok: false, reason: 'Swap quote returned zero output' };
@@ -639,13 +647,24 @@ function candidatePairKey(marketAddress: string, programAddress: string): string
 }
 
 function quoteOutAmountRawFromBuild(build: import('../types/swap.js').VybeSwapBuildResponse): bigint {
-  const raw = String(build.details?.quote?.outAmount ?? '').trim();
-  if (!raw) return 0n;
-  try {
-    return BigInt(raw);
-  } catch {
-    return 0n;
+  const details = build.details as QuoteBridgeBuildDetails | undefined;
+  const enrichment = build.enrichment as { outAmountRaw?: string; quotedOutRaw?: string } | undefined;
+  for (const raw of [
+    enrichment?.outAmountRaw,
+    enrichment?.quotedOutRaw,
+    details?.postSwapQuote?.outAmount,
+    details?.quote?.outAmount,
+  ]) {
+    const trimmed = String(raw ?? '').trim();
+    if (!trimmed) continue;
+    try {
+      const value = BigInt(trimmed);
+      if (value > 0n) return value;
+    } catch {
+      /* try next */
+    }
   }
+  return 0n;
 }
 
 function sortRouteBuildSuccessesByQuotedOutput(successes: RouteBuildSuccess[]): RouteBuildSuccess[] {

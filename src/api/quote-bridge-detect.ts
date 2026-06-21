@@ -11,6 +11,7 @@ export type QuoteBridgeBuildDetails = VybeSwapBuildResponse['details'] & {
   preSwapNeeded?: boolean;
   postSwapNeeded?: boolean;
   preSwapTransaction?: string;
+  postSwapTransaction?: string;
   quoteBridge?: {
     bridgeMint: string;
     userVettedMint: string;

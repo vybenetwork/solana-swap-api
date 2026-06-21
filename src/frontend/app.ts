@@ -5236,7 +5236,24 @@ async function pollTransactionConfirmation(signature: string, generation: number
   return { ok: false, err: 'Transaction confirmation timed out' };
 }
 
-async function signAndSendSwapLegs(txStrings: string[]): Promise<string[]> {
+/** Multi-leg quote-bridge routes must land each leg before the next (post-swap WSOL→USDC, etc.). */
+function swapBuildRequiresSequentialLegs(buildPayload?: Record<string, unknown> | null): boolean {
+  if (!buildPayload) return false;
+  const details = buildPayload.details as Record<string, unknown> | undefined;
+  return (
+    buildPayload.preSwapNeeded === true ||
+    buildPayload.postSwapNeeded === true ||
+    details?.preSwapNeeded === true ||
+    details?.postSwapNeeded === true ||
+    Boolean(buildPayload.preSwapTransaction || details?.preSwapTransaction) ||
+    Boolean(buildPayload.postSwapTransaction || details?.postSwapTransaction)
+  );
+}
+
+async function signAndSendSwapLegs(
+  txStrings: string[],
+  options?: { buildPayload?: Record<string, unknown>; onLegComplete?: (legIndex: number, total: number) => void },
+): Promise<string[]> {
   const txs = txStrings.map((t) => t.trim()).filter(Boolean);
   if (txs.length === 0) throw new Error('No transaction to sign.');
 
@@ -5245,13 +5262,44 @@ async function signAndSendSwapLegs(txStrings: string[]): Promise<string[]> {
     throw new Error('Connected wallet cannot sign transactions.');
   }
 
-  const prepared = await Promise.all(txs.map((t) => prepareSwapTxForSigning(t)));
   const connection = getBrowserConnection();
   const signatures: string[] = [];
+  const sequential = txs.length > 1 && swapBuildRequiresSequentialLegs(options?.buildPayload);
 
   if (txs.length === 1 && provider.signAndSendTransaction) {
-    const { signature } = await provider.signAndSendTransaction(prepared[0]!, { skipPreflight: false });
+    const prepared = await prepareSwapTxForSigning(txs[0]!);
+    const { signature } = await provider.signAndSendTransaction(prepared, { skipPreflight: false });
     signatures.push(signature);
+    return signatures;
+  }
+
+  if (txs.length > 1 && sequential) {
+    if (!provider.signTransaction && !provider.signAndSendTransaction) {
+      throw new Error('This route requires signing transactions one at a time. Reconnect with a wallet that supports signTransaction.');
+    }
+    const generation = swapSignFlowGeneration;
+    for (let i = 0; i < txs.length; i++) {
+      const prepared = await prepareSwapTxForSigning(txs[i]!);
+      let signature: string;
+      if (provider.signAndSendTransaction) {
+        ({ signature } = await provider.signAndSendTransaction(prepared, { skipPreflight: false }));
+      } else {
+        const signed = await provider.signTransaction!(prepared);
+        signature = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false });
+      }
+      signatures.push(signature);
+      options?.onLegComplete?.(i + 1, txs.length);
+      if (i < txs.length - 1) {
+        const confirmed = await pollTransactionConfirmation(signature, generation);
+        if (!confirmed.ok) {
+          throw new Error(
+            confirmed.err === 'Cancelled'
+              ? 'Swap cancelled while waiting for prior leg to confirm.'
+              : `Leg ${i + 1} failed on-chain: ${confirmed.err ?? 'unknown error'}`,
+          );
+        }
+      }
+    }
     return signatures;
   }
 
@@ -5261,6 +5309,7 @@ async function signAndSendSwapLegs(txStrings: string[]): Promise<string[]> {
     );
   }
 
+  const prepared = await Promise.all(txs.map((t) => prepareSwapTxForSigning(t)));
   const signed =
     txs.length === 1 && provider.signTransaction
       ? [await provider.signTransaction(prepared[0]!)]
@@ -5282,8 +5331,17 @@ async function runSwapSignDialogFlow(
   appendSwapSignLog('Preparing transaction…', 'neutral');
 
   try {
-    appendSwapSignLog('Waiting for user to sign transaction', 'pending');
-    const signatures = await signAndSendSwapLegs(txStrings);
+    const multiLeg = txStrings.length > 1;
+    appendSwapSignLog(
+      multiLeg ? `Waiting for wallet — ${txStrings.length} legs sent one at a time` : 'Waiting for user to sign transaction',
+      'pending',
+    );
+    const signatures = await signAndSendSwapLegs(txStrings, {
+      buildPayload,
+      onLegComplete: (leg, total) => {
+        appendSwapSignLog(`Leg ${leg}/${total} sent — confirming before next leg…`, 'neutral');
+      },
+    });
     if (generation !== swapSignFlowGeneration) return;
 
     appendSwapSignLog('User signed transaction', 'success');

@@ -716,7 +716,13 @@ export function isAtMaxSellAmountUi(amountUi: number, maxUi: number, mint?: stri
 
 function quotedBuildOutAmountRaw(buildPayload?: Record<string, unknown> | null): string | null {
   if (!buildPayload) return null;
+  const enrichment = buildPayload.enrichment as Record<string, unknown> | undefined;
+  const enrichmentOut = String(enrichment?.outAmountRaw ?? enrichment?.quotedOutRaw ?? '').trim();
+  if (/^\d+$/.test(enrichmentOut) && enrichmentOut !== '0') return enrichmentOut;
   const details = buildPayload.details as Record<string, unknown> | undefined;
+  const postQuote = details?.postSwapQuote as Record<string, unknown> | undefined;
+  const postOut = String(postQuote?.outAmount ?? '').trim();
+  if (/^\d+$/.test(postOut) && postOut !== '0') return postOut;
   const quote = details?.quote as Record<string, unknown> | undefined;
   const candidates = [quote?.outAmount, buildPayload.outAmount];
   for (const raw of candidates) {
@@ -728,8 +734,16 @@ function quotedBuildOutAmountRaw(buildPayload?: Record<string, unknown> | null):
 
 function isQuoteBridgeBuildPayload(buildPayload?: Record<string, unknown> | null): boolean {
   if (!buildPayload) return false;
-  const details = buildPayload.details as { preSwapNeeded?: boolean } | undefined;
-  return details?.preSwapNeeded === true || buildPayload.preSwapNeeded === true;
+  const details = buildPayload.details as
+    | { preSwapNeeded?: boolean; postSwapNeeded?: boolean; quoteBridge?: unknown }
+    | undefined;
+  return (
+    details?.preSwapNeeded === true ||
+    buildPayload.preSwapNeeded === true ||
+    details?.postSwapNeeded === true ||
+    buildPayload.postSwapNeeded === true ||
+    Boolean(details?.quoteBridge || buildPayload.quoteBridge)
+  );
 }
 
 /** Prefer nested `_build` when the vybe-quote API body is passed whole. */
