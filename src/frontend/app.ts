@@ -599,6 +599,21 @@ function setFooterStatsLoading(loading: boolean): void {
   if (swapRouteBtnEl) swapRouteBtnEl.disabled = true;
 }
 
+function formatIntegerWithGrouping(digits: string): string {
+  const d = digits.replace(/^0+(?=\d)/, '') || '0';
+  return d.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+}
+
+function formatAmountDisplayIntPart(intPartRaw: string): string {
+  const cleaned = intPartRaw.replace(/,/g, '').trim();
+  if (!cleaned) return intPartRaw;
+  const neg = cleaned.startsWith('-');
+  const digits = neg ? cleaned.slice(1) : cleaned;
+  if (!/^\d+$/.test(digits)) return intPartRaw;
+  const grouped = formatIntegerWithGrouping(digits);
+  return neg ? `-${grouped}` : grouped;
+}
+
 function shouldUseSmallSwapAmountDecimals(value: string): boolean {
   const normalized = value.replace(/,/g, '').trim();
   if (!normalized || normalized === '—') return false;
@@ -608,19 +623,37 @@ function shouldUseSmallSwapAmountDecimals(value: string): boolean {
   return frac.length > 0 && /\d/.test(frac);
 }
 
-function renderSwapAmountDisplayHtml(value: string): string {
-  if (!shouldUseSmallSwapAmountDecimals(value)) return escapeHtml(value);
-  const lastDot = value.lastIndexOf('.');
-  if (lastDot === -1) return escapeHtml(value);
-  const intPart = value.slice(0, lastDot);
-  const decPart = value.slice(lastDot + 1);
+function renderSwapAmountDisplayHtml(
+  value: string,
+  opts?: { groupThousands?: boolean },
+): string {
+  const normalized = value.replace(/,/g, '').trim();
+  if (!normalized || normalized === '—') return escapeHtml(value);
+
+  const groupThousands = opts?.groupThousands !== false;
+  const lastDot = normalized.lastIndexOf('.');
+  const intPartRaw = lastDot === -1 ? normalized : normalized.slice(0, lastDot);
+  const decPart = lastDot === -1 ? '' : normalized.slice(lastDot + 1);
+  const intPart = groupThousands ? formatAmountDisplayIntPart(intPartRaw) : intPartRaw;
+
+  if (!shouldUseSmallSwapAmountDecimals(normalized)) {
+    if (lastDot === -1) return escapeHtml(intPart);
+    return escapeHtml(`${intPart}.${decPart}`);
+  }
+
   return `<span class="swap-amount-value"><span class="swap-amount-int">${escapeHtml(intPart)}</span><span class="swap-amount-frac"><span class="swap-amount-dot">.</span>${escapeHtml(decPart)}</span></span>`;
 }
 
 function syncSwapAmountDisplayOverlay(): void {
   if (!swapAmountDisplayEl || !swapAmountInput) return;
+  if (document.activeElement === swapAmountInput) {
+    swapAmountDisplayEl.innerHTML = '';
+    return;
+  }
   const raw = swapAmountInput.value.trim();
-  swapAmountDisplayEl.innerHTML = raw ? renderSwapAmountDisplayHtml(raw) : '';
+  swapAmountDisplayEl.innerHTML = raw
+    ? renderSwapAmountDisplayHtml(raw, { groupThousands: true })
+    : '';
 }
 
 function setSwapBuyAmountDisplay(
@@ -629,7 +662,7 @@ function setSwapBuyAmountDisplay(
 ): void {
   if (!swapBuyAmountDisplayEl) return;
   if (swapBuyAmountDisplayEl.dataset.loading === 'true') return;
-  swapBuyAmountDisplayEl.innerHTML = renderSwapAmountDisplayHtml(display);
+  swapBuyAmountDisplayEl.innerHTML = renderSwapAmountDisplayHtml(display, { groupThousands: true });
   if (opts?.empty !== undefined) {
     swapBuyAmountDisplayEl.dataset.empty = opts.empty ? 'true' : 'false';
   }
@@ -1204,9 +1237,16 @@ function renderSwapBuyFiatHtml(quote: Record<string, unknown> | null): string {
   return escapeHtml(formatSwapReceiveFiatDisplay(usd));
 }
 
+function parseSwapAmountInputValue(raw: string): number {
+  const cleaned = raw.trim().replace(/,/g, '');
+  if (!cleaned || cleaned === '.' || cleaned === '-') return NaN;
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : NaN;
+}
+
 function syncSwapSellAmountUi(): void {
   syncSwapAmountDisplayOverlay();
-  const amount = Number(swapAmountInput?.value);
+  const amount = parseSwapAmountInputValue(swapAmountInput?.value ?? '');
   const hasPositiveAmount = Number.isFinite(amount) && amount > 0;
 
   if (!hasPositiveAmount) {
@@ -1488,7 +1528,7 @@ function sellAmountMatchesVybeExactBalance(mint: string): boolean {
   const input = swapAmountInput.value.trim().replace(/,/g, '');
   if (!input) return false;
   if (input === exact) return true;
-  const inputUi = Number(input);
+  const inputUi = parseSwapAmountInputValue(input);
   return Number.isFinite(inputUi) && sellAmountRoughlyEqual(inputUi, item!.amountUi, mint);
 }
 
@@ -1525,7 +1565,7 @@ function syncSellPctButtonsState(): void {
   const mint = swapInputMintInput?.value.trim() ?? '';
   const walletReady =
     hasValidSwapWallet() && mint.length > 0 && (getWalletSellableForUi(mint) ?? 0) > 0;
-  const currentUi = Number(swapAmountInput?.value.trim() ?? '');
+  const currentUi = parseSwapAmountInputValue(swapAmountInput?.value ?? '');
   const activePct =
     walletReady && Number.isFinite(currentUi) && currentUi > 0
       ? resolveActiveSellPercent(currentUi, mint)
@@ -1662,7 +1702,9 @@ function syncSwapAmountMaxFromBalance(): void {
   } else {
     swapAmountInput.removeAttribute('max');
   }
-  clampSwapAmountInputToMax();
+  if (document.activeElement !== swapAmountInput) {
+    clampSwapAmountInputToMax();
+  }
   syncSellPctButtonsState();
   syncSwapSellAmountUi();
 }
@@ -1680,7 +1722,7 @@ function clampSwapAmountInputToMax(): boolean {
   if (!swapAmountInput || !swapInputMintInput) return false;
   const raw = swapAmountInput.value.trim();
   if (!raw || raw === '.' || raw === '-') return false;
-  const amount = Number(raw);
+  const amount = parseSwapAmountInputValue(raw);
   if (!Number.isFinite(amount)) return false;
   const max = getSwapAmountMaxUi();
   if (max == null || max <= 0 || amount <= max) return false;
@@ -3247,7 +3289,7 @@ function estimateSwapPayUsdFromInput(): number | null {
   const amount =
     (lastSwapQuoteOk ? quoteWalletPayUi(lastSwapQuoteOk) : null) ??
     (lastSwapQuoteOk ? quoteInAmountUi(lastSwapQuoteOk) : null) ??
-    Number(swapAmountInput?.value);
+    parseSwapAmountInputValue(swapAmountInput?.value ?? '');
   if (!Number.isFinite(amount) || amount <= 0) return null;
   const sellMint = swapInputMintInput?.value.trim() ?? '';
   const price = lookupMintPriceUsd(sellMint, lastSwapQuoteOk ?? {});
@@ -3811,7 +3853,7 @@ function resolveSwapServiceFeePct(): number {
 function isVybeMaxSellSelected(mint: string): boolean {
   if (getSwapRouter() !== 'vybe' || !mint) return false;
   const maxInput = getMaxSellAmountForInput(mint);
-  const currentUi = Number(swapAmountInput?.value.trim() ?? '');
+  const currentUi = parseSwapAmountInputValue(swapAmountInput?.value ?? '');
   if (maxInput == null || !Number.isFinite(currentUi) || currentUi <= 0) return false;
   if (sellAmountMatchesVybeExactBalance(mint)) return true;
   return sellAmountRoughlyEqual(currentUi, maxInput, mint);
@@ -3883,7 +3925,7 @@ function collectSwapBuildOptions(): Record<string, unknown> {
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
   const wallet = swapWalletAddressInput?.value.trim() ?? '';
-  const amountUi = Number(swapAmountInput?.value);
+  const amountUi = parseSwapAmountInputValue(swapAmountInput?.value ?? '');
   const maxSellSelected = router === 'vybe' && isVybeMaxSellSelected(inputMint);
   const ataFromCache =
     router === 'vybe' &&
@@ -4275,7 +4317,7 @@ function selectEnumeratedRoute(index: number): void {
   const wallet = swapQuoteWalletSnapshot ?? swapWalletAddressInput?.value.trim() ?? '';
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
-  const amount = Number(swapAmountInput?.value);
+  const amount = parseSwapAmountInputValue(swapAmountInput?.value ?? '');
   if (!wallet || !inputMint || !outputMint || !Number.isFinite(amount)) return;
   const buildOpts = collectSwapBuildOptions();
   applyActiveRouteQuoteToUi(
@@ -4956,7 +4998,7 @@ async function fetchSwapQuote(): Promise<void> {
   if (!isSwapQuoteInputReady()) return;
   const inputMint = swapInputMintInput.value.trim();
   const outputMint = swapOutputMintInput.value.trim();
-  const amount = Number(swapAmountInput.value);
+  const amount = parseSwapAmountInputValue(swapAmountInput.value);
   const wallet = swapWalletAddressInput?.value.trim() ?? '';
 
   if (!inputMint || !outputMint) {
@@ -4975,7 +5017,6 @@ async function fetchSwapQuote(): Promise<void> {
   }
   if (hasValidSwapWallet()) {
     if (amountExceedsCachedWalletBalance(amount, inputMint)) {
-      clampSwapAmountInputToMax();
       syncSwapSellAmountUi();
       const item = getWalletBalanceListItem(inputMint);
       const totalBal =
@@ -4983,7 +5024,7 @@ async function fetchSwapQuote(): Promise<void> {
       if (swapQuoteError && totalBal != null) {
         showInlineError(
           swapQuoteError,
-          `Amount exceeds wallet balance (${formatSwapInputAmountValue(totalBal, getMintDecimals(inputMint))}).`
+          `Amount exceeds wallet balance (${formatSwapInputAmountValue(totalBal, getMintDecimals(inputMint))}).`,
         );
       }
       return;
@@ -5414,7 +5455,7 @@ async function postBuildSwap(): Promise<void> {
   }
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
-  const amount = swapAmountInput ? Number(swapAmountInput.value) : NaN;
+  const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
   const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
 
@@ -5859,7 +5900,7 @@ function getSwapAmountStep(): number {
 
 function adjustSwapAmountByStep(direction: 1 | -1): void {
   if (!swapAmountInput) return;
-  const cur = Number(swapAmountInput.value);
+  const cur = parseSwapAmountInputValue(swapAmountInput.value);
   const base = Number.isFinite(cur) ? cur : 0;
   const step = getSwapAmountStep();
   let next = base + direction * step;
@@ -6184,15 +6225,25 @@ if (swapOutputMintInput) {
   });
 }
 
+swapAmountInput?.addEventListener('focus', () => {
+  syncSwapAmountDisplayOverlay();
+});
+swapAmountInput?.addEventListener('blur', () => {
+  const clamped = clampSwapAmountInputToMax();
+  syncSwapAmountDisplayOverlay();
+  if (clamped) {
+    invalidateSwapQuoteAfterInputChange();
+    syncSwapSellAmountUi();
+    syncSellPctButtonsState();
+  }
+});
 swapAmountInput?.addEventListener('input', () => {
   invalidateSwapQuoteAfterInputChange();
-  clampSwapAmountInputToMax();
   syncSwapSellAmountUi();
   syncSellPctButtonsState();
 });
 swapAmountInput?.addEventListener('change', () => {
   invalidateSwapQuoteAfterInputChange();
-  clampSwapAmountInputToMax();
   syncSwapSellAmountUi();
   syncSellPctButtonsState();
 });

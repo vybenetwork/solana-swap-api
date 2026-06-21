@@ -40,7 +40,7 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="shortcut icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="vybe-demo-shell.css?v=6" />
-    <link rel="stylesheet" href="app.css?v=22" />
+    <link rel="stylesheet" href="app.css?v=23" />
   </head>
   <body>
     <div class="container">
@@ -295,7 +295,7 @@
                 <div class="swap-side-changes" id="swapSellChanges" aria-live="polite"></div>
                 <div class="swap-amount-field">
                   <div class="swap-amount-display swap-out-readout" id="swapAmountDisplay" aria-hidden="true"></div>
-                  <input type="number" id="swapAmount" class="swap-amount-input" min="0" step="any" value="0.05" placeholder="0.00" title="Amount to sell" />
+                  <input type="text" inputmode="decimal" id="swapAmount" class="swap-amount-input" value="0.05" placeholder="0.00" title="Amount to sell" autocomplete="off" spellcheck="false" />
                 </div>
                 <span class="swap-fiat" id="swapSellFiat">~$0.00</span>
               </div>
@@ -717,7 +717,7 @@
       import bs58 from 'bs58';
       window.bs58 = bs58;
     </script>
-    <script type="module" src="app.js?v=72"></script>
+    <script type="module" src="app.js?v=76"></script>
   </body>
 </html>
 

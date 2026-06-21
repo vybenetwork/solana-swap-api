@@ -6403,8 +6403,25 @@ tr:hover td {
   line-height: 1;
 }
 
+.swap-amount-field:focus-within .swap-amount-display {
+  visibility: hidden;
+}
+
 .swap-amount-field:focus-within .swap-amount-input {
+  color: #fafafa;
   caret-color: #fafafa;
+  -webkit-text-fill-color: #fafafa;
+}
+
+.swap-amount-field:focus-within .swap-amount-input::selection {
+  color: #fafafa;
+  -webkit-text-fill-color: #fafafa;
+}
+
+.swap-amount-field:not(:focus-within) .swap-amount-input {
+  color: transparent;
+  caret-color: transparent;
+  -webkit-text-fill-color: transparent;
 }
 
 .swap-amount-display.swap-out-readout:not(:empty) {
