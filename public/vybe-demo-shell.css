@@ -1076,6 +1076,7 @@ body {
   max-height: none;
   flex: 1 1 100%;
   line-height: 1.35;
+  max-width: fit-content;
 }
 .section-card.panel.section-card--swap {
   border: 1px solid rgba(34, 211, 238, 0.32);
