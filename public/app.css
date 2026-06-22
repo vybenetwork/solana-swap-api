@@ -7653,8 +7653,8 @@ tr:hover td {
 
 .swap-action-btn--secondary:not(:disabled) {
   border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.22);
-  background: linear-gradient(180deg, #3daf72 0%, #2f9460 45%, #247a4f 100%);
+  border-top: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(180deg, #28a054 0%, #1a7d3d 45%, #116232 100%);
   color: #ecfdf5;
   box-shadow: none;
 }
@@ -7670,7 +7670,7 @@ tr:hover td {
 }
 
 .swap-action-btn--secondary:focus-visible:not(:disabled) {
-  outline: 2px solid rgba(61, 175, 114, 0.55);
+  outline: 2px solid rgba(40, 160, 84, 0.55);
   outline-offset: 2px;
 }
 

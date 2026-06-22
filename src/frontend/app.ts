@@ -222,7 +222,7 @@ const swapBuildBtn = document.getElementById('swapBuildBtn') as HTMLButtonElemen
 const swapBuildBtnTimerEl = document.getElementById('swapBuildBtnTimer') as HTMLElement | null;
 
 const SWAP_QUOTE_BTN_COOLDOWN_SEC = 10;
-const SWAP_BUILD_BTN_QUOTE_TTL_SEC = 25;
+const SWAP_BUILD_BTN_QUOTE_TTL_SEC = 30;
 
 let quoteBtnCooldownEndsAt = 0;
 let quoteBtnCooldownRaf = 0;
