@@ -282,7 +282,13 @@ async function runVybeSwapEnumeration(
     const routeViaTrades: RouteViaTradesMeta = {
       enabled: true,
       outcome: 'multi',
-      selected: parsed.selected,
+      selected: {
+        ...parsed.selected,
+        marketScore:
+          enumRoutes[0]?.candidate?.marketScore ??
+          poolMarketScoreFromBuild(parsed.build) ??
+          parsed.selected.marketScore,
+      },
       selectedRouteIndex: 0,
       routes: enumRoutes,
       marketFetchMode: opts.marketFetchMode,
@@ -290,7 +296,10 @@ async function runVybeSwapEnumeration(
       topMarkets: [],
       maxTradeCount: 0,
       minCountThreshold: 0,
-      tried: parsed.routes.map((r) => r.selected),
+      tried: parsed.routes.map((r) => ({
+        ...r.selected,
+        marketScore: r.selected.marketScore ?? poolMarketScoreFromBuild(r.build),
+      })),
       tradesFetched: 0,
       tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
       tradesFetchOk: false,
@@ -306,6 +315,7 @@ async function runVybeSwapEnumeration(
           r.selected.programLabel ?? programLabelForAddress(r.selected.programAddress),
         queueIndex: i + 1,
         tradeCount: 0,
+        marketScore: r.selected.marketScore ?? poolMarketScoreFromBuild(r.build),
       })),
       buildLog: [],
       userMessage,
@@ -323,16 +333,20 @@ async function runVybeSwapEnumeration(
         protocol: parsed.selected.protocol,
       }),
     );
+    const selected = {
+      ...parsed.selected,
+      marketScore: poolMarketScoreFromBuild(parsed.build) ?? parsed.selected.marketScore,
+    };
     const routeViaTrades: RouteViaTradesMeta = {
       enabled: true,
       outcome: 'direct',
-      selected: parsed.selected,
+      selected,
       marketFetchMode: opts.marketFetchMode,
       enumerateRoutes: opts.enumerateRoutes,
       topMarkets: [],
       maxTradeCount: 0,
       minCountThreshold: 0,
-      tried: [parsed.selected],
+      tried: [selected],
       tradesFetched: 0,
       tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
       tradesFetchOk: false,

@@ -1927,6 +1927,43 @@ tr:hover td {
   letter-spacing: -0.01em;
 }
 
+.dex-program-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.dex-program-label__icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 2px;
+}
+
+.dex-program-label__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.swap-route-option__title .dex-program-label {
+  max-width: 100%;
+}
+
+.routing-dex-caption .dex-program-label {
+  justify-content: center;
+  max-width: 100%;
+}
+
+.routing-dex-caption .dex-program-label__icon {
+  width: 0.875rem;
+  height: 0.875rem;
+}
+
 .swap-route-option__pool-link {
   display: inline-flex;
   align-items: center;

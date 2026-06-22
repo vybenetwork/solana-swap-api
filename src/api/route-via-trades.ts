@@ -325,9 +325,10 @@ function swapHasTx(build: import('../types/swap.js').VybeSwapBuildResponse): boo
 export function poolMarketScoreFromBuild(
   build: import('../types/swap.js').VybeSwapBuildResponse,
 ): number | undefined {
-  const details = build.details as unknown as Record<string, unknown> | undefined;
-  const raw = details?.poolMarketScore ?? details?.marketScore;
-  const n = Number(raw);
+  const raw = build as Record<string, unknown>;
+  const details = raw.details as Record<string, unknown> | undefined;
+  const score = details?.poolMarketScore ?? details?.marketScore ?? raw.marketScore;
+  const n = Number(score);
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
 

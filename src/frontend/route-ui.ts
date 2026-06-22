@@ -352,7 +352,7 @@ function renderRouteOptionCard(
           ${warnBadge}
         </span>
       </div>
-      <div class="swap-route-option__title">${deps.escapeHtml(programLabel)}</div>
+      <div class="swap-route-option__title">${renderDexProgramLabel(programLabel, route.candidate?.protocol)}</div>
       ${renderRoutePoolLink(route.candidate?.marketAddress)}
       ${renderRouteOptionMetrics(quote, outLabel, marketScore)}
     </div>`;
@@ -5123,7 +5123,9 @@ function renderRouteMarketNode(
   dexLoading = false,
 ): string {
   const si = meta.step.swapInfo;
-  const dexHtml = dexLoading ? deps.renderLoadingSpinner('sm') : deps.escapeHtml(si?.label ?? 'DEX');
+  const dexHtml = dexLoading
+    ? deps.renderLoadingSpinner('sm')
+    : renderDexProgramLabel(si?.label ?? 'DEX');
   const sym = deps.escapeHtml(leg.outSym);
   const accRentStackAbove = dexLoading
     ? ''
@@ -5474,6 +5476,37 @@ export function routerDisplayLabel(routerId: string): string {
   return id.charAt(0).toUpperCase() + id.slice(1);
 }
 
+type DexBrand = 'raydium' | 'meteora' | 'pump';
+
+function detectDexBrand(text: string): DexBrand | null {
+  const normalized = text.trim().toLowerCase().replace(/[\s_-]/g, '');
+  if (!normalized) return null;
+  if (normalized.includes('raydium')) return 'raydium';
+  if (normalized.includes('meteora')) return 'meteora';
+  if (
+    normalized.includes('pumpfun') ||
+    normalized.includes('pumpswap') ||
+    normalized.startsWith('pump')
+  ) {
+    return 'pump';
+  }
+  return null;
+}
+
+function dexIconSrc(brand: DexBrand): string {
+  if (brand === 'raydium') return '/images/raydium-logo.png';
+  if (brand === 'meteora') return '/images/meteora-logo.png';
+  return '/images/pump-logo.png';
+}
+
+function renderDexProgramLabel(label: string, protocolHint?: string): string {
+  const text = label.trim() || '—';
+  if (text === '—') return deps.escapeHtml(text);
+  const brand = detectDexBrand(text) ?? (protocolHint ? detectDexBrand(protocolHint) : null);
+  if (!brand) return deps.escapeHtml(text);
+  return `<span class="dex-program-label"><img class="dex-program-label__icon dex-program-label__icon--${brand}" src="${dexIconSrc(brand)}" alt="" width="16" height="16" decoding="async" /><span class="dex-program-label__text">${deps.escapeHtml(text)}</span></span>`;
+}
+
 function detectAggregatorBrand(text: string): 'vybe' | 'jupiter' | 'titan' | null {
   const trimmed = text.trim();
   if (!trimmed || trimmed === '—') return null;
@@ -5523,7 +5556,7 @@ function renderHopVenueHtml(
   if (dexBrand === router) {
     return renderViaRouterBadge(router);
   }
-  return `<span class="swap-hop-venue-display"><span class="swap-hop-venue-display__dex">${deps.escapeHtml(dexLabel)}</span>${renderViaRouterBadge(router)}</span>`;
+  return `<span class="swap-hop-venue-display"><span class="swap-hop-venue-display__dex">${renderDexProgramLabel(dexLabel)}</span>${renderViaRouterBadge(router)}</span>`;
 }
 
 export function formatRouteDiagramTitle(quote: Record<string, unknown>): string {
