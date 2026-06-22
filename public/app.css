@@ -7931,6 +7931,22 @@ tr:hover td {
   white-space: nowrap;
 }
 
+.price-impact--green {
+  color: #4ade80;
+}
+
+.price-impact--yellow {
+  color: #facc15;
+}
+
+.price-impact--orange {
+  color: #fb923c;
+}
+
+.price-impact--red {
+  color: #f87171;
+}
+
 .swap-stat-row--route {
   margin-top: 0.15rem;
 }

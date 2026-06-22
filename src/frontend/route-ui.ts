@@ -19,6 +19,7 @@
  */
 
 import { formatWarnPercent } from './format-warn-pct.js';
+import { priceImpactTierClassForValue } from './price-impact-tier.js';
 import {
   getCachedTokenMeta,
   effectiveTokenIconSrc,
@@ -190,6 +191,7 @@ function renderRouteOptionMetrics(
   const liq =
     marketScore != null && marketScore > 0 ? formatLiquidityUsdCompact(marketScore) : '—';
   const impact = formatRoutePriceImpact(quote);
+  const impactTierClass = priceImpactTierClassForValue(quote.priceImpactPct);
   const receiveUsd = deps.getQuoteReceiveUsd(quote);
   const receiveUsdLabel =
     receiveUsd != null && Number.isFinite(receiveUsd)
@@ -206,7 +208,7 @@ function renderRouteOptionMetrics(
       </div>
       <div class="swap-route-option__metric">
         <dt>Impact</dt>
-        <dd>${impact != null ? deps.escapeHtml(impact) : '—'}</dd>
+        <dd${impactTierClass ? ` class="${impactTierClass}"` : ''}>${impact != null ? deps.escapeHtml(impact) : '—'}</dd>
       </div>
       <div class="swap-route-option__metric swap-route-option__metric--usd">
         <dt>≈ USD</dt>

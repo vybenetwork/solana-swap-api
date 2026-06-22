@@ -111,6 +111,10 @@ import {
   type EnumeratedRoutesUiState,
 } from './route-ui.js';
 import { formatWarnPercent } from './format-warn-pct.js';
+import {
+  applyPriceImpactTierClass,
+  clearPriceImpactTierClass,
+} from './price-impact-tier.js';
 
 interface TokenSymbolResponse {
   symbol?: string;
@@ -597,7 +601,10 @@ function setSwapQuoteButtonLoading(loading: boolean, opts?: { skipEnableSync?: b
 function setFooterStatsLoading(loading: boolean): void {
   const html = loading ? renderLoadingSpinner('sm') : '—';
   if (swapFooterRateEl) swapFooterRateEl.innerHTML = html;
-  if (swapFooterImpactEl) swapFooterImpactEl.innerHTML = html;
+  if (swapFooterImpactEl) {
+    clearPriceImpactTierClass(swapFooterImpactEl);
+    swapFooterImpactEl.innerHTML = html;
+  }
   if (swapFooterMinOutEl) swapFooterMinOutEl.innerHTML = html;
   if (swapFooterMaxSlippageEl) swapFooterMaxSlippageEl.innerHTML = html;
   if (swapRouteChipTextEl) swapRouteChipTextEl.innerHTML = html;
@@ -1263,7 +1270,10 @@ function syncSwapSellAmountUi(): void {
     if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
     resetSwapQuoteDetailsPanel();
     if (swapFooterRateEl) swapFooterRateEl.textContent = '—';
-    if (swapFooterImpactEl) swapFooterImpactEl.textContent = '—';
+    if (swapFooterImpactEl) {
+      clearPriceImpactTierClass(swapFooterImpactEl);
+      swapFooterImpactEl.textContent = '—';
+    }
     if (swapFooterMinOutEl) swapFooterMinOutEl.textContent = '—';
     if (swapFooterMaxSlippageEl) swapFooterMaxSlippageEl.textContent = '—';
     setRouteChipLabel('—', true);
@@ -1348,7 +1358,10 @@ function resetSwapQuoteToMock(): void {
   }
   if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
   if (swapFooterRateEl) swapFooterRateEl.textContent = '—';
-  if (swapFooterImpactEl) swapFooterImpactEl.textContent = '—';
+  if (swapFooterImpactEl) {
+    clearPriceImpactTierClass(swapFooterImpactEl);
+    swapFooterImpactEl.textContent = '—';
+  }
   if (swapFooterMinOutEl) swapFooterMinOutEl.textContent = '—';
   if (swapFooterMaxSlippageEl) swapFooterMaxSlippageEl.textContent = '—';
   setRouteChipLabel('—', true);
@@ -3759,7 +3772,9 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
   if (swapFooterImpactEl) {
     if (quote.priceImpactPct != null && String(quote.priceImpactPct).length > 0) {
       swapFooterImpactEl.textContent = formatPriceImpactPct(quote.priceImpactPct);
+      applyPriceImpactTierClass(swapFooterImpactEl, quote.priceImpactPct);
     } else {
+      clearPriceImpactTierClass(swapFooterImpactEl);
       swapFooterImpactEl.textContent = '—';
     }
   }
