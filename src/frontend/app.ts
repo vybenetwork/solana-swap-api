@@ -114,6 +114,8 @@ import { formatWarnPercent } from './format-warn-pct.js';
 import {
   applyPriceImpactTierClass,
   clearPriceImpactTierClass,
+  formatPriceImpactPctWithArrow,
+  parsePriceImpactPct,
 } from './price-impact-tier.js';
 
 interface TokenSymbolResponse {
@@ -2648,11 +2650,11 @@ function formatSwapRate(value: unknown): string {
 /** Footer price impact — always two decimal places (e.g. 0.30%); zero shows (No Impact). */
 function formatPriceImpactPct(value: unknown): string {
   if (value == null || value === '') return '—';
-  const raw = String(value).trim().replace(/%$/, '');
-  const n = Number(raw);
-  if (!Number.isFinite(n)) return '—';
+  const n = parsePriceImpactPct(value);
+  if (n == null) return '—';
   const formatted = formatFooterPctAlwaysTwoDecimals(n);
-  return formatted === '0.00%' ? '0.00% (No Impact)' : formatted;
+  if (formatted === '0.00%') return '0.00% (No Impact)';
+  return formatPriceImpactPctWithArrow(n, formatted);
 }
 
 

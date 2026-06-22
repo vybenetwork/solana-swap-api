@@ -2035,8 +2035,19 @@ tr:hover td {
 }
 
 .swap-route-option__metric:first-child dd {
-  color: #86efac;
   font-size: 0.82rem;
+}
+
+.swap-route-option__metric dd.pool-liquidity--green {
+  color: #4ade80;
+}
+
+.swap-route-option__metric dd.pool-liquidity--yellow {
+  color: #facc15;
+}
+
+.swap-route-option__metric dd.pool-liquidity--red {
+  color: #f87171;
 }
 
 .swap-route-option__metric-out {
@@ -7931,19 +7942,28 @@ tr:hover td {
   white-space: nowrap;
 }
 
-.price-impact--green {
+.swap-stat-value.price-impact--green,
+.swap-route-option__metric dd.price-impact--green {
   color: #4ade80;
 }
 
-.price-impact--yellow {
+.swap-stat-value.price-impact--yellow-green,
+.swap-route-option__metric dd.price-impact--yellow-green {
+  color: #a3e635;
+}
+
+.swap-stat-value.price-impact--yellow,
+.swap-route-option__metric dd.price-impact--yellow {
   color: #facc15;
 }
 
-.price-impact--orange {
+.swap-stat-value.price-impact--orange,
+.swap-route-option__metric dd.price-impact--orange {
   color: #fb923c;
 }
 
-.price-impact--red {
+.swap-stat-value.price-impact--red,
+.swap-route-option__metric dd.price-impact--red {
   color: #f87171;
 }
 

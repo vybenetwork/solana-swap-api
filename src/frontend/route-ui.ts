@@ -19,7 +19,8 @@
  */
 
 import { formatWarnPercent } from './format-warn-pct.js';
-import { priceImpactTierClassForValue } from './price-impact-tier.js';
+import { formatPriceImpactPctWithArrow, parsePriceImpactPct, priceImpactTierClassForValue } from './price-impact-tier.js';
+import { poolLiquidityTierClassForValue } from './liquidity-tier.js';
 import {
   getCachedTokenMeta,
   effectiveTokenIconSrc,
@@ -162,12 +163,10 @@ export function formatLiquidityUsdCompact(n: number): string {
 }
 
 function formatRoutePriceImpact(quote: Record<string, unknown>): string | null {
-  const v = quote.priceImpactPct;
-  if (v == null || v === '') return null;
-  const n = Number(String(v).replace(/%$/, '').trim());
-  if (!Number.isFinite(n)) return null;
-  const sign = n > 0 ? '+' : '';
-  return `${sign}${n.toFixed(2)}%`;
+  const pct = parsePriceImpactPct(quote.priceImpactPct);
+  if (pct == null) return null;
+  const sign = pct > 0 ? '+' : '';
+  return formatPriceImpactPctWithArrow(pct, `${sign}${pct.toFixed(2)}%`);
 }
 
 function renderRoutePoolLink(marketAddress: string | undefined): string {
@@ -190,6 +189,7 @@ function renderRouteOptionMetrics(
 ): string {
   const liq =
     marketScore != null && marketScore > 0 ? formatLiquidityUsdCompact(marketScore) : '—';
+  const liqTierClass = poolLiquidityTierClassForValue(marketScore);
   const impact = formatRoutePriceImpact(quote);
   const impactTierClass = priceImpactTierClassForValue(quote.priceImpactPct);
   const receiveUsd = deps.getQuoteReceiveUsd(quote);
@@ -200,7 +200,7 @@ function renderRouteOptionMetrics(
   return `<dl class="swap-route-option__metrics">
       <div class="swap-route-option__metric">
         <dt>Liquidity</dt>
-        <dd>${deps.escapeHtml(liq)}</dd>
+        <dd${liqTierClass ? ` class="${liqTierClass}"` : ''}>${deps.escapeHtml(liq)}</dd>
       </div>
       <div class="swap-route-option__metric swap-route-option__metric--output">
         <dt>Output</dt>

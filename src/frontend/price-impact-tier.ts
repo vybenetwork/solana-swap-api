@@ -1,7 +1,8 @@
-export type PriceImpactTier = 'green' | 'yellow' | 'orange' | 'red';
+export type PriceImpactTier = 'green' | 'yellow-green' | 'yellow' | 'orange' | 'red';
 
 export const PRICE_IMPACT_TIER_CLASSES = [
   'price-impact--green',
+  'price-impact--yellow-green',
   'price-impact--yellow',
   'price-impact--orange',
   'price-impact--red',
@@ -13,9 +14,10 @@ export function parsePriceImpactPct(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Tier bands: green ≥ −0.5%, yellow (−2, −0.5), orange (−10, −2], red ≤ −10%. */
+/** Tier bands: green ≥ 0, yellow-green [−0.5, 0), yellow (−2, −0.5), orange (−10, −2], red ≤ −10%. */
 export function priceImpactTier(pct: number): PriceImpactTier {
-  if (pct >= -0.5) return 'green';
+  if (pct >= 0) return 'green';
+  if (pct >= -0.5) return 'yellow-green';
   if (pct > -2) return 'yellow';
   if (pct > -10) return 'orange';
   return 'red';
@@ -39,4 +41,15 @@ export function applyPriceImpactTierClass(el: HTMLElement, value: unknown): void
 
 export function clearPriceImpactTierClass(el: HTMLElement): void {
   el.classList.remove(...PRICE_IMPACT_TIER_CLASSES);
+}
+
+/** Direction suffix: up when impact is positive, down when negative, none at zero. */
+export function priceImpactArrowSuffix(pct: number): string {
+  if (pct > 0) return ' ↑';
+  if (pct < 0) return ' ↓';
+  return '';
+}
+
+export function formatPriceImpactPctWithArrow(pct: number, formattedPct: string): string {
+  return `${formattedPct}${priceImpactArrowSuffix(pct)}`;
 }

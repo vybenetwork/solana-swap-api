@@ -1465,7 +1465,7 @@ export function openTokenPicker(side: TokenPickerSide): void {
   if (side === 'input' && canOpenSellPickerCb && !canOpenSellPickerCb()) return;
   if (side === 'output' && canOpenBuyPickerCb && !canOpenBuyPickerCb()) return;
   activeSide = side;
-  activeTab = side === 'input' ? 'wallet' : 'top';
+  activeTab = 'wallet';
   searchQuery = '';
   pendingMintLookup = null;
   if (searchInputEl) searchInputEl.value = '';
@@ -1473,16 +1473,14 @@ export function openTokenPicker(side: TokenPickerSide): void {
   renderShortcuts();
   if (activeTab === 'wallet') void renderWalletBalances();
   renderList();
-  if (side === 'input') {
-    const wallet = getWalletAddressCb?.().trim() ?? '';
-    if (wallet) {
-      void fetchWalletBalances(wallet).then(() => {
-        if (activeSide !== 'input' || !dialogEl?.open) return;
-        renderShortcuts();
-        renderList();
-        if (activeTab === 'wallet') void renderWalletBalances();
-      });
-    }
+  const wallet = getWalletAddressCb?.().trim() ?? '';
+  if (wallet) {
+    void fetchWalletBalances(wallet).then(() => {
+      if (activeSide !== side || !dialogEl?.open) return;
+      renderShortcuts();
+      renderList();
+      if (activeTab === 'wallet') void renderWalletBalances();
+    });
   }
   setStatus('');
   if (typeof dialogEl.showModal === 'function') dialogEl.showModal();
