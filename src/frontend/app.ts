@@ -2054,7 +2054,6 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
       swapOutputSymbolEl.textContent =
         outMeta.symbol === 'wSOL' ? 'WSOL' : outMeta.symbol === 'WSOL' ? 'WSOL' : outMeta.symbol;
     }
-    }
     if (outMeta?.decimals != null) routeMintDecimalsCache[autoOutputMint] = outMeta.decimals;
   }
   void syncSwapSideLabels();
