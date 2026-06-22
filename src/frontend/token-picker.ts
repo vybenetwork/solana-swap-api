@@ -20,17 +20,6 @@ export interface TokenMeta {
   savedAt: number;
 }
 
-export interface TokenPriceHint {
-  price?: number;
-  price1d?: number;
-  price7d?: number;
-  decimals?: number;
-  priceFetchedAt?: number;
-  priceUpdateTime?: number;
-  symbol?: string;
-  name?: string;
-}
-
 export interface TokenPriceStats {
   price: number;
   price1d?: number;
@@ -211,29 +200,53 @@ export function getTokenDecimalsFromCache(mint: string): number | undefined {
   return getCachedTokenMeta(mint)?.decimals;
 }
 
-export function buildTokenHintsForMints(mints: string[]): Record<string, TokenPriceHint> {
-  const hints: Record<string, TokenPriceHint> = {};
-  for (const mint of mints) {
-    const m = mint.trim();
-    if (!m) continue;
-    const meta = getCachedTokenMeta(m);
-    if (!meta) continue;
-    const hint: TokenPriceHint = {
-      symbol: meta.symbol,
-      name: meta.name,
-      decimals: meta.decimals,
-      price: meta.price,
-      price1d: meta.price1d,
-      price7d: meta.price7d,
-      priceFetchedAt: meta.priceFetchedAt,
-      priceUpdateTime: meta.priceUpdateTime,
-    };
-    if (hint.decimals != null || hint.price != null) hints[m] = hint;
+function positiveUsdPrice(value: unknown): number | undefined {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+function priceFromCachedMeta(mint: string): number | undefined {
+  const meta = getCachedTokenMeta(mint.trim());
+  return positiveUsdPrice(meta?.price);
+}
+
+function decimalsFromCachedMeta(mint: string): number | undefined {
+  const dec = getCachedTokenMeta(mint.trim())?.decimals;
+  return dec != null && Number.isFinite(dec) && dec >= 0 && dec <= 255 ? Math.trunc(dec) : undefined;
+}
+
+/** Explicit client swap params for Vybe / ix-builder (prices + decimals from cache). */
+export function buildSwapClientParams(inputMint: string, outputMint: string): {
+  inputMintPrice?: number;
+  outputMintPrice?: number;
+  solPrice?: number;
+  inputMintDecimals?: number;
+  outputMintDecimals?: number;
+} {
+  const input = inputMint.trim();
+  const output = outputMint.trim();
+  const payload: {
+    inputMintPrice?: number;
+    outputMintPrice?: number;
+    solPrice?: number;
+    inputMintDecimals?: number;
+    outputMintDecimals?: number;
+  } = {};
+  const inputPrice = priceFromCachedMeta(input);
+  const outputPrice = priceFromCachedMeta(output);
+  const inputDecimals = decimalsFromCachedMeta(input);
+  const outputDecimals = decimalsFromCachedMeta(output);
+  if (inputPrice != null) payload.inputMintPrice = inputPrice;
+  if (outputPrice != null) payload.outputMintPrice = outputPrice;
+  if (inputDecimals != null) payload.inputMintDecimals = inputDecimals;
+  if (outputDecimals != null) payload.outputMintDecimals = outputDecimals;
+  const needsSol = input && output && !isSolMint(input) && !isSolMint(output);
+  if (needsSol) {
+    const solPrice =
+      priceFromCachedMeta(NATIVE_SOL_MINT) ?? priceFromCachedMeta(WSOL_MINT);
+    if (solPrice != null) payload.solPrice = solPrice;
   }
-  if (!hints[NATIVE_SOL_MINT] && hints[WSOL_MINT]) {
-    hints[NATIVE_SOL_MINT] = { ...hints[WSOL_MINT], symbol: 'SOL', name: 'Solana' };
-  }
-  return hints;
+  return payload;
 }
 
 export function saveTokenPriceStats(mint: string, stats: TokenPriceStats): void {

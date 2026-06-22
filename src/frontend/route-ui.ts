@@ -223,6 +223,65 @@ function sourceBadgeLabel(source: string | undefined): string {
   return 'trades';
 }
 
+type RouteOptionHighlightBadge = 'best-price' | 'highest-liquidity';
+
+function routeOutputAmount(route: EnumeratedRouteUiEntry): number {
+  const out = deps.quoteOutputUiAmount(route.quote ?? {});
+  return out != null && Number.isFinite(out) ? out : 0;
+}
+
+function computeRouteHighlightBadges(
+  routes: EnumeratedRouteUiEntry[],
+): Map<number, RouteOptionHighlightBadge> {
+  const badges = new Map<number, RouteOptionHighlightBadge>();
+  if (routes.length === 0) return badges;
+
+  let bestPriceRouteIndex = routes[0]!.index;
+  let bestOut = routeOutputAmount(routes[0]!);
+  for (const route of routes) {
+    const out = routeOutputAmount(route);
+    if (out > bestOut) {
+      bestOut = out;
+      bestPriceRouteIndex = route.index;
+    }
+  }
+  badges.set(bestPriceRouteIndex, 'best-price');
+
+  let highestLiqRouteIndex = -1;
+  let bestLiq = 0;
+  for (const route of routes) {
+    const liq = route.candidate?.marketScore ?? 0;
+    if (liq > bestLiq) {
+      bestLiq = liq;
+      highestLiqRouteIndex = route.index;
+    }
+  }
+  if (highestLiqRouteIndex >= 0 && highestLiqRouteIndex !== bestPriceRouteIndex && bestLiq > 0) {
+    badges.set(highestLiqRouteIndex, 'highest-liquidity');
+  }
+  return badges;
+}
+
+function renderRouteRankStars(displayRank: number): string {
+  if (displayRank < 1 || displayRank > 3) return '';
+  const count = 4 - displayRank;
+  return `<span class="swap-route-option__stars" aria-hidden="true">${'★'.repeat(count)}</span>`;
+}
+
+function renderRouteOptionBadge(
+  highlight: RouteOptionHighlightBadge | undefined,
+  source: string | undefined,
+): string {
+  if (highlight === 'best-price') {
+    return '<span class="swap-route-option__badge swap-route-option__badge--best-price">Best Price</span>';
+  }
+  if (highlight === 'highest-liquidity') {
+    return '<span class="swap-route-option__badge swap-route-option__badge--highest-liquidity">Highest Liquidity</span>';
+  }
+  const label = sourceBadgeLabel(source);
+  return `<span class="swap-route-option__badge swap-route-option__badge--${deps.escapeHtml(label.replace(/\+/g, '-'))}">${deps.escapeHtml(label)}</span>`;
+}
+
 function renderRouteOptionPlaceholderCard(rank: number, active: boolean, loading: boolean): string {
   const spinner = deps.renderLoadingSpinner('sm');
   const programName = loading
@@ -231,7 +290,7 @@ function renderRouteOptionPlaceholderCard(rank: number, active: boolean, loading
   const outCell = loading ? spinner : '—';
   return `<div class="swap-route-option swap-route-option--loading swap-route-option--disabled${active ? ' swap-route-option--active' : ''}" aria-disabled="true" aria-pressed="${active ? 'true' : 'false'}">
       <div class="swap-route-option__head">
-        <span class="swap-route-option__rank">#${rank}</span>
+        <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${rank}</span>${renderRouteRankStars(rank)}</span>
         <span class="swap-route-option__badge swap-route-option__badge--trades">trades</span>
       </div>
       <div class="swap-route-option__title">${programName}</div>
@@ -252,7 +311,12 @@ function renderRouteOptionsPlaceholder(loading = false): string {
   return `<div class="swap-route-options__grid">${cards.join('')}</div>`;
 }
 
-function renderRouteOptionCard(route: EnumeratedRouteUiEntry, selectedIndex: number): string {
+function renderRouteOptionCard(
+  route: EnumeratedRouteUiEntry,
+  selectedIndex: number,
+  displayRank: number,
+  highlight: RouteOptionHighlightBadge | undefined,
+): string {
   const idx = route.index;
   const active = idx === selectedIndex;
   const quote = route.quote ?? {};
@@ -263,7 +327,6 @@ function renderRouteOptionCard(route: EnumeratedRouteUiEntry, selectedIndex: num
     route.candidate?.protocol?.replace(/_/g, ' ') ||
     '—';
   const marketScore = route.candidate?.marketScore;
-  const source = sourceBadgeLabel(route.source);
   const warnLevel = swapRouteWarningLevel(quote, marketScore);
   const warnClass =
     warnLevel === 'red'
@@ -278,9 +341,9 @@ function renderRouteOptionCard(route: EnumeratedRouteUiEntry, selectedIndex: num
       : '';
   return `<div class="swap-route-option${active ? ' swap-route-option--active' : ''}${warnClass}" data-route-index="${idx}" role="button" tabindex="0" aria-pressed="${active ? 'true' : 'false'}">
       <div class="swap-route-option__head">
-        <span class="swap-route-option__rank">#${idx + 1}</span>
+        <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${displayRank}</span>${renderRouteRankStars(displayRank)}</span>
         <span class="swap-route-option__head-badges">
-          <span class="swap-route-option__badge swap-route-option__badge--${deps.escapeHtml(source.replace(/\+/g, '-'))}">${deps.escapeHtml(source)}</span>
+          ${renderRouteOptionBadge(highlight, route.source)}
           ${warnBadge}
         </span>
       </div>
@@ -310,8 +373,9 @@ export function renderRouteOptionsPanel(): void {
     ? state.routes.length
     : Math.min(ROUTE_OPTIONS_UI_INITIAL, state.routes.length);
   const hiddenCount = state.routes.length - visibleCount;
-  const cards = state.routes.slice(0, visibleCount).map((route) =>
-    renderRouteOptionCard(route, state.selectedIndex),
+  const highlightBadges = computeRouteHighlightBadges(state.routes);
+  const cards = state.routes.slice(0, visibleCount).map((route, i) =>
+    renderRouteOptionCard(route, state.selectedIndex, i + 1, highlightBadges.get(route.index)),
   );
   if (!state.expanded && state.routes.length < ROUTE_OPTIONS_UI_INITIAL) {
     for (let rank = state.routes.length + 1; rank <= ROUTE_OPTIONS_UI_INITIAL; rank++) {

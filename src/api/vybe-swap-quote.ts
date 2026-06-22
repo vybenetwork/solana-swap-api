@@ -11,6 +11,7 @@ import {
 } from './pinned-swap-params.js';
 import { enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
 import { buildSwap, type BuildSwapParams, type MarketFetchMode, type SwapProxyRouter, isMarketDiscoveryEnabled, normalizeMarketFetchMode, resolveEnumerateRoutes, resolveMarketFetchMode } from './swap-build.js';
+import { clientParamsToPriceResolveHints } from './swap-client-params.js';
 import {
   buildSwapForTradeCandidate,
   formatRouteViaTradesServerLog,
@@ -31,7 +32,6 @@ import {
 } from './route-via-trades.js';
 import {
   resolveTokenPrices,
-  type TokenPriceHint,
   type TokenPriceStats,
 } from './resolve-token-prices.js';
 import type { VybeSwapQuote, VybeSwapBuildResponse, VybeRoutePlanStep } from '../types/swap.js';
@@ -47,7 +47,6 @@ import {
 export { WSOL_MINT } from './sol-mints.js';
 
 export interface VybeQuoteParams extends BuildSwapParams {
-  tokenHints?: Record<string, TokenPriceHint>;
   forceFullDetailsMints?: string[];
 }
 
@@ -484,8 +483,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
   const vybeInputMint = toVybeSwapMint(uiInputMint);
   const vybeOutputMint = toVybeSwapMint(uiOutputMint);
 
-  const inputSymbolHint =
-    params.tokenHints?.[uiInputMint]?.symbol ?? params.tokenHints?.[vybeInputMint]?.symbol;
+  const inputSymbolHint = undefined;
   await assertWalletHasSellAmount(
     dataHttp,
     enriched.accountAddress,
@@ -496,16 +494,20 @@ export async function buildVybeQuoteFromPriceAndSwap(
 
   const priceMint = vybeInputMint;
   const forceFull = (params.forceFullDetailsMints ?? []).map((m) => toVybeSwapMint(m.trim()));
-  const hints = { ...params.tokenHints };
-  if (uiInputMint === NATIVE_SOL_MINT && hints[vybeInputMint] && !hints[uiInputMint]) {
-    hints[uiInputMint] = hints[vybeInputMint];
-  }
-  if (uiOutputMint === NATIVE_SOL_MINT && hints[vybeOutputMint] && !hints[uiOutputMint]) {
-    hints[uiOutputMint] = hints[vybeOutputMint];
-  }
+  const resolveHints = clientParamsToPriceResolveHints(
+    {
+      inputMintPrice: params.inputMintPrice,
+      outputMintPrice: params.outputMintPrice,
+      solPrice: params.solPrice,
+      inputMintDecimals: params.inputMintDecimals ?? params.inputDecimals,
+      outputMintDecimals: params.outputMintDecimals,
+    },
+    uiInputMint,
+    uiOutputMint,
+  );
 
   const { stats: rawStats } = await resolveTokenPrices(dataHttp, [priceMint, uiOutputMint], {
-    tokenHints: hints,
+    tokenHints: Object.keys(resolveHints).length > 0 ? resolveHints : undefined,
     forceFullDetailsMints: forceFull,
   });
   let tokenStats = aliasNativeSolPriceStats(rawStats, uiInputMint);

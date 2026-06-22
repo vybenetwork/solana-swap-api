@@ -9,7 +9,7 @@ import { appendAtaHintsToPayload, enrichBuildParamsWithAtaHints, buildParamsHave
 import { assertPinnedPoolParams, completePinnedSwapParams } from './pinned-swap-params.js';
 import { withRetry } from './client.js';
 import { toVybeSwapMint } from './sol-mints.js';
-import type { TokenPriceHint } from './resolve-token-prices.js';
+import { appendSwapClientParamsToPayload, type SwapClientParams } from './swap-client-params.js';
 
 export type { SwapWalletAtaHints } from './wallet-ata-hints.js';
 
@@ -98,11 +98,20 @@ export interface BuildSwapParams {
   closeWsolAta?: boolean;
   /** Exact input balance string from wallet token-balance (UI units); used with closeInputAta. */
   inputBalanceExact?: string;
+  /** Input mint decimals (client cache); ix-builder skips on-chain fetch when set. */
+  inputMintDecimals?: number;
+  /** @deprecated Use inputMintDecimals */
   inputDecimals?: number;
+  /** Output mint decimals (client cache); ix-builder skips on-chain fetch when set. */
+  outputMintDecimals?: number;
   /** Known USD liquidity for pinned pool (route enumeration probes). */
   marketScore?: number;
-  /** Cache-first USD prices/decimals from swap-api; ix-builder uses these for input/output legs. */
-  tokenHints?: Record<string, TokenPriceHint>;
+  /** Client USD price for the input mint (skips backend price fetch when set). */
+  inputMintPrice?: number;
+  /** Client USD price for the output mint (skips backend price fetch when set). */
+  outputMintPrice?: number;
+  /** Client USD SOL price when neither leg is SOL/WSOL (fee/rent USD). */
+  solPrice?: number;
 }
 
 export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
@@ -151,15 +160,17 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
   if (pinned.inputBalanceExact?.trim()) {
     payload.inputBalanceExact = pinned.inputBalanceExact.trim();
   }
-  if (pinned.inputDecimals != null && Number.isFinite(pinned.inputDecimals)) {
-    payload.inputDecimals = pinned.inputDecimals;
-  }
   if (pinned.marketScore != null && Number.isFinite(pinned.marketScore) && pinned.marketScore > 0) {
     payload.marketScore = pinned.marketScore;
   }
-  if (pinned.tokenHints && Object.keys(pinned.tokenHints).length > 0) {
-    payload.tokenHints = pinned.tokenHints;
-  }
+  const inputMintDecimals = pinned.inputMintDecimals ?? pinned.inputDecimals;
+  appendSwapClientParamsToPayload(payload, {
+    inputMintPrice: pinned.inputMintPrice,
+    outputMintPrice: pinned.outputMintPrice,
+    solPrice: pinned.solPrice,
+    inputMintDecimals,
+    outputMintDecimals: pinned.outputMintDecimals,
+  });
   if (pinned.marketFetchMode) payload.marketFetchMode = pinned.marketFetchMode;
   const routerIsVybe = router === 'vybe' || (router === undefined && (pinned.router ?? 'vybe') === 'vybe');
   if (routerIsVybe) {

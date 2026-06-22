@@ -103,7 +103,7 @@ function applyClientProvidedAtaHints(body: BuildSwapParams): BuildSwapParams {
 
   const inputIsSpl = !isSolMint(body.inputMintAddress.trim());
   const exact = body.inputBalanceExact?.trim();
-  const decimals = body.inputDecimals;
+  const decimals = body.inputMintDecimals ?? body.inputDecimals;
 
   if (inputIsSpl && exact && closeInputAta) {
     const dec = Number.isFinite(decimals) && (decimals ?? 0) >= 0 ? Number(decimals) : 6;

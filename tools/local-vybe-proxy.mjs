@@ -192,8 +192,18 @@ function pinnedSwapBody(params, pool) {
   if (params.createOutputAta === true) body.createOutputAta = true;
   if (params.closeWsolAta === true) body.closeWsolAta = true;
   if (params.inputBalanceExact) body.inputBalanceExact = params.inputBalanceExact;
-  if (params.inputDecimals != null) body.inputDecimals = params.inputDecimals;
-  if (params.tokenHints && typeof params.tokenHints === 'object') body.tokenHints = params.tokenHints;
+  const inputMintDecimals = params.inputMintDecimals ?? params.inputDecimals;
+  if (inputMintDecimals != null) body.inputMintDecimals = inputMintDecimals;
+  if (params.outputMintDecimals != null) body.outputMintDecimals = params.outputMintDecimals;
+  if (params.inputMintPrice != null && Number.isFinite(Number(params.inputMintPrice))) {
+    body.inputMintPrice = Number(params.inputMintPrice);
+  }
+  if (params.outputMintPrice != null && Number.isFinite(Number(params.outputMintPrice))) {
+    body.outputMintPrice = Number(params.outputMintPrice);
+  }
+  if (params.solPrice != null && Number.isFinite(Number(params.solPrice))) {
+    body.solPrice = Number(params.solPrice);
+  }
   return body;
 }
 
@@ -224,8 +234,22 @@ function mapSwapToIxBuilder(body) {
   if (body.createOutputAta === true) mapped.createOutputAta = true;
   if (body.closeWsolAta === true) mapped.closeWsolAta = true;
   if (body.inputBalanceExact) mapped.inputBalanceExact = body.inputBalanceExact;
-  if (body.inputDecimals != null) mapped.inputDecimals = body.inputDecimals;
-  if (body.tokenHints && typeof body.tokenHints === 'object') mapped.tokenHints = body.tokenHints;
+  if (body.inputMintPrice != null && Number.isFinite(Number(body.inputMintPrice))) {
+    mapped.inputMintPrice = Number(body.inputMintPrice);
+  }
+  if (body.outputMintPrice != null && Number.isFinite(Number(body.outputMintPrice))) {
+    mapped.outputMintPrice = Number(body.outputMintPrice);
+  }
+  if (body.solPrice != null && Number.isFinite(Number(body.solPrice))) {
+    mapped.solPrice = Number(body.solPrice);
+  }
+  const inputMintDecimals = body.inputMintDecimals ?? body.inputDecimals;
+  if (inputMintDecimals != null && Number.isFinite(Number(inputMintDecimals))) {
+    mapped.inputMintDecimals = Number(inputMintDecimals);
+  }
+  if (body.outputMintDecimals != null && Number.isFinite(Number(body.outputMintDecimals))) {
+    mapped.outputMintDecimals = Number(body.outputMintDecimals);
+  }
   return mapped;
 }
 

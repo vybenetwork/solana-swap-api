@@ -21,6 +21,9 @@ import { InsufficientBalanceError } from './api/wallet-balance.js';
 import { validatePinnedPoolParams } from './api/pinned-swap-params.js';
 import { VYBE_SWAP_PROTOCOLS, type SwapProxyProtocol } from './api/swap-build.js';
 import { type TokenPriceHint } from './api/resolve-token-prices.js';
+import {
+  parseSwapClientParams,
+} from './api/swap-client-params.js';
 import { getTokenSymbol } from './api/token-symbol.js';
 import { readSymbolCacheFromDisk, writeSymbolCacheToDisk } from './cache.js';
 import {
@@ -121,16 +124,11 @@ app.post('/api/tokens/resolve-prices', async (req: Request, res: Response) => {
       : [];
     if (mints.length === 0) return res.status(400).json({ error: 'mints array required' });
 
-    const tokenHints =
-      body.tokenHints && typeof body.tokenHints === 'object'
-        ? (body.tokenHints as Record<string, TokenPriceHint>)
-        : undefined;
     const forceFullDetailsMints = Array.isArray(body.forceFullDetailsMints)
       ? (body.forceFullDetailsMints as unknown[]).map((m) => String(m).trim()).filter(Boolean)
       : undefined;
 
     const { stats } = await client.resolveTokenPrices(mints, {
-      tokenHints,
       forceFullDetailsMints,
     });
     res.json({ stats });
@@ -319,8 +317,13 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
   createOutputAta?: boolean;
   closeWsolAta?: boolean;
   inputBalanceExact?: string;
+  inputMintDecimals?: number;
+  /** @deprecated Use inputMintDecimals */
   inputDecimals?: number;
-  tokenHints?: Record<string, TokenPriceHint>;
+  outputMintDecimals?: number;
+  inputMintPrice?: number;
+  outputMintPrice?: number;
+  solPrice?: number;
 } | { error: string } {
   const accountAddress = typeof body.accountAddress === 'string' ? body.accountAddress.trim() : '';
   const amount = typeof body.amount === 'number' ? body.amount : Number(body.amount);
@@ -343,6 +346,13 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
   const programAddress = typeof body.programAddress === 'string' ? body.programAddress.trim() : undefined;
   const pinnedPoolErr = validatePinnedPoolParams({ poolAddress, protocol, programAddress });
   if (pinnedPoolErr) return { error: pinnedPoolErr };
+
+  const clientParams = parseSwapClientParams(body);
+  const inputMintDecimals =
+    clientParams.inputMintDecimals ??
+    (body.inputDecimals != null && Number.isFinite(Number(body.inputDecimals))
+      ? Number(body.inputDecimals)
+      : undefined);
 
   return {
     accountAddress,
@@ -373,14 +383,10 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
     closeWsolAta: typeof body.closeWsolAta === 'boolean' ? body.closeWsolAta : undefined,
     inputBalanceExact:
       typeof body.inputBalanceExact === 'string' ? body.inputBalanceExact.trim() || undefined : undefined,
-    inputDecimals:
-      body.inputDecimals != null && Number.isFinite(Number(body.inputDecimals))
-        ? Number(body.inputDecimals)
-        : undefined,
-    tokenHints:
-      body.tokenHints && typeof body.tokenHints === 'object'
-        ? (body.tokenHints as Record<string, TokenPriceHint>)
-        : undefined,
+    inputMintDecimals,
+    inputDecimals: inputMintDecimals,
+    outputMintDecimals: clientParams.outputMintDecimals,
+    ...clientParams,
   };
 }
 
@@ -535,10 +541,6 @@ app.post('/api/trading/vybe-quote', async (req: Request, res: Response) => {
     const parsed = parseSwapBuildBody(body);
     if ('error' in parsed) return res.status(400).json({ error: parsed.error });
 
-    const tokenHints =
-      body.tokenHints && typeof body.tokenHints === 'object'
-        ? (body.tokenHints as Record<string, TokenPriceHint>)
-        : undefined;
     const forceFullDetailsMints = Array.isArray(body.forceFullDetailsMints)
       ? (body.forceFullDetailsMints as unknown[]).map((m) => String(m).trim()).filter(Boolean)
       : undefined;
@@ -546,7 +548,6 @@ app.post('/api/trading/vybe-quote', async (req: Request, res: Response) => {
     const result = await client.buildVybeQuote({
       ...parsed,
       router: parsed.router ?? 'vybe',
-      tokenHints,
       forceFullDetailsMints,
     });
 

@@ -1897,12 +1897,26 @@ tr:hover td {
   color: #a1a1aa;
 }
 
+.swap-route-option__rank-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
 .swap-route-option__rank {
   font-size: 0.68rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: #a1a1aa;
+}
+
+.swap-route-option__stars {
+  font-size: 0.62rem;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  color: #facc15;
+  text-shadow: 0 0 6px rgba(250, 204, 21, 0.35);
 }
 
 .swap-route-option__title {
@@ -2020,6 +2034,16 @@ tr:hover td {
 .swap-route-option__badge--markets {
   background: rgba(74, 222, 128, 0.16);
   color: #bbf7d0;
+}
+
+.swap-route-option__badge--best-price {
+  background: rgba(250, 204, 21, 0.18);
+  color: #fde68a;
+}
+
+.swap-route-option__badge--highest-liquidity {
+  background: rgba(56, 189, 248, 0.18);
+  color: #bae6fd;
 }
 
 .swap-route-option__badge--markets-rpc {

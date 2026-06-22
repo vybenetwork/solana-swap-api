@@ -10,7 +10,7 @@ import {
   type AddressLookupTableAccount,
 } from '@solana/web3.js';
 import {
-  buildTokenHintsForMints,
+  buildSwapClientParams,
   ensureTokenCatalogLoaded,
   ensureTokenMetaForMint,
   getCachedTokenMeta,
@@ -3694,7 +3694,6 @@ async function prefetchSwapPairPrices(options?: {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         mints,
-        tokenHints: buildTokenHintsForMints(mints),
         forceFullDetailsMints,
       }),
     });
@@ -3818,7 +3817,6 @@ async function prefetchRouteTokenPrices(quote: Record<string, unknown>): Promise
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         mints,
-        tokenHints: buildTokenHintsForMints(mints),
         forceFullDetailsMints,
       }),
     });
@@ -4013,7 +4011,9 @@ function collectSwapBuildOptions(): Record<string, unknown> {
       : {}),
     ...(ataFromCache?.closeInputAta ? { closeInputAta: true } : {}),
     ...(ataFromCache?.inputBalanceExact ? { inputBalanceExact: ataFromCache.inputBalanceExact } : {}),
-    ...(ataFromCache?.inputDecimals != null ? { inputDecimals: ataFromCache.inputDecimals } : {}),
+    ...(ataFromCache?.inputDecimals != null
+      ? { inputMintDecimals: ataFromCache.inputDecimals }
+      : {}),
     ...(ataFromCache?.closeInputAta && ataFromCache.amountUi
       ? { amount: ataFromCache.amountUi }
       : ataFromCache && ataFromCache.amountUi !== amountUi
@@ -4582,6 +4582,7 @@ async function fetchAggregatorQuoteAndBuildOnce(
         ...(routePlan ? { routePlan } : {}),
         ...buildOpts,
         router,
+        ...buildSwapClientParams(inputMint, outputMint),
       }),
     });
     swapBody = (await swapRes.json().catch(() => ({}))) as Record<string, unknown> & {
@@ -4803,7 +4804,6 @@ async function requestVybeQuote(
   const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
 
   while (splSimStep < SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER) {
-    const forceFullDetailsMints = [inputMint, outputMint].filter((m) => !quotedMintSession.has(m));
     const res = await fetchWithRetry('/api/trading/vybe-quote', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4814,8 +4814,7 @@ async function requestVybeQuote(
         outputMintAddress: outputMint,
         ...buildOpts,
         router: selectedRouter,
-        tokenHints: buildTokenHintsForMints([inputMint, outputMint]),
-        forceFullDetailsMints,
+        ...buildSwapClientParams(inputMint, outputMint),
       }),
     });
     const body = (await res.json().catch(() => ({}))) as VybeQuoteApiBody;
@@ -4995,7 +4994,6 @@ async function resolvePairTokenPrices(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       mints,
-      tokenHints: buildTokenHintsForMints(mints),
       forceFullDetailsMints,
     }),
   });
