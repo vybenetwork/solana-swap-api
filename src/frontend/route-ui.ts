@@ -112,8 +112,9 @@ const ROUTE_OPTIONS_UI_INITIAL = 3;
 
 function shortPoolId(address: string | undefined): string {
   const a = (address ?? '').trim();
-  if (a.length <= 12) return a || '—';
-  return `${a.slice(0, 4)}…${a.slice(-4)}`;
+  if (!a) return '—';
+  if (a.length <= 14) return a;
+  return `${a.slice(0, 7)}...${a.slice(-7)}`;
 }
 
 /** Route-card liquidity USD: integers ≥$1; $0.01–$0.99 with 2 decimals; <$0.01 → 0.01; $0 → 0. */
@@ -140,6 +141,79 @@ export function formatLiquidityUsd(n: number): string {
   });
 }
 
+/** Route-card liquidity USD: compact $9.89M / $28K for large values. */
+export function formatLiquidityUsdCompact(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  if (n >= 1_000_000) {
+    const m = n / 1_000_000;
+    const digits = m >= 10 ? 1 : 2;
+    return `$${m.toFixed(digits).replace(/\.0+$/, '')}M`;
+  }
+  if (n >= 1_000) {
+    const k = n / 1_000;
+    if (k >= 100) return `$${Math.round(k)}K`;
+    return `$${k.toFixed(k >= 10 ? 0 : 1)}K`;
+  }
+  if (n < 0.01) return '$0.01';
+  if (n < 1) return `$${(Math.round(n * 100) / 100).toFixed(2)}`;
+  return `$${Math.round(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+}
+
+function formatRoutePriceImpact(quote: Record<string, unknown>): string | null {
+  const v = quote.priceImpactPct;
+  if (v == null || v === '') return null;
+  const n = Number(String(v).replace(/%$/, '').trim());
+  if (!Number.isFinite(n)) return null;
+  const sign = n > 0 ? '+' : '';
+  return `${sign}${n.toFixed(2)}%`;
+}
+
+function renderRoutePoolLink(marketAddress: string | undefined): string {
+  const raw = (marketAddress ?? '').trim();
+  if (!raw) {
+    return '<span class="swap-route-option__pool-link swap-route-option__pool-link--empty">—</span>';
+  }
+  const short = shortPoolId(raw);
+  if (!isLikelySolanaPubkey(raw)) {
+    return `<span class="swap-route-option__pool-link swap-route-option__pool-link--empty" title="${deps.escapeHtml(raw)}">${deps.escapeHtml(short)}</span>`;
+  }
+  const url = deps.escapeHtml(solscanAccountUrl(raw));
+  return `<a class="swap-route-option__pool-link" href="${url}" target="_blank" rel="noopener noreferrer" data-route-pool-link title="View pool on Solscan — ${deps.escapeHtml(raw)}"><span class="swap-route-option__pool-link-label">${deps.escapeHtml(short)}</span><span class="swap-route-option__pool-link-icon" aria-hidden="true">↗</span></a>`;
+}
+
+function renderRouteOptionMetrics(
+  quote: Record<string, unknown>,
+  outLabel: string,
+  marketScore: number | undefined,
+): string {
+  const liq =
+    marketScore != null && marketScore > 0 ? formatLiquidityUsdCompact(marketScore) : '—';
+  const impact = formatRoutePriceImpact(quote);
+  const receiveUsd = deps.getQuoteReceiveUsd(quote);
+  const receiveUsdLabel =
+    receiveUsd != null && Number.isFinite(receiveUsd)
+      ? `$${receiveUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+      : '—';
+  return `<dl class="swap-route-option__metrics">
+      <div class="swap-route-option__metric">
+        <dt>Liquidity</dt>
+        <dd>${deps.escapeHtml(liq)}</dd>
+      </div>
+      <div class="swap-route-option__metric swap-route-option__metric--output">
+        <dt>Output</dt>
+        <dd><span class="swap-route-option__metric-out">${deps.escapeHtml(outLabel)}</span></dd>
+      </div>
+      <div class="swap-route-option__metric">
+        <dt>Impact</dt>
+        <dd>${impact != null ? deps.escapeHtml(impact) : '—'}</dd>
+      </div>
+      <div class="swap-route-option__metric swap-route-option__metric--usd">
+        <dt>≈ USD</dt>
+        <dd>${deps.escapeHtml(receiveUsdLabel)}</dd>
+      </div>
+    </dl>`;
+}
+
 function sourceBadgeLabel(source: string | undefined): string {
   if (source === 'jupiter') return 'jupiter';
   if (source === 'titan') return 'titan';
@@ -150,24 +224,25 @@ function sourceBadgeLabel(source: string | undefined): string {
 }
 
 function renderRouteOptionPlaceholderCard(rank: number, active: boolean, loading: boolean): string {
-  const sym = deps.getSwapOutSym();
   const spinner = deps.renderLoadingSpinner('sm');
   const programName = loading
     ? `<span class="swap-route-option__loading">${spinner}<span class="swap-route-option__loading-label">Finding pool…</span></span>`
     : '—';
   const outCell = loading ? spinner : '—';
-  return `<button type="button" class="swap-route-option swap-route-option--loading swap-route-option--disabled${active ? ' swap-route-option--active' : ''}" disabled aria-disabled="true" aria-pressed="${active ? 'true' : 'false'}">
-      <span class="swap-route-option__rank">#${rank}</span>
-      <span class="swap-route-option__program">
-        <span class="swap-route-option__program-name">${programName}</span>
-        <span class="swap-route-option__program-id">—</span>
-      </span>
-      <span class="swap-route-option__pool">—</span>
-      <span class="swap-route-option__out">${outCell} ${deps.escapeHtml(sym)}</span>
-      <span class="swap-route-option__meta">
+  return `<div class="swap-route-option swap-route-option--loading swap-route-option--disabled${active ? ' swap-route-option--active' : ''}" aria-disabled="true" aria-pressed="${active ? 'true' : 'false'}">
+      <div class="swap-route-option__head">
+        <span class="swap-route-option__rank">#${rank}</span>
         <span class="swap-route-option__badge swap-route-option__badge--trades">trades</span>
-      </span>
-    </button>`;
+      </div>
+      <div class="swap-route-option__title">${programName}</div>
+      <span class="swap-route-option__pool-link swap-route-option__pool-link--empty">—</span>
+      <dl class="swap-route-option__metrics">
+        <div class="swap-route-option__metric"><dt>Liquidity</dt><dd>—</dd></div>
+        <div class="swap-route-option__metric swap-route-option__metric--output"><dt>Output</dt><dd>${outCell}</dd></div>
+        <div class="swap-route-option__metric"><dt>Impact</dt><dd>—</dd></div>
+        <div class="swap-route-option__metric swap-route-option__metric--usd"><dt>≈ USD</dt><dd>—</dd></div>
+      </dl>
+    </div>`;
 }
 
 function renderRouteOptionsPlaceholder(loading = false): string {
@@ -183,26 +258,12 @@ function renderRouteOptionCard(route: EnumeratedRouteUiEntry, selectedIndex: num
   const quote = route.quote ?? {};
   const outUi = deps.quoteOutputUiAmount(quote);
   const outLabel = outUi != null ? deps.formatSwapAmountValue(outUi) : '—';
-  const sym = deps.getSwapOutSym();
-  const pool = shortPoolId(route.candidate?.marketAddress);
-  const programAddr = route.candidate?.programAddress ?? '';
-  const programShort = shortPoolId(programAddr);
   const programLabel =
-    route.candidate?.programLabel?.trim() || programShort || '—';
-  const trades = route.candidate?.tradeCount ?? 0;
+    route.candidate?.programLabel?.trim() ||
+    route.candidate?.protocol?.replace(/_/g, ' ') ||
+    '—';
   const marketScore = route.candidate?.marketScore;
   const source = sourceBadgeLabel(route.source);
-  const metaParts: string[] = [];
-  if (marketScore != null && marketScore > 0) {
-    metaParts.push(`$${formatLiquidityUsd(marketScore)} liq`);
-  }
-  if (trades > 0) {
-    metaParts.push(`${trades} trades`);
-  }
-  const metaDetail =
-    metaParts.length > 0
-      ? `<span class="swap-route-option__trades">${metaParts.join(' · ')}</span>`
-      : '';
   const warnLevel = swapRouteWarningLevel(quote, marketScore);
   const warnClass =
     warnLevel === 'red'
@@ -215,20 +276,18 @@ function renderRouteOptionCard(route: EnumeratedRouteUiEntry, selectedIndex: num
     warnLevel !== 'none'
       ? `<span class="swap-route-option__warn" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`
       : '';
-  return `<button type="button" class="swap-route-option${active ? ' swap-route-option--active' : ''}${warnClass}" data-route-index="${idx}" aria-pressed="${active ? 'true' : 'false'}">
-      <span class="swap-route-option__rank">#${idx + 1}</span>
-      <span class="swap-route-option__program">
-        <span class="swap-route-option__program-name">${deps.escapeHtml(programLabel || '—')}</span>
-        <span class="swap-route-option__program-id" title="${deps.escapeHtml(programAddr)}">${deps.escapeHtml(programShort)}</span>
-      </span>
-      <span class="swap-route-option__pool" title="${deps.escapeHtml(route.candidate?.marketAddress ?? '')}">${deps.escapeHtml(pool)}</span>
-      <span class="swap-route-option__out">${deps.escapeHtml(outLabel)} ${deps.escapeHtml(sym)}</span>
-      <span class="swap-route-option__meta">
-        <span class="swap-route-option__badge swap-route-option__badge--${deps.escapeHtml(source.replace(/\+/g, '-'))}">${deps.escapeHtml(source)}</span>
-        ${metaDetail}
-        ${warnBadge}
-      </span>
-    </button>`;
+  return `<div class="swap-route-option${active ? ' swap-route-option--active' : ''}${warnClass}" data-route-index="${idx}" role="button" tabindex="0" aria-pressed="${active ? 'true' : 'false'}">
+      <div class="swap-route-option__head">
+        <span class="swap-route-option__rank">#${idx + 1}</span>
+        <span class="swap-route-option__head-badges">
+          <span class="swap-route-option__badge swap-route-option__badge--${deps.escapeHtml(source.replace(/\+/g, '-'))}">${deps.escapeHtml(source)}</span>
+          ${warnBadge}
+        </span>
+      </div>
+      <div class="swap-route-option__title">${deps.escapeHtml(programLabel)}</div>
+      ${renderRoutePoolLink(route.candidate?.marketAddress)}
+      ${renderRouteOptionMetrics(quote, outLabel, marketScore)}
+    </div>`;
 }
 
 export function renderRouteOptionsPanel(): void {
@@ -266,11 +325,24 @@ export function renderRouteOptionsPanel(): void {
         ? `<button type="button" class="swap-route-options__more" data-route-expand="0">Show fewer</button>`
         : '';
   el.innerHTML = `<div class="swap-route-options__grid">${cards.join('')}</div>${moreBtn}`;
-  el.querySelectorAll<HTMLButtonElement>('[data-route-index]').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const index = Number(btn.dataset.routeIndex);
+  el.querySelectorAll<HTMLElement>('[data-route-index]').forEach((card) => {
+    const selectRoute = () => {
+      const index = Number(card.dataset.routeIndex);
       if (Number.isFinite(index)) deps.selectEnumeratedRoute(index);
+    };
+    card.addEventListener('click', (e) => {
+      if ((e.target as Element).closest('[data-route-pool-link]')) return;
+      selectRoute();
     });
+    card.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        selectRoute();
+      }
+    });
+  });
+  el.querySelectorAll<HTMLAnchorElement>('[data-route-pool-link]').forEach((link) => {
+    link.addEventListener('click', (e) => e.stopPropagation());
   });
   const expandBtn = el.querySelector<HTMLButtonElement>('[data-route-expand]');
   expandBtn?.addEventListener('click', () => {

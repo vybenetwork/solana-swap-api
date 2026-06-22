@@ -16,6 +16,7 @@ import {
   formatRouteViaTradesServerLog,
   normalizeBuildErrorMessage,
   parseVybeEnumeratedSwapRoutes,
+  poolMarketScoreFromBuild,
   ROUTE_VIA_TRADES_LIMIT,
   type BuildSwapViaTradeMarketsResult,
   type EnumeratedRouteCandidate,
@@ -425,7 +426,10 @@ async function buildEnumeratedRouteQuotes(
     if (uiInputMint === NATIVE_SOL_MINT) quote = { ...quote, inputMintAddress: NATIVE_SOL_MINT };
     if (uiOutputMint === NATIVE_SOL_MINT) quote = { ...quote, outputMintAddress: NATIVE_SOL_MINT };
     const candidate = entry.candidate as EnumeratedRouteCandidate;
-    const marketScore = candidate.marketScore ?? entry.selected.marketScore;
+    const marketScore =
+      candidate.marketScore ??
+      entry.selected.marketScore ??
+      poolMarketScoreFromBuild(entry.build);
     if (!quote._lowLiquidityWarning) {
       const lowLiquidityWarning = computeLowLiquidityWarning(marketScore);
       if (lowLiquidityWarning) {
@@ -438,7 +442,7 @@ async function buildEnumeratedRouteQuotes(
       source: candidate.source ?? 'trades',
       candidate: {
         ...entry.selected,
-        marketScore: candidate.marketScore ?? entry.selected.marketScore,
+        marketScore,
         programLabel: candidate.programLabel ?? programLabelForAddress(entry.selected.programAddress),
       },
       rpcMeta: candidate.rpcMeta,

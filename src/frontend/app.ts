@@ -4086,14 +4086,27 @@ function cacheVybeQuoteBuild(
   return null;
 }
 
+function poolMarketScoreFromRouteEntry(r: Record<string, unknown>): number | undefined {
+  const candidate = r.candidate as { marketScore?: number } | undefined;
+  const fromCandidate = Number(candidate?.marketScore);
+  if (Number.isFinite(fromCandidate) && fromCandidate > 0) return fromCandidate;
+  const build = r.build as { details?: { poolMarketScore?: number; marketScore?: number } } | undefined;
+  const fromBuild = Number(build?.details?.poolMarketScore ?? build?.details?.marketScore);
+  if (Number.isFinite(fromBuild) && fromBuild > 0) return fromBuild;
+  return undefined;
+}
+
 function mapEnumeratedRouteEntry(
   r: Record<string, unknown>,
   i: number,
 ): EnumeratedRoutesUiState['routes'][0] {
+  const candidate = r.candidate as EnumeratedRoutesUiState['routes'][0]['candidate'];
+  const marketScore = poolMarketScoreFromRouteEntry(r);
   return {
     index: Number(r.index ?? i),
     source: typeof r.source === 'string' ? r.source : undefined,
-    candidate: r.candidate as EnumeratedRoutesUiState['routes'][0]['candidate'],
+    candidate:
+      candidate && marketScore != null ? { ...candidate, marketScore } : candidate,
     quote: (r.quote as Record<string, unknown> | undefined) ?? undefined,
   };
 }

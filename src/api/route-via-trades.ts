@@ -321,6 +321,16 @@ function swapHasTx(build: import('../types/swap.js').VybeSwapBuildResponse): boo
   return typeof tx === 'string' && tx.trim().length > 0;
 }
 
+/** USD pool TVL from ix-builder build details (`poolMarketScore`). */
+export function poolMarketScoreFromBuild(
+  build: import('../types/swap.js').VybeSwapBuildResponse,
+): number | undefined {
+  const details = build.details as unknown as Record<string, unknown> | undefined;
+  const raw = details?.poolMarketScore ?? details?.marketScore;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
 function tradeCandidateFromVybeBuild(
   build: import('../types/swap.js').VybeSwapBuildResponse,
 ): TradeMarketCandidate {
@@ -330,12 +340,14 @@ function tradeCandidateFromVybeBuild(
   const protocol =
     typeof protocolRaw === 'string' ? (protocolRaw as import('./swap-build.js').SwapProxyProtocol) : undefined;
   const programLabel = programAddress ? programLabelForAddress(programAddress) : 'unknown';
+  const marketScore = poolMarketScoreFromBuild(build);
   return {
     marketAddress,
     programAddress,
     protocol,
     tradeCount: 0,
     programLabel,
+    ...(marketScore != null ? { marketScore } : {}),
   };
 }
 
