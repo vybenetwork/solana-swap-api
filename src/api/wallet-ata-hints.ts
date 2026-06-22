@@ -13,7 +13,10 @@ export interface SwapWalletAtaHints {
   closeInputAta?: boolean;
   /** Create output SPL ATA idempotently before the swap (buy when wallet has no ATA). */
   createOutputAta?: boolean;
-  /** Ephemeral WSOL path: create + close when wallet has no WSOL ATA or WSOL balance is zero. */
+  /**
+   * WSOL unwrap mode: true = ephemeral (sync + close entire WSOL account);
+   * false = persistent WSOL ATA exists — ix-builder unwraps only this swap's output amount.
+   */
   closeWsolAta?: boolean;
 }
 

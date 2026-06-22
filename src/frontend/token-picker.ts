@@ -592,19 +592,22 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
 
 function renderWalletBalanceRow(item: WalletBalanceListItem): string {
   const token = walletItemToTokenMeta(item);
+  const blocked = isBlockedPickerMint(item.mintAddress);
   const tradable = isWalletTokenTradable(item.mintAddress);
   const amountLabel = `${formatBalanceAmount(item.amountUi)} ${token.symbol}`;
   const fiatLabel = formatWalletBalanceUsd(item.valueUsd);
-  const tooSmall = !tradable
-    ? '<span class="token-picker-row-tag token-picker-row-tag--muted">Too small</span>'
-    : '';
+  const statusTag = blocked
+    ? '<span class="token-picker-row-tag token-picker-row-tag--muted">Use SOL</span>'
+    : !tradable
+      ? '<span class="token-picker-row-tag token-picker-row-tag--muted">Too small</span>'
+      : '';
   const disabledAttr = tradable ? '' : ' disabled aria-disabled="true"';
   return `<button type="button" class="token-picker-row token-picker-row--wallet${tradable ? '' : ' token-picker-row--untradable'}" data-mint="${escapeHtml(item.mintAddress)}"${disabledAttr}>
     <span class="token-picker-row-logo">${renderTokenIcon(token)}</span>
     <span class="token-picker-row-main">
       <span class="token-picker-row-title">
         <span class="token-picker-row-symbol">${escapeHtml(token.symbol)}</span>
-        ${tooSmall}
+        ${statusTag}
       </span>
       <span class="token-picker-row-sub">${escapeHtml(token.name)}</span>
     </span>
@@ -868,6 +871,11 @@ export function isNativeSolMint(mint: string): boolean {
 
 export function isWsolMint(mint: string): boolean {
   return mint.trim() === WSOL_MINT;
+}
+
+/** WSOL is shown in balances but not selectable — users trade native SOL instead. */
+export function isBlockedPickerMint(mint: string): boolean {
+  return isWsolMint(mint);
 }
 
 export type TokenMintColorKind = 'sol' | 'stable' | 'alt';
@@ -1153,14 +1161,11 @@ export function computeWalletSellableAmountUi(
   options?: WalletSellableOptions,
 ): number | null {
   if (!Number.isFinite(total) || total <= 0) return null;
+  if (isWsolMint(mint)) return null;
   if (isNativeSolMint(mint)) {
     if (total < SOL_MIN_TRADABLE_TOTAL_UI) return null;
     const sellable = total - SOL_WALLET_MIN_RESERVE_UI;
     return sellable > 0 ? sellable : null;
-  }
-  if (isWsolMint(mint)) {
-    if (valueUsd != null && !isSplValueTradable(valueUsd)) return null;
-    return total;
   }
   if (valueUsd != null && !isSplValueTradable(valueUsd)) return null;
   if (usesFullSplBalanceForMaxSell(options?.router)) {
@@ -1184,6 +1189,7 @@ export function getWalletSellableAmountUi(mint: string, options?: WalletSellable
 }
 
 export function isWalletTokenTradable(mint: string): boolean {
+  if (isBlockedPickerMint(mint)) return false;
   return getWalletSellableAmountUi(mint) != null;
 }
 
@@ -1248,7 +1254,7 @@ async function renderWalletBalances(): Promise<void> {
 }
 
 /** Sell picker: token has ≥ $0.01 wallet balance (or SOL reserve rules). Buy picker: always true. */
-type SellPickerWalletState = 'tradable' | 'too_small' | 'not_in_wallet' | 'unknown';
+type SellPickerWalletState = 'tradable' | 'too_small' | 'not_in_wallet' | 'unknown' | 'blocked';
 
 function getSellPickerWalletState(mint: string): SellPickerWalletState {
   if (activeSide !== 'input') return 'tradable';
@@ -1257,12 +1263,17 @@ function getSellPickerWalletState(mint: string): SellPickerWalletState {
 
   const swapMint = mint.trim();
   const item = getWalletBalanceListItem(swapMint);
+  if (isBlockedPickerMint(swapMint)) {
+    if (!item || !(item.amountUi > 0)) return 'not_in_wallet';
+    return 'blocked';
+  }
   if (!item || !(item.amountUi > 0)) return 'not_in_wallet';
   if (isWalletTokenTradable(swapMint)) return 'tradable';
   return 'too_small';
 }
 
 function isSellPickerMintTradable(mint: string): boolean {
+  if (isBlockedPickerMint(mint)) return false;
   const state = getSellPickerWalletState(mint);
   return state === 'tradable' || state === 'unknown';
 }
@@ -1277,37 +1288,53 @@ function sellPickerWalletStateTag(state: SellPickerWalletState): string {
   return '';
 }
 
+function tokenWalletValueUsd(mint: string): number {
+  return getWalletBalanceListItem(mint)?.valueUsd ?? 0;
+}
+
 function sortTokensForSellPicker(tokens: TokenMeta[]): TokenMeta[] {
-  const tradable: TokenMeta[] = [];
+  const ranked: TokenMeta[] = [];
   const tooSmall: TokenMeta[] = [];
   const notInWallet: TokenMeta[] = [];
   for (const token of tokens) {
     const state = getSellPickerWalletState(token.mint);
-    if (state === 'tradable' || state === 'unknown') tradable.push(token);
+    if (state === 'tradable' || state === 'unknown' || state === 'blocked') ranked.push(token);
     else if (state === 'too_small') tooSmall.push(token);
     else notInWallet.push(token);
   }
-  return [...tradable, ...tooSmall, ...notInWallet];
+  ranked.sort((a, b) => tokenWalletValueUsd(b.mint) - tokenWalletValueUsd(a.mint));
+  return [...ranked, ...tooSmall, ...notInWallet];
+}
+
+function shouldDemoteWalletBalanceInSort(mint: string): boolean {
+  if (isBlockedPickerMint(mint)) return false;
+  return !isWalletTokenTradable(mint);
 }
 
 function sortWalletBalancesForSellPicker(items: WalletBalanceListItem[]): WalletBalanceListItem[] {
   return [...items].sort((a, b) => {
-    const aTradable = isWalletTokenTradable(a.mintAddress);
-    const bTradable = isWalletTokenTradable(b.mintAddress);
-    if (aTradable !== bTradable) return aTradable ? -1 : 1;
+    const aDemote = shouldDemoteWalletBalanceInSort(a.mintAddress);
+    const bDemote = shouldDemoteWalletBalanceInSort(b.mintAddress);
+    if (aDemote !== bDemote) return aDemote ? 1 : -1;
     return b.valueUsd - a.valueUsd || b.amountUi - a.amountUi;
   });
 }
 
 function renderTokenRow(token: TokenMeta): string {
+  const blocked = isBlockedPickerMint(token.mint);
   const walletState = activeSide === 'input' ? getSellPickerWalletState(token.mint) : 'tradable';
   const untradable =
-    activeSide === 'input' && walletState !== 'tradable' && walletState !== 'unknown';
+    blocked ||
+    (activeSide === 'input' && walletState !== 'tradable' && walletState !== 'unknown');
   const tagHtml =
     token.tags?.includes('Token2022')
       ? '<span class="token-picker-row-tag">Token2022</span>'
       : '';
-  const statusTag = activeSide === 'input' ? sellPickerWalletStateTag(walletState) : '';
+  const statusTag = blocked
+    ? '<span class="token-picker-row-tag token-picker-row-tag--muted">Use SOL</span>'
+    : activeSide === 'input'
+      ? sellPickerWalletStateTag(walletState)
+      : '';
   const score =
     token.organicScore != null && Number.isFinite(token.organicScore)
       ? `<span class="token-picker-row-score"><span class="token-picker-row-score-leaf" aria-hidden="true"></span>${Math.round(token.organicScore)}</span>`
@@ -1335,7 +1362,6 @@ function renderTokenRow(token: TokenMeta): string {
 
 const SHORTCUT_MINTS = [
   '11111111111111111111111111111111',
-  'So11111111111111111111111111111111111111112',
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
   '27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4',
@@ -1357,7 +1383,9 @@ function renderShortcuts(): void {
       : ordered[0]?.mint;
   shortcutsEl.innerHTML = ordered
     .map((t) => {
-      const untradable = activeSide === 'input' && !isSellPickerMintTradable(t.mint);
+      const untradable =
+        isBlockedPickerMint(t.mint) ||
+        (activeSide === 'input' && !isSellPickerMintTradable(t.mint));
       const lead = t.mint === leadMint ? ' token-picker-shortcut--lead' : '';
       const untradableClass = untradable ? ' token-picker-shortcut--untradable' : '';
       const disabled = untradable ? ' disabled aria-disabled="true"' : '';
@@ -1405,6 +1433,7 @@ function syncTabs(): void {
 }
 
 function selectToken(mint: string): void {
+  if (isBlockedPickerMint(mint)) return;
   const walletItem = walletBalanceCache?.items.find((i) => i.mintAddress === mint);
   if (walletItem) {
     saveTokenMeta(walletItemToTokenMeta(walletItem));

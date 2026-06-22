@@ -124,6 +124,7 @@ const FETCH_TIMEOUT_MS = 90_000;
 const VYBE_QUOTE_TX_REUSE_MS = 10_000;
 const SWAP_TX_CONFIRM_POLL_MS = 1_000;
 const SWAP_TX_CONFIRM_MAX_POLLS = 90;
+const POST_TX_CONFIRM_WALLET_REFRESH_DELAY_MS = 2_000;
 /** Default service fee % on build for Vybe, Jupiter, and Titan (0 = none). */
 const DEFAULT_SWAP_SERVICE_FEE_PCT = 0;
 
@@ -159,16 +160,16 @@ const STABLECOIN_USD_FALLBACK_PRICE = 1;
 /** Default slippage tolerance percent (matches #swapSlippage input). */
 const DEFAULT_SWAP_SLIPPAGE_PCT = 2;
 
-/** Prefer native SOL, then WSOL, then USDC when auto-picking sell token from wallet balances. */
+/** Prefer native SOL, then USDC when auto-picking sell token from wallet balances. */
 const SELL_TOKEN_PRIORITY_MINTS: readonly string[] = [
   NATIVE_SOL_MINT,
-  WSOL_MINT,
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
 ];
 
 let walletBalanceFetchGen = 0;
 let walletBalanceRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let postTxConfirmRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let walletBalancesFetching = false;
 let walletBalancesReadyFor = '';
 let lastWalletBalanceFetchAddress = '';
@@ -220,8 +221,8 @@ const swapQuoteBtnDebugEl = document.getElementById('swapQuoteBtnDebug') as HTML
 const swapBuildBtn = document.getElementById('swapBuildBtn') as HTMLButtonElement | null;
 const swapBuildBtnTimerEl = document.getElementById('swapBuildBtnTimer') as HTMLElement | null;
 
-const SWAP_QUOTE_BTN_COOLDOWN_SEC = 5;
-const SWAP_BUILD_BTN_QUOTE_TTL_SEC = 10;
+const SWAP_QUOTE_BTN_COOLDOWN_SEC = 10;
+const SWAP_BUILD_BTN_QUOTE_TTL_SEC = 25;
 
 let quoteBtnCooldownEndsAt = 0;
 let quoteBtnCooldownRaf = 0;
@@ -1664,8 +1665,6 @@ function pickDefaultSellBalance(items: WalletBalanceListItem[]): WalletBalanceLi
   if (positive.length === 0) return null;
   const sol = findNativeSolBalanceItem(positive);
   if (sol) return sol;
-  const wsol = positive.find((i) => i.mintAddress === WSOL_MINT);
-  if (wsol && isWalletTokenTradable(WSOL_MINT)) return wsol;
   for (const mint of SELL_TOKEN_PRIORITY_MINTS) {
     if (isSolMint(mint)) continue;
     const hit = positive.find((i) => i.mintAddress === mint);
@@ -1792,12 +1791,16 @@ function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: bo
   void refreshSwapSymbols();
 }
 
-async function refreshWalletBalancesForSwap(wallet: string, applyDefaults: boolean): Promise<void> {
+async function refreshWalletBalancesForSwap(
+  wallet: string,
+  applyDefaults: boolean,
+  options?: { force?: boolean },
+): Promise<void> {
   const gen = ++walletBalanceFetchGen;
   walletBalancesFetching = true;
   syncSwapQuoteButtonState();
   updateWalletTotalUsdUi();
-  const force = wallet !== lastWalletBalanceFetchAddress;
+  const force = options?.force === true || wallet !== lastWalletBalanceFetchAddress;
   let markReady = false;
   try {
     const items = await prefetchWalletBalances(wallet, force);
@@ -1891,6 +1894,46 @@ function onWalletAddressReady(immediate = false): void {
   }
 
   walletBalanceRefreshTimer = setTimeout(run, 300);
+}
+
+function isLikelyTxSignature(value: string): boolean {
+  const s = value.trim();
+  if (!s || s.includes('\n') || s.length < 80 || s.length > 100) return false;
+  return /^[1-9A-HJ-NP-Za-km-z]+$/.test(s);
+}
+
+function scheduleWalletRefreshAfterTxConfirm(): void {
+  if (postTxConfirmRefreshTimer) {
+    clearTimeout(postTxConfirmRefreshTimer);
+    postTxConfirmRefreshTimer = null;
+  }
+  const wallet = swapWalletAddressInput?.value.trim() ?? '';
+  if (!isValidSolanaWalletAddress(wallet)) return;
+
+  postTxConfirmRefreshTimer = setTimeout(() => {
+    postTxConfirmRefreshTimer = null;
+    void refreshWalletStateAfterTxConfirm(wallet);
+  }, POST_TX_CONFIRM_WALLET_REFRESH_DELAY_MS);
+}
+
+async function refreshWalletStateAfterTxConfirm(wallet: string): Promise<void> {
+  updateSwapPairCards(undefined, true);
+  try {
+    await refreshWalletBalancesForSwap(wallet, false, { force: true });
+    await prefetchSwapPairPrices({ forceFullDetails: true });
+    updateSwapPairCards();
+    syncSwapSellAmountUi();
+    syncSwapAmountMaxFromBalance();
+    syncSwapQuoteButtonState();
+    void refreshSwapSymbols();
+  } catch {
+    updateSwapPairCards();
+  }
+}
+
+async function waitForTxConfirmThenRefreshWallet(signature: string): Promise<void> {
+  const confirmed = await pollTransactionConfirmation(signature, null);
+  if (confirmed.ok) scheduleWalletRefreshAfterTxConfirm();
 }
 
 function tryOpenBuyTokenPicker(): void {
@@ -5205,14 +5248,17 @@ function closeSwapSignDialog(): void {
   resetSwapSignDialogUi();
 }
 
-async function pollTransactionConfirmation(signature: string, generation: number): Promise<{ ok: boolean; err?: string }> {
+async function pollTransactionConfirmation(
+  signature: string,
+  generation: number | null,
+): Promise<{ ok: boolean; err?: string }> {
   const connection = getBrowserConnection();
   for (let attempt = 0; attempt < SWAP_TX_CONFIRM_MAX_POLLS; attempt++) {
-    if (generation !== swapSignFlowGeneration) {
+    if (generation != null && generation !== swapSignFlowGeneration) {
       return { ok: false, err: 'Cancelled' };
     }
     await sleepMs(SWAP_TX_CONFIRM_POLL_MS);
-    if (generation !== swapSignFlowGeneration) {
+    if (generation != null && generation !== swapSignFlowGeneration) {
       return { ok: false, err: 'Cancelled' };
     }
     try {
@@ -5315,6 +5361,7 @@ async function runSwapSignDialogFlow(
     if (swapQuoteWarning) {
       showInlineWarning(swapQuoteWarning, `Transaction confirmed: ${lastSig}`);
     }
+    scheduleWalletRefreshAfterTxConfirm();
     setSwapSignDialogActions('success');
   } catch (err) {
     if (generation !== swapSignFlowGeneration) return;
@@ -5368,8 +5415,12 @@ async function postPasteSignSwap(): Promise<void> {
   }
   if (swapBuildBtn) swapBuildBtn.disabled = true;
   try {
-    swapTxBase64El.value = await signSwapTransactionBase64(pasted, true);
+    const result = await signSwapTransactionBase64(pasted, true);
+    swapTxBase64El.value = result;
     syncSwapBuildResultPanel();
+    if (isLikelyTxSignature(result)) {
+      void waitForTxConfirmThenRefreshWallet(result);
+    }
   } catch (err) {
     if (swapQuoteError) {
       showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
