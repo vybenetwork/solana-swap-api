@@ -188,8 +188,21 @@ export function getCachedTokenMeta(mint: string): TokenMeta | null {
   if (m === NATIVE_SOL_MINT) {
     const wsolCatalog = catalogTokens.find((t) => t.mint === WSOL_MINT);
     const wsolCached = readCache()[WSOL_MINT];
-    if (wsolCatalog && wsolCached) return mergeCatalogWithDeviceCache(wsolCatalog, wsolCached);
-    return wsolCached ?? wsolCatalog ?? null;
+    const logoUrl = wsolCatalog?.logoUrl ?? wsolCached?.logoUrl ?? '';
+    return {
+      mint: NATIVE_SOL_MINT,
+      symbol: 'SOL',
+      name: 'Solana',
+      logoUrl: resolveLogoUrl(logoUrl),
+      decimals: 9,
+      price: wsolCached?.price ?? wsolCatalog?.price,
+      price1d: wsolCached?.price1d ?? wsolCatalog?.price1d,
+      price7d: wsolCached?.price7d ?? wsolCatalog?.price7d,
+      priceUpdateTime: wsolCached?.priceUpdateTime ?? wsolCatalog?.priceUpdateTime,
+      priceFetchedAt: wsolCached?.priceFetchedAt ?? wsolCatalog?.priceFetchedAt,
+      isVerified: true,
+      source: wsolCached?.source ?? wsolCatalog?.source ?? 'search',
+    };
   }
   return null;
 }
@@ -551,10 +564,22 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
   const catalogHit = catalogTokens.find((t) => t.mint === item.mintAddress);
   const cached = readCache()[item.mintAddress];
   const base = catalogHit ?? cached;
+  const symbol =
+    item.mintAddress === NATIVE_SOL_MINT
+      ? 'SOL'
+      : item.mintAddress === WSOL_MINT
+        ? 'WSOL'
+        : item.symbol || base?.symbol || truncateMint(item.mintAddress);
+  const name =
+    item.mintAddress === NATIVE_SOL_MINT
+      ? 'Solana'
+      : item.mintAddress === WSOL_MINT
+        ? 'Wrapped SOL'
+        : item.name || base?.name || symbol;
   return {
     mint: item.mintAddress,
-    symbol: item.symbol || base?.symbol || truncateMint(item.mintAddress),
-    name: item.name || base?.name || item.symbol,
+    symbol,
+    name,
     logoUrl: resolveLogoUrl(item.logoUrl ?? base?.logoUrl ?? ''),
     decimals: item.decimals ?? base?.decimals,
     isVerified: item.verified || base?.isVerified,
@@ -567,8 +592,7 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
 
 function renderWalletBalanceRow(item: WalletBalanceListItem): string {
   const token = walletItemToTokenMeta(item);
-  const swapMint = preferNativeSolMint(item.mintAddress);
-  const tradable = isWalletTokenTradable(swapMint);
+  const tradable = isWalletTokenTradable(item.mintAddress);
   const amountLabel = `${formatBalanceAmount(item.amountUi)} ${token.symbol}`;
   const fiatLabel = formatWalletBalanceUsd(item.valueUsd);
   const tooSmall = !tradable
@@ -838,6 +862,14 @@ export function isSolMint(mint: string): boolean {
   return m === NATIVE_SOL_MINT || m === WSOL_MINT;
 }
 
+export function isNativeSolMint(mint: string): boolean {
+  return mint.trim() === NATIVE_SOL_MINT;
+}
+
+export function isWsolMint(mint: string): boolean {
+  return mint.trim() === WSOL_MINT;
+}
+
 export type TokenMintColorKind = 'sol' | 'stable' | 'alt';
 
 const KNOWN_STABLECOIN_MINTS = new Set([
@@ -904,19 +936,15 @@ export function isSplValueTradable(valueUsd: number): boolean {
   return Number.isFinite(valueUsd) && valueUsd >= SPL_MIN_TRADABLE_VALUE_USD;
 }
 
-/** Wallet balance row for a mint (native SOL combines System + WSOL entries). */
+/** Wallet balance row for a mint — native SOL and WSOL are separate entries. */
 export function getWalletBalanceListItem(mint: string): WalletBalanceListItem | null {
   const m = mint.trim();
   if (!m || !walletBalanceCache) return null;
-  if (isSolMint(m)) {
-    const native = walletBalanceCache.items.find((i) => i.mintAddress === NATIVE_SOL_MINT);
-    const wrapped = walletBalanceCache.items.find((i) => i.mintAddress === WSOL_MINT);
-    if (!native && !wrapped) return null;
-    const amountUi = (native?.amountUi ?? 0) + (wrapped?.amountUi ?? 0);
-    if (!(amountUi > 0)) return null;
-    const valueUsd = (native?.valueUsd ?? 0) + (wrapped?.valueUsd ?? 0);
-    const base = native ?? wrapped!;
-    return { ...base, mintAddress: NATIVE_SOL_MINT, symbol: 'SOL', amountUi, valueUsd };
+  if (m === NATIVE_SOL_MINT) {
+    return walletBalanceCache.items.find((i) => i.mintAddress === NATIVE_SOL_MINT) ?? null;
+  }
+  if (m === WSOL_MINT) {
+    return walletBalanceCache.items.find((i) => i.mintAddress === WSOL_MINT) ?? null;
   }
   return walletBalanceCache.items.find((i) => i.mintAddress === m) ?? null;
 }
@@ -1125,10 +1153,14 @@ export function computeWalletSellableAmountUi(
   options?: WalletSellableOptions,
 ): number | null {
   if (!Number.isFinite(total) || total <= 0) return null;
-  if (isSolMint(mint)) {
+  if (isNativeSolMint(mint)) {
     if (total < SOL_MIN_TRADABLE_TOTAL_UI) return null;
     const sellable = total - SOL_WALLET_MIN_RESERVE_UI;
     return sellable > 0 ? sellable : null;
+  }
+  if (isWsolMint(mint)) {
+    if (valueUsd != null && !isSplValueTradable(valueUsd)) return null;
+    return total;
   }
   if (valueUsd != null && !isSplValueTradable(valueUsd)) return null;
   if (usesFullSplBalanceForMaxSell(options?.router)) {
@@ -1223,7 +1255,7 @@ function getSellPickerWalletState(mint: string): SellPickerWalletState {
   const wallet = getWalletAddressCb?.().trim() ?? '';
   if (!wallet || !walletBalanceCache) return 'unknown';
 
-  const swapMint = preferNativeSolMint(mint);
+  const swapMint = mint.trim();
   const item = getWalletBalanceListItem(swapMint);
   if (!item || !(item.amountUi > 0)) return 'not_in_wallet';
   if (isWalletTokenTradable(swapMint)) return 'tradable';
@@ -1260,8 +1292,8 @@ function sortTokensForSellPicker(tokens: TokenMeta[]): TokenMeta[] {
 
 function sortWalletBalancesForSellPicker(items: WalletBalanceListItem[]): WalletBalanceListItem[] {
   return [...items].sort((a, b) => {
-    const aTradable = isWalletTokenTradable(preferNativeSolMint(a.mintAddress));
-    const bTradable = isWalletTokenTradable(preferNativeSolMint(b.mintAddress));
+    const aTradable = isWalletTokenTradable(a.mintAddress);
+    const bTradable = isWalletTokenTradable(b.mintAddress);
     if (aTradable !== bTradable) return aTradable ? -1 : 1;
     return b.valueUsd - a.valueUsd || b.amountUi - a.amountUi;
   });
@@ -1302,6 +1334,7 @@ function renderTokenRow(token: TokenMeta): string {
 }
 
 const SHORTCUT_MINTS = [
+  '11111111111111111111111111111111',
   'So11111111111111111111111111111111111111112',
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',

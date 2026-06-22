@@ -4,8 +4,20 @@
   "count": 100,
   "tokens": [
     {
-      "mint": "So11111111111111111111111111111111111111112",
+      "mint": "11111111111111111111111111111111",
       "symbol": "SOL",
+      "name": "Solana",
+      "logoUrl": "/data/token-icons/So11111111111111111111111111111111111111112.png",
+      "decimals": 9,
+      "isVerified": true,
+      "tags": [
+        "major",
+        "verified"
+      ]
+    },
+    {
+      "mint": "So11111111111111111111111111111111111111112",
+      "symbol": "WSOL",
       "name": "Wrapped SOL",
       "logoUrl": "/data/token-icons/So11111111111111111111111111111111111111112.png",
       "decimals": 9,

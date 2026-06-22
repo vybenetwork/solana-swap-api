@@ -10,6 +10,14 @@ export function isSolMint(mint: string): boolean {
   return m === NATIVE_SOL_MINT || m === WSOL_MINT;
 }
 
+export function isNativeSolMint(mint: string): boolean {
+  return mint.trim() === NATIVE_SOL_MINT;
+}
+
+export function isWsolMint(mint: string): boolean {
+  return mint.trim() === WSOL_MINT;
+}
+
 /** Map UI / wallet native SOL to the mint Vybe swap endpoints expect. */
 export function toVybeSwapMint(mint: string): string {
   const m = mint.trim();

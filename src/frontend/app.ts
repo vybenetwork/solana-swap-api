@@ -35,6 +35,8 @@ import {
   shouldContinueSplSellSimRetry,
   SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER,
   isSolMint,
+  isNativeSolMint,
+  isWsolMint,
   isNearMaxSellAmountUi,
   isAtMaxSellAmountUi,
   preferNativeSolMint,
@@ -128,7 +130,7 @@ const DEFAULT_SWAP_SERVICE_FEE_PCT = 0;
 /** Hardcoded mint → symbol; never fetch these from API. */
 const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
   [NATIVE_SOL_MINT]: 'SOL',
-  So11111111111111111111111111111111111111112: 'SOL',
+  So11111111111111111111111111111111111111112: 'WSOL',
   EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v: 'USDC',
   Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB: 'USDT',
   DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263: 'BONK',
@@ -136,7 +138,7 @@ const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
 
 const HARDCODED_MINT_NAMES: Record<string, string> = {
   [NATIVE_SOL_MINT]: 'Solana',
-  So11111111111111111111111111111111111111112: 'Solana',
+  So11111111111111111111111111111111111111112: 'Wrapped SOL',
 };
 
 const HARDCODED_MINT_DECIMALS: Record<string, number> = {
@@ -157,9 +159,10 @@ const STABLECOIN_USD_FALLBACK_PRICE = 1;
 /** Default slippage tolerance percent (matches #swapSlippage input). */
 const DEFAULT_SWAP_SLIPPAGE_PCT = 2;
 
-/** Prefer SOL, then USDC, then USDT when auto-picking sell token from wallet balances. */
+/** Prefer native SOL, then WSOL, then USDC when auto-picking sell token from wallet balances. */
 const SELL_TOKEN_PRIORITY_MINTS: readonly string[] = [
-  'So11111111111111111111111111111111111111112',
+  NATIVE_SOL_MINT,
+  WSOL_MINT,
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
 ];
@@ -994,7 +997,7 @@ async function fetchWithRetry(url: string, init?: RequestInit): Promise<Response
 }
 
 function displaySymbol(sym: string): string {
-  return sym === 'WSOL' ? 'SOL' : sym;
+  return sym === 'wSOL' ? 'WSOL' : sym;
 }
 
 async function fetchSymbol(mint: string): Promise<string> {
@@ -1640,7 +1643,7 @@ function getMaxSellAmountForInput(mint: string): number | null {
   const item = getWalletBalanceListItem(mint);
   const sellable = getWalletSellableForUi(mint);
   if (sellable == null || sellable <= 0) return null;
-  if (item && getSwapRouter() === 'vybe' && !isSolMint(mint)) {
+  if (item && getSwapRouter() === 'vybe' && !isNativeSolMint(mint)) {
     const formatted = maxSwapInputStringForWalletItem(item);
     const parsed = Number(formatted);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : sellable;
@@ -1650,30 +1653,23 @@ function getMaxSellAmountForInput(mint: string): number | null {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : sellable;
 }
 
-function findSolBalanceItem(items: WalletBalanceListItem[]): WalletBalanceListItem | null {
+function findNativeSolBalanceItem(items: WalletBalanceListItem[]): WalletBalanceListItem | null {
   const native = items.find((i) => i.mintAddress === NATIVE_SOL_MINT);
-  const wrapped = items.find((i) => i.mintAddress === WSOL_MINT);
-  if (!native && !wrapped) return null;
-  const totalUi = (native?.amountUi ?? 0) + (wrapped?.amountUi ?? 0);
-  if (totalUi < SOL_MIN_AUTO_PICK_TOTAL_UI) return null;
-  const base = native ?? wrapped!;
-  return {
-    ...base,
-    mintAddress: NATIVE_SOL_MINT,
-    symbol: 'SOL',
-    amountUi: totalUi,
-  };
+  if (!native || native.amountUi < SOL_MIN_AUTO_PICK_TOTAL_UI) return null;
+  return { ...native, symbol: 'SOL' };
 }
 
 function pickDefaultSellBalance(items: WalletBalanceListItem[]): WalletBalanceListItem | null {
   const positive = items.filter((i) => i.amountUi > 0);
   if (positive.length === 0) return null;
-  const sol = findSolBalanceItem(positive);
+  const sol = findNativeSolBalanceItem(positive);
   if (sol) return sol;
+  const wsol = positive.find((i) => i.mintAddress === WSOL_MINT);
+  if (wsol && isWalletTokenTradable(WSOL_MINT)) return wsol;
   for (const mint of SELL_TOKEN_PRIORITY_MINTS) {
     if (isSolMint(mint)) continue;
     const hit = positive.find((i) => i.mintAddress === mint);
-    if (hit && isWalletTokenTradable(preferNativeSolMint(hit.mintAddress))) return hit;
+    if (hit && isWalletTokenTradable(hit.mintAddress)) return hit;
   }
   return (
     positive
@@ -1690,7 +1686,7 @@ function syncSwapAmountMaxFromBalance(): void {
   const sellable = getWalletSellableForUi(mint);
   if (sellable != null && sellable > 0) {
     const item = getWalletBalanceListItem(mint);
-    if (item && getSwapRouter() === 'vybe' && !isSolMint(mint)) {
+    if (item && getSwapRouter() === 'vybe' && !isNativeSolMint(mint)) {
       swapAmountInput.max = maxSwapInputStringForWalletItem(item);
     } else {
       swapAmountInput.max = formatSwapInputAmountValue(sellable, getMintDecimals(mint));
@@ -1770,19 +1766,18 @@ function setSwapSellAmountToBalance(amountUi: number, mint: string, silent = fal
 
 function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: boolean): void {
   if (!swapInputMintInput) return;
-  const swapMint = preferNativeSolMint(item.mintAddress);
+  const swapMint = item.mintAddress.trim();
   swapInputMintInput.value = swapMint;
   const sym =
     item.symbol ||
     HARDCODED_MINT_SYMBOLS[swapMint] ||
-    HARDCODED_MINT_SYMBOLS[item.mintAddress] ||
     item.mintAddress.slice(0, 6);
-  if (swapInputSymbolEl) swapInputSymbolEl.textContent = sym === 'WSOL' ? 'SOL' : sym;
+  if (swapInputSymbolEl) swapInputSymbolEl.textContent = sym;
   if (item.decimals != null) routeMintDecimalsCache[swapMint] = item.decimals;
   syncSwapAmountMaxFromBalance();
   if (useMaxAmount) {
     const item = getWalletBalanceListItem(swapMint);
-    if (item && getSwapRouter() === 'vybe' && !isSolMint(swapMint)) {
+    if (item && getSwapRouter() === 'vybe' && !isNativeSolMint(swapMint)) {
       if (swapAmountInput) {
         swapAmountInput.value = maxSwapInputStringForWalletItem(item);
         syncSwapAmountMaxFromBalance();
@@ -1818,7 +1813,7 @@ async function refreshWalletBalancesForSwap(wallet: string, applyDefaults: boole
         applySellTokenFromBalance(pick, true);
         await prefetchSwapPairPrices({
           forceFullDetails: true,
-          mints: [preferNativeSolMint(pick.mintAddress)],
+          mints: [pick.mintAddress],
         });
         markReady = true;
         return;
@@ -1943,7 +1938,7 @@ function swapPairMintsMatch(a: string, b: string): boolean {
   const left = a.trim();
   const right = b.trim();
   if (!left || !right) return false;
-  return preferNativeSolMint(left) === preferNativeSolMint(right);
+  return left === right;
 }
 
 function isSwapQuoteSolOrStableMint(mint: string, symbolHint?: string): boolean {
@@ -2024,7 +2019,7 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
   if (!input) return;
   const previousInputMint = side === 'input' ? input.value.trim() : '';
   const previousInputSym = side === 'input' ? swapInputSymbolEl?.textContent?.trim() : undefined;
-  const resolvedMint = side === 'input' ? preferNativeSolMint(mint) : mint.trim();
+  const resolvedMint = mint.trim();
   const otherMint = otherInput?.value.trim() ?? '';
 
   if (otherMint && swapPairMintsMatch(resolvedMint, otherMint)) {
@@ -2048,13 +2043,17 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
 
   input.value = resolvedMint;
   const meta = getCachedTokenMeta(resolvedMint);
-  if (meta && symbolEl) symbolEl.textContent = meta.symbol === 'WSOL' || meta.symbol === 'wSOL' ? 'SOL' : meta.symbol;
+  if (meta && symbolEl) {
+    symbolEl.textContent =
+      meta.symbol === 'wSOL' ? 'WSOL' : meta.symbol === 'WSOL' ? 'WSOL' : meta.symbol;
+  }
   if (autoOutputMint && swapOutputMintInput) {
     swapOutputMintInput.value = autoOutputMint;
     const outMeta = getCachedTokenMeta(autoOutputMint);
     if (outMeta && swapOutputSymbolEl) {
       swapOutputSymbolEl.textContent =
-        outMeta.symbol === 'WSOL' || outMeta.symbol === 'wSOL' ? 'SOL' : outMeta.symbol;
+        outMeta.symbol === 'wSOL' ? 'WSOL' : outMeta.symbol === 'WSOL' ? 'WSOL' : outMeta.symbol;
+    }
     }
     if (outMeta?.decimals != null) routeMintDecimalsCache[autoOutputMint] = outMeta.decimals;
   }
@@ -2499,7 +2498,7 @@ function maybeShowSplSellReducedWarning(amountUi: number, mint: string, original
 
 /** Full wallet balance (100%) when switching routers after sim retries are exhausted. */
 function getSplRouterResetSellAmountUi(mint: string): number | null {
-  if (isSolMint(mint)) return getWalletSellableForUi(mint);
+  if (isNativeSolMint(mint)) return getWalletSellableForUi(mint);
   const balance = getWalletBalanceAmountUi(mint);
   if (balance == null || balance <= 0) return null;
   return balance;
@@ -2658,9 +2657,9 @@ function pairCardSymbol(mint: string, side: 'sell' | 'buy'): string {
 }
 
 function pairCardUnitSymbol(mint: string, chipSymbol: string): string {
-  if (isSolMint(mint)) return 'SOL';
+  if (isNativeSolMint(mint)) return 'SOL';
+  if (isWsolMint(mint)) return 'WSOL';
   const sym = displaySymbol(chipSymbol);
-  if (sym === 'SOL' || sym === 'WSOL') return 'SOL';
   return sym.toUpperCase();
 }
 

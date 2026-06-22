@@ -214,6 +214,25 @@ export async function listWalletTokenBalances(
     .filter((row): row is WalletBalanceListItem => row != null);
 
   const seen = new Set(items.map((i) => i.mintAddress));
+  const nativeRpc = rpcByMint.get(RPC_NATIVE_SOL_MINT);
+  if (nativeRpc && nativeRpc.amountRaw > 0n && !seen.has(NATIVE_SOL_MINT)) {
+    const amountExact = nativeRpc.amountRaw.toString();
+    const amountUi = rawToUiAmount(amountExact, 9);
+    if (amountUi > 0) {
+      items.push({
+        mintAddress: NATIVE_SOL_MINT,
+        symbol: 'SOL',
+        name: 'Solana',
+        logoUrl: null,
+        decimals: 9,
+        amountUi,
+        amountExact,
+        valueUsd: 0,
+        verified: true,
+      });
+      seen.add(NATIVE_SOL_MINT);
+    }
+  }
   for (const rpc of rpcByMint.values()) {
     if (seen.has(rpc.mintAddress) || rpc.mintAddress === RPC_NATIVE_SOL_MINT) continue;
     if (rpc.amountRaw <= 0n) continue;
@@ -317,17 +336,13 @@ export async function assertWalletHasSellAmount(
     }),
   ]);
 
-  if (isSolMint(mint)) {
+  if (mint === NATIVE_SOL_MINT) {
     const symbol = 'SOL';
-    let totalRaw = 0n;
-    const native = rpcByMint.get(RPC_NATIVE_SOL_MINT);
-    const wsol = rpcByMint.get(WSOL_MINT);
-    if (native) totalRaw += native.amountRaw;
-    if (wsol) totalRaw += wsol.amountRaw;
-    if (totalRaw <= 0n) {
-      totalRaw = sumSolBalanceRaw(balance.data);
+    let availableRaw = rpcByMint.get(RPC_NATIVE_SOL_MINT)?.amountRaw ?? 0n;
+    if (availableRaw <= 0n) {
+      availableRaw = sumSolBalanceRaw(balance.data.filter((t) => t.mintAddress.trim() === NATIVE_SOL_MINT));
     }
-    if (totalRaw <= 0n) {
+    if (availableRaw <= 0n) {
       throw new InsufficientBalanceError(
         `Insufficient balance: no ${symbol} in this wallet.`,
         0,
@@ -335,12 +350,12 @@ export async function assertWalletHasSellAmount(
         symbol,
       );
     }
-    const totalUi = rawToUiAmount(totalRaw.toString(), 9);
+    const availableUi = rawToUiAmount(availableRaw.toString(), 9);
 
-    if (totalUi < SOL_MIN_TRADABLE_TOTAL_UI) {
+    if (availableUi < SOL_MIN_TRADABLE_TOTAL_UI) {
       throw new InsufficientBalanceError(
         `Insufficient balance: SOL amount too small to trade (minimum ${formatUiAmount(SOL_MIN_TRADABLE_TOTAL_UI)} SOL).`,
-        totalUi,
+        availableUi,
         amountUi,
         symbol,
       );
@@ -348,10 +363,40 @@ export async function assertWalletHasSellAmount(
 
     const requiredRaw = uiAmountToRaw(amountUi, 9);
 
-    if (requiredRaw > totalRaw) {
+    if (requiredRaw > availableRaw) {
       throw new InsufficientBalanceError(
-        `Insufficient balance: you have ${formatUiAmount(totalUi)} SOL but tried to sell ${formatUiAmount(amountUi)} SOL.`,
-        totalUi,
+        `Insufficient balance: you have ${formatUiAmount(availableUi)} SOL but tried to sell ${formatUiAmount(amountUi)} SOL.`,
+        availableUi,
+        amountUi,
+        symbol,
+      );
+    }
+    return;
+  }
+
+  if (mint === WSOL_MINT) {
+    const symbol = 'WSOL';
+    let availableRaw = rpcByMint.get(WSOL_MINT)?.amountRaw ?? 0n;
+    if (availableRaw <= 0n) {
+      const row = balance.data.find((t) => t.mintAddress.trim() === WSOL_MINT);
+      if (row) {
+        availableRaw = balanceAmountToRaw(row.amount, Number(row.decimals));
+      }
+    }
+    if (availableRaw <= 0n) {
+      throw new InsufficientBalanceError(
+        `Insufficient balance: no ${symbol} in this wallet.`,
+        0,
+        amountUi,
+        symbol,
+      );
+    }
+    const availableUi = rawToUiAmount(availableRaw.toString(), 9);
+    const requiredRaw = uiAmountToRaw(amountUi, 9);
+    if (requiredRaw > availableRaw) {
+      throw new InsufficientBalanceError(
+        `Insufficient balance: you have ${formatUiAmount(availableUi)} ${symbol} but tried to sell ${formatUiAmount(amountUi)} ${symbol}.`,
+        availableUi,
         amountUi,
         symbol,
       );
