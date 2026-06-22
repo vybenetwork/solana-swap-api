@@ -18,6 +18,7 @@
  * resolveWalletPayDebitRaw: simulation _walletPayDebitRaw, else estimate from inAmount + input-side fees
  */
 
+import { formatWarnPercent } from './format-warn-pct.js';
 import {
   getCachedTokenMeta,
   effectiveTokenIconSrc,
@@ -271,7 +272,11 @@ function renderRouteRankStars(displayRank: number): string {
 function renderRouteOptionBadge(
   highlight: RouteOptionHighlightBadge | undefined,
   source: string | undefined,
+  warnLevel: 'none' | 'orange' | 'red' = 'none',
 ): string {
+  if (warnLevel !== 'none') {
+    return '<span class="swap-route-option__badge swap-route-option__badge--low-liquidity">Low Liquidity</span>';
+  }
   if (highlight === 'best-price') {
     return '<span class="swap-route-option__badge swap-route-option__badge--best-price">Best Price</span>';
   }
@@ -343,7 +348,7 @@ function renderRouteOptionCard(
       <div class="swap-route-option__head">
         <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${displayRank}</span>${renderRouteRankStars(displayRank)}</span>
         <span class="swap-route-option__head-badges">
-          ${renderRouteOptionBadge(highlight, route.source)}
+          ${renderRouteOptionBadge(highlight, route.source, warnLevel)}
           ${warnBadge}
         </span>
       </div>
@@ -5585,7 +5590,7 @@ function swapRouteWarningLevel(
 }
 
 function simulationOutputWarningTitle(w: Record<string, unknown>): string {
-  return `Simulated output is ${Number(w.shortfallPct).toFixed(1)}% below quote. Token account rent/reclaim excluded.`;
+  return `Simulated output is ${formatWarnPercent(Number(w.shortfallPct))}% below quote. Token account rent/reclaim excluded.`;
 }
 
 function lowLiquidityWarningTitle(w: Record<string, unknown>): string {

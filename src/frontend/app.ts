@@ -110,6 +110,7 @@ import {
   renderRouteViaTradesLogHtml,
   type EnumeratedRoutesUiState,
 } from './route-ui.js';
+import { formatWarnPercent } from './format-warn-pct.js';
 
 interface TokenSymbolResponse {
   symbol?: string;
@@ -826,9 +827,9 @@ function formatSimulationOutputWarningMessage(
 ): string {
   const sym = outSym?.trim() ? ` ${outSym.trim()}` : '';
   if (warning.source === 'price_impact') {
-    return `Quoted output is ${warning.shortfallPct.toFixed(1)}% below spot price${sym ? ` for${sym}` : ''}. Pool may have low liquidity or high price impact.`;
+    return `Transaction output will result in a ${formatWarnPercent(warning.shortfallPct)}% price drop. Pool may have low liquidity or high price impact.`;
   }
-  return `Simulation delivers ${warning.shortfallPct.toFixed(1)}% less${sym} than quoted. Token account rent and reclaim are excluded from this comparison.`;
+  return `Simulation delivers ${formatWarnPercent(warning.shortfallPct)}% less${sym} than quoted. Token account rent and reclaim are excluded from this comparison.`;
 }
 
 function formatCombinedRouteWarningsMessage(
