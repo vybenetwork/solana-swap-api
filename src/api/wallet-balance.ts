@@ -11,6 +11,9 @@ import { fetchJupiterAsset, fetchJupiterQuotePrice } from './jupiter-token-fallb
 import { getToken } from './tokens.js';
 import { fetchRpcWalletBalances, RPC_NATIVE_SOL_MINT } from './wallet-rpc-balance.js';
 import type { RpcMintBalance } from './wallet-rpc-balance.js';
+import { WALLET_TOKEN_BALANCE_LIMIT } from '../wallet-balance-limit.js';
+
+export { WALLET_TOKEN_BALANCE_LIMIT };
 
 /** Vybe reports native SOL under System Program id, not WSOL mint. */
 const NATIVE_SOL_MINT = '11111111111111111111111111111111';
@@ -19,7 +22,7 @@ const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 const SOL_MIN_TRADABLE_TOTAL_UI = 0.0061;
 
 /** Max RPC-only holdings enriched via Vybe/Jupiter after the initial RPC+Vybe merge. */
-export const RPC_ONLY_ENRICH_LIMIT = 50;
+export const RPC_ONLY_ENRICH_LIMIT = WALLET_TOKEN_BALANCE_LIMIT;
 
 function isSolMint(mint: string): boolean {
   const m = mint.trim();
@@ -409,7 +412,7 @@ export interface MergedWalletBalances {
 export async function mergeWalletBalancesFromRpcAndVybe(
   http: AxiosInstance,
   ownerAddress: string,
-  limit = 50,
+  limit = WALLET_TOKEN_BALANCE_LIMIT,
 ): Promise<MergedWalletBalances> {
   const [balanceResult, { rpcByMint, rpcOk }] = await Promise.all([
     getWalletTokenBalance(http, {
@@ -497,7 +500,7 @@ export async function mergeWalletBalancesFromRpcAndVybe(
     rpcOnlyCandidates.push(rpc);
   }
   rpcOnlyCandidates.sort((a, b) => rpcAmountUi(b) - rpcAmountUi(a));
-  const rpcOnlyTop = rpcOnlyCandidates.slice(0, RPC_ONLY_ENRICH_LIMIT);
+  const rpcOnlyTop = rpcOnlyCandidates.slice(0, Math.min(limit, RPC_ONLY_ENRICH_LIMIT));
 
   for (const rpc of rpcOnlyTop) {
     rpcOnlyToEnrich.push({ rpc, displayMint: rpc.mintAddress });
@@ -554,7 +557,7 @@ export async function streamWalletTokenBalances(
 export async function listWalletTokenBalances(
   http: AxiosInstance,
   ownerAddress: string,
-  limit = 50,
+  limit = WALLET_TOKEN_BALANCE_LIMIT,
 ): Promise<WalletBalanceListItem[]> {
   let latest: WalletBalanceListItem[] = [];
   await streamWalletTokenBalances(http, ownerAddress, limit, (ev) => {

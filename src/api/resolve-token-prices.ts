@@ -1,6 +1,7 @@
 /**
  * Resolve token spot prices for swap quotes and pair-card stats.
- * Three modes: full (first quote), cached (<5s), refresh-price (>5s, price fields only).
+ * Prices are always fetched from Vybe (never served from disk/TTL cache).
+ * Metadata may be cached on disk; `full` fetches all fields, `refresh-price` updates price only.
  */
 
 import type { AxiosInstance } from 'axios';
@@ -13,8 +14,6 @@ import {
   mergePriceFieldsOnly,
   type CachedTokenMeta,
 } from '../token-icon-cache.js';
-
-export const PRICE_TTL_MS = 5000;
 
 export interface TokenPriceHint {
   price?: number;
@@ -45,7 +44,7 @@ export interface ResolveTokenPricesResult {
   stats: Record<string, TokenPriceStats>;
 }
 
-type ResolveMode = 'full' | 'cached' | 'refresh-price';
+type ResolveMode = 'full' | 'refresh-price';
 
 function vybeDecimals(token: VybeToken): number | undefined {
   if (typeof token.decimals === 'number' && Number.isFinite(token.decimals)) return token.decimals;
@@ -92,21 +91,6 @@ function statsFromEntry(
   return stats;
 }
 
-function diskToStats(disk: CachedTokenMeta): TokenPriceStats | null {
-  if (!hasSpotPriceStats(disk)) return null;
-  const fetchedAt =
-    typeof disk.priceFetchedAt === 'number' && Number.isFinite(disk.priceFetchedAt)
-      ? disk.priceFetchedAt
-      : Date.parse(disk.fetchedAt);
-  return statsFromEntry({
-    price: disk.price,
-    price1d: disk.price1d,
-    price7d: disk.price7d,
-    decimals: disk.decimals!,
-    priceFetchedAt: Number.isFinite(fetchedAt) ? fetchedAt : Date.now(),
-    priceUpdateTime: disk.priceUpdateTime,
-  });
-}
 
 function hintToStats(hint: TokenPriceHint): TokenPriceStats | null {
   const priceFetchedAt = hint.priceFetchedAt;
@@ -122,23 +106,10 @@ function hintToStats(hint: TokenPriceHint): TokenPriceStats | null {
   });
 }
 
-function pickResolveMode(
-  mint: string,
-  hint: TokenPriceHint | undefined,
-  disk: CachedTokenMeta | null,
-  forceFull: boolean,
-): ResolveMode {
+function pickResolveMode(disk: CachedTokenMeta | null, forceFull: boolean): ResolveMode {
   if (forceFull) return 'full';
-
-  const hintStats = hint ? hintToStats(hint) : null;
-  const diskStats = disk ? diskToStats(disk) : null;
-  const best = hintStats ?? diskStats;
-
-  if (!best) return 'full';
-
-  const fetchedAt = hintStats?.priceFetchedAt ?? diskStats?.priceFetchedAt ?? 0;
-  if (Date.now() - fetchedAt < PRICE_TTL_MS) return 'cached';
-  return 'refresh-price';
+  // Metadata on disk is enough to refresh price fields only; price itself always comes from Vybe.
+  return disk ? 'refresh-price' : 'full';
 }
 
 const STABLECOIN_MINTS = new Set([
@@ -198,16 +169,7 @@ export async function resolveTokenPrices(
     vybeMints.map(async (mint) => {
       const hint = hints[mint] ?? (mint !== NATIVE_SOL_MINT ? hints[NATIVE_SOL_MINT] : undefined);
       const disk = getCachedTokenMetaFromDisk(mint);
-      const mode = pickResolveMode(mint, hint, disk, forceSet.has(mint));
-
-      if (mode === 'cached') {
-        const cached =
-          (hint ? hintToStats(hint) : null) ??
-          (disk ? diskToStats(disk) : null) ??
-          stablecoinFallbackStats(mint, hint, disk);
-        if (cached) stats[mint] = cached;
-        return;
-      }
+      const mode = pickResolveMode(disk, forceSet.has(mint));
 
       try {
         const token = await getToken(http, mint);
@@ -245,16 +207,12 @@ export async function resolveTokenPrices(
           stats[mint] = resolved;
         } else {
           const fallback =
-            hintToStats(hint ?? {}) ??
-            (disk ? diskToStats(disk) : null) ??
-            stablecoinFallbackStats(mint, hint, disk);
+            hintToStats(hint ?? {}) ?? stablecoinFallbackStats(mint, hint, disk);
           if (fallback) stats[mint] = fallback;
         }
       } catch {
         const fallback =
-          hintToStats(hint ?? {}) ??
-          (disk ? diskToStats(disk) : null) ??
-          stablecoinFallbackStats(mint, hint, disk);
+          hintToStats(hint ?? {}) ?? stablecoinFallbackStats(mint, hint, disk);
         if (fallback) stats[mint] = fallback;
       }
     }),

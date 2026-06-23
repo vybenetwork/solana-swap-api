@@ -17,7 +17,7 @@ import {
 import { getSolanaRpcHost, logBrowserRpc429 } from './api/solana-connection.js';
 import { createClient } from './api/index.js';
 import { toHumanReadableError } from './api/client.js';
-import { InsufficientBalanceError, streamWalletTokenBalances } from './api/wallet-balance.js';
+import { InsufficientBalanceError, streamWalletTokenBalances, WALLET_TOKEN_BALANCE_LIMIT } from './api/wallet-balance.js';
 import { validatePinnedPoolParams } from './api/pinned-swap-params.js';
 import { VYBE_SWAP_PROTOCOLS, type SwapProxyProtocol } from './api/swap-build.js';
 import { type TokenPriceHint } from './api/resolve-token-prices.js';
@@ -287,7 +287,10 @@ app.get('/api/wallets/:ownerAddress/token-balances', async (req: Request, res: R
     if (!ownerAddress) return res.status(400).json({ error: 'Wallet address required' });
 
     const limitRaw = qNum(req, 'limit');
-    const limit = limitRaw != null && limitRaw > 0 ? Math.min(limitRaw, 100) : 50;
+    const limit =
+      limitRaw != null && limitRaw > 0
+        ? Math.min(limitRaw, WALLET_TOKEN_BALANCE_LIMIT)
+        : WALLET_TOKEN_BALANCE_LIMIT;
     const streamRaw = String(req.query.stream ?? '').trim().toLowerCase();
     const useStream = streamRaw === '1' || streamRaw === 'true';
 

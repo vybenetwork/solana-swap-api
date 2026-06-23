@@ -29,6 +29,7 @@ import {
 import { poolLiquidityTierClassForValue } from './liquidity-tier.js';
 import {
   getCachedTokenMeta,
+  getSessionTokenPriceStats,
   effectiveTokenIconSrc,
   renderTokenIconImgHtml,
   TOKEN_ICON_PLACEHOLDER_PATH,
@@ -3869,8 +3870,8 @@ export function lookupMintPriceUsd(mint: string, quote: Record<string, unknown>)
   const fromQuote = quoteStats?.[m]?.price;
   if (fromQuote != null && Number.isFinite(fromQuote) && fromQuote > 0) return fromQuote;
 
-  const metaPrice = getCachedTokenMeta(m)?.price;
-  if (metaPrice != null && Number.isFinite(metaPrice) && metaPrice > 0) return metaPrice;
+  const sessionPrice = getSessionTokenPriceStats(m)?.price;
+  if (sessionPrice != null && Number.isFinite(sessionPrice) && sessionPrice > 0) return sessionPrice;
 
   if (m === quoteInputMint(quote)) {
     const inputPrice = Number(quote._inputPriceUsd);
@@ -3898,17 +3899,19 @@ export function lookupMintPriceUsd(mint: string, quote: Record<string, unknown>)
 
 export function pairCardEffectiveStats(mint: string, quote?: Record<string, unknown>): TokenPriceStats | undefined {
   const base = deps.getPairTokenStats()[mint];
+  const session = getSessionTokenPriceStats(mint);
   const price = lookupMintPriceUsd(mint, quote ?? {});
-  if (!Number.isFinite(price) || price <= 0) return base;
+  if (!Number.isFinite(price) || price <= 0) return base ?? session;
   if (base) return { ...base, price };
-  const cached = getCachedTokenMeta(mint);
+  if (session) return { ...session, price };
+  const meta = getCachedTokenMeta(mint);
   return {
     price,
-    price1d: cached?.price1d,
-    price7d: cached?.price7d,
-    decimals: cached?.decimals ?? deps.getMintDecimals(mint),
-    priceFetchedAt: cached?.priceFetchedAt ?? Date.now(),
-    priceUpdateTime: cached?.priceUpdateTime,
+    price1d: session?.price1d,
+    price7d: session?.price7d,
+    decimals: meta?.decimals ?? deps.getMintDecimals(mint),
+    priceFetchedAt: session?.priceFetchedAt ?? Date.now(),
+    priceUpdateTime: session?.priceUpdateTime,
   };
 }
 

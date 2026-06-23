@@ -8395,6 +8395,14 @@ tr:hover td {
   color: #f87171;
 }
 
+.swap-sign-dialog__solscan {
+  color: #93c5fd;
+}
+
+.swap-sign-dialog__solscan:hover {
+  color: #bfdbfe;
+}
+
 .swap-sign-dialog__requote {
   color: #fde68a;
   border-color: rgba(251, 191, 36, 0.35);
@@ -8914,11 +8922,45 @@ body.token-picker-scroll-lock {
   opacity: 0.65;
 }
 
+.token-picker-tabs-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.1rem;
+}
+
+.token-picker-refetch-btn {
+  width: auto;
+  flex-shrink: 0;
+  padding: 0.38rem 0.62rem;
+  border-radius: 8px;
+  gap: 0.45rem;
+}
+
+.token-picker-refetch-btn .swap-action-btn__text {
+  flex: 0 1 auto;
+}
+
+.token-picker-refetch-btn .swap-action-btn__label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.token-picker-refetch-btn .swap-action-btn__timer {
+  width: 1.55rem;
+  height: 1.55rem;
+  margin-left: 0;
+}
+
 .token-picker-tabs {
   display: flex;
   align-items: center;
   gap: 0.25rem;
-  padding: 0 0.1rem;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
 }
 
 .token-picker-tab {

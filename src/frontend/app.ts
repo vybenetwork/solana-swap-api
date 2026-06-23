@@ -16,13 +16,13 @@ import {
   getCachedTokenMeta,
   getTokenDecimalsFromCache,
   getWalletSellableAmountUi,
-  buildSwapAtaHintsFromWalletCache,
+  buildSwapAtaHintsFromSessionBalances,
   isWalletBalanceCacheReady,
   getWalletBalanceAmountUi,
   getWalletBalanceListItem,
   maxSwapInputStringForWalletItem,
   isVybeFullSplSellAmount,
-  amountExceedsCachedWalletBalance,
+  amountExceedsWalletBalance,
   formatSwapInputAmountValueFloor,
   getWalletTotalBalanceUsd,
   formatWalletTotalUsd,
@@ -49,6 +49,7 @@ import {
   prefetchTokenMetas,
   prefetchWalletBalances,
   refreshWalletBalancesPanel,
+  syncRefetchHoldingsBtn,
   renderChipTokenIcon,
   effectiveTokenIconSrc,
   renderTokenIconImgHtml,
@@ -58,7 +59,9 @@ import {
   routingTokenDotClass,
   saveTokenPriceStats,
   walletItemValueUsd,
-  saveWalletBalanceItemsToCache,
+  persistWalletBalanceMetadata,
+  getSessionWalletBalanceItems,
+  clearSessionWalletBalances,
   type TokenPickerSide,
   type TokenPriceStats,
   type WalletBalanceListItem,
@@ -180,6 +183,7 @@ const SELL_TOKEN_PRIORITY_MINTS: readonly string[] = [
 let walletBalanceFetchGen = 0;
 let walletBalanceRefreshTimer: ReturnType<typeof setTimeout> | null = null;
 let postTxConfirmRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+let postTxConfirmRefreshPromise: Promise<void> | null = null;
 let walletBalancesFetching = false;
 let walletBalancesReadyFor = '';
 let lastWalletBalanceFetchAddress = '';
@@ -316,7 +320,8 @@ const swapSignConfirmReceiveEl = document.getElementById('swapSignConfirmReceive
 const swapSignConfirmRouteEl = document.getElementById('swapSignConfirmRoute') as HTMLElement | null;
 const swapSignConfirmLogsEl = document.getElementById('swapSignConfirmLogs') as HTMLElement | null;
 const swapSignConfirmCancelEl = document.getElementById('swapSignConfirmCancel') as HTMLButtonElement | null;
-const swapSignConfirmCloseEl = document.getElementById('swapSignConfirmClose') as HTMLButtonElement | null;
+const swapSignConfirmDismissEl = document.getElementById('swapSignConfirmDismiss') as HTMLButtonElement | null;
+const swapSignConfirmSolscanEl = document.getElementById('swapSignConfirmSolscan') as HTMLButtonElement | null;
 const swapSignConfirmRequoteEl = document.getElementById('swapSignConfirmRequote') as HTMLButtonElement | null;
 const swapPairCardsEl = document.getElementById('swapPairCards') as HTMLElement | null;
 const swapQuoteDetailsEmptyEl = document.getElementById('swapQuoteDetailsEmpty') as HTMLElement | null;
@@ -1838,19 +1843,19 @@ function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: bo
 async function refreshWalletBalancesForSwap(
   wallet: string,
   applyDefaults: boolean,
-  options?: { force?: boolean },
 ): Promise<void> {
   const gen = ++walletBalanceFetchGen;
   walletBalancesFetching = true;
   syncSwapQuoteButtonState();
+  syncRefetchHoldingsBtn();
+  refreshWalletBalancesPanel();
   updateWalletTotalUsdUi();
-  const force = options?.force === true || wallet !== lastWalletBalanceFetchAddress;
   let markReady = false;
   try {
-    const items = await prefetchWalletBalances(wallet, force);
+    const items = await prefetchWalletBalances(wallet);
     if (gen !== walletBalanceFetchGen) return;
     lastWalletBalanceFetchAddress = wallet;
-    saveWalletBalanceItemsToCache(items);
+    persistWalletBalanceMetadata(items);
     refreshWalletBalancesPanel();
 
     if (applyDefaults) {
@@ -1881,6 +1886,7 @@ async function refreshWalletBalancesForSwap(
       if (markReady) walletBalancesReadyFor = wallet;
       syncSwapAmountMaxFromBalance();
       syncSwapQuoteButtonState();
+      syncRefetchHoldingsBtn();
       updateWalletTotalUsdUi();
     }
   }
@@ -1907,6 +1913,8 @@ function onWalletAddressReady(immediate = false): void {
     walletBalancesReadyFor = '';
     lastWalletBalanceFetchAddress = '';
     lastAutoAppliedWalletAddress = '';
+    clearSessionWalletBalances();
+    syncRefetchHoldingsBtn();
     if (swapAmountInput) swapAmountInput.removeAttribute('max');
     syncSwapQuoteButtonState();
     updateWalletTotalUsdUi();
@@ -1918,15 +1926,6 @@ function onWalletAddressReady(immediate = false): void {
   }
 
   const applyDefaults = wallet !== lastAutoAppliedWalletAddress;
-  if (
-    !applyDefaults &&
-    walletBalancesReadyFor === wallet &&
-    isWalletBalanceCacheReady(wallet)
-  ) {
-    syncSwapAmountMaxFromBalance();
-    syncSwapQuoteButtonState();
-    return;
-  }
 
   const run = (): void => {
     void refreshWalletBalancesForSwap(wallet, applyDefaults);
@@ -1946,7 +1945,10 @@ function isLikelyTxSignature(value: string): boolean {
   return /^[1-9A-HJ-NP-Za-km-z]+$/.test(s);
 }
 
-function scheduleWalletRefreshAfterTxConfirm(): void {
+function scheduleWalletRefreshAfterTxConfirm(context?: {
+  soldMint?: string;
+  buyMint?: string;
+}): void {
   if (postTxConfirmRefreshTimer) {
     clearTimeout(postTxConfirmRefreshTimer);
     postTxConfirmRefreshTimer = null;
@@ -1956,20 +1958,59 @@ function scheduleWalletRefreshAfterTxConfirm(): void {
 
   postTxConfirmRefreshTimer = setTimeout(() => {
     postTxConfirmRefreshTimer = null;
-    void refreshWalletStateAfterTxConfirm(wallet);
+    postTxConfirmRefreshPromise = refreshWalletStateAfterTxConfirm(wallet, context);
+    void postTxConfirmRefreshPromise;
   }, POST_TX_CONFIRM_WALLET_REFRESH_DELAY_MS);
 }
 
-async function refreshWalletStateAfterTxConfirm(wallet: string): Promise<void> {
+async function refreshWalletHoldingsFull(
+  wallet: string,
+  context?: { soldMint?: string; buyMint?: string },
+): Promise<void> {
+  await refreshWalletBalancesForSwap(wallet, false);
+  refreshWalletBalancesPanel();
+
+  const mints = new Set<string>([NATIVE_SOL_MINT, WSOL_MINT]);
+  if (context?.soldMint) mints.add(context.soldMint);
+  if (context?.buyMint) mints.add(context.buyMint);
+  const inputMint = swapInputMintInput?.value.trim() ?? '';
+  const outputMint = swapOutputMintInput?.value.trim() ?? '';
+  if (inputMint) mints.add(inputMint);
+  if (outputMint) mints.add(outputMint);
+  for (const item of getSessionWalletBalanceItems()) {
+    if (item.enrichmentPending || !getCachedTokenMeta(item.mintAddress)) {
+      mints.add(item.mintAddress);
+    }
+  }
+
+  await prefetchTokenMetas([...mints]);
+  await prefetchSwapPairPrices({
+    forceFullDetails: true,
+    mints: [...mints],
+  });
+
+  lastSwapQuoteOk = null;
+  lastVybeBuild = null;
+  lastRawQuoteResponse = null;
+  lastRawSwapResponse = null;
+  if (swapTxBase64El) swapTxBase64El.value = '';
+  syncSwapBuildResultPanel();
+
+  updateSwapPairCards();
+  updateSwapTokenIcons();
+  syncSwapSellAmountUi();
+  syncSwapAmountMaxFromBalance();
+  syncSwapQuoteButtonState();
+  void refreshSwapSymbols();
+}
+
+async function refreshWalletStateAfterTxConfirm(
+  wallet: string,
+  context?: { soldMint?: string; buyMint?: string },
+): Promise<void> {
   updateSwapPairCards(undefined, true);
   try {
-    await refreshWalletBalancesForSwap(wallet, false, { force: true });
-    await prefetchSwapPairPrices({ forceFullDetails: true });
-    updateSwapPairCards();
-    syncSwapSellAmountUi();
-    syncSwapAmountMaxFromBalance();
-    syncSwapQuoteButtonState();
-    void refreshSwapSymbols();
+    await refreshWalletHoldingsFull(wallet, context);
   } catch {
     updateSwapPairCards();
   }
@@ -2865,17 +2906,10 @@ function updateSwapSideChanges(loading = false): void {
 }
 
 function mergeTokenPriceStats(
-  prev: TokenPriceStats | undefined,
+  _prev: TokenPriceStats | undefined,
   next: TokenPriceStats,
 ): TokenPriceStats {
-  return {
-    decimals: next.decimals ?? prev?.decimals,
-    price: next.price ?? prev?.price,
-    price1d: next.price1d ?? prev?.price1d,
-    price7d: next.price7d ?? prev?.price7d,
-    priceUpdateTime: next.priceUpdateTime ?? prev?.priceUpdateTime,
-    priceFetchedAt: next.priceFetchedAt ?? prev?.priceFetchedAt,
-  };
+  return next;
 }
 
 function updateSwapPairCards(stats?: Record<string, TokenPriceStats>, loading = false): void {
@@ -3741,6 +3775,7 @@ async function prefetchSwapPairPrices(options?: {
     const res = await fetchWithRetry('/api/tokens/resolve-prices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
       body: JSON.stringify({
         mints,
         forceFullDetailsMints,
@@ -3868,6 +3903,7 @@ async function prefetchRouteTokenPrices(quote: Record<string, unknown>): Promise
     const res = await fetchWithRetry('/api/tokens/resolve-prices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
       body: JSON.stringify({
         mints,
         forceFullDetailsMints,
@@ -4024,7 +4060,7 @@ function collectSwapBuildOptions(): Record<string, unknown> {
     outputMint &&
     Number.isFinite(amountUi) &&
     amountUi > 0
-      ? buildSwapAtaHintsFromWalletCache({
+      ? buildSwapAtaHintsFromSessionBalances({
           inputMint,
           outputMint,
           amountUi,
@@ -4643,6 +4679,7 @@ async function fetchAggregatorQuoteAndBuildOnce(
     const swapRes = await fetchWithRetry('/api/trading/swap', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
       body: JSON.stringify({
         accountAddress: wallet,
         amount: buildAmount,
@@ -4876,6 +4913,7 @@ async function requestVybeQuote(
     const res = await fetchWithRetry('/api/trading/vybe-quote', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
       body: JSON.stringify({
         accountAddress: wallet,
         amount: attemptAmount,
@@ -5135,7 +5173,7 @@ async function fetchSwapQuote(): Promise<void> {
     return;
   }
   if (hasValidSwapWallet()) {
-    if (amountExceedsCachedWalletBalance(amount, inputMint)) {
+    if (amountExceedsWalletBalance(amount, inputMint)) {
       syncSwapSellAmountUi();
       const item = getWalletBalanceListItem(inputMint);
       const totalBal =
@@ -5260,6 +5298,12 @@ function getSignConfirmSummary(
 
 let swapSignFlowGeneration = 0;
 let swapSignPendingLogEl: HTMLElement | null = null;
+let swapSignDialogSuccess = false;
+let swapSignSuccessContext: {
+  soldMint: string;
+  buyMint: string;
+  signature: string;
+} | null = null;
 
 type SwapSignLogTone = 'neutral' | 'pending' | 'success' | 'error';
 
@@ -5270,11 +5314,14 @@ function sleepMs(ms: number): Promise<void> {
 function resetSwapSignDialogUi(): void {
   if (swapSignConfirmLogsEl) swapSignConfirmLogsEl.innerHTML = '';
   swapSignPendingLogEl = null;
+  swapSignDialogSuccess = false;
+  swapSignSuccessContext = null;
   if (swapSignConfirmCancelEl) {
     swapSignConfirmCancelEl.hidden = false;
     swapSignConfirmCancelEl.disabled = false;
+    swapSignConfirmCancelEl.textContent = 'Cancel';
   }
-  if (swapSignConfirmCloseEl) swapSignConfirmCloseEl.hidden = true;
+  if (swapSignConfirmSolscanEl) swapSignConfirmSolscanEl.hidden = true;
   if (swapSignConfirmRequoteEl) {
     swapSignConfirmRequoteEl.hidden = true;
     swapSignConfirmRequoteEl.disabled = false;
@@ -5282,11 +5329,13 @@ function resetSwapSignDialogUi(): void {
 }
 
 function setSwapSignDialogActions(state: 'running' | 'success' | 'failed'): void {
+  swapSignDialogSuccess = state === 'success';
   if (swapSignConfirmCancelEl) {
-    swapSignConfirmCancelEl.hidden = state === 'success';
+    swapSignConfirmCancelEl.hidden = false;
     swapSignConfirmCancelEl.disabled = false;
+    swapSignConfirmCancelEl.textContent = state === 'success' ? 'Close' : 'Cancel';
   }
-  if (swapSignConfirmCloseEl) swapSignConfirmCloseEl.hidden = state !== 'success';
+  if (swapSignConfirmSolscanEl) swapSignConfirmSolscanEl.hidden = state !== 'success';
   if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.hidden = state !== 'failed';
 }
 
@@ -5326,6 +5375,45 @@ function closeSwapSignDialog(): void {
   swapSignFlowGeneration++;
   if (swapSignConfirmDialogEl?.open) swapSignConfirmDialogEl.close();
   resetSwapSignDialogUi();
+}
+
+async function closeSwapSignDialogAfterSuccess(): Promise<void> {
+  const ctx = swapSignSuccessContext;
+  closeSwapSignDialog();
+  if (!ctx?.soldMint) return;
+
+  if (postTxConfirmRefreshPromise) {
+    try {
+      await postTxConfirmRefreshPromise;
+    } catch {
+      // Best-effort; balance panel may still be stale.
+    }
+  }
+
+  const soldBalance =
+    getWalletSellableForUi(ctx.soldMint) ?? getWalletBalanceAmountUi(ctx.soldMint) ?? 0;
+  if (soldBalance > 0 || !ctx.buyMint) return;
+
+  applySelectedToken(ctx.buyMint, 'input');
+  await syncSwapSideLabels();
+  updateSwapTokenIcons();
+  updateSwapPairCards();
+  syncSwapAmountMaxFromBalance();
+  if (hasValidSwapWallet()) {
+    applySellAmountPercent(getMaxSellPercentForMint(ctx.buyMint));
+  }
+  invalidateSwapQuoteAfterInputChange();
+  syncSwapSellAmountUi();
+}
+
+function openSwapSignTxOnSolscan(): void {
+  const signature = swapSignSuccessContext?.signature.trim();
+  if (!signature) return;
+  window.open(
+    `https://solscan.io/tx/${encodeURIComponent(signature)}`,
+    '_blank',
+    'noopener,noreferrer',
+  );
 }
 
 async function pollTransactionConfirmation(
@@ -5441,7 +5529,15 @@ async function runSwapSignDialogFlow(
     if (swapQuoteWarning) {
       showInlineWarning(swapQuoteWarning, `Transaction confirmed: ${lastSig}`);
     }
-    scheduleWalletRefreshAfterTxConfirm();
+    swapSignSuccessContext = {
+      soldMint: swapInputMintInput?.value.trim() ?? '',
+      buyMint: swapOutputMintInput?.value.trim() ?? '',
+      signature: lastSig,
+    };
+    scheduleWalletRefreshAfterTxConfirm({
+      soldMint: swapSignSuccessContext.soldMint,
+      buyMint: swapSignSuccessContext.buyMint,
+    });
     setSwapSignDialogActions('success');
   } catch (err) {
     if (generation !== swapSignFlowGeneration) return;
@@ -5704,6 +5800,7 @@ async function prepareSwapTxForSigning(txString: string): Promise<VersionedTrans
     const res = await fetch('/api/solana/prepare-swap-tx', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
       body: JSON.stringify({ tx: trimmed }),
     });
     const body = (await res.json().catch(() => ({}))) as {
@@ -6226,7 +6323,6 @@ swapWalletAddressInput?.addEventListener('input', () => onWalletAddressReady(fal
 swapWalletAddressInput?.addEventListener('change', () => onWalletAddressReady(true));
 syncSwapBuildModeUi();
 syncSellTokenPickerState();
-onWalletAddressReady(true);
 
 if (swapQuoteBtn) swapQuoteBtn.addEventListener('click', () => void fetchSwapQuote());
 if (swapBuildBtn) swapBuildBtn.addEventListener('click', () => void postBuildSwap());
@@ -6248,6 +6344,17 @@ initTokenPicker({
   getWalletAddress: () => swapWalletAddressInput?.value.trim() ?? '',
   canOpenSellPicker: hasValidSwapWallet,
   canOpenBuyPicker: hasValidSwapWallet,
+  onRefetchHoldings: async () => {
+    const wallet = swapWalletAddressInput?.value.trim() ?? '';
+    if (!isValidSolanaWalletAddress(wallet)) return;
+    updateSwapPairCards(undefined, true);
+    try {
+      await refreshWalletHoldingsFull(wallet);
+    } catch {
+      updateSwapPairCards();
+    }
+  },
+  isWalletHoldingsFetching: () => walletBalancesFetching,
 });
 setWalletBalanceStreamListener(() => {
   refreshWalletBalancesPanel();
@@ -6314,12 +6421,21 @@ routingDialogEl?.addEventListener('close', () => {
 
 routingDialogCloseEl?.addEventListener('click', () => routingDialogEl?.close());
 
-swapSignConfirmCancelEl?.addEventListener('click', () => closeSwapSignDialog());
-swapSignConfirmCloseEl?.addEventListener('click', () => closeSwapSignDialog());
+function handleSwapSignDialogDismiss(): void {
+  if (swapSignDialogSuccess) {
+    void closeSwapSignDialogAfterSuccess();
+    return;
+  }
+  closeSwapSignDialog();
+}
+
+swapSignConfirmCancelEl?.addEventListener('click', () => handleSwapSignDialogDismiss());
+swapSignConfirmDismissEl?.addEventListener('click', () => handleSwapSignDialogDismiss());
+swapSignConfirmSolscanEl?.addEventListener('click', () => openSwapSignTxOnSolscan());
 swapSignConfirmRequoteEl?.addEventListener('click', () => void handleSwapSignDialogRequoteRebuild());
 swapSignConfirmDialogEl?.addEventListener('cancel', (event) => {
   event.preventDefault();
-  closeSwapSignDialog();
+  handleSwapSignDialogDismiss();
 });
 
 swapGaslessCheckbox?.addEventListener('change', () => {
@@ -6387,6 +6503,10 @@ syncSellPctButtonsState();
 bindRoutingDiagramZoomListeners();
 scheduleRoutingDiagramZoom();
 resetSwapQuoteDetailsPanel();
+
+/** Page load: live Vybe+RPC wallet balances (same policy as resolve-prices — always network). */
+onWalletAddressReady(true);
+
 const initialSellMint = swapInputMintInput?.value.trim() ?? '';
 if (initialSellMint) {
   void prefetchSwapPairPrices({ forceFullDetails: true, mints: [initialSellMint] });

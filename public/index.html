@@ -647,10 +647,24 @@
           <button type="button" class="token-picker-esc" id="tokenPickerEsc" title="Close (Esc)">Esc</button>
         </div>
         <div class="token-picker-shortcuts" id="tokenPickerShortcuts"></div>
-        <div class="token-picker-tabs" role="tablist" aria-label="Token lists">
-          <button type="button" class="token-picker-tab" data-tab="top" role="tab">Top</button>
-          <button type="button" class="token-picker-tab token-picker-tab--active" data-tab="wallet" role="tab">Your tokens</button>
-          <button type="button" class="token-picker-tab" data-tab="recent" role="tab">Recent</button>
+        <div class="token-picker-tabs-row">
+          <div class="token-picker-tabs" role="tablist" aria-label="Token lists">
+            <button type="button" class="token-picker-tab" data-tab="top" role="tab">Top</button>
+            <button type="button" class="token-picker-tab token-picker-tab--active" data-tab="wallet" role="tab">Your tokens</button>
+            <button type="button" class="token-picker-tab" data-tab="recent" role="tab">Recent</button>
+          </div>
+          <button type="button" id="tokenPickerRefetchHoldings" class="token-picker-refetch-btn swap-action-btn swap-action-btn--primary" disabled>
+            <span class="swap-action-btn__text">
+              <span class="swap-action-btn__label">Refetch Holdings</span>
+            </span>
+            <span class="swap-action-btn__timer" id="tokenPickerRefetchHoldingsTimer" hidden aria-hidden="true">
+              <svg class="swap-action-btn__timer-svg" viewBox="0 0 36 36" aria-hidden="true">
+                <circle class="swap-action-btn__timer-track" cx="18" cy="18" r="15.9155" pathLength="100" />
+                <circle class="swap-action-btn__timer-progress" cx="18" cy="18" r="15.9155" pathLength="100" />
+              </svg>
+              <span class="swap-action-btn__timer-label">15</span>
+            </span>
+          </button>
         </div>
         <section class="token-picker-wallet-balances" id="tokenPickerWalletBalances" hidden aria-label="Wallet token balances">
           <div class="token-picker-wallet-balances-head">Your tokens</div>
@@ -678,7 +692,7 @@
       <div class="swap-sign-dialog__shell">
         <div class="routing-dialog-header">
           <h2 class="routing-dialog-title">Confirm swap in wallet</h2>
-          <button type="button" class="routing-dialog-close" id="swapSignConfirmClose" aria-label="Close">×</button>
+          <button type="button" class="routing-dialog-close" id="swapSignConfirmDismiss" aria-label="Close">×</button>
         </div>
         <p class="swap-sign-dialog__lead">
           Review the amounts below. Your wallet will open automatically to sign; progress is shown underneath.
@@ -700,8 +714,8 @@
         <div class="swap-sign-dialog__logs" id="swapSignConfirmLogs" aria-live="polite" aria-relevant="additions"></div>
         <div class="swap-sign-dialog__actions">
           <button type="button" class="swap-ghost-btn" id="swapSignConfirmCancel">Cancel</button>
+          <button type="button" class="swap-ghost-btn swap-sign-dialog__solscan" id="swapSignConfirmSolscan" hidden>View TX on Solscan</button>
           <button type="button" class="swap-ghost-btn swap-sign-dialog__requote" id="swapSignConfirmRequote" hidden>Requote + Rebuild</button>
-          <button type="button" class="swap-ghost-btn" id="swapSignConfirmClose" hidden>Close</button>
         </div>
       </div>
     </dialog>

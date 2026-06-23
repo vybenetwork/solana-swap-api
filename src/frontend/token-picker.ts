@@ -2,6 +2,8 @@
  * Token picker modal — catalog from token-catalog.tsv + local device cache for searches.
  */
 
+import { WALLET_TOKEN_BALANCE_LIMIT } from '../wallet-balance-limit.js';
+
 export interface TokenMeta {
   mint: string;
   symbol: string;
@@ -79,6 +81,15 @@ let onSelectCb: ((mint: string, side: TokenPickerSide) => void) | null = null;
 let getWalletAddressCb: (() => string) | null = null;
 let canOpenSellPickerCb: (() => boolean) | null = null;
 let canOpenBuyPickerCb: (() => boolean) | null = null;
+let onRefetchHoldingsCb: (() => void | Promise<void>) | null = null;
+let getWalletHoldingsFetchingCb: (() => boolean) | null = null;
+
+let refetchHoldingsBtn: HTMLButtonElement | null = null;
+let refetchHoldingsTimerEl: HTMLElement | null = null;
+let refetchHoldingsCooldownEndsAt = 0;
+let refetchHoldingsCooldownRaf = 0;
+let refetchHoldingsInFlight = false;
+const REFETCH_HOLDINGS_COOLDOWN_SEC = 15;
 
 let bodyScrollLockActive = false;
 let savedBodyOverflow = '';
@@ -123,7 +134,9 @@ function preventBackgroundScroll(event: Event): void {
   event.preventDefault();
 }
 
-let walletBalanceCache: { wallet: string; at: number; items: WalletBalanceListItem[] } | null = null;
+/** Latest wallet balances for this page session (Vybe + RPC only — never persisted to disk). */
+let sessionWalletBalances: { wallet: string; fetchedAt: number; items: WalletBalanceListItem[] } | null =
+  null;
 let walletBalanceStreamAbort: AbortController | null = null;
 let walletBalanceStreamListener: (() => void) | null = null;
 
@@ -137,10 +150,10 @@ function notifyWalletBalanceStream(): void {
 }
 
 function mergeWalletBalanceUpdate(token: WalletBalanceListItem): void {
-  if (!walletBalanceCache) return;
-  const items = walletBalanceCache.items.filter((i) => i.mintAddress !== token.mintAddress);
+  if (!sessionWalletBalances) return;
+  const items = sessionWalletBalances.items.filter((i) => i.mintAddress !== token.mintAddress);
   items.push(token);
-  walletBalanceCache.items = sortWalletBalancesForDisplay(items);
+  sessionWalletBalances.items = sortWalletBalancesForDisplay(items);
 }
 
 function sortWalletBalancesForDisplay(items: WalletBalanceListItem[]): WalletBalanceListItem[] {
@@ -178,49 +191,44 @@ async function consumeWalletBalanceStream(
         | { event: 'done' };
       if (msg.event === 'initial') {
         items = Array.isArray(msg.tokens) ? msg.tokens : [];
-        walletBalanceCache = { wallet, at: Date.now(), items };
+        sessionWalletBalances = { wallet, fetchedAt: Date.now(), items };
         notifyWalletBalanceStream();
       } else if (msg.event === 'update') {
         mergeWalletBalanceUpdate(msg.token);
-        items = walletBalanceCache?.items ?? items;
+        items = sessionWalletBalances?.items ?? items;
         notifyWalletBalanceStream();
       }
     }
   }
 
-  return walletBalanceCache?.items ?? items;
+  return sessionWalletBalances?.items ?? items;
 }
 
-async function fetchWalletBalances(wallet: string, force = false): Promise<WalletBalanceListItem[]> {
-  const now = Date.now();
-  if (
-    !force &&
-    walletBalanceCache &&
-    walletBalanceCache.wallet === wallet &&
-    now - walletBalanceCache.at < WALLET_BALANCE_TTL_MS
-  ) {
-    return walletBalanceCache.items;
-  }
-
+export function clearSessionWalletBalances(): void {
   walletBalanceStreamAbort?.abort();
+  walletBalanceStreamAbort = null;
+  sessionWalletBalances = null;
+}
+
+async function fetchWalletBalances(wallet: string): Promise<WalletBalanceListItem[]> {
+  const w = wallet.trim();
+  clearSessionWalletBalances();
   const ac = new AbortController();
   walletBalanceStreamAbort = ac;
 
   const res = await fetch(
-    `/api/wallets/${encodeURIComponent(wallet)}/token-balances?limit=50&stream=1`,
-    { signal: ac.signal },
+    `/api/wallets/${encodeURIComponent(w)}/token-balances?limit=${WALLET_TOKEN_BALANCE_LIMIT}&stream=1&_=${Date.now()}`,
+    { signal: ac.signal, cache: 'no-store' },
   );
-  return consumeWalletBalanceStream(wallet, res);
+  return consumeWalletBalanceStream(w, res);
 }
 
-export async function prefetchWalletBalances(
-  wallet: string,
-  force = false,
-): Promise<WalletBalanceListItem[]> {
-  return fetchWalletBalances(wallet.trim(), force);
-}
+/** @deprecated Renamed to amountExceedsWalletBalance */
+export const amountExceedsCachedWalletBalance = amountExceedsWalletBalance;
 
-const WALLET_BALANCE_TTL_MS = 15000;
+export function prefetchWalletBalances(wallet: string): Promise<WalletBalanceListItem[]> {
+  return fetchWalletBalances(wallet.trim());
+}
 
 function readCache(): Record<string, TokenMeta> {
   try {
@@ -263,7 +271,34 @@ function mergeCatalogWithDeviceCache(fromCatalog: TokenMeta, cached: TokenMeta):
     organicScore: cached.organicScore ?? fromCatalog.organicScore,
     isVerified: cached.isVerified ?? fromCatalog.isVerified,
     source: cached.source ?? fromCatalog.source,
+    // Never merge persisted prices — session/API only.
+    price: undefined,
+    price1d: undefined,
+    price7d: undefined,
+    priceUpdateTime: undefined,
+    priceFetchedAt: undefined,
   };
+}
+
+function withoutPersistedPrices(meta: TokenMeta): TokenMeta {
+  return {
+    ...meta,
+    price: undefined,
+    price1d: undefined,
+    price7d: undefined,
+    priceUpdateTime: undefined,
+    priceFetchedAt: undefined,
+  };
+}
+
+const sessionTokenPriceStats = new Map<string, TokenPriceStats>();
+
+export function getSessionTokenPriceStats(mint: string): TokenPriceStats | undefined {
+  return sessionTokenPriceStats.get(mint.trim());
+}
+
+function setSessionTokenPriceStats(mint: string, stats: TokenPriceStats): void {
+  sessionTokenPriceStats.set(mint.trim(), stats);
 }
 
 export function getCachedTokenMeta(mint: string): TokenMeta | null {
@@ -271,9 +306,9 @@ export function getCachedTokenMeta(mint: string): TokenMeta | null {
   if (!m) return null;
   const fromCatalog = catalogTokens.find((t) => t.mint === m);
   const cached = readCache()[m];
-  if (fromCatalog && cached) return mergeCatalogWithDeviceCache(fromCatalog, cached);
+  if (fromCatalog && cached) return withoutPersistedPrices(mergeCatalogWithDeviceCache(fromCatalog, cached));
   if (fromCatalog) return fromCatalog;
-  if (cached) return cached;
+  if (cached) return withoutPersistedPrices(cached);
   if (m === NATIVE_SOL_MINT) {
     const wsolCatalog = catalogTokens.find((t) => t.mint === WSOL_MINT);
     const wsolCached = readCache()[WSOL_MINT];
@@ -306,11 +341,11 @@ function positiveUsdPrice(value: unknown): number | undefined {
 }
 
 function priceFromCachedMeta(mint: string): number | undefined {
-  const meta = getCachedTokenMeta(mint.trim());
-  return positiveUsdPrice(meta?.price);
+  const session = getSessionTokenPriceStats(mint.trim())?.price;
+  return positiveUsdPrice(session);
 }
 
-/** SOL/WSOL USD spot from token-details cache (loaded on page init via resolve-prices). */
+/** SOL/WSOL USD spot from the current session (resolve-prices / Vybe). */
 export function getCachedSolPriceUsd(): number | undefined {
   return priceFromCachedMeta(NATIVE_SOL_MINT) ?? priceFromCachedMeta(WSOL_MINT);
 }
@@ -368,6 +403,7 @@ export function buildSwapClientParams(inputMint: string, outputMint: string): {
 export function saveTokenPriceStats(mint: string, stats: TokenPriceStats): void {
   const m = mint.trim();
   if (!m) return;
+  setSessionTokenPriceStats(m, stats);
   const existing = getCachedTokenMeta(m);
   const meta: TokenMeta = {
     mint: m,
@@ -375,11 +411,6 @@ export function saveTokenPriceStats(mint: string, stats: TokenPriceStats): void 
     name: existing?.name ?? truncateMint(m),
     logoUrl: existing?.logoUrl ?? '',
     decimals: stats.decimals ?? existing?.decimals,
-    price: stats.price ?? existing?.price,
-    price1d: stats.price1d ?? existing?.price1d,
-    price7d: stats.price7d ?? existing?.price7d,
-    priceUpdateTime: stats.priceUpdateTime ?? existing?.priceUpdateTime,
-    priceFetchedAt: stats.priceFetchedAt ?? existing?.priceFetchedAt,
     tags: existing?.tags,
     organicScore: existing?.organicScore,
     isVerified: existing?.isVerified,
@@ -404,18 +435,133 @@ export const TOKEN_ICON_PLACEHOLDER_PATH = '/images/token-icon-placeholder.svg';
 const failedTokenIconUrls = new Set<string>();
 let tokenIconErrorHandlingWired = false;
 
+/** Session-only in-memory icon blobs — avoids refetch when picker DOM is rebuilt. */
+const sessionTokenIconBlobUrls = new Map<string, string>();
+const sessionTokenIconWarmPromises = new Map<string, Promise<string>>();
+
 const TOKEN_ICON_IMG_SELECTOR =
   '.token-picker-row-logo-img, .token-picker-shortcut img, .swap-token-chip-icon img, .routing-token-img, .swap-pair-icon-img';
 
+function tokenIconSessionKey(src: string): string {
+  const s = src.trim();
+  if (!s || s.startsWith('blob:')) return s;
+  try {
+    return new URL(s, window.location.origin).href;
+  } catch {
+    return s;
+  }
+}
+
+function displayTokenIconSrc(canonicalSrc: string): string {
+  if (canonicalSrc === TOKEN_ICON_PLACEHOLDER_PATH) return canonicalSrc;
+  return sessionTokenIconBlobUrls.get(tokenIconSessionKey(canonicalSrc)) ?? canonicalSrc;
+}
+
+function warmSessionTokenIconViaImage(src: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const w = img.naturalWidth || 64;
+        const h = img.naturalHeight || 64;
+        if (!w || !h) {
+          resolve(null);
+          return;
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(null);
+          return;
+        }
+        ctx.drawImage(img, 0, 0);
+        canvas.toBlob((blob) => {
+          if (!blob) {
+            resolve(null);
+            return;
+          }
+          const blobUrl = URL.createObjectURL(blob);
+          sessionTokenIconBlobUrls.set(tokenIconSessionKey(src), blobUrl);
+          resolve(blobUrl);
+        }, 'image/png');
+      } catch {
+        resolve(null);
+      }
+    };
+    img.onerror = () => {
+      markTokenIconUrlFailed(src);
+      resolve(null);
+    };
+    img.src = src;
+  });
+}
+
+async function warmSessionTokenIcon(originSrc: string): Promise<string> {
+  const key = tokenIconSessionKey(originSrc);
+  if (!key || key === TOKEN_ICON_PLACEHOLDER_PATH) return TOKEN_ICON_PLACEHOLDER_PATH;
+  if (isTokenIconUrlFailed(key)) return TOKEN_ICON_PLACEHOLDER_PATH;
+  const cached = sessionTokenIconBlobUrls.get(key);
+  if (cached) return cached;
+
+  const inflight = sessionTokenIconWarmPromises.get(key);
+  if (inflight) return inflight;
+
+  const work = (async (): Promise<string> => {
+    try {
+      const res = await fetch(key);
+      if (res.ok) {
+        const blob = await res.blob();
+        if (blob.size > 0) {
+          const blobUrl = URL.createObjectURL(blob);
+          sessionTokenIconBlobUrls.set(key, blobUrl);
+          return blobUrl;
+        }
+      }
+    } catch {
+      markTokenIconUrlFailed(key);
+      return TOKEN_ICON_PLACEHOLDER_PATH;
+    }
+
+    const viaImage = await warmSessionTokenIconViaImage(key);
+    return viaImage ?? originSrc;
+  })();
+
+  sessionTokenIconWarmPromises.set(key, work);
+  try {
+    return await work;
+  } finally {
+    sessionTokenIconWarmPromises.delete(key);
+  }
+}
+
+function hydrateTokenIconImgs(root: ParentNode | null | undefined): void {
+  if (!root) return;
+  root.querySelectorAll<HTMLImageElement>('img[data-token-icon-origin]').forEach((img) => {
+    bindTokenIconImg(img);
+  });
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    for (const blobUrl of sessionTokenIconBlobUrls.values()) {
+      URL.revokeObjectURL(blobUrl);
+    }
+    sessionTokenIconBlobUrls.clear();
+  });
+}
+
 export function markTokenIconUrlFailed(url: string): void {
-  const u = url.trim();
+  const u = tokenIconSessionKey(url);
   if (u && u !== TOKEN_ICON_PLACEHOLDER_PATH && !u.endsWith(TOKEN_ICON_PLACEHOLDER_PATH)) {
     failedTokenIconUrls.add(u);
   }
 }
 
 function isTokenIconUrlFailed(url: string): boolean {
-  return failedTokenIconUrls.has(url.trim());
+  return failedTokenIconUrls.has(tokenIconSessionKey(url));
 }
 
 /** Icon src for display; uses placeholder when URL is missing or already failed this session. */
@@ -426,19 +572,75 @@ export function effectiveTokenIconSrc(logoUrl: string | undefined): string {
 }
 
 export function renderTokenIconImgHtml(src: string, className: string): string {
-  const placeholderClass = src === TOKEN_ICON_PLACEHOLDER_PATH ? ' token-icon-img--placeholder' : '';
-  return `<img class="${className}${placeholderClass}" src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />`;
+  const displaySrc = displayTokenIconSrc(src);
+  const placeholderClass = displaySrc === TOKEN_ICON_PLACEHOLDER_PATH ? ' token-icon-img--placeholder' : '';
+  const originAttr =
+    src !== TOKEN_ICON_PLACEHOLDER_PATH && !src.startsWith('blob:')
+      ? ` data-token-icon-origin="${escapeHtml(tokenIconSessionKey(src))}"`
+      : '';
+  return `<img class="${className}${placeholderClass}" src="${escapeHtml(displaySrc)}"${originAttr} alt="" loading="lazy" decoding="async" />`;
 }
 
 export function handleTokenIconImgError(img: HTMLImageElement): void {
-  markTokenIconUrlFailed(img.currentSrc || img.src);
+  const origin = img.dataset.tokenIconOrigin?.trim() || img.currentSrc || img.src;
+  markTokenIconUrlFailed(origin);
   img.onerror = null;
   img.src = TOKEN_ICON_PLACEHOLDER_PATH;
   img.classList.add('token-icon-img--placeholder');
+  img.removeAttribute('data-token-icon-origin');
 }
 
 export function bindTokenIconImg(img: HTMLImageElement): void {
+  if (img.dataset.tokenIconBound === '1') return;
+  img.dataset.tokenIconBound = '1';
   img.addEventListener('error', () => handleTokenIconImgError(img), { once: true });
+
+  const origin = img.dataset.tokenIconOrigin?.trim();
+  if (!origin || origin === TOKEN_ICON_PLACEHOLDER_PATH) return;
+  const key = tokenIconSessionKey(origin);
+  if (isTokenIconUrlFailed(origin)) {
+    img.src = TOKEN_ICON_PLACEHOLDER_PATH;
+    img.classList.add('token-icon-img--placeholder');
+    return;
+  }
+
+  const applyCached = (): void => {
+    const blob = sessionTokenIconBlobUrls.get(key);
+    if (blob && img.src !== blob) img.src = blob;
+  };
+
+  applyCached();
+  if (sessionTokenIconBlobUrls.has(key)) return;
+
+  const cacheFromLoaded = (): void => {
+    if (sessionTokenIconBlobUrls.has(key)) {
+      applyCached();
+      return;
+    }
+    if (!img.complete || img.naturalWidth <= 0) return;
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.drawImage(img, 0, 0);
+      canvas.toBlob((blob) => {
+        if (!blob || sessionTokenIconBlobUrls.has(key)) return;
+        const blobUrl = URL.createObjectURL(blob);
+        sessionTokenIconBlobUrls.set(key, blobUrl);
+        if (img.isConnected) img.src = blobUrl;
+      }, 'image/png');
+    } catch {
+      if (isTokenIconUrlFailed(origin)) return;
+      void warmSessionTokenIcon(origin).then((resolved) => {
+        if (resolved.startsWith('blob:') && img.isConnected) img.src = resolved;
+      });
+    }
+  };
+
+  if (img.complete) cacheFromLoaded();
+  else img.addEventListener('load', cacheFromLoaded, { once: true });
 }
 
 /** Capture-phase listener: img error events do not bubble. */
@@ -643,17 +845,28 @@ async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
     const tokenProgram = String(body.tokenProgram ?? body.program ?? '').trim();
     const tags: string[] = [];
     if (/2022/i.test(tokenProgram) || body.isToken2022 === true) tags.push('Token2022');
+    if (
+      typeof price === 'number' &&
+      Number.isFinite(price) &&
+      price > 0 &&
+      typeof decimals === 'number' &&
+      Number.isFinite(decimals)
+    ) {
+      setSessionTokenPriceStats(mint, {
+        price,
+        price1d,
+        price7d,
+        decimals,
+        priceFetchedAt: priceFetchedAt ?? Date.now(),
+        priceUpdateTime,
+      });
+    }
     const meta: TokenMeta = {
       mint,
       symbol: symbol || truncateMint(mint),
       name: name || symbol || truncateMint(mint),
       logoUrl,
       decimals,
-      price,
-      price1d,
-      price7d,
-      priceUpdateTime,
-      priceFetchedAt,
       tags: tags.length ? tags : undefined,
       isVerified: body.isVerified === true,
       organicScore: typeof body.organicScore === 'number' ? body.organicScore : undefined,
@@ -779,6 +992,7 @@ function syncPickerLayout(): void {
   syncTopTabDisabledState();
   syncWalletBalancesVisibility();
   syncTabs();
+  syncRefetchHoldingsBtn();
 }
 
 /** Vybe reports native SOL under System Program id, not WSOL mint. */
@@ -1047,14 +1261,14 @@ export function isSplValueTradable(valueUsd: number): boolean {
 /** Wallet balance row for a mint — native SOL and WSOL are separate entries. */
 export function getWalletBalanceListItem(mint: string): WalletBalanceListItem | null {
   const m = mint.trim();
-  if (!m || !walletBalanceCache) return null;
+  if (!m || !sessionWalletBalances) return null;
   if (m === NATIVE_SOL_MINT) {
-    return walletBalanceCache.items.find((i) => i.mintAddress === NATIVE_SOL_MINT) ?? null;
+    return sessionWalletBalances.items.find((i) => i.mintAddress === NATIVE_SOL_MINT) ?? null;
   }
   if (m === WSOL_MINT) {
-    return walletBalanceCache.items.find((i) => i.mintAddress === WSOL_MINT) ?? null;
+    return sessionWalletBalances.items.find((i) => i.mintAddress === WSOL_MINT) ?? null;
   }
-  return walletBalanceCache.items.find((i) => i.mintAddress === m) ?? null;
+  return sessionWalletBalances.items.find((i) => i.mintAddress === m) ?? null;
 }
 
 export function getWalletBalanceAmountUi(mint: string): number | null {
@@ -1130,7 +1344,7 @@ export function isVybeFullSplSellAmount(
   return false;
 }
 
-export function amountExceedsCachedWalletBalance(amountUi: number, mint: string): boolean {
+export function amountExceedsWalletBalance(amountUi: number, mint: string): boolean {
   const item = getWalletBalanceListItem(mint);
   if (!item || !(item.amountUi > 0)) return false;
   if (!Number.isFinite(amountUi) || amountUi <= 0) return false;
@@ -1143,17 +1357,16 @@ export function amountExceedsCachedWalletBalance(amountUi: number, mint: string)
   return requiredRaw > availableRaw;
 }
 
-/** True when wallet cache has a token-balance row for this mint (ATA assumed to exist). */
-function walletHasMintInCache(mint: string): boolean {
-  if (!walletBalanceCache) return false;
+function walletHasMintInSession(mint: string): boolean {
+  if (!sessionWalletBalances) return false;
   const m = mint.trim();
-  return walletBalanceCache.items.some((i) => i.mintAddress === m);
+  return sessionWalletBalances.items.some((i) => i.mintAddress === m);
 }
 
-/** Ephemeral WSOL path when no WSOL row or WSOL balance is zero (from wallet fetch). */
-function resolveCloseWsolAtaFromCache(): boolean {
-  if (!walletBalanceCache) return true;
-  const row = walletBalanceCache.items.find((i) => i.mintAddress === WSOL_MINT);
+/** Ephemeral WSOL path when no WSOL row or WSOL balance is zero (from latest wallet fetch). */
+function resolveCloseWsolAtaFromSession(): boolean {
+  if (!sessionWalletBalances) return true;
+  const row = sessionWalletBalances.items.find((i) => i.mintAddress === WSOL_MINT);
   if (!row) return true;
   const exact = row.amountExact?.trim().replace(/,/g, '');
   if (exact && /^\d+$/.test(exact)) return BigInt(exact) === 0n;
@@ -1161,9 +1374,9 @@ function resolveCloseWsolAtaFromCache(): boolean {
 }
 
 /**
- * Build Vybe ATA action flags from the cached wallet token-balance fetch (no extra API call).
+ * Build Vybe ATA action flags from the latest session wallet balance fetch (no extra API call).
  */
-export function buildSwapAtaHintsFromWalletCache(params: {
+export function buildSwapAtaHintsFromSessionBalances(params: {
   inputMint: string;
   outputMint: string;
   amountUi: number;
@@ -1177,13 +1390,13 @@ export function buildSwapAtaHintsFromWalletCache(params: {
   inputBalanceExact?: string;
   inputDecimals?: number;
 } | null {
-  if (!walletBalanceCache) return null;
+  if (!sessionWalletBalances) return null;
   const router = params.router?.trim().toLowerCase() ?? '';
   if (router !== 'vybe') return null;
 
   const inputMint = params.inputMint.trim();
   const outputMint = params.outputMint.trim();
-  const closeWsolAta = resolveCloseWsolAtaFromCache();
+  const closeWsolAta = resolveCloseWsolAtaFromSession();
 
   let amountUi = params.amountUi;
   let closeInputAta: boolean | undefined;
@@ -1191,7 +1404,7 @@ export function buildSwapAtaHintsFromWalletCache(params: {
   let inputDecimals: number | undefined;
 
   if (!isSolMint(inputMint)) {
-    const inputRow = walletBalanceCache.items.find((i) => i.mintAddress === inputMint);
+    const inputRow = sessionWalletBalances.items.find((i) => i.mintAddress === inputMint);
     if (inputRow) {
       inputBalanceExact = inputRow.amountExact?.trim().replace(/,/g, '') || undefined;
       inputDecimals = inputRow.decimals;
@@ -1209,7 +1422,7 @@ export function buildSwapAtaHintsFromWalletCache(params: {
 
   let createOutputAta: boolean | undefined;
   if (!isSolMint(outputMint) && outputMint !== WSOL_MINT) {
-    createOutputAta = !walletHasMintInCache(outputMint);
+    createOutputAta = !walletHasMintInSession(outputMint);
   }
 
   return {
@@ -1222,16 +1435,22 @@ export function buildSwapAtaHintsFromWalletCache(params: {
   };
 }
 
-/** True when wallet balance cache matches this wallet (fresh enough to attach ATA hints). */
-export function isWalletBalanceCacheReady(wallet: string): boolean {
+/** @deprecated Renamed to buildSwapAtaHintsFromSessionBalances */
+export const buildSwapAtaHintsFromWalletCache = buildSwapAtaHintsFromSessionBalances;
+
+/** True when a fresh wallet balance fetch has completed for this wallet in the current session. */
+export function hasSessionWalletBalances(wallet: string): boolean {
   const w = wallet.trim();
-  return Boolean(w && walletBalanceCache && walletBalanceCache.wallet === w);
+  return Boolean(w && sessionWalletBalances && sessionWalletBalances.wallet === w);
 }
 
+/** @deprecated Renamed to hasSessionWalletBalances */
+export const isWalletBalanceCacheReady = hasSessionWalletBalances;
+
 export function getWalletTotalBalanceUsd(): number | null {
-  if (!walletBalanceCache?.items.length) return null;
+  if (!sessionWalletBalances?.items.length) return null;
   let total = 0;
-  for (const item of walletBalanceCache.items) {
+  for (const item of sessionWalletBalances.items) {
     const v = walletItemValueUsd(item);
     if (Number.isFinite(v) && v > 0) total += v;
   }
@@ -1293,11 +1512,22 @@ export function isWalletTokenTradable(mint: string): boolean {
   return getWalletSellableAmountUi(mint) != null;
 }
 
-export function saveWalletBalanceItemsToCache(items: WalletBalanceListItem[]): void {
+/** Persist wallet row metadata (symbol/name/logo/decimals) — never amounts or USD values. */
+export function persistWalletBalanceMetadata(items: WalletBalanceListItem[]): void {
   for (const item of items) {
     saveTokenMeta(walletItemToTokenMeta(item));
   }
 }
+
+/** @deprecated Renamed to persistWalletBalanceMetadata */
+export const saveWalletBalanceItemsToCache = persistWalletBalanceMetadata;
+
+export function getSessionWalletBalanceItems(): readonly WalletBalanceListItem[] {
+  return sessionWalletBalances?.items ?? [];
+}
+
+/** @deprecated Renamed to getSessionWalletBalanceItems */
+export const getCachedWalletBalanceItems = getSessionWalletBalanceItems;
 
 function renderWalletBalancesLoading(): string {
   return `<div class="token-picker-wallet-loading" aria-live="polite">
@@ -1325,7 +1555,123 @@ export function refreshWalletBalancesPanel(): void {
     walletBalancesEl.hidden = true;
     return;
   }
-  if (!renderWalletBalancesFromCache()) return;
+  if (activeTab === 'wallet') showWalletBalancesTab();
+}
+
+function showWalletBalancesTab(): void {
+  if (!walletBalancesEl || !walletBalancesListEl) return;
+  syncWalletBalancesVisibility();
+  if (walletBalancesEl.hidden) return;
+
+  const wallet = getWalletAddressCb?.().trim() ?? '';
+  if (!wallet) {
+    walletBalancesEl.hidden = true;
+    return;
+  }
+
+  if (getWalletHoldingsFetchingCb?.() || refetchHoldingsInFlight) {
+    walletBalancesListEl.innerHTML = renderWalletBalancesLoading();
+    return;
+  }
+
+  if (renderSessionWalletBalances()) return;
+
+  walletBalancesListEl.innerHTML =
+    '<div class="token-picker-wallet-empty">No holdings loaded yet.</div>';
+}
+
+function renderSessionWalletBalances(): boolean {
+  const wallet = getWalletAddressCb?.().trim() ?? '';
+  if (!wallet || !sessionWalletBalances || sessionWalletBalances.wallet !== wallet) return false;
+  renderWalletListHtml(sessionWalletBalances.items);
+  return true;
+}
+
+function setRefetchHoldingsTimerVisible(visible: boolean, durationSec?: number): void {
+  if (!refetchHoldingsBtn || !refetchHoldingsTimerEl) return;
+  refetchHoldingsTimerEl.hidden = !visible;
+  refetchHoldingsBtn.classList.toggle('swap-action-btn--cooldown', visible);
+  if (!visible) return;
+  const progress = refetchHoldingsTimerEl.querySelector(
+    '.swap-action-btn__timer-progress',
+  ) as SVGCircleElement | null;
+  if (progress && typeof durationSec === 'number' && Number.isFinite(durationSec)) {
+    progress.style.animation = 'none';
+    void progress.getBoundingClientRect();
+    progress.style.setProperty('--swap-action-timer-duration', `${durationSec}s`);
+    progress.style.animation = '';
+  }
+}
+
+function clearRefetchHoldingsCooldown(): void {
+  cancelAnimationFrame(refetchHoldingsCooldownRaf);
+  refetchHoldingsCooldownRaf = 0;
+  refetchHoldingsCooldownEndsAt = 0;
+  setRefetchHoldingsTimerVisible(false);
+}
+
+function isRefetchHoldingsInCooldown(): boolean {
+  return refetchHoldingsCooldownEndsAt > performance.now();
+}
+
+function tickRefetchHoldingsCooldown(now: number): void {
+  if (!refetchHoldingsBtn || refetchHoldingsCooldownEndsAt <= 0) return;
+  const remainMs = refetchHoldingsCooldownEndsAt - now;
+  if (remainMs <= 0) {
+    clearRefetchHoldingsCooldown();
+    syncRefetchHoldingsBtn();
+    return;
+  }
+  const label = refetchHoldingsTimerEl?.querySelector('.swap-action-btn__timer-label');
+  if (label) label.textContent = String(Math.max(1, Math.ceil(remainMs / 1000)));
+  refetchHoldingsCooldownRaf = requestAnimationFrame(() =>
+    tickRefetchHoldingsCooldown(performance.now()),
+  );
+}
+
+function startRefetchHoldingsCooldown(): void {
+  if (!refetchHoldingsBtn || !refetchHoldingsTimerEl) return;
+  const durationSec = REFETCH_HOLDINGS_COOLDOWN_SEC;
+  refetchHoldingsCooldownEndsAt = performance.now() + durationSec * 1000;
+  const label = refetchHoldingsTimerEl.querySelector('.swap-action-btn__timer-label');
+  if (label) label.textContent = String(durationSec);
+  setRefetchHoldingsTimerVisible(true, durationSec);
+  refetchHoldingsBtn.disabled = true;
+  cancelAnimationFrame(refetchHoldingsCooldownRaf);
+  refetchHoldingsCooldownRaf = requestAnimationFrame(() =>
+    tickRefetchHoldingsCooldown(performance.now()),
+  );
+}
+
+export function syncRefetchHoldingsBtn(): void {
+  if (!refetchHoldingsBtn) return;
+  const wallet = getWalletAddressCb?.().trim() ?? '';
+  const inCooldown = isRefetchHoldingsInCooldown();
+  const fetching = getWalletHoldingsFetchingCb?.() ?? false;
+  refetchHoldingsBtn.disabled =
+    !wallet || inCooldown || fetching || refetchHoldingsInFlight;
+}
+
+async function onRefetchHoldingsClick(): Promise<void> {
+  if (isRefetchHoldingsInCooldown() || refetchHoldingsInFlight) return;
+  const wallet = getWalletAddressCb?.().trim() ?? '';
+  if (!wallet) return;
+
+  startRefetchHoldingsCooldown();
+  refetchHoldingsInFlight = true;
+  syncRefetchHoldingsBtn();
+
+  if (activeTab === 'wallet' && walletBalancesListEl) {
+    walletBalancesListEl.innerHTML = renderWalletBalancesLoading();
+  }
+
+  try {
+    await onRefetchHoldingsCb?.();
+  } finally {
+    refetchHoldingsInFlight = false;
+    syncRefetchHoldingsBtn();
+    if (activeTab === 'wallet') showWalletBalancesTab();
+  }
 }
 
 function renderWalletListHtml(items: WalletBalanceListItem[]): void {
@@ -1341,39 +1687,7 @@ function renderWalletListHtml(items: WalletBalanceListItem[]): void {
     return;
   }
   walletBalancesListEl.innerHTML = sorted.map(renderWalletBalanceRow).join('');
-}
-
-function renderWalletBalancesFromCache(): boolean {
-  const wallet = getWalletAddressCb?.().trim() ?? '';
-  if (!wallet || !walletBalanceCache || walletBalanceCache.wallet !== wallet) return false;
-  renderWalletListHtml(walletBalanceCache.items);
-  return true;
-}
-
-async function renderWalletBalances(): Promise<void> {
-  if (!walletBalancesEl || !walletBalancesListEl) return;
-  syncWalletBalancesVisibility();
-  if (walletBalancesEl.hidden) return;
-
-  const wallet = getWalletAddressCb?.().trim() ?? '';
-  if (!wallet) {
-    walletBalancesEl.hidden = true;
-    return;
-  }
-
-  if (!renderWalletBalancesFromCache()) {
-    walletBalancesListEl.innerHTML = renderWalletBalancesLoading();
-  }
-
-  try {
-    await fetchWalletBalances(wallet);
-    if (activeTab !== 'wallet') return;
-    renderWalletBalancesFromCache();
-  } catch (err) {
-    if ((err as { name?: string }).name === 'AbortError') return;
-    const message = err instanceof Error ? err.message : String(err);
-    walletBalancesListEl.innerHTML = `<div class="token-picker-wallet-empty">${escapeHtml(message)}</div>`;
-  }
+  hydrateTokenIconImgs(walletBalancesListEl);
 }
 
 /** Sell picker: token has ≥ $0.01 wallet balance (or SOL reserve rules). Buy picker: always true. */
@@ -1382,7 +1696,7 @@ type SellPickerWalletState = 'tradable' | 'too_small' | 'not_in_wallet' | 'unkno
 function getSellPickerWalletState(mint: string): SellPickerWalletState {
   if (activeSide !== 'input') return 'tradable';
   const wallet = getWalletAddressCb?.().trim() ?? '';
-  if (!wallet || !walletBalanceCache) return 'unknown';
+  if (!wallet || !sessionWalletBalances) return 'unknown';
 
   const swapMint = mint.trim();
   const item = getWalletBalanceListItem(swapMint);
@@ -1520,6 +1834,7 @@ function renderShortcuts(): void {
         </button>`;
     })
     .join('');
+  hydrateTokenIconImgs(shortcutsEl);
 }
 
 function setStatus(msg: string): void {
@@ -1547,6 +1862,7 @@ function renderList(): void {
     return;
   }
   listEl.innerHTML = tokens.map(renderTokenRow).join('');
+  hydrateTokenIconImgs(listEl);
 }
 
 function syncTabs(): void {
@@ -1558,7 +1874,7 @@ function syncTabs(): void {
 
 function selectToken(mint: string): void {
   if (isBlockedPickerMint(mint)) return;
-  const walletItem = walletBalanceCache?.items.find((i) => i.mintAddress === mint);
+  const walletItem = sessionWalletBalances?.items.find((i) => i.mintAddress === mint);
   if (walletItem) {
     saveTokenMeta(walletItemToTokenMeta(walletItem));
   } else {
@@ -1582,17 +1898,8 @@ export function openTokenPicker(side: TokenPickerSide): void {
   if (searchInputEl) searchInputEl.value = '';
   syncPickerLayout();
   renderShortcuts();
-  if (activeTab === 'wallet') void renderWalletBalances();
+  if (activeTab === 'wallet') showWalletBalancesTab();
   renderList();
-  const wallet = getWalletAddressCb?.().trim() ?? '';
-  if (wallet) {
-    void fetchWalletBalances(wallet).then(() => {
-      if (activeSide !== side || !dialogEl?.open) return;
-      renderShortcuts();
-      renderList();
-      if (activeTab === 'wallet') void renderWalletBalances();
-    });
-  }
   setStatus('');
   if (typeof dialogEl.showModal === 'function') dialogEl.showModal();
   else dialogEl.setAttribute('open', '');
@@ -1631,7 +1938,7 @@ async function onSearchInput(): Promise<void> {
   }
 
   renderList();
-  if (activeTab === 'wallet') void renderWalletBalances();
+  if (activeTab === 'wallet') showWalletBalancesTab();
   syncPickerLayout();
 }
 
@@ -1645,12 +1952,16 @@ export function initTokenPicker(options: {
   getWalletAddress?: () => string;
   canOpenSellPicker?: () => boolean;
   canOpenBuyPicker?: () => boolean;
+  onRefetchHoldings?: () => void | Promise<void>;
+  isWalletHoldingsFetching?: () => boolean;
 }): void {
   ensureTokenIconErrorHandling();
   onSelectCb = options.onSelect;
   getWalletAddressCb = options.getWalletAddress ?? null;
   canOpenSellPickerCb = options.canOpenSellPicker ?? null;
   canOpenBuyPickerCb = options.canOpenBuyPicker ?? null;
+  onRefetchHoldingsCb = options.onRefetchHoldings ?? null;
+  getWalletHoldingsFetchingCb = options.isWalletHoldingsFetching ?? null;
   dialogEl = document.getElementById('tokenPickerDialog') as HTMLDialogElement | null;
   searchInputEl = document.getElementById('tokenPickerSearch') as HTMLInputElement | null;
   listEl = document.getElementById('tokenPickerList');
@@ -1658,11 +1969,16 @@ export function initTokenPicker(options: {
   walletBalancesEl = document.getElementById('tokenPickerWalletBalances');
   walletBalancesListEl = document.getElementById('tokenPickerWalletBalancesList');
   tabsEl = document.querySelector('.token-picker-tabs');
+  refetchHoldingsBtn = document.getElementById('tokenPickerRefetchHoldings') as HTMLButtonElement | null;
+  refetchHoldingsTimerEl = document.getElementById('tokenPickerRefetchHoldingsTimer');
   listWrapEl = document.querySelector('.token-picker-list-wrap');
   searchWrapEl = document.querySelector('.token-picker-search-wrap');
   walletTabEl = document.querySelector('.token-picker-tab[data-tab="wallet"]');
   topTabEl = document.querySelector('.token-picker-tab[data-tab="top"]');
   statusEl = document.getElementById('tokenPickerStatus');
+
+  refetchHoldingsBtn?.addEventListener('click', () => void onRefetchHoldingsClick());
+  syncRefetchHoldingsBtn();
 
   void loadCatalog().then(() => {
     renderShortcuts();
@@ -1687,7 +2003,7 @@ export function initTokenPicker(options: {
       if (tab === 'top' || tab === 'recent' || tab === 'wallet') {
         activeTab = tab;
         syncPickerLayout();
-        if (tab === 'wallet') void renderWalletBalances();
+        if (tab === 'wallet') showWalletBalancesTab();
         else renderList();
       }
     });
