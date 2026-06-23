@@ -836,7 +836,7 @@ function formatSimulationOutputWarningMessage(
 ): string {
   const sym = outSym?.trim() ? ` ${outSym.trim()}` : '';
   if (warning.source === 'price_impact') {
-    return `Processing the swap will result in a ${formatWarnPercent(warning.shortfallPct)}% price drop. Pool has low liquidity with high price impact.`;
+    return `Quote is ${formatWarnPercent(warning.shortfallPct)}% worse than spot price for this swap size.`;
   }
   return `Simulation delivers ${formatWarnPercent(warning.shortfallPct)}% less${sym} than quoted. Token account rent and reclaim are excluded from this comparison.`;
 }

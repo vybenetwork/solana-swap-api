@@ -271,13 +271,29 @@ function renderRouteRankStars(displayRank: number): string {
   return `<span class="swap-route-option__stars" aria-hidden="true">${'★'.repeat(count)}</span>`;
 }
 
+type RouteOptionWarnBadge = 'none' | 'low-liquidity' | 'high-impact';
+
+function routeOptionWarnBadge(
+  quote: Record<string, unknown>,
+  marketScore?: number,
+): RouteOptionWarnBadge {
+  const sim = simulationOutputWarningFromQuote(quote);
+  const liq = lowLiquidityWarningFromQuote(quote, marketScore);
+  if (liq) return 'low-liquidity';
+  if (sim) return 'high-impact';
+  return 'none';
+}
+
 function renderRouteOptionBadge(
   highlight: RouteOptionHighlightBadge | undefined,
   source: string | undefined,
-  warnLevel: 'none' | 'orange' | 'red' = 'none',
+  warnBadge: RouteOptionWarnBadge = 'none',
 ): string {
-  if (warnLevel !== 'none') {
+  if (warnBadge === 'low-liquidity') {
     return '<span class="swap-route-option__badge swap-route-option__badge--low-liquidity">Low Liquidity</span>';
+  }
+  if (warnBadge === 'high-impact') {
+    return '<span class="swap-route-option__badge swap-route-option__badge--high-impact">High Impact</span>';
   }
   if (highlight === 'best-price') {
     return '<span class="swap-route-option__badge swap-route-option__badge--best-price">Best Price</span>';
@@ -335,6 +351,7 @@ function renderRouteOptionCard(
     '—';
   const marketScore = route.candidate?.marketScore;
   const warnLevel = swapRouteWarningLevel(quote, marketScore);
+  const optionWarnBadge = routeOptionWarnBadge(quote, marketScore);
   const warnClass =
     warnLevel === 'red'
       ? ' swap-route-option--warn-severe'
@@ -342,7 +359,7 @@ function renderRouteOptionCard(
         ? ' swap-route-option--warn-caution'
         : '';
   const warnTitle = warnLevel !== 'none' ? combinedRouteWarningTitle(quote, marketScore) : '';
-  const warnBadge =
+  const warnIcon =
     warnLevel !== 'none'
       ? `<span class="swap-route-option__warn" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`
       : '';
@@ -350,8 +367,8 @@ function renderRouteOptionCard(
       <div class="swap-route-option__head">
         <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${displayRank}</span>${renderRouteRankStars(displayRank)}</span>
         <span class="swap-route-option__head-badges">
-          ${renderRouteOptionBadge(highlight, route.source, warnLevel)}
-          ${warnBadge}
+          ${renderRouteOptionBadge(highlight, route.source, optionWarnBadge)}
+          ${warnIcon}
         </span>
       </div>
       <div class="swap-route-option__title">${renderDexProgramLabel(programLabel, route.candidate?.protocol)}</div>
@@ -1124,8 +1141,11 @@ function sumWalletDebitedFeesUsdThroughHop(
 
   let total = 0;
   for (let i = 0; i <= throughPlanIndex && i < plan.length; i++) {
-    for (const item of getHopFeeDisplayItems(plan[i]!)) {
+    const step = plan[i]!;
+    const hopItems = getHopFeeDisplayItems(step);
+    for (const item of hopItems) {
       if (!isWalletCostFeeItem(item, quote)) continue;
+      if (isEphemeralSameTxWsolAccRentItem(item, hopItems, quote, step, i)) continue;
       const usd = computeFeeUsdNumeric(item, quote);
       if (usd != null && usd > 0) total += usd;
     }
@@ -1534,8 +1554,11 @@ function getQuoteWalletCostBucketsUsdThroughHop(
   let foundFee = false;
   let foundRent = false;
   for (let i = 0; i <= throughPlanIndex && i < plan.length; i++) {
-    for (const item of getHopFeeDisplayItems(plan[i]!)) {
+    const step = plan[i]!;
+    const hopItems = getHopFeeDisplayItems(step);
+    for (const item of hopItems) {
       if (!isWalletCostFeeItem(item, quote)) continue;
+      if (isEphemeralSameTxWsolAccRentItem(item, hopItems, quote, step, i)) continue;
       const usd = computeFeeUsdNumeric(item, quote);
       if (usd == null || usd <= 0) continue;
       if (isAccRentWalletFeeItem(item)) {
@@ -1938,14 +1961,17 @@ export function getQuotePayHeroCostStack(
   let foundForeignRent = false;
 
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
-  for (const step of plan) {
-    for (const item of getHopFeeDisplayItems(step)) {
+  for (let i = 0; i < plan.length; i++) {
+    const step = plan[i]!;
+    const hopItems = getHopFeeDisplayItems(step);
+    for (const item of hopItems) {
       if (!isWalletCostFeeItem(item, quote)) continue;
       const ui = feeAmountToUi(item.amountRaw, item.mint);
       if (ui == null || ui <= 0) continue;
 
       const sameMint = routeLegMintMatches(item.mint, mint);
       if (isAccRentWalletFeeItem(item)) {
+        if (isEphemeralSameTxWsolAccRentItem(item, hopItems, quote, step, i)) continue;
         if (sameMint && hasInputMintRentReclaim(quote, mint)) continue;
         const accountSym = mintSymbolSync(accRentAccountMint(item));
         if (sameMint) {
@@ -2127,10 +2153,13 @@ function countDeductedRentFeeItems(quote: Record<string, unknown>): number {
   if (!mint) return 0;
   let count = 0;
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
-  for (const step of plan) {
-    for (const item of getHopFeeDisplayItems(step)) {
+  for (let i = 0; i < plan.length; i++) {
+    const step = plan[i]!;
+    const hopItems = getHopFeeDisplayItems(step);
+    for (const item of hopItems) {
       if (!isWalletCostFeeItem(item, quote)) continue;
       if (!isAccRentWalletFeeItem(item)) continue;
+      if (isEphemeralSameTxWsolAccRentItem(item, hopItems, quote, step, i)) continue;
       const ui = feeAmountToUi(item.amountRaw, item.mint);
       if (ui == null || ui <= 0) continue;
       const sameMint = routeLegMintMatches(item.mint, mint);
@@ -4623,12 +4652,22 @@ function renderHopPlanFeesSection(
   feeAmt: string | null,
   ammKey?: string,
   reclaimItems: HopFeeItemLite[] = [],
+  step?: VybeRoutePlanStepLite,
+  planIndex = 0,
 ): string {
   const destCtx: FeeDestinationRenderCtx = {
     walletAddress: quoteWalletAddress(quote),
     ammKey: ammKey?.trim() || undefined,
   };
-  const rowData = flattenHopFeeItems(hopFees.items).map((item) => ({
+  const hopItems = flattenHopFeeItems(hopFees.items);
+  const visibleHopItems =
+    step != null
+      ? hopItems.filter(
+          (item) =>
+            !isEphemeralSameTxWsolAccRentItem(item, hopItems, quote, step, planIndex),
+        )
+      : hopItems;
+  const rowData = visibleHopItems.map((item) => ({
     item,
     equiv: feeEquivForHopItem(item, quote),
   }));
@@ -4647,7 +4686,7 @@ function renderHopPlanFeesSection(
     }
   }
 
-  const extraReclaimItems = dedupeSyntheticReclaimItems(hopFees.items, reclaimItems);
+  const extraReclaimItems = dedupeSyntheticReclaimItems(visibleHopItems, reclaimItems);
   const reclaimRows = [
     ...reclaimRowsFromHopFees,
     ...extraReclaimItems.map((item) =>
@@ -5034,6 +5073,101 @@ function isEphemeralBridgeWsolReclaimItem(
   return Boolean(prevOut && isSolMint(String(prevOut)));
 }
 
+function quoteBuildClosesWsolAccount(quote: Record<string, unknown>): boolean {
+  const build = quote._build as Record<string, unknown> | undefined;
+  const details = build?.details as Record<string, unknown> | undefined;
+  if (details?.closeAccountIX === true || details?.closeAccountIx === true) return true;
+  return false;
+}
+
+function hopOutputsWsol(step: VybeRoutePlanStepLite): boolean {
+  const out = step.swapInfo?.outputMintAddress ?? step.swapInfo?.outputMint;
+  return Boolean(out && isSolMint(String(out)));
+}
+
+function quoteReceivesNativeSol(quote: Record<string, unknown>): boolean {
+  return quoteOutputMint(quote) === NATIVE_SOL_MINT;
+}
+
+function isIntermediateWsolBridgeHop(
+  plan: VybeRoutePlanStepLite[],
+  planIndex: number,
+): boolean {
+  const step = plan[planIndex];
+  if (!step || !hopOutputsWsol(step)) return false;
+  if (planIndex >= plan.length - 1) return false;
+  const nextIn =
+    plan[planIndex + 1]?.swapInfo?.inputMintAddress ??
+    plan[planIndex + 1]?.swapInfo?.inputMint;
+  return Boolean(nextIn && isSolMint(String(nextIn)));
+}
+
+function planHasNonBridgeWsolReclaim(
+  plan: VybeRoutePlanStepLite[],
+): boolean {
+  for (let i = 0; i < plan.length; i++) {
+    for (const item of getHopFeeDisplayItems(plan[i]!)) {
+      if (!isAccRentReclaimItem(item)) continue;
+      if (!isSolMint(accRentAccountMint(item))) continue;
+      if (isEphemeralBridgeWsolReclaimItem(item, plan, i)) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+/** WSOL account rent opened and closed in the same tx (ephemeral wrap/unwrap) — net zero, hide in UI. */
+function isEphemeralSameTxWsolWrapUnwrap(
+  hopItems: HopFeeItemLite[],
+  quote: Record<string, unknown>,
+  step: VybeRoutePlanStepLite,
+  planIndex: number,
+): boolean {
+  const hasWsolRentFee = hopItems.some(
+    (item) => isAccRentWalletFeeItem(item) && isSolMint(accRentAccountMint(item)),
+  );
+  if (!hasWsolRentFee) return false;
+
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const isLastHop = planIndex >= plan.length - 1;
+
+  if (
+    hopItems.some(
+      (item) => isAccRentReclaimItem(item) && isSolMint(accRentAccountMint(item)),
+    )
+  ) {
+    return true;
+  }
+
+  // WSOL rent on hop N, reclaim on hop M (same tx) — e.g. create on leg 1, close after leg 2.
+  if (planHasNonBridgeWsolReclaim(plan)) return true;
+
+  // Hop creates WSOL passed into the next hop (quote-bridge style); closed later in tx.
+  if (isIntermediateWsolBridgeHop(plan, planIndex)) return true;
+
+  // Final hop unwraps WSOL → native SOL in wallet.
+  if (isLastHop && hopOutputsWsol(step) && quoteReceivesNativeSol(quote)) return true;
+
+  // Single-hop swap that closes WSOL in the same tx.
+  if (plan.length === 1 && quoteBuildClosesWsolAccount(quote) && hopOutputsWsol(step)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isEphemeralSameTxWsolAccRentItem(
+  item: HopFeeItemLite,
+  hopItems: HopFeeItemLite[],
+  quote: Record<string, unknown>,
+  step: VybeRoutePlanStepLite,
+  planIndex: number,
+): boolean {
+  if (!isEphemeralSameTxWsolWrapUnwrap(hopItems, quote, step, planIndex)) return false;
+  if (!isSolMint(accRentAccountMint(item))) return false;
+  return isAccRentWalletFeeItem(item) || isAccRentReclaimItem(item);
+}
+
 function hopAccRentDisplayItems(
   step: VybeRoutePlanStepLite,
   quote: Record<string, unknown>,
@@ -5050,6 +5184,10 @@ function hopAccRentDisplayItems(
         return dedupeHopFeeDisplayItems([...accRentItems, ...synthetic]);
       })();
   items = items.filter((item) => !isEphemeralBridgeWsolReclaimItem(item, plan, planIndex));
+  const hopItems = getHopFeeDisplayItems(step);
+  items = items.filter(
+    (item) => !isEphemeralSameTxWsolAccRentItem(item, hopItems, quote, step, planIndex),
+  );
   return items;
 }
 
@@ -5625,6 +5763,9 @@ function swapRouteWarningLevel(
 }
 
 function simulationOutputWarningTitle(w: Record<string, unknown>): string {
+  if (w.source === 'price_impact') {
+    return `Quote is ${formatWarnPercent(Number(w.shortfallPct))}% worse than spot price.`;
+  }
   return `Simulated output is ${formatWarnPercent(Number(w.shortfallPct))}% below quote. Token account rent/reclaim excluded.`;
 }
 
@@ -6232,6 +6373,8 @@ function renderRoutePlanStepDetail(
       feeAmt,
       si?.ammKey,
       reclaimItems,
+      step,
+      planIndex,
     );
   } else if (placeholder) {
     const mockWalletFeeSym = feeSym !== '—' ? feeSym : leg.inSym;

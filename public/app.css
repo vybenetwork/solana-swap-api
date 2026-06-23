@@ -2099,7 +2099,18 @@ tr:hover td {
   color: #fdba74;
 }
 
+.swap-route-option__badge--high-impact {
+  background: rgba(251, 146, 60, 0.18);
+  color: #fdba74;
+}
+
 .swap-route-option--warn-severe .swap-route-option__badge--low-liquidity {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fca5a5;
+}
+
+.swap-route-option--warn-caution .swap-route-option__badge--high-impact,
+.swap-route-option--warn-severe .swap-route-option__badge--high-impact {
   background: rgba(248, 113, 113, 0.2);
   color: #fca5a5;
 }
