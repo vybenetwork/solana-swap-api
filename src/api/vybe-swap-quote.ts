@@ -17,7 +17,7 @@ import {
   formatRouteViaTradesServerLog,
   normalizeBuildErrorMessage,
   parseVybeEnumeratedSwapRoutes,
-  poolMarketScoreFromBuild,
+  poolLiquidityUsdFromBuild,
   ROUTE_VIA_TRADES_LIMIT,
   type BuildSwapViaTradeMarketsResult,
   type EnumeratedRouteCandidate,
@@ -284,10 +284,10 @@ async function runVybeSwapEnumeration(
       outcome: 'multi',
       selected: {
         ...parsed.selected,
-        marketScore:
-          enumRoutes[0]?.candidate?.marketScore ??
-          poolMarketScoreFromBuild(parsed.build) ??
-          parsed.selected.marketScore,
+        liquidity:
+          enumRoutes[0]?.candidate?.liquidity ??
+          poolLiquidityUsdFromBuild(parsed.build) ??
+          parsed.selected.liquidity,
       },
       selectedRouteIndex: 0,
       routes: enumRoutes,
@@ -298,7 +298,7 @@ async function runVybeSwapEnumeration(
       minCountThreshold: 0,
       tried: parsed.routes.map((r) => ({
         ...r.selected,
-        marketScore: r.selected.marketScore ?? poolMarketScoreFromBuild(r.build),
+        liquidity: r.selected.liquidity ?? poolLiquidityUsdFromBuild(r.build),
       })),
       tradesFetched: 0,
       tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
@@ -315,7 +315,7 @@ async function runVybeSwapEnumeration(
           r.selected.programLabel ?? programLabelForAddress(r.selected.programAddress),
         queueIndex: i + 1,
         tradeCount: 0,
-        marketScore: r.selected.marketScore ?? poolMarketScoreFromBuild(r.build),
+        liquidity: r.selected.liquidity ?? poolLiquidityUsdFromBuild(r.build),
       })),
       buildLog: [],
       userMessage,
@@ -335,7 +335,7 @@ async function runVybeSwapEnumeration(
     );
     const selected = {
       ...parsed.selected,
-      marketScore: poolMarketScoreFromBuild(parsed.build) ?? parsed.selected.marketScore,
+      liquidity: poolLiquidityUsdFromBuild(parsed.build) ?? parsed.selected.liquidity,
     };
     const routeViaTrades: RouteViaTradesMeta = {
       enabled: true,
@@ -439,14 +439,14 @@ async function buildEnumeratedRouteQuotes(
     if (uiInputMint === NATIVE_SOL_MINT) quote = { ...quote, inputMintAddress: NATIVE_SOL_MINT };
     if (uiOutputMint === NATIVE_SOL_MINT) quote = { ...quote, outputMintAddress: NATIVE_SOL_MINT };
     const candidate = entry.candidate as EnumeratedRouteCandidate;
-    const marketScore =
-      candidate.marketScore ??
-      entry.selected.marketScore ??
-      poolMarketScoreFromBuild(entry.build);
+    const liquidity =
+      candidate.liquidity ??
+      entry.selected.liquidity ??
+      poolLiquidityUsdFromBuild(entry.build);
     // Always reconcile from discovery TVL — enrichment may carry a stale sub-threshold warning.
     quote = {
       ...quote,
-      _lowLiquidityWarning: computeLowLiquidityWarning(marketScore),
+      _lowLiquidityWarning: computeLowLiquidityWarning(liquidity),
     };
     const simulatedOutRaw = entry.build.enrichment?.simulatedOutRaw ?? undefined;
     routes.push({
@@ -454,7 +454,7 @@ async function buildEnumeratedRouteQuotes(
       source: candidate.source ?? 'trades',
       candidate: {
         ...entry.selected,
-        marketScore,
+        liquidity,
         programLabel: candidate.programLabel ?? programLabelForAddress(entry.selected.programAddress),
       },
       rpcMeta: candidate.rpcMeta,

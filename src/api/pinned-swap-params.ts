@@ -91,7 +91,7 @@ export function isSupportedIxBuilderProgram(programAddress: string): boolean {
 
 /** CLMM/DLMM (tick/bin arrays) — used for logging labels only. */
 export const TICK_ARRAY_IX_BUILDER_PROTOCOLS = new Set(['METEORA_DLMM', 'RAYDIUM_CLMM']);
-/** Exclude route candidates below this USD liquidity when a market score is known. */
+/** Exclude route candidates below this USD liquidity when pool TVL is known. */
 export const MIN_ROUTE_POOL_LIQUIDITY_USD = 1000;
 /** When pre-filter candidate count is at or below this, keep sub-floor pools for simulation. */
 export const SPARSE_ROUTE_CANDIDATE_BYPASS_MAX = 3;
@@ -105,9 +105,9 @@ export interface LowLiquidityWarning {
 }
 
 export function computeLowLiquidityWarning(
-  marketScoreUsd: number | undefined | null,
+  liquidityUsd: number | undefined | null,
 ): LowLiquidityWarning | null {
-  const score = Number(marketScoreUsd);
+  const score = Number(liquidityUsd);
   if (!Number.isFinite(score) || score <= 0) return null;
   if (score >= MIN_ROUTE_POOL_LIQUIDITY_USD) return null;
   return {
@@ -123,22 +123,22 @@ export function isTickArrayProgram(programAddress: string): boolean {
 }
 
 export function poolLiquidityUsd(entry: {
-  marketScore?: number;
+  liquidity?: number;
   totalValueUsd?: number;
 }): number {
-  return Number(entry.marketScore ?? entry.totalValueUsd ?? 0);
+  return Number(entry.liquidity ?? entry.totalValueUsd ?? 0);
 }
 
 function hasKnownPoolLiquidityUsd(entry: {
-  marketScore?: number;
+  liquidity?: number;
   totalValueUsd?: number;
 }): boolean {
-  return entry.marketScore != null || entry.totalValueUsd != null;
+  return entry.liquidity != null || entry.totalValueUsd != null;
 }
 
 export function passesRouteLiquidityFloor(entry: {
   programAddress: string;
-  marketScore?: number;
+  liquidity?: number;
   totalValueUsd?: number;
 }): boolean {
   if (!hasKnownPoolLiquidityUsd(entry)) return true;
@@ -148,25 +148,25 @@ export function passesRouteLiquidityFloor(entry: {
 /** @deprecated Use passesRouteLiquidityFloor */
 export function passesTickArrayLiquidityFloor(entry: {
   programAddress: string;
-  marketScore?: number;
+  liquidity?: number;
   totalValueUsd?: number;
 }): boolean {
   return passesRouteLiquidityFloor(entry);
 }
 
-export function enrichCandidatesWithMarketScores<
-  T extends { marketAddress: string; programAddress: string; marketScore?: number },
+export function enrichCandidatesWithLiquidity<
+  T extends { marketAddress: string; programAddress: string; liquidity?: number },
 >(tradeCandidates: T[], marketCandidates: T[]): T[] {
   const marketByKey = new Map<string, number>();
   for (const m of marketCandidates) {
-    if (m.marketScore != null) {
-      marketByKey.set(`${m.marketAddress.trim()}\0${m.programAddress.trim()}`, m.marketScore);
+    if (m.liquidity != null) {
+      marketByKey.set(`${m.marketAddress.trim()}\0${m.programAddress.trim()}`, m.liquidity);
     }
   }
   return tradeCandidates.map((c) => {
     const key = `${c.marketAddress.trim()}\0${c.programAddress.trim()}`;
-    const marketScore = c.marketScore ?? marketByKey.get(key);
-    return marketScore != null ? { ...c, marketScore } : c;
+    const liquidity = c.liquidity ?? marketByKey.get(key);
+    return liquidity != null ? { ...c, liquidity } : c;
   });
 }
 
@@ -188,7 +188,7 @@ export function isMeteoraDlmmInsufficientBinLiquidityError(message: string): boo
 }
 
 export function filterRouteQueueByLiquidity<
-  T extends { marketAddress?: string; programAddress: string; marketScore?: number; totalValueUsd?: number },
+  T extends { marketAddress?: string; programAddress: string; liquidity?: number; totalValueUsd?: number },
 >(entries: T[], label = 'queue', options: { bypassLiquidityFloor?: boolean } = {}): T[] {
   const bypassLiquidityFloor =
     options.bypassLiquidityFloor === true ||

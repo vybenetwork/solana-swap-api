@@ -105,7 +105,7 @@ export interface BuildSwapParams {
   /** Output mint decimals (client cache); ix-builder skips on-chain fetch when set. */
   outputMintDecimals?: number;
   /** Known USD liquidity for pinned pool (route enumeration probes). */
-  marketScore?: number;
+  liquidity?: number;
   /** Client USD price for the input mint (skips backend price fetch when set). */
   inputMintPrice?: number;
   /** Client USD price for the output mint (skips backend price fetch when set). */
@@ -160,8 +160,8 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
   if (pinned.inputBalanceExact?.trim()) {
     payload.inputBalanceExact = pinned.inputBalanceExact.trim();
   }
-  if (pinned.marketScore != null && Number.isFinite(pinned.marketScore) && pinned.marketScore > 0) {
-    payload.marketScore = pinned.marketScore;
+  if (pinned.liquidity != null && Number.isFinite(pinned.liquidity) && pinned.liquidity > 0) {
+    payload.liquidity = pinned.liquidity;
   }
   const inputMintDecimals = pinned.inputMintDecimals ?? pinned.inputDecimals;
   appendSwapClientParamsToPayload(payload, {

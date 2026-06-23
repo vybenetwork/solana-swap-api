@@ -809,9 +809,9 @@ const MIN_ROUTE_POOL_LIQUIDITY_USD = 1000;
 
 function getLowLiquidityWarning(
   quote: Record<string, unknown>,
-  marketScore?: number,
+  liquidity?: number,
 ): LowLiquidityWarning | null {
-  const score = Number(marketScore);
+  const score = Number(liquidity);
   if (Number.isFinite(score) && score >= MIN_ROUTE_POOL_LIQUIDITY_USD) {
     return null;
   }
@@ -830,10 +830,10 @@ function getLowLiquidityWarning(
 
 function swapRouteWarningLevel(
   quote: Record<string, unknown>,
-  marketScore?: number,
+  liquidity?: number,
 ): SwapRouteWarningLevel {
   const sim = getSimulationOutputWarning(quote);
-  const liq = getLowLiquidityWarning(quote, marketScore);
+  const liq = getLowLiquidityWarning(quote, liquidity);
   if (sim && liq) return 'red';
   if (sim || liq) return 'orange';
   return 'none';
@@ -857,10 +857,10 @@ function formatSimulationOutputWarningMessage(
 function formatCombinedRouteWarningsMessage(
   quote: Record<string, unknown>,
   outSym?: string,
-  marketScore?: number,
+  liquidity?: number,
 ): string | null {
   const sim = getSimulationOutputWarning(quote);
-  const liq = getLowLiquidityWarning(quote, marketScore);
+  const liq = getLowLiquidityWarning(quote, liquidity);
   const parts: string[] = [];
   if (liq) parts.push(formatLowLiquidityWarningMessage(liq));
   if (sim) parts.push(formatSimulationOutputWarningMessage(sim, outSym));
@@ -870,11 +870,11 @@ function formatCombinedRouteWarningsMessage(
 function renderRouteWarningsHtml(
   quote: Record<string, unknown>,
   outSym?: string,
-  marketScore?: number,
+  liquidity?: number,
 ): string {
-  const level = swapRouteWarningLevel(quote, marketScore);
+  const level = swapRouteWarningLevel(quote, liquidity);
   if (level === 'none') return '';
-  const msg = formatCombinedRouteWarningsMessage(quote, outSym, marketScore);
+  const msg = formatCombinedRouteWarningsMessage(quote, outSym, liquidity);
   if (!msg) return '';
   const levelClass =
     level === 'red' ? ' swap-quote-simulation-warning--severe' : ' swap-quote-simulation-warning--caution';
@@ -884,17 +884,17 @@ function renderRouteWarningsHtml(
     </div>`;
 }
 
-function selectedEnumeratedRouteMarketScore(): number | undefined {
+function selectedEnumeratedRouteLiquidity(): number | undefined {
   const state = enumeratedRoutesUiState;
   if (!state?.routes.length) return undefined;
   const route = state.routes.find((r) => r.index === state.selectedIndex) ?? state.routes[0];
-  const score = Number(route?.candidate?.marketScore);
+  const score = Number(route?.candidate?.liquidity);
   return Number.isFinite(score) && score > 0 ? score : undefined;
 }
 
 function syncRouteOptionsWarningBanner(quote: Record<string, unknown>): void {
   if (!swapRouteOptionsWarningEl) return;
-  const html = renderRouteWarningsHtml(quote, getSwapOutSym(), selectedEnumeratedRouteMarketScore());
+  const html = renderRouteWarningsHtml(quote, getSwapOutSym(), selectedEnumeratedRouteLiquidity());
   if (!html) {
     swapRouteOptionsWarningEl.hidden = true;
     swapRouteOptionsWarningEl.setAttribute('aria-hidden', 'true');
@@ -4131,12 +4131,12 @@ function cacheVybeQuoteBuild(
   return null;
 }
 
-function poolMarketScoreFromRouteEntry(r: Record<string, unknown>): number | undefined {
-  const candidate = r.candidate as { marketScore?: number } | undefined;
-  const fromCandidate = Number(candidate?.marketScore);
+function poolLiquidityFromRouteEntry(r: Record<string, unknown>): number | undefined {
+  const candidate = r.candidate as { liquidity?: number } | undefined;
+  const fromCandidate = Number(candidate?.liquidity);
   if (Number.isFinite(fromCandidate) && fromCandidate > 0) return fromCandidate;
-  const build = r.build as { details?: { poolMarketScore?: number; marketScore?: number } } | undefined;
-  const fromBuild = Number(build?.details?.poolMarketScore ?? build?.details?.marketScore);
+  const build = r.build as { details?: { poolLiquidity?: number; liquidity?: number } } | undefined;
+  const fromBuild = Number(build?.details?.poolLiquidity ?? build?.details?.liquidity);
   if (Number.isFinite(fromBuild) && fromBuild > 0) return fromBuild;
   return undefined;
 }
@@ -4146,12 +4146,12 @@ function mapEnumeratedRouteEntry(
   i: number,
 ): EnumeratedRoutesUiState['routes'][0] {
   const candidate = r.candidate as EnumeratedRoutesUiState['routes'][0]['candidate'];
-  const marketScore = poolMarketScoreFromRouteEntry(r);
+  const liquidity = poolLiquidityFromRouteEntry(r);
   const rawQuote = (r.quote as Record<string, unknown> | undefined) ?? {};
   const quote =
-    marketScore != null &&
-    Number.isFinite(marketScore) &&
-    marketScore >= MIN_ROUTE_POOL_LIQUIDITY_USD &&
+    liquidity != null &&
+    Number.isFinite(liquidity) &&
+    liquidity >= MIN_ROUTE_POOL_LIQUIDITY_USD &&
     rawQuote._lowLiquidityWarning
       ? { ...rawQuote, _lowLiquidityWarning: null }
       : rawQuote;
@@ -4159,7 +4159,7 @@ function mapEnumeratedRouteEntry(
     index: Number(r.index ?? i),
     source: typeof r.source === 'string' ? r.source : undefined,
     candidate:
-      candidate && marketScore != null ? { ...candidate, marketScore } : candidate,
+      candidate && liquidity != null ? { ...candidate, liquidity } : candidate,
     quote,
   };
 }
@@ -4258,9 +4258,9 @@ function tradeCandidateFromActiveQuote(
         tradeCount: Number(selected.tradeCount ?? 0),
         programLabel:
           typeof selected.programLabel === 'string' ? selected.programLabel.trim() || undefined : undefined,
-        marketScore:
-          selected.marketScore != null && Number.isFinite(Number(selected.marketScore))
-            ? Number(selected.marketScore)
+        liquidity:
+          selected.liquidity != null && Number.isFinite(Number(selected.liquidity))
+            ? Number(selected.liquidity)
             : undefined,
       };
     }

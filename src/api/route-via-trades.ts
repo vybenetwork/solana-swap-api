@@ -13,7 +13,7 @@ import {
   programAddressToIxBuilderProtocol,
   programAddressToProtocol,
   programLabelForAddress,
-  enrichCandidatesWithMarketScores,
+  enrichCandidatesWithLiquidity,
   filterRouteQueueByLiquidity,
   isMeteoraDlmmCandidate,
   isMeteoraDlmmInsufficientBinLiquidityError,
@@ -24,7 +24,7 @@ export {
   programAddressToIxBuilderProtocol,
   programAddressToProtocol,
   programLabelForAddress,
-  enrichCandidatesWithMarketScores,
+  enrichCandidatesWithLiquidity,
   filterRouteQueueByLiquidity,
   MIN_TICK_ARRAY_LIQUIDITY_USD,
 } from './pinned-swap-params.js';
@@ -69,7 +69,7 @@ export interface TradeMarketCandidate {
   /** Human-readable DEX name (Raydium AMM v4, Meteora DLMM, …). */
   programLabel?: string;
   /** Liquidity score from PG markets snapshot (markets discovery only). */
-  marketScore?: number;
+  liquidity?: number;
 }
 
 /** Ranked row included in `_routeViaTrades.topMarkets` on quote responses. */
@@ -321,13 +321,13 @@ function swapHasTx(build: import('../types/swap.js').VybeSwapBuildResponse): boo
   return typeof tx === 'string' && tx.trim().length > 0;
 }
 
-/** USD pool TVL from ix-builder build details (`poolMarketScore`). */
-export function poolMarketScoreFromBuild(
+/** USD pool TVL from ix-builder build details (`poolLiquidity`). */
+export function poolLiquidityUsdFromBuild(
   build: import('../types/swap.js').VybeSwapBuildResponse,
 ): number | undefined {
   const raw = build as Record<string, unknown>;
   const details = raw.details as Record<string, unknown> | undefined;
-  const score = details?.poolMarketScore ?? details?.marketScore ?? raw.marketScore;
+  const score = details?.poolLiquidity ?? details?.liquidity ?? raw.liquidity;
   const n = Number(score);
   return Number.isFinite(n) && n > 0 ? n : undefined;
 }
@@ -341,14 +341,14 @@ function tradeCandidateFromVybeBuild(
   const protocol =
     typeof protocolRaw === 'string' ? (protocolRaw as import('./swap-build.js').SwapProxyProtocol) : undefined;
   const programLabel = programAddress ? programLabelForAddress(programAddress) : 'unknown';
-  const marketScore = poolMarketScoreFromBuild(build);
+  const liquidity = poolLiquidityUsdFromBuild(build);
   return {
     marketAddress,
     programAddress,
     protocol,
     tradeCount: 0,
     programLabel,
-    ...(marketScore != null ? { marketScore } : {}),
+    ...(liquidity != null ? { liquidity } : {}),
   };
 }
 
@@ -965,7 +965,7 @@ function buildSwapBodyForTradeAttempt(
     poolAddress: attempt.poolAddress,
     programAddress: attempt.programAddress,
     protocol: attempt.protocol,
-    marketScore: candidate.marketScore,
+    liquidity: candidate.liquidity,
   });
 }
 

@@ -106,7 +106,7 @@ export interface EnumeratedRouteUiEntry {
     protocol?: string;
     programLabel?: string;
     tradeCount?: number;
-    marketScore?: number;
+    liquidity?: number;
   };
   quote?: Record<string, unknown>;
 }
@@ -192,11 +192,11 @@ function renderRoutePoolLink(marketAddress: string | undefined): string {
 function renderRouteOptionMetrics(
   quote: Record<string, unknown>,
   outLabel: string,
-  marketScore: number | undefined,
+  liquidity: number | undefined,
 ): string {
   const liq =
-    marketScore != null && marketScore > 0 ? formatLiquidityUsdCompact(marketScore) : '—';
-  const liqTierClass = poolLiquidityTierClassForValue(marketScore);
+    liquidity != null && liquidity > 0 ? formatLiquidityUsdCompact(liquidity) : '—';
+  const liqTierClass = poolLiquidityTierClassForValue(liquidity);
   const impact = formatRoutePriceImpact(quote);
   const impactTierClass = priceImpactTierClassForValue(quote.priceImpactPct);
   const receiveUsd = deps.getQuoteReceiveUsd(quote);
@@ -260,7 +260,7 @@ function computeRouteHighlightBadges(
   let highestLiqRouteIndex = -1;
   let bestLiq = 0;
   for (const route of routes) {
-    const liq = route.candidate?.marketScore ?? 0;
+    const liq = route.candidate?.liquidity ?? 0;
     if (liq > bestLiq) {
       bestLiq = liq;
       highestLiqRouteIndex = route.index;
@@ -282,10 +282,10 @@ type RouteOptionWarnBadge = 'none' | 'low-liquidity' | 'high-impact';
 
 function routeOptionWarnBadge(
   quote: Record<string, unknown>,
-  marketScore?: number,
+  liquidity?: number,
 ): RouteOptionWarnBadge {
   const sim = simulationOutputWarningFromQuote(quote);
-  const liq = lowLiquidityWarningFromQuote(quote, marketScore);
+  const liq = lowLiquidityWarningFromQuote(quote, liquidity);
   if (liq) return 'low-liquidity';
   if (sim) return 'high-impact';
   return 'none';
@@ -356,16 +356,16 @@ function renderRouteOptionCard(
     route.candidate?.programLabel?.trim() ||
     route.candidate?.protocol?.replace(/_/g, ' ') ||
     '—';
-  const marketScore = route.candidate?.marketScore;
-  const warnLevel = swapRouteWarningLevel(quote, marketScore);
-  const optionWarnBadge = routeOptionWarnBadge(quote, marketScore);
+  const liquidity = route.candidate?.liquidity;
+  const warnLevel = swapRouteWarningLevel(quote, liquidity);
+  const optionWarnBadge = routeOptionWarnBadge(quote, liquidity);
   const warnClass =
     warnLevel === 'red'
       ? ' swap-route-option--warn-severe'
       : warnLevel === 'orange'
         ? ' swap-route-option--warn-caution'
         : '';
-  const warnTitle = warnLevel !== 'none' ? combinedRouteWarningTitle(quote, marketScore) : '';
+  const warnTitle = warnLevel !== 'none' ? combinedRouteWarningTitle(quote, liquidity) : '';
   const warnIcon =
     warnLevel !== 'none'
       ? `<span class="swap-route-option__warn" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`
@@ -380,7 +380,7 @@ function renderRouteOptionCard(
       </div>
       <div class="swap-route-option__title">${renderDexProgramLabel(programLabel, route.candidate?.protocol)}</div>
       ${renderRoutePoolLink(route.candidate?.marketAddress)}
-      ${renderRouteOptionMetrics(quote, outLabel, marketScore)}
+      ${renderRouteOptionMetrics(quote, outLabel, liquidity)}
     </div>`;
 }
 
@@ -5743,9 +5743,9 @@ const MIN_ROUTE_POOL_LIQUIDITY_USD = 1000;
 
 function lowLiquidityWarningFromQuote(
   quote: Record<string, unknown>,
-  marketScore?: number,
+  liquidity?: number,
 ): Record<string, unknown> | null {
-  const score = Number(marketScore);
+  const score = Number(liquidity);
   if (Number.isFinite(score) && score >= MIN_ROUTE_POOL_LIQUIDITY_USD) {
     return null;
   }
@@ -5765,10 +5765,10 @@ function lowLiquidityWarningFromQuote(
 
 function swapRouteWarningLevel(
   quote: Record<string, unknown>,
-  marketScore?: number,
+  liquidity?: number,
 ): 'none' | 'orange' | 'red' {
   const sim = simulationOutputWarningFromQuote(quote);
-  const liq = lowLiquidityWarningFromQuote(quote, marketScore);
+  const liq = lowLiquidityWarningFromQuote(quote, liquidity);
   if (sim && liq) return 'red';
   if (sim || liq) return 'orange';
   return 'none';
@@ -5786,9 +5786,9 @@ function lowLiquidityWarningTitle(w: Record<string, unknown>): string {
   return `Pool liquidity is $${liq.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`;
 }
 
-function combinedRouteWarningTitle(quote: Record<string, unknown>, marketScore?: number): string {
+function combinedRouteWarningTitle(quote: Record<string, unknown>, liquidity?: number): string {
   const parts: string[] = [];
-  const liq = lowLiquidityWarningFromQuote(quote, marketScore);
+  const liq = lowLiquidityWarningFromQuote(quote, liquidity);
   const sim = simulationOutputWarningFromQuote(quote);
   if (liq) parts.push(lowLiquidityWarningTitle(liq));
   if (sim) parts.push(simulationOutputWarningTitle(sim));
