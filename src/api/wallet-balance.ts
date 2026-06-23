@@ -7,6 +7,8 @@ import type { AxiosInstance } from 'axios';
 import type { VybeToken, VybeWalletTokenBalanceResponse } from '../types/api.js';
 import { withRetry } from './client.js';
 import { toVybeSwapMint } from './sol-mints.js';
+import { fetchJupiterAsset, fetchJupiterQuotePriceUsd } from './jupiter-token-fallback.js';
+import { fetchMintDecimalsFromRpc } from './mint-decimals-rpc.js';
 import { getToken } from './tokens.js';
 import { fetchRpcWalletBalances, RPC_NATIVE_SOL_MINT } from './wallet-rpc-balance.js';
 import type { RpcMintBalance } from './wallet-rpc-balance.js';
@@ -158,6 +160,60 @@ function holdingValueUsd(priceUsd: number, amountUi: number): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+async function enrichRpcOnlyFromJupiter(
+  displayMint: string,
+  rpc: RpcMintBalance,
+  state: {
+    decimals: number;
+    symbol: string;
+    name: string;
+    logoUrl: string | null;
+    verified: boolean;
+    valueUsd: number;
+  },
+): Promise<void> {
+  const apiMint = toVybeSwapMint(displayMint);
+  let jupiterDecimals: number | null = null;
+
+  try {
+    const asset = await fetchJupiterAsset(apiMint);
+    if (asset) {
+      if (asset.symbol) state.symbol = asset.symbol;
+      if (asset.name) state.name = asset.name;
+      if (asset.logoUrl) state.logoUrl = asset.logoUrl;
+      if (asset.verified) state.verified = asset.verified;
+      if (asset.decimals != null) {
+        jupiterDecimals = asset.decimals;
+        state.decimals = asset.decimals;
+      }
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[wallet-balance] Jupiter asset failed for ${apiMint.slice(0, 8)}…: ${msg}`);
+  }
+
+  if (jupiterDecimals == null) {
+    try {
+      const chainDecimals = await fetchMintDecimalsFromRpc(apiMint);
+      if (chainDecimals != null) state.decimals = chainDecimals;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[wallet-balance] RPC mint decimals failed for ${apiMint.slice(0, 8)}…: ${msg}`);
+    }
+  }
+
+  try {
+    const priceUsd = await fetchJupiterQuotePriceUsd(apiMint, state.decimals);
+    if (priceUsd != null) {
+      const amountUi = rawToUiAmount(rpc.amountRaw.toString(), state.decimals);
+      state.valueUsd = holdingValueUsd(priceUsd, amountUi);
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[wallet-balance] Jupiter quote failed for ${apiMint.slice(0, 8)}…: ${msg}`);
+  }
+}
+
 async function walletItemFromRpcBalance(
   http: AxiosInstance,
   rpc: RpcMintBalance,
@@ -172,6 +228,7 @@ async function walletItemFromRpcBalance(
   let logoUrl: string | null = null;
   let verified = false;
   let valueUsd = 0;
+  let tokenDetailsOk = false;
 
   try {
     const token = await getToken(http, toVybeSwapMint(displayMint));
@@ -182,11 +239,23 @@ async function walletItemFromRpcBalance(
     verified = token.verified === true;
     const amountUi = rawToUiAmount(amountExact, decimals);
     valueUsd = holdingValueUsd(tokenPriceUsdFromDetails(token), amountUi);
+    tokenDetailsOk = true;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(
       `[wallet-balance] token-details failed for ${displayMint.slice(0, 8)}…: ${msg}`,
     );
+  }
+
+  if (!tokenDetailsOk) {
+    const fallback = { decimals, symbol, name, logoUrl, verified, valueUsd };
+    await enrichRpcOnlyFromJupiter(displayMint, rpc, fallback);
+    decimals = fallback.decimals;
+    symbol = fallback.symbol;
+    name = fallback.name;
+    logoUrl = fallback.logoUrl;
+    verified = fallback.verified;
+    valueUsd = fallback.valueUsd;
   }
 
   const amountUi = rawToUiAmount(amountExact, decimals);
