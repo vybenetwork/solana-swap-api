@@ -17,7 +17,7 @@ import {
 import { getSolanaRpcHost, logBrowserRpc429 } from './api/solana-connection.js';
 import { createClient } from './api/index.js';
 import { toHumanReadableError } from './api/client.js';
-import { InsufficientBalanceError } from './api/wallet-balance.js';
+import { InsufficientBalanceError, streamWalletTokenBalances } from './api/wallet-balance.js';
 import { validatePinnedPoolParams } from './api/pinned-swap-params.js';
 import { VYBE_SWAP_PROTOCOLS, type SwapProxyProtocol } from './api/swap-build.js';
 import { type TokenPriceHint } from './api/resolve-token-prices.js';
@@ -288,6 +288,32 @@ app.get('/api/wallets/:ownerAddress/token-balances', async (req: Request, res: R
 
     const limitRaw = qNum(req, 'limit');
     const limit = limitRaw != null && limitRaw > 0 ? Math.min(limitRaw, 100) : 50;
+    const streamRaw = String(req.query.stream ?? '').trim().toLowerCase();
+    const useStream = streamRaw === '1' || streamRaw === 'true';
+
+    if (useStream) {
+      const dataHttp = createDataHttpClient(dataApiKey);
+      res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.flushHeaders();
+      let closed = false;
+      req.on('close', () => {
+        closed = true;
+      });
+      await streamWalletTokenBalances(
+        dataHttp,
+        ownerAddress,
+        limit,
+        (event) => {
+          if (closed) return;
+          res.write(`${JSON.stringify(event)}\n`);
+        },
+        () => closed,
+      );
+      if (!closed) res.end();
+      return;
+    }
+
     const tokens = await client.listWalletTokenBalances(ownerAddress, limit);
     res.json({ tokens });
   } catch (err) {

@@ -8,7 +8,6 @@ import type { VybeToken, VybeWalletTokenBalanceResponse } from '../types/api.js'
 import { withRetry } from './client.js';
 import { toVybeSwapMint } from './sol-mints.js';
 import { fetchJupiterAsset, fetchJupiterQuotePrice } from './jupiter-token-fallback.js';
-import { fetchMintDecimalsFromRpc } from './mint-decimals-rpc.js';
 import { getToken } from './tokens.js';
 import { fetchRpcWalletBalances, RPC_NATIVE_SOL_MINT } from './wallet-rpc-balance.js';
 import type { RpcMintBalance } from './wallet-rpc-balance.js';
@@ -18,6 +17,9 @@ const NATIVE_SOL_MINT = '11111111111111111111111111111111';
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 /** Total SOL below this is not tradable. */
 const SOL_MIN_TRADABLE_TOTAL_UI = 0.0061;
+
+/** Max RPC-only holdings enriched via Vybe/Jupiter after the initial RPC+Vybe merge. */
+export const RPC_ONLY_ENRICH_LIMIT = 50;
 
 function isSolMint(mint: string): boolean {
   const m = mint.trim();
@@ -71,7 +73,14 @@ export interface WalletBalanceListItem {
   /** Holdings value in SOL when Jupiter quoted to WSOL (USD = valueSol × cached SOL price on client). */
   valueSol?: number;
   verified: boolean;
+  /** True while Vybe/Jupiter metadata and price enrichment is still pending. */
+  enrichmentPending?: boolean;
 }
+
+export type WalletBalanceStreamEvent =
+  | { event: 'initial'; tokens: WalletBalanceListItem[] }
+  | { event: 'update'; token: WalletBalanceListItem }
+  | { event: 'done' };
 
 export async function getWalletTokenBalance(
   http: AxiosInstance,
@@ -171,7 +180,50 @@ function holdingValueSol(priceSol: number, amountUi: number): number {
 function walletBalanceSortValue(item: WalletBalanceListItem): number {
   if (item.valueUsd > 0) return item.valueUsd;
   if (item.valueSol != null && item.valueSol > 0) return item.valueSol;
-  return 0;
+  return item.amountUi;
+}
+
+function sortWalletBalanceItems(items: WalletBalanceListItem[]): WalletBalanceListItem[] {
+  return [...items].sort(
+    (a, b) => walletBalanceSortValue(b) - walletBalanceSortValue(a) || b.amountUi - a.amountUi,
+  );
+}
+
+function rpcAmountUi(rpc: RpcMintBalance): number {
+  return rawToUiAmount(rpc.amountRaw.toString(), rpc.decimals);
+}
+
+export interface RpcOnlyEnrichTarget {
+  rpc: RpcMintBalance;
+  displayMint: string;
+  defaultSymbol?: string;
+  defaultName?: string;
+}
+
+function stubWalletItemFromRpc(
+  rpc: RpcMintBalance,
+  options?: { displayMint?: string; defaultSymbol?: string; defaultName?: string },
+): WalletBalanceListItem | null {
+  if (rpc.amountRaw <= 0n) return null;
+  const displayMint = (options?.displayMint ?? rpc.mintAddress).trim();
+  const amountExact = rpc.amountRaw.toString();
+  const decimals = rpc.decimals;
+  const amountUi = rawToUiAmount(amountExact, decimals);
+  if (!(amountUi > 0)) return null;
+  const symbol = options?.defaultSymbol?.trim() || displayMint.slice(0, 6);
+  const name = options?.defaultName?.trim() || symbol;
+  return {
+    mintAddress: displayMint,
+    symbol,
+    name,
+    logoUrl: null,
+    decimals,
+    amountUi,
+    amountExact,
+    valueUsd: 0,
+    verified: false,
+    enrichmentPending: true,
+  };
 }
 
 async function enrichRpcOnlyFromJupiter(
@@ -188,7 +240,6 @@ async function enrichRpcOnlyFromJupiter(
   },
 ): Promise<void> {
   const apiMint = toVybeSwapMint(displayMint);
-  let jupiterDecimals: number | null = null;
 
   try {
     const asset = await fetchJupiterAsset(apiMint);
@@ -197,24 +248,11 @@ async function enrichRpcOnlyFromJupiter(
       if (asset.name) state.name = asset.name;
       if (asset.logoUrl) state.logoUrl = asset.logoUrl;
       if (asset.verified) state.verified = asset.verified;
-      if (asset.decimals != null) {
-        jupiterDecimals = asset.decimals;
-        state.decimals = asset.decimals;
-      }
+      if (asset.decimals != null) state.decimals = asset.decimals;
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn(`[wallet-balance] Jupiter asset failed for ${apiMint.slice(0, 8)}…: ${msg}`);
-  }
-
-  if (jupiterDecimals == null) {
-    try {
-      const chainDecimals = await fetchMintDecimalsFromRpc(apiMint);
-      if (chainDecimals != null) state.decimals = chainDecimals;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(`[wallet-balance] RPC mint decimals failed for ${apiMint.slice(0, 8)}…: ${msg}`);
-    }
   }
 
   try {
@@ -235,17 +273,17 @@ async function enrichRpcOnlyFromJupiter(
   }
 }
 
-async function walletItemFromRpcBalance(
+/** Enrich a single RPC-only holding (Vybe token-details, then Jupiter). */
+export async function enrichRpcOnlyWalletItem(
   http: AxiosInstance,
-  rpc: RpcMintBalance,
-  options?: { displayMint?: string; defaultSymbol?: string; defaultName?: string },
+  target: RpcOnlyEnrichTarget,
 ): Promise<WalletBalanceListItem | null> {
+  const { rpc, displayMint, defaultSymbol, defaultName } = target;
   if (rpc.amountRaw <= 0n) return null;
-  const displayMint = (options?.displayMint ?? rpc.mintAddress).trim();
   const amountExact = rpc.amountRaw.toString();
   let decimals = rpc.decimals;
-  let symbol = options?.defaultSymbol?.trim() || displayMint.slice(0, 6);
-  let name = options?.defaultName?.trim() || symbol;
+  let symbol = defaultSymbol?.trim() || displayMint.slice(0, 6);
+  let name = defaultName?.trim() || symbol;
   let logoUrl: string | null = null;
   let verified = false;
   let valueUsd = 0;
@@ -294,13 +332,14 @@ async function walletItemFromRpcBalance(
     valueUsd,
     ...(valueSol != null && valueSol > 0 ? { valueSol } : {}),
     verified,
+    enrichmentPending: false,
   };
 }
 
 async function fetchRpcWalletBalancesSafe(
   ownerAddress: string,
 ): Promise<{
-  rpcByMint: Map<string, import('./wallet-rpc-balance.js').RpcMintBalance>;
+  rpcByMint: Map<string, RpcMintBalance>;
   rpcOk: boolean;
 }> {
   try {
@@ -317,7 +356,7 @@ function resolveAmountFromRpc(
   mintAddress: string,
   vybeDecimals: number,
   vybeAmount: string,
-  rpcByMint: Map<string, import('./wallet-rpc-balance.js').RpcMintBalance>,
+  rpcByMint: Map<string, RpcMintBalance>,
   rpcOk: boolean,
 ): { amountUi: number; amountExact: string; decimals: number } | null {
   const rpc =
@@ -359,11 +398,19 @@ function resolveAmountFromRpc(
   };
 }
 
-export async function listWalletTokenBalances(
+export interface MergedWalletBalances {
+  items: WalletBalanceListItem[];
+  rpcOnlyToEnrich: RpcOnlyEnrichTarget[];
+}
+
+/**
+ * Phase 1: RPC + Vybe wallet balance in parallel, merged list with RPC-only stubs (no Jupiter yet).
+ */
+export async function mergeWalletBalancesFromRpcAndVybe(
   http: AxiosInstance,
   ownerAddress: string,
   limit = 50,
-): Promise<WalletBalanceListItem[]> {
+): Promise<MergedWalletBalances> {
   const [balanceResult, { rpcByMint, rpcOk }] = await Promise.all([
     getWalletTokenBalance(http, {
       ownerAddress,
@@ -422,39 +469,101 @@ export async function listWalletTokenBalances(
     .filter((row): row is WalletBalanceListItem => row != null);
 
   const seen = new Set(items.map((i) => i.mintAddress));
+  const rpcOnlyToEnrich: RpcOnlyEnrichTarget[] = [];
+
   const nativeRpc = rpcByMint.get(RPC_NATIVE_SOL_MINT);
   if (nativeRpc && nativeRpc.amountRaw > 0n && !seen.has(NATIVE_SOL_MINT)) {
-    const nativeItem = await walletItemFromRpcBalance(http, nativeRpc, {
+    rpcOnlyToEnrich.push({
+      rpc: nativeRpc,
       displayMint: NATIVE_SOL_MINT,
       defaultSymbol: 'SOL',
       defaultName: 'Solana',
     });
-    if (nativeItem) {
-      items.push(nativeItem);
+    const stub = stubWalletItemFromRpc(nativeRpc, {
+      displayMint: NATIVE_SOL_MINT,
+      defaultSymbol: 'SOL',
+      defaultName: 'Solana',
+    });
+    if (stub) {
+      items.push(stub);
       seen.add(NATIVE_SOL_MINT);
     }
   }
 
-  const rpcOnly: RpcMintBalance[] = [];
+  const rpcOnlyCandidates: RpcMintBalance[] = [];
   for (const rpc of rpcByMint.values()) {
     if (seen.has(rpc.mintAddress) || rpc.mintAddress === RPC_NATIVE_SOL_MINT) continue;
     if (rpc.amountRaw <= 0n) continue;
-    rpcOnly.push(rpc);
+    rpcOnlyCandidates.push(rpc);
   }
-  if (rpcOnly.length > 0) {
-    const enriched = await Promise.all(
-      rpcOnly.map((rpc) => walletItemFromRpcBalance(http, rpc)),
-    );
-    for (const item of enriched) {
-      if (!item || seen.has(item.mintAddress)) continue;
-      items.push(item);
-      seen.add(item.mintAddress);
+  rpcOnlyCandidates.sort((a, b) => rpcAmountUi(b) - rpcAmountUi(a));
+  const rpcOnlyTop = rpcOnlyCandidates.slice(0, RPC_ONLY_ENRICH_LIMIT);
+
+  for (const rpc of rpcOnlyTop) {
+    rpcOnlyToEnrich.push({ rpc, displayMint: rpc.mintAddress });
+    const stub = stubWalletItemFromRpc(rpc);
+    if (stub && !seen.has(stub.mintAddress)) {
+      items.push(stub);
+      seen.add(stub.mintAddress);
     }
   }
 
-  return items
-    .sort((a, b) => walletBalanceSortValue(b) - walletBalanceSortValue(a) || b.amountUi - a.amountUi)
-    .slice(0, limit);
+  return {
+    items: sortWalletBalanceItems(items).slice(0, limit),
+    rpcOnlyToEnrich,
+  };
+}
+
+function replaceWalletBalanceItem(
+  items: WalletBalanceListItem[],
+  token: WalletBalanceListItem,
+): WalletBalanceListItem[] {
+  const next = items.filter((i) => i.mintAddress !== token.mintAddress);
+  next.push(token);
+  return sortWalletBalanceItems(next);
+}
+
+/** Phase 2+: stream RPC-only enrichment after the initial RPC+Vybe merge. */
+export async function streamWalletTokenBalances(
+  http: AxiosInstance,
+  ownerAddress: string,
+  limit: number,
+  emit: (event: WalletBalanceStreamEvent) => void,
+  isCancelled?: () => boolean,
+): Promise<void> {
+  const { items, rpcOnlyToEnrich } = await mergeWalletBalancesFromRpcAndVybe(
+    http,
+    ownerAddress,
+    limit,
+  );
+  if (isCancelled?.()) return;
+  emit({ event: 'initial', tokens: items });
+
+  let current = items;
+  for (const target of rpcOnlyToEnrich) {
+    if (isCancelled?.()) return;
+    const enriched = await enrichRpcOnlyWalletItem(http, target);
+    if (!enriched) continue;
+    current = replaceWalletBalanceItem(current, enriched);
+    emit({ event: 'update', token: enriched });
+  }
+
+  if (!isCancelled?.()) emit({ event: 'done' });
+}
+
+export async function listWalletTokenBalances(
+  http: AxiosInstance,
+  ownerAddress: string,
+  limit = 50,
+): Promise<WalletBalanceListItem[]> {
+  let latest: WalletBalanceListItem[] = [];
+  await streamWalletTokenBalances(http, ownerAddress, limit, (ev) => {
+    if (ev.event === 'initial') latest = ev.tokens;
+    else if (ev.event === 'update') {
+      latest = replaceWalletBalanceItem(latest, ev.token);
+    }
+  });
+  return latest.slice(0, limit);
 }
 
 export async function getWalletSolBalanceUi(

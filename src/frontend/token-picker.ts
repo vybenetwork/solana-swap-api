@@ -44,6 +44,8 @@ export interface WalletBalanceListItem {
   /** Set when Jupiter quoted to WSOL; convert to USD with cached SOL price. */
   valueSol?: number;
   verified: boolean;
+  /** True while server-side Vybe/Jupiter enrichment is still running. */
+  enrichmentPending?: boolean;
 }
 
 const CACHE_KEY = 'vybe-swap-token-cache-v1';
@@ -122,6 +124,102 @@ function preventBackgroundScroll(event: Event): void {
 }
 
 let walletBalanceCache: { wallet: string; at: number; items: WalletBalanceListItem[] } | null = null;
+let walletBalanceStreamAbort: AbortController | null = null;
+let walletBalanceStreamListener: (() => void) | null = null;
+
+/** Called after each streamed wallet balance chunk (initial + per-RPC-only update). */
+export function setWalletBalanceStreamListener(fn: (() => void) | null): void {
+  walletBalanceStreamListener = fn;
+}
+
+function notifyWalletBalanceStream(): void {
+  walletBalanceStreamListener?.();
+}
+
+function mergeWalletBalanceUpdate(token: WalletBalanceListItem): void {
+  if (!walletBalanceCache) return;
+  const items = walletBalanceCache.items.filter((i) => i.mintAddress !== token.mintAddress);
+  items.push(token);
+  walletBalanceCache.items = sortWalletBalancesForDisplay(items);
+}
+
+function sortWalletBalancesForDisplay(items: WalletBalanceListItem[]): WalletBalanceListItem[] {
+  return [...items].sort(
+    (a, b) => walletItemValueUsd(b) - walletItemValueUsd(a) || b.amountUi - a.amountUi,
+  );
+}
+
+async function consumeWalletBalanceStream(
+  wallet: string,
+  res: Response,
+): Promise<WalletBalanceListItem[]> {
+  if (!res.ok || !res.body) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || `Wallet balances failed (${res.status})`);
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let items: WalletBalanceListItem[] = [];
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      const msg = JSON.parse(trimmed) as
+        | { event: 'initial'; tokens: WalletBalanceListItem[] }
+        | { event: 'update'; token: WalletBalanceListItem }
+        | { event: 'done' };
+      if (msg.event === 'initial') {
+        items = Array.isArray(msg.tokens) ? msg.tokens : [];
+        walletBalanceCache = { wallet, at: Date.now(), items };
+        notifyWalletBalanceStream();
+      } else if (msg.event === 'update') {
+        mergeWalletBalanceUpdate(msg.token);
+        items = walletBalanceCache?.items ?? items;
+        notifyWalletBalanceStream();
+      }
+    }
+  }
+
+  return walletBalanceCache?.items ?? items;
+}
+
+async function fetchWalletBalances(wallet: string, force = false): Promise<WalletBalanceListItem[]> {
+  const now = Date.now();
+  if (
+    !force &&
+    walletBalanceCache &&
+    walletBalanceCache.wallet === wallet &&
+    now - walletBalanceCache.at < WALLET_BALANCE_TTL_MS
+  ) {
+    return walletBalanceCache.items;
+  }
+
+  walletBalanceStreamAbort?.abort();
+  const ac = new AbortController();
+  walletBalanceStreamAbort = ac;
+
+  const res = await fetch(
+    `/api/wallets/${encodeURIComponent(wallet)}/token-balances?limit=50&stream=1`,
+    { signal: ac.signal },
+  );
+  return consumeWalletBalanceStream(wallet, res);
+}
+
+export async function prefetchWalletBalances(
+  wallet: string,
+  force = false,
+): Promise<WalletBalanceListItem[]> {
+  return fetchWalletBalances(wallet.trim(), force);
+}
+
 const WALLET_BALANCE_TTL_MS = 15000;
 
 function readCache(): Record<string, TokenMeta> {
@@ -634,7 +732,8 @@ function renderWalletBalanceRow(item: WalletBalanceListItem): string {
       ? '<span class="token-picker-row-tag token-picker-row-tag--muted">Too small</span>'
       : '';
   const disabledAttr = tradable ? '' : ' disabled aria-disabled="true"';
-  return `<button type="button" class="token-picker-row token-picker-row--wallet${tradable ? '' : ' token-picker-row--untradable'}" data-mint="${escapeHtml(item.mintAddress)}"${disabledAttr}>
+  const pendingClass = item.enrichmentPending ? ' token-picker-row--pending' : '';
+  return `<button type="button" class="token-picker-row token-picker-row--wallet${tradable ? '' : ' token-picker-row--untradable'}${pendingClass}" data-mint="${escapeHtml(item.mintAddress)}"${disabledAttr}>
     <span class="token-picker-row-logo">${renderTokenIcon(token)}</span>
     <span class="token-picker-row-main">
       <span class="token-picker-row-title">
@@ -680,37 +779,6 @@ function syncPickerLayout(): void {
   syncTopTabDisabledState();
   syncWalletBalancesVisibility();
   syncTabs();
-}
-
-async function fetchWalletBalances(wallet: string, force = false): Promise<WalletBalanceListItem[]> {
-  const now = Date.now();
-  if (
-    !force &&
-    walletBalanceCache &&
-    walletBalanceCache.wallet === wallet &&
-    now - walletBalanceCache.at < WALLET_BALANCE_TTL_MS
-  ) {
-    return walletBalanceCache.items;
-  }
-
-  const res = await fetch(`/api/wallets/${encodeURIComponent(wallet)}/token-balances?limit=50`);
-  const body = (await res.json().catch(() => ({}))) as {
-    tokens?: WalletBalanceListItem[];
-    error?: string;
-  };
-  if (!res.ok) {
-    throw new Error(body.error || `Wallet balances failed (${res.status})`);
-  }
-  const items = Array.isArray(body.tokens) ? body.tokens : [];
-  walletBalanceCache = { wallet, at: now, items };
-  return items;
-}
-
-export async function prefetchWalletBalances(
-  wallet: string,
-  force = false,
-): Promise<WalletBalanceListItem[]> {
-  return fetchWalletBalances(wallet.trim(), force);
 }
 
 /** Vybe reports native SOL under System Program id, not WSOL mint. */
@@ -1231,10 +1299,6 @@ export function saveWalletBalanceItemsToCache(items: WalletBalanceListItem[]): v
   }
 }
 
-export function refreshWalletBalancesPanel(): void {
-  void renderWalletBalances();
-}
-
 function renderWalletBalancesLoading(): string {
   return `<div class="token-picker-wallet-loading" aria-live="polite">
     <span class="token-picker-wallet-loading-spinner" aria-hidden="true"></span>
@@ -1252,6 +1316,40 @@ function walletItemMatchesQuery(item: WalletBalanceListItem, query: string): boo
   );
 }
 
+export function refreshWalletBalancesPanel(): void {
+  if (!walletBalancesEl || !walletBalancesListEl) return;
+  syncWalletBalancesVisibility();
+  if (walletBalancesEl.hidden) return;
+  const wallet = getWalletAddressCb?.().trim() ?? '';
+  if (!wallet) {
+    walletBalancesEl.hidden = true;
+    return;
+  }
+  if (!renderWalletBalancesFromCache()) return;
+}
+
+function renderWalletListHtml(items: WalletBalanceListItem[]): void {
+  if (!walletBalancesListEl) return;
+  const q = searchQuery.trim();
+  const visible = q ? items.filter((item) => walletItemMatchesQuery(item, q)) : items;
+  const sorted =
+    activeSide === 'input' ? sortWalletBalancesForSellPicker(visible) : visible;
+  if (sorted.length === 0) {
+    walletBalancesListEl.innerHTML = q
+      ? '<div class="token-picker-wallet-empty">No wallet tokens match your search.</div>'
+      : '<div class="token-picker-wallet-empty">Wallet does not contain any tokens</div>';
+    return;
+  }
+  walletBalancesListEl.innerHTML = sorted.map(renderWalletBalanceRow).join('');
+}
+
+function renderWalletBalancesFromCache(): boolean {
+  const wallet = getWalletAddressCb?.().trim() ?? '';
+  if (!wallet || !walletBalanceCache || walletBalanceCache.wallet !== wallet) return false;
+  renderWalletListHtml(walletBalanceCache.items);
+  return true;
+}
+
 async function renderWalletBalances(): Promise<void> {
   if (!walletBalancesEl || !walletBalancesListEl) return;
   syncWalletBalancesVisibility();
@@ -1263,23 +1361,16 @@ async function renderWalletBalances(): Promise<void> {
     return;
   }
 
-  walletBalancesListEl.innerHTML = renderWalletBalancesLoading();
+  if (!renderWalletBalancesFromCache()) {
+    walletBalancesListEl.innerHTML = renderWalletBalancesLoading();
+  }
 
   try {
-    const items = await fetchWalletBalances(wallet);
+    await fetchWalletBalances(wallet);
     if (activeTab !== 'wallet') return;
-    const q = searchQuery.trim();
-    const visible = q ? items.filter((item) => walletItemMatchesQuery(item, q)) : items;
-    const sorted =
-      activeSide === 'input' ? sortWalletBalancesForSellPicker(visible) : visible;
-    if (sorted.length === 0) {
-      walletBalancesListEl.innerHTML = q
-        ? '<div class="token-picker-wallet-empty">No wallet tokens match your search.</div>'
-        : '<div class="token-picker-wallet-empty">Wallet does not contain any tokens</div>';
-      return;
-    }
-    walletBalancesListEl.innerHTML = sorted.map(renderWalletBalanceRow).join('');
+    renderWalletBalancesFromCache();
   } catch (err) {
+    if ((err as { name?: string }).name === 'AbortError') return;
     const message = err instanceof Error ? err.message : String(err);
     walletBalancesListEl.innerHTML = `<div class="token-picker-wallet-empty">${escapeHtml(message)}</div>`;
   }

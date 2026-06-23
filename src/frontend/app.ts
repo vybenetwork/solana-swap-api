@@ -43,6 +43,7 @@ import {
   NATIVE_SOL_MINT,
   SOL_MIN_AUTO_PICK_TOTAL_UI,
   WSOL_MINT,
+  setWalletBalanceStreamListener,
   initTokenPicker,
   openTokenPicker,
   prefetchTokenMetas,
@@ -6247,6 +6248,10 @@ initTokenPicker({
   getWalletAddress: () => swapWalletAddressInput?.value.trim() ?? '',
   canOpenSellPicker: hasValidSwapWallet,
   canOpenBuyPicker: hasValidSwapWallet,
+});
+setWalletBalanceStreamListener(() => {
+  refreshWalletBalancesPanel();
+  updateWalletTotalUsdUi();
 });
 wireTokenPickerOpen(swapInputTokenBtn, swapInputMintInput, 'input');
 wireTokenPickerOpen(swapOutputTokenBtn, swapOutputMintInput, 'output');
