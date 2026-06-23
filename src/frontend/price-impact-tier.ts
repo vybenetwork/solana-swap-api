@@ -14,6 +14,25 @@ export function parsePriceImpactPct(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+const MICRO_IMPACT_DISPLAY_PCT = 0.01;
+
+/** Snap sub-cent impacts to ±0.01% so −0.0006 shows as −0.01%, not −0.00%. */
+export function displayPriceImpactPct(pct: number): number {
+  if (pct > 0 && pct < MICRO_IMPACT_DISPLAY_PCT) return MICRO_IMPACT_DISPLAY_PCT;
+  if (pct < 0 && pct > -MICRO_IMPACT_DISPLAY_PCT) return -MICRO_IMPACT_DISPLAY_PCT;
+  return pct;
+}
+
+export function formatPriceImpactPctTwoDecimals(
+  pct: number,
+  options?: { leadingPlus?: boolean },
+): string {
+  const displayed = displayPriceImpactPct(pct);
+  if (displayed === 0) return '0%';
+  const sign = options?.leadingPlus && displayed > 0 ? '+' : '';
+  return `${sign}${displayed.toFixed(2)}%`;
+}
+
 /** Tier bands: green ≥ 0, yellow-green [−0.5, 0), yellow (−2, −0.5), orange (−10, −2], red ≤ −10%. */
 export function priceImpactTier(pct: number): PriceImpactTier {
   if (pct >= 0) return 'green';

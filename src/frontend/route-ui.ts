@@ -19,7 +19,13 @@
  */
 
 import { formatWarnPercent } from './format-warn-pct.js';
-import { formatPriceImpactPctWithArrow, parsePriceImpactPct, priceImpactTierClassForValue } from './price-impact-tier.js';
+import {
+  displayPriceImpactPct,
+  formatPriceImpactPctTwoDecimals,
+  formatPriceImpactPctWithArrow,
+  parsePriceImpactPct,
+  priceImpactTierClassForValue,
+} from './price-impact-tier.js';
 import { poolLiquidityTierClassForValue } from './liquidity-tier.js';
 import {
   getCachedTokenMeta,
@@ -165,8 +171,9 @@ export function formatLiquidityUsdCompact(n: number): string {
 function formatRoutePriceImpact(quote: Record<string, unknown>): string | null {
   const pct = parsePriceImpactPct(quote.priceImpactPct);
   if (pct == null) return null;
-  const sign = pct > 0 ? '+' : '';
-  return formatPriceImpactPctWithArrow(pct, `${sign}${pct.toFixed(2)}%`);
+  const displayed = displayPriceImpactPct(pct);
+  const formatted = formatPriceImpactPctTwoDecimals(pct, { leadingPlus: true });
+  return formatPriceImpactPctWithArrow(displayed, formatted);
 }
 
 function renderRoutePoolLink(marketAddress: string | undefined): string {
