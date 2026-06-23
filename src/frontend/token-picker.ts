@@ -41,6 +41,8 @@ export interface WalletBalanceListItem {
   /** Raw base-unit balance (integer string). */
   amountExact?: string;
   valueUsd: number;
+  /** Set when Jupiter quoted to WSOL; convert to USD with cached SOL price. */
+  valueSol?: number;
   verified: boolean;
 }
 
@@ -210,6 +212,22 @@ function priceFromCachedMeta(mint: string): number | undefined {
   return positiveUsdPrice(meta?.price);
 }
 
+/** SOL/WSOL USD spot from token-details cache (loaded on page init via resolve-prices). */
+export function getCachedSolPriceUsd(): number | undefined {
+  return priceFromCachedMeta(NATIVE_SOL_MINT) ?? priceFromCachedMeta(WSOL_MINT);
+}
+
+/** Effective USD holdings value (converts Jupiter SOL quotes using cached SOL price). */
+export function walletItemValueUsd(item: WalletBalanceListItem): number {
+  if (Number.isFinite(item.valueUsd) && item.valueUsd > 0) return item.valueUsd;
+  const valueSol = item.valueSol;
+  if (valueSol != null && valueSol > 0) {
+    const solPrice = getCachedSolPriceUsd();
+    if (solPrice != null && solPrice > 0) return valueSol * solPrice;
+  }
+  return Number.isFinite(item.valueUsd) ? item.valueUsd : 0;
+}
+
 function decimalsFromCachedMeta(mint: string): number | undefined {
   const dec = getCachedTokenMeta(mint.trim())?.decimals;
   return dec != null && Number.isFinite(dec) && dec >= 0 && dec <= 255 ? Math.trunc(dec) : undefined;
@@ -271,6 +289,7 @@ export function saveTokenPriceStats(mint: string, stats: TokenPriceStats): void 
     savedAt: Date.now(),
   };
   saveTokenMeta(meta);
+  if (isSolMint(m)) refreshWalletBalancesPanel();
 }
 
 /** Prefer locally served icon paths; leave remote URLs for server localization. */
@@ -608,7 +627,7 @@ function renderWalletBalanceRow(item: WalletBalanceListItem): string {
   const blocked = isBlockedPickerMint(item.mintAddress);
   const tradable = isWalletTokenTradable(item.mintAddress);
   const amountLabel = `${formatBalanceAmount(item.amountUi)} ${token.symbol}`;
-  const fiatLabel = formatWalletBalanceUsd(item.valueUsd);
+  const fiatLabel = formatWalletBalanceUsd(walletItemValueUsd(item));
   const statusTag = blocked
     ? '<span class="token-picker-row-tag token-picker-row-tag--muted">Use SOL</span>'
     : !tradable
@@ -1145,7 +1164,7 @@ export function getWalletTotalBalanceUsd(): number | null {
   if (!walletBalanceCache?.items.length) return null;
   let total = 0;
   for (const item of walletBalanceCache.items) {
-    const v = item.valueUsd;
+    const v = walletItemValueUsd(item);
     if (Number.isFinite(v) && v > 0) total += v;
   }
   return total;
@@ -1198,7 +1217,7 @@ export function computeWalletSellableAmountUi(
 export function getWalletSellableAmountUi(mint: string, options?: WalletSellableOptions): number | null {
   const item = getWalletBalanceListItem(mint);
   if (item == null || !(item.amountUi > 0)) return null;
-  return computeWalletSellableAmountUi(item.amountUi, mint, item.valueUsd, options);
+  return computeWalletSellableAmountUi(item.amountUi, mint, walletItemValueUsd(item), options);
 }
 
 export function isWalletTokenTradable(mint: string): boolean {
@@ -1302,7 +1321,8 @@ function sellPickerWalletStateTag(state: SellPickerWalletState): string {
 }
 
 function tokenWalletValueUsd(mint: string): number {
-  return getWalletBalanceListItem(mint)?.valueUsd ?? 0;
+  const item = getWalletBalanceListItem(mint);
+  return item ? walletItemValueUsd(item) : 0;
 }
 
 function sortTokensForSellPicker(tokens: TokenMeta[]): TokenMeta[] {
@@ -1329,7 +1349,7 @@ function sortWalletBalancesForSellPicker(items: WalletBalanceListItem[]): Wallet
     const aDemote = shouldDemoteWalletBalanceInSort(a.mintAddress);
     const bDemote = shouldDemoteWalletBalanceInSort(b.mintAddress);
     if (aDemote !== bDemote) return aDemote ? 1 : -1;
-    return b.valueUsd - a.valueUsd || b.amountUi - a.amountUi;
+    return walletItemValueUsd(b) - walletItemValueUsd(a) || b.amountUi - a.amountUi;
   });
 }
 

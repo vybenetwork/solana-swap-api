@@ -56,6 +56,7 @@ import {
   getTokenMintColorKind,
   routingTokenDotClass,
   saveTokenPriceStats,
+  walletItemValueUsd,
   saveWalletBalanceItemsToCache,
   type TokenPickerSide,
   type TokenPriceStats,
@@ -1714,8 +1715,8 @@ function pickDefaultSellBalance(items: WalletBalanceListItem[]): WalletBalanceLi
   }
   return (
     positive
-      .filter((i) => !isSolMint(i.mintAddress) && isSplValueTradable(i.valueUsd))
-      .sort((a, b) => b.valueUsd - a.valueUsd || b.amountUi - a.amountUi)[0] ?? null
+      .filter((i) => !isSolMint(i.mintAddress) && isSplValueTradable(walletItemValueUsd(i)))
+      .sort((a, b) => walletItemValueUsd(b) - walletItemValueUsd(a) || b.amountUi - a.amountUi)[0] ?? null
   );
 }
 
@@ -3728,7 +3729,11 @@ async function prefetchSwapPairPrices(options?: {
 }): Promise<void> {
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
-  const mints = [...new Set((options?.mints ?? [inputMint, outputMint]).filter(Boolean))];
+  const mints = [
+    ...new Set(
+      [...(options?.mints ?? [inputMint, outputMint]), NATIVE_SOL_MINT, WSOL_MINT].filter(Boolean),
+    ),
+  ];
   if (mints.length === 0) return;
   try {
     const forceFullDetailsMints = options?.forceFullDetails ? mints : [];
@@ -3754,6 +3759,8 @@ async function prefetchSwapPairPrices(options?: {
     updateSwapPairCards(stats);
     syncSwapSellAmountUi();
     syncSwapQuoteButtonState();
+    refreshWalletBalancesPanel();
+    updateWalletTotalUsdUi();
   } catch {
     // Prefetch is best-effort; pair cards keep last known stats or em dashes.
   }

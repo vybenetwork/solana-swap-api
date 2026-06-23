@@ -7,7 +7,7 @@ import type { AxiosInstance } from 'axios';
 import type { VybeToken, VybeWalletTokenBalanceResponse } from '../types/api.js';
 import { withRetry } from './client.js';
 import { toVybeSwapMint } from './sol-mints.js';
-import { fetchJupiterAsset, fetchJupiterQuotePriceUsd } from './jupiter-token-fallback.js';
+import { fetchJupiterAsset, fetchJupiterQuotePrice } from './jupiter-token-fallback.js';
 import { fetchMintDecimalsFromRpc } from './mint-decimals-rpc.js';
 import { getToken } from './tokens.js';
 import { fetchRpcWalletBalances, RPC_NATIVE_SOL_MINT } from './wallet-rpc-balance.js';
@@ -68,6 +68,8 @@ export interface WalletBalanceListItem {
   /** On-chain balance in base units (integer string). Prefer RPC over Vybe. */
   amountExact: string;
   valueUsd: number;
+  /** Holdings value in SOL when Jupiter quoted to WSOL (USD = valueSol × cached SOL price on client). */
+  valueSol?: number;
   verified: boolean;
 }
 
@@ -160,6 +162,18 @@ function holdingValueUsd(priceUsd: number, amountUi: number): number {
   return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
+function holdingValueSol(priceSol: number, amountUi: number): number {
+  if (!(priceSol > 0) || !(amountUi > 0)) return 0;
+  const value = priceSol * amountUi;
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+function walletBalanceSortValue(item: WalletBalanceListItem): number {
+  if (item.valueUsd > 0) return item.valueUsd;
+  if (item.valueSol != null && item.valueSol > 0) return item.valueSol;
+  return 0;
+}
+
 async function enrichRpcOnlyFromJupiter(
   displayMint: string,
   rpc: RpcMintBalance,
@@ -170,6 +184,7 @@ async function enrichRpcOnlyFromJupiter(
     logoUrl: string | null;
     verified: boolean;
     valueUsd: number;
+    valueSol?: number;
   },
 ): Promise<void> {
   const apiMint = toVybeSwapMint(displayMint);
@@ -203,10 +218,16 @@ async function enrichRpcOnlyFromJupiter(
   }
 
   try {
-    const priceUsd = await fetchJupiterQuotePriceUsd(apiMint, state.decimals);
-    if (priceUsd != null) {
+    const quote = await fetchJupiterQuotePrice(apiMint, state.decimals);
+    if (quote) {
       const amountUi = rawToUiAmount(rpc.amountRaw.toString(), state.decimals);
-      state.valueUsd = holdingValueUsd(priceUsd, amountUi);
+      if (quote.denom === 'usd') {
+        state.valueUsd = holdingValueUsd(quote.priceUsd, amountUi);
+        state.valueSol = undefined;
+      } else {
+        state.valueSol = holdingValueSol(quote.priceSol, amountUi);
+        state.valueUsd = 0;
+      }
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -228,6 +249,7 @@ async function walletItemFromRpcBalance(
   let logoUrl: string | null = null;
   let verified = false;
   let valueUsd = 0;
+  let valueSol: number | undefined;
   let tokenDetailsOk = false;
 
   try {
@@ -248,7 +270,7 @@ async function walletItemFromRpcBalance(
   }
 
   if (!tokenDetailsOk) {
-    const fallback = { decimals, symbol, name, logoUrl, verified, valueUsd };
+    const fallback = { decimals, symbol, name, logoUrl, verified, valueUsd, valueSol };
     await enrichRpcOnlyFromJupiter(displayMint, rpc, fallback);
     decimals = fallback.decimals;
     symbol = fallback.symbol;
@@ -256,6 +278,7 @@ async function walletItemFromRpcBalance(
     logoUrl = fallback.logoUrl;
     verified = fallback.verified;
     valueUsd = fallback.valueUsd;
+    valueSol = fallback.valueSol;
   }
 
   const amountUi = rawToUiAmount(amountExact, decimals);
@@ -269,6 +292,7 @@ async function walletItemFromRpcBalance(
     amountUi,
     amountExact,
     valueUsd,
+    ...(valueSol != null && valueSol > 0 ? { valueSol } : {}),
     verified,
   };
 }
@@ -429,7 +453,7 @@ export async function listWalletTokenBalances(
   }
 
   return items
-    .sort((a, b) => b.valueUsd - a.valueUsd || b.amountUi - a.amountUi)
+    .sort((a, b) => walletBalanceSortValue(b) - walletBalanceSortValue(a) || b.amountUi - a.amountUi)
     .slice(0, limit);
 }
 
