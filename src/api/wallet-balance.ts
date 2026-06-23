@@ -4,9 +4,12 @@
  */
 
 import type { AxiosInstance } from 'axios';
-import type { VybeWalletTokenBalanceResponse } from '../types/api.js';
+import type { VybeToken, VybeWalletTokenBalanceResponse } from '../types/api.js';
 import { withRetry } from './client.js';
+import { toVybeSwapMint } from './sol-mints.js';
+import { getToken } from './tokens.js';
 import { fetchRpcWalletBalances, RPC_NATIVE_SOL_MINT } from './wallet-rpc-balance.js';
+import type { RpcMintBalance } from './wallet-rpc-balance.js';
 
 /** Vybe reports native SOL under System Program id, not WSOL mint. */
 const NATIVE_SOL_MINT = '11111111111111111111111111111111';
@@ -130,15 +133,119 @@ function balanceAmountToRaw(amount: string, decimals: number): bigint {
   return uiAmountToRaw(balanceAmountToUi(amount, decimals), decimals);
 }
 
+function tokenDecimalsFromDetails(token: VybeToken, fallback: number): number {
+  if (typeof token.decimals === 'number' && Number.isFinite(token.decimals)) return token.decimals;
+  if (typeof token.decimal === 'number' && Number.isFinite(token.decimal)) return token.decimal;
+  return fallback;
+}
+
+function tokenPriceUsdFromDetails(token: VybeToken): number {
+  if (typeof token.price === 'number' && Number.isFinite(token.price) && token.price > 0) {
+    return token.price;
+  }
+  const raw = token.priceUsd;
+  if (typeof raw === 'string') {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw;
+  return 0;
+}
+
+function holdingValueUsd(priceUsd: number, amountUi: number): number {
+  if (!(priceUsd > 0) || !(amountUi > 0)) return 0;
+  const value = priceUsd * amountUi;
+  return Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+async function walletItemFromRpcBalance(
+  http: AxiosInstance,
+  rpc: RpcMintBalance,
+  options?: { displayMint?: string; defaultSymbol?: string; defaultName?: string },
+): Promise<WalletBalanceListItem | null> {
+  if (rpc.amountRaw <= 0n) return null;
+  const displayMint = (options?.displayMint ?? rpc.mintAddress).trim();
+  const amountExact = rpc.amountRaw.toString();
+  let decimals = rpc.decimals;
+  let symbol = options?.defaultSymbol?.trim() || displayMint.slice(0, 6);
+  let name = options?.defaultName?.trim() || symbol;
+  let logoUrl: string | null = null;
+  let verified = false;
+  let valueUsd = 0;
+
+  try {
+    const token = await getToken(http, toVybeSwapMint(displayMint));
+    decimals = tokenDecimalsFromDetails(token, rpc.decimals);
+    symbol = token.symbol?.trim() || symbol;
+    name = token.name?.trim() || symbol;
+    logoUrl = token.logoUrl?.trim() || null;
+    verified = token.verified === true;
+    const amountUi = rawToUiAmount(amountExact, decimals);
+    valueUsd = holdingValueUsd(tokenPriceUsdFromDetails(token), amountUi);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(
+      `[wallet-balance] token-details failed for ${displayMint.slice(0, 8)}…: ${msg}`,
+    );
+  }
+
+  const amountUi = rawToUiAmount(amountExact, decimals);
+  if (!(amountUi > 0)) return null;
+  return {
+    mintAddress: displayMint,
+    symbol,
+    name,
+    logoUrl,
+    decimals,
+    amountUi,
+    amountExact,
+    valueUsd,
+    verified,
+  };
+}
+
+async function fetchRpcWalletBalancesSafe(
+  ownerAddress: string,
+): Promise<{
+  rpcByMint: Map<string, import('./wallet-rpc-balance.js').RpcMintBalance>;
+  rpcOk: boolean;
+}> {
+  try {
+    const rpcByMint = await fetchRpcWalletBalances(ownerAddress);
+    return { rpcByMint, rpcOk: true };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[wallet-balance] RPC balance fetch failed, using Vybe amounts only: ${msg}`);
+    return { rpcByMint: new Map(), rpcOk: false };
+  }
+}
+
 function resolveAmountFromRpc(
   mintAddress: string,
   vybeDecimals: number,
   vybeAmount: string,
   rpcByMint: Map<string, import('./wallet-rpc-balance.js').RpcMintBalance>,
+  rpcOk: boolean,
 ): { amountUi: number; amountExact: string; decimals: number } | null {
   const rpc =
     rpcByMint.get(mintAddress) ??
     (mintAddress === NATIVE_SOL_MINT ? rpcByMint.get(RPC_NATIVE_SOL_MINT) : undefined);
+
+  if (rpcOk) {
+    const decimals =
+      rpc != null
+        ? vybeDecimals >= 0
+          ? vybeDecimals
+          : rpc.decimals
+        : vybeDecimals;
+    if (!Number.isFinite(decimals) || decimals < 0) return null;
+    const amountRaw = rpc?.amountRaw ?? 0n;
+    const amountExact = amountRaw.toString();
+    const amountUi = rawToUiAmount(amountExact, decimals);
+    if (!(amountUi > 0)) return null;
+    return { amountExact, amountUi, decimals };
+  }
+
   if (rpc && rpc.amountRaw > 0n) {
     const decimals = vybeDecimals >= 0 ? vybeDecimals : rpc.decimals;
     const amountExact = rpc.amountRaw.toString();
@@ -148,27 +255,15 @@ function resolveAmountFromRpc(
       decimals,
     };
   }
-  const decimals = vybeDecimals;
-  if (!Number.isFinite(decimals) || decimals < 0) return null;
-  const amountUi = balanceAmountToUi(vybeAmount, decimals);
+  const vybeDec = vybeDecimals;
+  if (!Number.isFinite(vybeDec) || vybeDec < 0) return null;
+  const amountUi = balanceAmountToUi(vybeAmount, vybeDec);
   if (!(amountUi > 0)) return null;
   return {
     amountUi,
-    amountExact: balanceAmountToRaw(vybeAmount, decimals).toString(),
-    decimals,
+    amountExact: balanceAmountToRaw(vybeAmount, vybeDec).toString(),
+    decimals: vybeDec,
   };
-}
-
-async function fetchRpcWalletBalancesSafe(
-  ownerAddress: string,
-): Promise<Map<string, import('./wallet-rpc-balance.js').RpcMintBalance>> {
-  try {
-    return await fetchRpcWalletBalances(ownerAddress);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(`[wallet-balance] RPC balance fetch failed, using Vybe amounts only: ${msg}`);
-    return new Map();
-  }
 }
 
 export async function listWalletTokenBalances(
@@ -176,7 +271,7 @@ export async function listWalletTokenBalances(
   ownerAddress: string,
   limit = 50,
 ): Promise<WalletBalanceListItem[]> {
-  const [balanceResult, rpcByMint] = await Promise.all([
+  const [balanceResult, { rpcByMint, rpcOk }] = await Promise.all([
     getWalletTokenBalance(http, {
       ownerAddress,
       includeNoPriceBalance: true,
@@ -188,17 +283,37 @@ export async function listWalletTokenBalances(
     fetchRpcWalletBalancesSafe(ownerAddress),
   ]);
 
+  if (rpcOk) {
+    console.info(`[wallet-balance] RPC scan ok — ${rpcByMint.size} mint(s) with on-chain balance`);
+  }
+
   const balance = balanceResult ?? { data: [] };
 
   const items = balance.data
     .map((row) => {
       const vybeDecimals = Number(row.decimals);
       const mintAddress = row.mintAddress.trim();
-      const amounts = resolveAmountFromRpc(mintAddress, vybeDecimals, row.amount, rpcByMint);
+      const amounts = resolveAmountFromRpc(
+        mintAddress,
+        vybeDecimals,
+        row.amount,
+        rpcByMint,
+        rpcOk,
+      );
       if (!amounts) return null;
       const symbol = row.symbol?.trim() || mintAddress.slice(0, 6);
       const name = row.name?.trim() || symbol;
-      const valueUsd = Number(row.valueUsd);
+      let valueUsd = Number(row.valueUsd);
+      if (rpcOk) {
+        const priceUsd = Number(row.priceUsd);
+        if (Number.isFinite(priceUsd) && priceUsd > 0) {
+          valueUsd = holdingValueUsd(priceUsd, amounts.amountUi);
+        } else if (!Number.isFinite(valueUsd)) {
+          valueUsd = 0;
+        }
+      } else if (!Number.isFinite(valueUsd)) {
+        valueUsd = 0;
+      }
       return {
         mintAddress,
         symbol,
@@ -207,7 +322,7 @@ export async function listWalletTokenBalances(
         decimals: amounts.decimals,
         amountUi: amounts.amountUi,
         amountExact: amounts.amountExact,
-        valueUsd: Number.isFinite(valueUsd) ? valueUsd : 0,
+        valueUsd,
         verified: row.verified === true,
       } satisfies WalletBalanceListItem;
     })
@@ -216,40 +331,32 @@ export async function listWalletTokenBalances(
   const seen = new Set(items.map((i) => i.mintAddress));
   const nativeRpc = rpcByMint.get(RPC_NATIVE_SOL_MINT);
   if (nativeRpc && nativeRpc.amountRaw > 0n && !seen.has(NATIVE_SOL_MINT)) {
-    const amountExact = nativeRpc.amountRaw.toString();
-    const amountUi = rawToUiAmount(amountExact, 9);
-    if (amountUi > 0) {
-      items.push({
-        mintAddress: NATIVE_SOL_MINT,
-        symbol: 'SOL',
-        name: 'Solana',
-        logoUrl: null,
-        decimals: 9,
-        amountUi,
-        amountExact,
-        valueUsd: 0,
-        verified: true,
-      });
+    const nativeItem = await walletItemFromRpcBalance(http, nativeRpc, {
+      displayMint: NATIVE_SOL_MINT,
+      defaultSymbol: 'SOL',
+      defaultName: 'Solana',
+    });
+    if (nativeItem) {
+      items.push(nativeItem);
       seen.add(NATIVE_SOL_MINT);
     }
   }
+
+  const rpcOnly: RpcMintBalance[] = [];
   for (const rpc of rpcByMint.values()) {
     if (seen.has(rpc.mintAddress) || rpc.mintAddress === RPC_NATIVE_SOL_MINT) continue;
     if (rpc.amountRaw <= 0n) continue;
-    const amountExact = rpc.amountRaw.toString();
-    const amountUi = rawToUiAmount(amountExact, rpc.decimals);
-    if (!(amountUi > 0)) continue;
-    items.push({
-      mintAddress: rpc.mintAddress,
-      symbol: rpc.mintAddress.slice(0, 6),
-      name: rpc.mintAddress.slice(0, 6),
-      logoUrl: null,
-      decimals: rpc.decimals,
-      amountUi,
-      amountExact,
-      valueUsd: 0,
-      verified: false,
-    });
+    rpcOnly.push(rpc);
+  }
+  if (rpcOnly.length > 0) {
+    const enriched = await Promise.all(
+      rpcOnly.map((rpc) => walletItemFromRpcBalance(http, rpc)),
+    );
+    for (const item of enriched) {
+      if (!item || seen.has(item.mintAddress)) continue;
+      items.push(item);
+      seen.add(item.mintAddress);
+    }
   }
 
   return items
@@ -261,7 +368,7 @@ export async function getWalletSolBalanceUi(
   http: AxiosInstance,
   ownerAddress: string,
 ): Promise<number> {
-  const [rpcByMint, balance] = await Promise.all([
+  const [{ rpcByMint, rpcOk }, balance] = await Promise.all([
     fetchRpcWalletBalancesSafe(ownerAddress),
     getWalletTokenBalance(http, {
       ownerAddress,
@@ -269,6 +376,13 @@ export async function getWalletSolBalanceUi(
     }),
   ]);
   let totalRaw = 0n;
+  if (rpcOk) {
+    const native = rpcByMint.get(RPC_NATIVE_SOL_MINT);
+    const wsol = rpcByMint.get(WSOL_MINT);
+    if (native) totalRaw += native.amountRaw;
+    if (wsol) totalRaw += wsol.amountRaw;
+    return rawToUiAmount(totalRaw.toString(), 9);
+  }
   const native = rpcByMint.get(RPC_NATIVE_SOL_MINT);
   const wsol = rpcByMint.get(WSOL_MINT);
   if (native) totalRaw += native.amountRaw;
@@ -286,7 +400,7 @@ export async function getWalletSplTokenBalanceUi(
 ): Promise<{ amountUi: number; decimals: number } | null> {
   const m = mint.trim();
   if (!m || isSolMint(m)) return null;
-  const [rpcByMint, balance] = await Promise.all([
+  const [{ rpcByMint, rpcOk }, balance] = await Promise.all([
     fetchRpcWalletBalancesSafe(ownerAddress),
     getWalletTokenBalance(http, {
       ownerAddress,
@@ -294,6 +408,16 @@ export async function getWalletSplTokenBalanceUi(
       includeNoPriceBalance: true,
     }),
   ]);
+  if (rpcOk) {
+    const rpc = rpcByMint.get(m);
+    if (rpc && rpc.amountRaw > 0n) {
+      return {
+        amountUi: rawToUiAmount(rpc.amountRaw.toString(), rpc.decimals),
+        decimals: rpc.decimals,
+      };
+    }
+    return null;
+  }
   const rpc = rpcByMint.get(m);
   if (rpc && rpc.amountRaw > 0n) {
     return {
@@ -326,7 +450,7 @@ export async function assertWalletHasSellAmount(
     throw new Error('amount must be a positive number');
   }
 
-  const [rpcByMint, balance] = await Promise.all([
+  const [{ rpcByMint, rpcOk }, balance] = await Promise.all([
     fetchRpcWalletBalancesSafe(ownerAddress),
     getWalletTokenBalance(http, {
       ownerAddress,
@@ -338,9 +462,16 @@ export async function assertWalletHasSellAmount(
 
   if (mint === NATIVE_SOL_MINT) {
     const symbol = 'SOL';
-    let availableRaw = rpcByMint.get(RPC_NATIVE_SOL_MINT)?.amountRaw ?? 0n;
-    if (availableRaw <= 0n) {
-      availableRaw = sumSolBalanceRaw(balance.data.filter((t) => t.mintAddress.trim() === NATIVE_SOL_MINT));
+    let availableRaw = 0n;
+    if (rpcOk) {
+      availableRaw = rpcByMint.get(RPC_NATIVE_SOL_MINT)?.amountRaw ?? 0n;
+    } else {
+      availableRaw = rpcByMint.get(RPC_NATIVE_SOL_MINT)?.amountRaw ?? 0n;
+      if (availableRaw <= 0n) {
+        availableRaw = sumSolBalanceRaw(
+          balance.data.filter((t) => t.mintAddress.trim() === NATIVE_SOL_MINT),
+        );
+      }
     }
     if (availableRaw <= 0n) {
       throw new InsufficientBalanceError(
@@ -376,11 +507,16 @@ export async function assertWalletHasSellAmount(
 
   if (mint === WSOL_MINT) {
     const symbol = 'WSOL';
-    let availableRaw = rpcByMint.get(WSOL_MINT)?.amountRaw ?? 0n;
-    if (availableRaw <= 0n) {
-      const row = balance.data.find((t) => t.mintAddress.trim() === WSOL_MINT);
-      if (row) {
-        availableRaw = balanceAmountToRaw(row.amount, Number(row.decimals));
+    let availableRaw = 0n;
+    if (rpcOk) {
+      availableRaw = rpcByMint.get(WSOL_MINT)?.amountRaw ?? 0n;
+    } else {
+      availableRaw = rpcByMint.get(WSOL_MINT)?.amountRaw ?? 0n;
+      if (availableRaw <= 0n) {
+        const row = balance.data.find((t) => t.mintAddress.trim() === WSOL_MINT);
+        if (row) {
+          availableRaw = balanceAmountToRaw(row.amount, Number(row.decimals));
+        }
       }
     }
     if (availableRaw <= 0n) {
@@ -393,6 +529,36 @@ export async function assertWalletHasSellAmount(
     }
     const availableUi = rawToUiAmount(availableRaw.toString(), 9);
     const requiredRaw = uiAmountToRaw(amountUi, 9);
+    if (requiredRaw > availableRaw) {
+      throw new InsufficientBalanceError(
+        `Insufficient balance: you have ${formatUiAmount(availableUi)} ${symbol} but tried to sell ${formatUiAmount(amountUi)} ${symbol}.`,
+        availableUi,
+        amountUi,
+        symbol,
+      );
+    }
+    return;
+  }
+
+  if (rpcOk) {
+    const rpc = rpcByMint.get(mint);
+    const row = balance.data.find((t) => t.mintAddress === mint);
+    const symbol = row?.symbol?.trim() || symbolHint?.trim() || mint.slice(0, 6);
+    const decimals = rpc?.decimals ?? Number(row?.decimals);
+    if (!Number.isFinite(decimals) || decimals < 0) {
+      throw new Error(`Could not read decimals for ${symbol}`);
+    }
+    const availableRaw = rpc?.amountRaw ?? 0n;
+    if (availableRaw <= 0n) {
+      throw new InsufficientBalanceError(
+        `Insufficient balance: no ${symbol} in this wallet.`,
+        0,
+        amountUi,
+        symbol,
+      );
+    }
+    const availableUi = rawToUiAmount(availableRaw.toString(), decimals);
+    const requiredRaw = uiAmountToRaw(amountUi, decimals);
     if (requiredRaw > availableRaw) {
       throw new InsufficientBalanceError(
         `Insufficient balance: you have ${formatUiAmount(availableUi)} ${symbol} but tried to sell ${formatUiAmount(amountUi)} ${symbol}.`,
