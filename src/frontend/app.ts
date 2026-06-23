@@ -123,6 +123,7 @@ import {
   formatPriceImpactPctWithArrow,
   parsePriceImpactPct,
 } from './price-impact-tier.js';
+import { wireSwapProtocolPicker, type ProtocolPickerHandle } from './protocol-picker.js';
 
 interface TokenSymbolResponse {
   symbol?: string;
@@ -218,6 +219,11 @@ const swapEnablePoolAddressCheckbox = document.getElementById('swapEnablePoolAdd
 const swapPoolAddressInput = document.getElementById('swapPoolAddress') as HTMLInputElement | null;
 const swapEnableProtocolCheckbox = document.getElementById('swapEnableProtocol') as HTMLInputElement | null;
 const swapProtocolSelect = document.getElementById('swapProtocol') as HTMLSelectElement | null;
+const swapProtocolPickerRoot = document.getElementById('swapProtocolPicker');
+const swapProtocolPicker: ProtocolPickerHandle | null =
+  swapProtocolSelect && swapProtocolPickerRoot
+    ? wireSwapProtocolPicker(swapProtocolSelect, swapProtocolPickerRoot)
+    : null;
 const swapEnableServiceFeeCheckbox = document.getElementById('swapEnableServiceFee') as HTMLInputElement | null;
 const swapServiceFeeFieldEl = document.getElementById('swapServiceFeeField') as HTMLElement | null;
 const swapServiceFeeInput = document.getElementById('swapServiceFee') as HTMLInputElement | null;
@@ -261,6 +267,7 @@ const swapWalletSignRowEl = document.getElementById('swapWalletSignRow') as HTML
 const swapBuildResultTitleEl = document.getElementById('swapBuildResultTitle') as HTMLElement | null;
 const swapBuildResultMetaEl = document.getElementById('swapBuildResultMeta') as HTMLElement | null;
 const swapAdvancedBuildHintEl = document.getElementById('swapAdvancedBuildHint') as HTMLElement | null;
+const swapAdvancedBuildDetailsEl = document.getElementById('swapAdvancedBuild') as HTMLDetailsElement | null;
 
 interface SolanaWalletProvider {
   isPhantom?: boolean;
@@ -354,9 +361,40 @@ function renderLoadingSpinner(size: 'sm' | 'md' | 'lg' = 'sm'): string {
   return `<span class="inline-loading-spinner inline-loading-spinner--${size}" aria-hidden="true"></span>`;
 }
 
+function isPartnerModeEnabled(): boolean {
+  return swapEnablePartnerCheckbox?.checked === true;
+}
+
+function partnerQuoteMissingFields(): { partnerId: boolean; serviceFee: boolean } {
+  if (!isPartnerModeEnabled()) return { partnerId: false, serviceFee: false };
+  const partnerIdMissing = !Boolean(swapPartnerInput?.value.trim());
+  const feeEnabled = swapEnableServiceFeeCheckbox?.checked === true;
+  const serviceFeeMissing = !feeEnabled || resolveSwapServiceFeePct() <= 0;
+  return { partnerId: partnerIdMissing, serviceFee: serviceFeeMissing };
+}
+
 function isPartnerConfigValid(): boolean {
-  if (swapEnablePartnerCheckbox?.checked !== true) return true;
-  return Boolean(swapPartnerInput?.value.trim());
+  const missing = partnerQuoteMissingFields();
+  return !missing.partnerId && !missing.serviceFee;
+}
+
+function getPartnerQuoteDisabledReason(): string | null {
+  if (!isPartnerModeEnabled()) return null;
+  const missing = partnerQuoteMissingFields();
+  if (missing.partnerId && missing.serviceFee) {
+    return 'Partner: enter Partner ID and set service fee above 0%';
+  }
+  if (missing.partnerId) return 'Partner: enter Partner ID';
+  if (missing.serviceFee) {
+    return swapEnableServiceFeeCheckbox?.checked === true
+      ? 'Partner: set service fee above 0%'
+      : 'Partner: enable service fee';
+  }
+  return null;
+}
+
+function isPartnerQuoteBlockReason(reason: string | null): boolean {
+  return reason !== null && reason.startsWith('Partner:');
 }
 
 function isWalletBalancesGateOpen(wallet: string): boolean {
@@ -398,7 +436,6 @@ function getSwapQuoteDisabledReason(): string | null {
   if (!hasValidSwapWallet()) {
     return wallet ? `Invalid wallet address: "${truncate(wallet, 6, 4)}"` : 'No wallet address';
   }
-  if (!isPartnerConfigValid()) return 'Partner enabled but Partner ID is empty';
   if (!isWalletBalancesGateOpen(wallet)) {
     if (walletBalancesFetching) return 'Wallet balances still loading';
     return `Balances not ready (readyFor=${walletBalancesReadyFor ? truncate(walletBalancesReadyFor, 4, 4) : '—'}, cache=${isWalletBalanceCacheReady(wallet)})`;
@@ -418,6 +455,8 @@ function getSwapQuoteDisabledReason(): string | null {
   }
   const pinErr = getPinRouteQuoteDisabledReason();
   if (pinErr) return pinErr;
+  const partnerErr = getPartnerQuoteDisabledReason();
+  if (partnerErr) return partnerErr;
   return null;
 }
 
@@ -443,18 +482,22 @@ function getPinRouteQuoteDisabledReason(): string | null {
   if (!isSwapRoutePinMode()) return null;
   const missing = pinRouteQuoteMissingFields();
   if (missing.market && missing.protocol) {
-    return 'Pin route: enter market address (40+ chars) and select program';
+    return 'Direct market: enter market address (40+ chars) and select program';
   }
-  if (missing.market) return 'Pin route: enter market address (40+ chars)';
-  if (missing.protocol) return 'Pin route: select program/protocol';
+  if (missing.market) return 'Direct market: enter market address (40+ chars)';
+  if (missing.protocol) return 'Direct market: select program/protocol';
   return null;
 }
 
 function isPinRouteQuoteBlockReason(reason: string | null): boolean {
-  return reason !== null && reason.startsWith('Pin route:');
+  return reason !== null && reason.startsWith('Direct market:');
 }
 
-function flashPinRouteField(el: HTMLElement | null): void {
+function isFlashOnlyQuoteBlockReason(reason: string | null): boolean {
+  return isPinRouteQuoteBlockReason(reason) || isPartnerQuoteBlockReason(reason);
+}
+
+function flashSwapValidationField(el: HTMLElement | null): void {
   if (!el) return;
   el.classList.remove('swap-pin-route-field--flash');
   void el.offsetWidth;
@@ -468,17 +511,60 @@ function flashPinRouteField(el: HTMLElement | null): void {
   );
 }
 
+function flashPinRouteField(el: HTMLElement | null): void {
+  flashSwapValidationField(el);
+}
+
+function flashPillSwitchTrack(checkbox: HTMLInputElement | null | undefined): void {
+  if (!checkbox) return;
+  const track = checkbox.nextElementSibling;
+  if (track instanceof HTMLElement && track.classList.contains('swap-pill-switch__track')) {
+    flashSwapValidationField(track);
+  }
+}
+
 function flashPinRouteQuoteMissingFields(): void {
   const missing = pinRouteQuoteMissingFields();
   if (missing.market) flashPinRouteField(swapPoolAddressInput);
-  if (missing.protocol) flashPinRouteField(swapProtocolSelect);
+  if (missing.protocol) flashPinRouteField(swapProtocolPicker?.trigger ?? swapProtocolSelect);
 }
 
-function tryFlashPinRouteOnQuoteAttempt(): boolean {
+function revealPartnerBuildOptions(): void {
+  if (swapAdvancedBuildDetailsEl) swapAdvancedBuildDetailsEl.open = true;
+}
+
+function flashPartnerQuoteMissingFields(): void {
+  const missing = partnerQuoteMissingFields();
+  if (!missing.partnerId && !missing.serviceFee) return;
+  revealPartnerBuildOptions();
+  if (missing.partnerId) flashSwapValidationField(swapPartnerInput);
+  if (missing.serviceFee) {
+    if (swapEnableServiceFeeCheckbox?.checked === true) {
+      flashSwapValidationField(swapServiceFeeInput);
+    } else {
+      flashPillSwitchTrack(swapEnableServiceFeeCheckbox);
+    }
+  }
+}
+
+function pinRouteQuoteHasMissingFields(): boolean {
   if (!isSwapRoutePinMode()) return false;
   const missing = pinRouteQuoteMissingFields();
-  if (!missing.market && !missing.protocol) return false;
-  flashPinRouteQuoteMissingFields();
+  return missing.market || missing.protocol;
+}
+
+function partnerQuoteHasMissingFields(): boolean {
+  if (!isPartnerModeEnabled()) return false;
+  const missing = partnerQuoteMissingFields();
+  return missing.partnerId || missing.serviceFee;
+}
+
+function tryFlashValidationFieldsOnQuoteAttempt(): boolean {
+  const pinMissing = pinRouteQuoteHasMissingFields();
+  const partnerMissing = partnerQuoteHasMissingFields();
+  if (!pinMissing && !partnerMissing) return false;
+  if (pinMissing) flashPinRouteQuoteMissingFields();
+  if (partnerMissing) flashPartnerQuoteMissingFields();
   return true;
 }
 
@@ -535,7 +621,8 @@ function renderSwapQuoteBtnDebug(diag: SwapQuoteBtnDiagnostics): void {
 }
 
 function isSwapQuoteInputReady(): boolean {
-  return getSwapQuoteDisabledReason() === null;
+  const reason = getSwapQuoteDisabledReason();
+  return reason === null || isFlashOnlyQuoteBlockReason(reason);
 }
 
 function isQuoteBtnInCooldown(): boolean {
@@ -648,7 +735,7 @@ function syncSwapQuoteButtonState(): void {
     return;
   }
   const hardBlocked =
-    diag.blockReason !== null && !isPinRouteQuoteBlockReason(diag.blockReason);
+    diag.blockReason !== null && !isFlashOnlyQuoteBlockReason(diag.blockReason);
   swapQuoteBtn.disabled = hardBlocked || isQuoteBtnInCooldown();
   renderSwapQuoteBtnDebug(diag);
   console.debug('[swap-quote-btn]', diag);
@@ -4073,6 +4160,7 @@ function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
     }
     setWalletGatedDisabled(swapPoolAddressInput, !walletValid);
     setWalletGatedDisabled(swapProtocolSelect, !walletValid);
+    swapProtocolPicker?.setDisabled(!walletValid, SWAP_WALLET_LOCKED_TITLE);
   } else {
     if (swapEnablePoolAddressCheckbox) {
       swapEnablePoolAddressCheckbox.checked = false;
@@ -4084,6 +4172,7 @@ function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
     }
     if (swapPoolAddressInput) swapPoolAddressInput.value = '';
     if (swapProtocolSelect) swapProtocolSelect.selectedIndex = 0;
+    swapProtocolPicker?.syncFromSelect();
     if (swapEnumerateRoutesCheckbox) {
       if (leavingPin) swapEnumerateRoutesCheckbox.checked = true;
       setWalletGatedDisabled(swapEnumerateRoutesCheckbox, !walletValid);
@@ -5213,7 +5302,7 @@ function validateVybeQuoteWallet(): string | null {
 
 async function fetchSwapQuote(): Promise<void> {
   if (!swapInputMintInput || !swapOutputMintInput || !swapAmountInput) return;
-  if (tryFlashPinRouteOnQuoteAttempt()) return;
+  if (tryFlashValidationFieldsOnQuoteAttempt()) return;
   if (!isSwapQuoteInputReady()) return;
   const inputMint = swapInputMintInput.value.trim();
   const outputMint = swapOutputMintInput.value.trim();
@@ -5248,11 +5337,6 @@ async function fetchSwapQuote(): Promise<void> {
       }
       return;
     }
-  }
-
-  if (!isPartnerConfigValid()) {
-    if (swapQuoteError) showInlineError(swapQuoteError, 'Enter a Partner ID or disable Partner.');
-    return;
   }
 
   const router = getSwapRouter();
@@ -6375,9 +6459,18 @@ function wireServiceFeeToggle(): void {
     syncServiceFeePartnerGate();
     invalidateSwapQuoteAfterInputChange();
   };
-  swapEnableServiceFeeCheckbox.addEventListener('change', sync);
-  swapServiceFeeInput?.addEventListener('input', invalidateSwapQuoteAfterInputChange);
-  swapServiceFeeInput?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
+  swapEnableServiceFeeCheckbox.addEventListener('change', () => {
+    sync();
+    syncSwapQuoteButtonState();
+  });
+  swapServiceFeeInput?.addEventListener('input', () => {
+    invalidateSwapQuoteAfterInputChange();
+    syncSwapQuoteButtonState();
+  });
+  swapServiceFeeInput?.addEventListener('change', () => {
+    invalidateSwapQuoteAfterInputChange();
+    syncSwapQuoteButtonState();
+  });
   sync();
 }
 

@@ -5666,13 +5666,14 @@ export function routerDisplayLabel(routerId: string): string {
   return id.charAt(0).toUpperCase() + id.slice(1);
 }
 
-type DexBrand = 'raydium' | 'meteora' | 'pump';
+type DexBrand = 'raydium' | 'meteora' | 'pump' | 'sanctum';
 
 function detectDexBrand(text: string): DexBrand | null {
   const normalized = text.trim().toLowerCase().replace(/[\s_-]/g, '');
   if (!normalized) return null;
   if (normalized.includes('raydium')) return 'raydium';
   if (normalized.includes('meteora')) return 'meteora';
+  if (normalized.includes('sanctum')) return 'sanctum';
   if (
     normalized.includes('pumpfun') ||
     normalized.includes('pumpswap') ||
@@ -5686,6 +5687,7 @@ function detectDexBrand(text: string): DexBrand | null {
 function dexIconSrc(brand: DexBrand): string {
   if (brand === 'raydium') return '/images/raydium-logo.png';
   if (brand === 'meteora') return '/images/meteora-logo.png';
+  if (brand === 'sanctum') return '/images/sanctum-logo.png';
   return '/images/pump-logo.png';
 }
 

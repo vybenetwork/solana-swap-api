@@ -371,11 +371,11 @@
                 <div class="swap-toggle-row__text">
                   <span class="swap-adv-label-row">
                     <span class="label-icon field-icon icon-market swap-adv-label-icon" aria-hidden="true"></span>
-                    <span>Pin route</span>
+                    <span>Use a Specific Market &amp; Protocol (Instant Quote)</span>
                   </span>
-                  <span class="swap-toggle-row__hint">Use a specific market &amp; protocol</span>
+                  <span class="swap-toggle-row__hint">Skips route lookup &amp; RPC discovery for a faster response</span>
                 </div>
-                <label class="swap-pill-switch" title="Pin swap to a market address and DEX protocol instead of discovering routes">
+                <label class="swap-pill-switch" title="Quote and build against a specific market and DEX program — skips route discovery and enumeration for a quicker quote">
                   <input type="checkbox" id="swapPinRoute" class="swap-pill-switch__input" />
                   <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
                 </label>
@@ -431,19 +431,35 @@
                   </span>
                   <span class="swap-toggle-row__hint">Protocol</span>
                 </div>
-                <select id="swapProtocol" class="swap-protocol-select swap-toggle-field__input swap-toggle-field__input--pin-protocol" aria-label="Program">
-                  <option value="">Select a DEX</option>
-                  <option value="PUMPFUN">Pumpfun</option>
-                  <option value="PUMPSWAP">PumpSwap</option>
-                  <option value="RAYDIUMAMMV4">Raydium AMM v4</option>
-                  <option value="RAYDIUMCPMM">Raydium CPMM</option>
-                  <option value="RAYDIUMCLMM">Raydium CLMM</option>
-                  <option value="RAYDIUMLAUNCHLAB">Raydium LaunchLab</option>
-                  <option value="METEORADBC">Meteora DBC</option>
-                  <option value="METEORADAMM2">Meteora DAMM v2</option>
-                  <option value="METEORADLMM">Meteora DLMM</option>
-                  <option value="SANCTUM">Sanctum</option>
-                </select>
+                <div class="swap-protocol-picker" id="swapProtocolPicker">
+                  <select id="swapProtocol" class="swap-protocol-select swap-protocol-select--native" aria-label="Program" tabindex="-1">
+                    <option value="" disabled selected hidden>Select DEX</option>
+                    <option value="PUMPFUN">Pumpfun</option>
+                    <option value="PUMPSWAP">PumpSwap</option>
+                    <option value="RAYDIUMAMMV4">Raydium AMM v4</option>
+                    <option value="RAYDIUMCPMM">Raydium CPMM</option>
+                    <option value="RAYDIUMCLMM">Raydium CLMM</option>
+                    <option value="RAYDIUMLAUNCHLAB">Raydium LaunchLab</option>
+                    <option value="METEORADBC">Meteora DBC</option>
+                    <option value="METEORADAMM2">Meteora DAMM v2</option>
+                    <option value="METEORADLMM">Meteora DLMM</option>
+                    <option value="SANCTUM">Sanctum</option>
+                  </select>
+                  <button
+                    type="button"
+                    id="swapProtocolTrigger"
+                    class="swap-protocol-picker__trigger swap-toggle-field__input swap-toggle-field__input--pin-protocol"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                    aria-label="Program"
+                  >
+                    <span class="swap-protocol-picker__value">
+                      <span class="swap-protocol-picker__label">Select DEX</span>
+                    </span>
+                    <span class="swap-protocol-picker__chevron" aria-hidden="true"></span>
+                  </button>
+                  <ul class="swap-protocol-picker__menu" role="listbox" tabindex="-1" hidden></ul>
+                </div>
               </div>
               <input type="checkbox" id="swapEnablePoolAddress" class="swap-pin-route-sync-checkbox" hidden aria-hidden="true" tabindex="-1" />
               <input type="checkbox" id="swapEnableProtocol" class="swap-pin-route-sync-checkbox" hidden aria-hidden="true" tabindex="-1" />
