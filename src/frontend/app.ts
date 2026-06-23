@@ -137,7 +137,7 @@ const FETCH_TIMEOUT_MS = 90_000;
 const VYBE_QUOTE_TX_REUSE_MS = 10_000;
 const SWAP_TX_CONFIRM_POLL_MS = 1_000;
 const SWAP_TX_CONFIRM_MAX_POLLS = 90;
-const POST_TX_CONFIRM_WALLET_REFRESH_DELAY_MS = 2_000;
+const POST_TX_CONFIRM_WALLET_REFRESH_DELAY_MS = 500;
 /** Default service fee % on build for Vybe, Jupiter, and Titan (0 = none). */
 const DEFAULT_SWAP_SERVICE_FEE_PCT = 0;
 
@@ -211,7 +211,6 @@ const swapRouterFallbackSwitchEl = document.getElementById('swapRouterFallbackSw
 const swapVybeFallbackCheckbox = document.getElementById('swapVybeFallback') as HTMLInputElement | null;
 const swapGaslessCheckbox = document.getElementById('swapGasless') as HTMLInputElement | null;
 const swapAutoSlippageCheckbox = document.getElementById('swapAutoSlippage') as HTMLInputElement | null;
-const swapSimulateCheckbox = document.getElementById('swapSimulate') as HTMLInputElement | null;
 const swapEnablePartnerCheckbox = document.getElementById('swapEnablePartner') as HTMLInputElement | null;
 const swapPartnerFieldEl = document.getElementById('swapPartnerField') as HTMLElement | null;
 const swapPartnerInput = document.getElementById('swapPartner') as HTMLInputElement | null;
@@ -1610,7 +1609,6 @@ function syncSellTokenPickerState(): void {
   setWalletGatedDisabled(swapVybeFallbackCheckbox, !valid);
   setWalletGatedDisabled(swapPinRouteCheckbox, !valid);
   syncSwapRoutePinMode(valid);
-  setWalletGatedDisabled(swapSimulateCheckbox, !valid);
   setWalletGatedDisabled(swapEnablePartnerCheckbox, !valid);
   setWalletGatedDisabled(swapPartnerInput, !valid);
   syncServiceFeePartnerGate(valid);
@@ -4138,7 +4136,6 @@ function collectSwapBuildOptions(): Record<string, unknown> {
     router,
     gasless: swapGaslessCheckbox?.checked === true,
     autoCalculateSlippage: swapAutoSlippageCheckbox?.checked === true,
-    simulate: swapSimulateCheckbox?.checked === true,
     partner:
       swapEnablePartnerCheckbox?.checked === true ? swapPartnerInput?.value.trim() || undefined : undefined,
     poolAddress: isSwapRoutePinMode()
@@ -5513,6 +5510,23 @@ async function pollTransactionConfirmation(
   return { ok: false, err: 'Transaction confirmation timed out' };
 }
 
+/** Confirm each leg in order; refresh only after the last signature is confirmed. */
+async function pollAllTransactionConfirmations(
+  signatures: string[],
+  generation: number | null,
+  onLeg?: (leg: number, total: number) => void,
+): Promise<{ ok: boolean; err?: string }> {
+  const sigs = signatures.map((s) => s.trim()).filter(Boolean);
+  if (sigs.length === 0) return { ok: false, err: 'No transaction signatures' };
+
+  for (let i = 0; i < sigs.length; i++) {
+    if (sigs.length > 1) onLeg?.(i + 1, sigs.length);
+    const confirmed = await pollTransactionConfirmation(sigs[i]!, generation);
+    if (!confirmed.ok) return confirmed;
+  }
+  return { ok: true };
+}
+
 async function signAndSendSwapLegs(txStrings: string[]): Promise<string[]> {
   const txs = txStrings.map((t) => t.trim()).filter(Boolean);
   if (txs.length === 0) throw new Error('No transaction to sign.');
@@ -5568,13 +5582,18 @@ async function runSwapSignDialogFlow(
     if (!lastSig) throw new Error('Wallet did not return a transaction signature.');
 
     if (signatures.length > 1) {
-      appendSwapSignLog(`Sent ${signatures.length} transactions (tracking last: ${lastSig})`, 'neutral');
+      appendSwapSignLog(`Sent ${signatures.length} transactions`, 'neutral');
     } else {
       appendSwapSignLog(`Transaction sent: ${lastSig}`, 'neutral');
     }
 
-    appendSwapSignLog('Confirming transaction', 'pending');
-    const confirmed = await pollTransactionConfirmation(lastSig, generation);
+    appendSwapSignLog(
+      signatures.length > 1 ? 'Confirming transactions' : 'Confirming transaction',
+      'pending',
+    );
+    const confirmed = await pollAllTransactionConfirmations(signatures, generation, (leg, total) => {
+      appendSwapSignLog(`Confirming transaction ${leg} of ${total}`, 'pending');
+    });
     if (generation !== swapSignFlowGeneration) return;
 
     if (!confirmed.ok) {
@@ -6523,7 +6542,6 @@ swapAutoSlippageCheckbox?.addEventListener('change', () => {
 });
 swapSlippageInput?.addEventListener('input', invalidateSwapQuoteAfterInputChange);
 swapSlippageInput?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
-swapSimulateCheckbox?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
 syncSlippageInputForAutoSlippage();
 
 if (swapInputMintInput) {

@@ -458,21 +458,24 @@
               <div class="swap-build-params">
                 <div class="swap-build-toggles">
                   <div class="swap-build-toggles-row">
-                    <div class="swap-toggle-row">
+                    <div class="swap-toggle-row swap-toggle-row--expandable swap-toggle-row--partner">
                       <div class="swap-toggle-row__text">
                         <span class="swap-adv-label-row">
-                          <span class="label-icon field-icon icon-flask swap-adv-label-icon" aria-hidden="true"></span>
-                          <span>Simulate</span>
+                          <span class="label-icon field-icon icon-link swap-adv-label-icon" aria-hidden="true"></span>
+                          <span>Partner</span>
                         </span>
-                        <span class="swap-toggle-row__hint">Simulate only</span>
+                        <span class="swap-toggle-row__hint">Partner ID</span>
                       </div>
-                      <label class="swap-pill-switch" title="Simulate only — no transaction build">
-                        <input type="checkbox" id="swapSimulate" class="swap-pill-switch__input" />
-                        <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
-                      </label>
+                      <div class="swap-toggle-row__controls">
+                        <div class="swap-toggle-row__field swap-toggle-row__field--partner" id="swapPartnerField" hidden>
+                          <input type="text" id="swapPartner" class="swap-toggle-field__input" placeholder="Partner ID" autocomplete="off" spellcheck="false" aria-label="Partner ID" />
+                        </div>
+                        <label class="swap-pill-switch" title="Send Partner ID on build">
+                          <input type="checkbox" id="swapEnablePartner" class="swap-pill-switch__input" />
+                          <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
+                        </label>
+                      </div>
                     </div>
-                  </div>
-                  <div class="swap-build-toggles-row">
                     <div class="swap-toggle-row swap-toggle-row--expandable swap-toggle-row--fee">
                       <div class="swap-toggle-row__text">
                         <span class="swap-adv-label-row">
@@ -490,24 +493,6 @@
                         </div>
                         <label class="swap-pill-switch" title="Add service fee percent on build (requires Partner)">
                           <input type="checkbox" id="swapEnableServiceFee" class="swap-pill-switch__input" disabled />
-                          <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
-                        </label>
-                      </div>
-                    </div>
-                    <div class="swap-toggle-row swap-toggle-row--expandable swap-toggle-row--partner">
-                      <div class="swap-toggle-row__text">
-                        <span class="swap-adv-label-row">
-                          <span class="label-icon field-icon icon-link swap-adv-label-icon" aria-hidden="true"></span>
-                          <span>Partner</span>
-                        </span>
-                        <span class="swap-toggle-row__hint">Partner ID</span>
-                      </div>
-                      <div class="swap-toggle-row__controls">
-                        <div class="swap-toggle-row__field swap-toggle-row__field--partner" id="swapPartnerField" hidden>
-                          <input type="text" id="swapPartner" class="swap-toggle-field__input" placeholder="Partner ID" autocomplete="off" spellcheck="false" aria-label="Partner ID" />
-                        </div>
-                        <label class="swap-pill-switch" title="Send Partner ID on build">
-                          <input type="checkbox" id="swapEnablePartner" class="swap-pill-switch__input" />
                           <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
                         </label>
                       </div>

@@ -936,7 +936,7 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
 function renderWalletBalanceRow(item: WalletBalanceListItem): string {
   const token = walletItemToTokenMeta(item);
   const isSellPicker = activeSide === 'input';
-  const blocked = isSellPicker && isBlockedPickerMint(item.mintAddress);
+  const blocked = isBlockedPickerMint(item.mintAddress);
   const tradable = isSellPicker ? isWalletTokenTradable(item.mintAddress) : true;
   const amountLabel = `${formatBalanceAmount(item.amountUi)} ${token.symbol}`;
   const fiatLabel = formatWalletBalanceUsd(walletItemValueUsd(item));
@@ -945,10 +945,9 @@ function renderWalletBalanceRow(item: WalletBalanceListItem): string {
     : isSellPicker && !tradable
       ? '<span class="token-picker-row-tag token-picker-row-tag--muted">Too small</span>'
       : '';
-  const disabledAttr = isSellPicker && (!tradable || blocked) ? ' disabled aria-disabled="true"' : '';
+  const disabledAttr = blocked || (isSellPicker && !tradable) ? ' disabled aria-disabled="true"' : '';
   const pendingClass = item.enrichmentPending ? ' token-picker-row--pending' : '';
-  const untradableClass =
-    isSellPicker && (!tradable || blocked) ? ' token-picker-row--untradable' : '';
+  const untradableClass = blocked || (isSellPicker && !tradable) ? ' token-picker-row--untradable' : '';
   return `<button type="button" class="token-picker-row token-picker-row--wallet${untradableClass}${pendingClass}" data-mint="${escapeHtml(item.mintAddress)}"${disabledAttr}>
     <span class="token-picker-row-logo">${renderTokenIcon(token)}</span>
     <span class="token-picker-row-main">
