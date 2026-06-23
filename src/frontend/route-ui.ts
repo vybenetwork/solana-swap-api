@@ -6791,6 +6791,135 @@ export function renderRouteDiscoveryLogHtml(meta: Record<string, unknown> | null
   return parts.join('');
 }
 
+function renderSignConfirmTokenIcon(mint: string): string {
+  const m = mint.trim();
+  const meta = m ? getCachedTokenMeta(m) : null;
+  const iconSrc = effectiveTokenIconSrc(meta?.logoUrl);
+  return renderTokenIconImgHtml(iconSrc, 'swap-sign-dialog__token-icon');
+}
+
+function renderSignConfirmAmountLine(
+  ui: number,
+  sym: string,
+  mint: string,
+  detailLabel?: string,
+  modifier = '',
+): string {
+  const symCls = tokenSymColorClass(mint, sym);
+  const detail = detailLabel?.trim()
+    ? `<span class="swap-sign-dialog__amount-detail">${deps.escapeHtml(detailLabel)}</span>`
+    : '';
+  return `<div class="swap-sign-dialog__amount-line${modifier}">
+    ${renderSignConfirmTokenIcon(mint)}
+    <span class="swap-sign-dialog__amount-amt">${deps.escapeHtml(formatPayHeroCostDisplay(ui))}</span>
+    <span class="swap-sign-dialog__amount-sym ${symCls}">${deps.escapeHtml(sym)}</span>${detail}
+  </div>`;
+}
+
+function getSignConfirmPayExtraLines(
+  quote: Record<string, unknown>,
+  sellSym: string,
+): QuotePayHeroCostStackItem[] {
+  const feeLines = getQuotePayHeroWalletFeeLineItems(quote, sellSym);
+  if (feeLines.length > 0) {
+    return [...feeLines, ...getQuotePayHeroCostStack(quote, sellSym).filter((row) => row.kind === 'rent')];
+  }
+  return getQuotePayHeroCostStack(quote, sellSym);
+}
+
+function getSignConfirmReceiveBonusLines(quote: Record<string, unknown>): QuoteReceiveHeroReclaimItem[] {
+  const items = [...getQuoteReceiveHeroReclaimStack(quote)];
+  const seen = new Set(items.map((row) => `${row.mint}:${row.label}`));
+  for (const entry of getQuoteWalletTokenAccountCloses(quote)) {
+    if (entry.category === 'input') continue;
+    const item = closeEntryToReclaimFeeItem(entry);
+    const ui = feeAmountToUi(item.amountRaw, item.mint);
+    if (ui == null || ui <= 0) continue;
+    const mint = isSolMint(item.mint) ? WSOL_MINT : item.mint;
+    const sym = mintSymbolSync(mint);
+    const label =
+      entry.category === 'wsol'
+        ? 'WSOL reclaim'
+        : `${mintSymbolSync(entry.mint)} rent reclaim`;
+    const key = `${mint}:${label}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    items.push({ ui, sym, mint, label });
+  }
+  return items;
+}
+
+/** Sign-confirm dialog: swap leg plus wallet fee / rent lines with token icons. */
+export function renderSignConfirmPayHtml(quote: Record<string, unknown>): string {
+  const sellSym = deps.getSwapInSym();
+  const sellMint = quoteInputMint(quote);
+  const swapLabel = getQuoteSwapLegLabelFromQuote(quote);
+  const swapUi = quoteInAmountUi(quote, sellMint);
+  const lines: string[] = [];
+  if (swapUi != null && swapUi > 0 && sellMint) {
+    lines.push(renderSignConfirmAmountLine(swapUi, sellSym, sellMint));
+  } else if (swapLabel !== '—') {
+    lines.push(
+      `<div class="swap-sign-dialog__amount-line">${renderSignConfirmTokenIcon(sellMint)}<span class="swap-sign-dialog__amount-amt">${deps.escapeHtml(swapLabel)}</span><span class="swap-sign-dialog__amount-sym ${tokenSymColorClass(sellMint, sellSym)}">${deps.escapeHtml(sellSym)}</span></div>`,
+    );
+  }
+  for (const row of getSignConfirmPayExtraLines(quote, sellSym)) {
+    const detail = row.detailLabel ?? payHeroCostRowDetailLabel(row);
+    lines.push(renderSignConfirmAmountLine(row.ui, row.sym, row.mint, detail, ' swap-sign-dialog__amount-line--extra'));
+  }
+  if (lines.length === 0) return '—';
+  return `<div class="swap-sign-dialog__amount-stack">${lines.join('')}</div>`;
+}
+
+/** Sign-confirm dialog: output amount plus rent / WSOL reclaim lines with token icons. */
+export function renderSignConfirmReceiveHtml(quote: Record<string, unknown>): string {
+  const outSym = deps.getSwapOutSym();
+  const outMint = quoteOutputMint(quote);
+  const outAmt = formatQuoteTokenAmount(quote, 'out');
+  const lines: string[] = [];
+  if (outAmt.display !== '—' && outMint) {
+    const outUi = deps.quoteOutputUiAmount(quote);
+    if (outUi != null && outUi > 0) {
+      lines.push(renderSignConfirmAmountLine(outUi, outSym, outMint));
+    } else {
+      lines.push(
+        `<div class="swap-sign-dialog__amount-line">${renderSignConfirmTokenIcon(outMint)}<span class="swap-sign-dialog__amount-amt">${deps.escapeHtml(outAmt.display)}</span><span class="swap-sign-dialog__amount-sym ${tokenSymColorClass(outMint, outSym)}">${deps.escapeHtml(outSym)}</span></div>`,
+      );
+    }
+  }
+  for (const row of getSignConfirmReceiveBonusLines(quote)) {
+    lines.push(
+      renderSignConfirmAmountLine(row.ui, row.sym, row.mint, row.label, ' swap-sign-dialog__amount-line--extra'),
+    );
+  }
+  if (lines.length === 0) return '—';
+  return `<div class="swap-sign-dialog__amount-stack">${lines.join('')}</div>`;
+}
+
+/** Sign-confirm dialog: hop venues with DEX icons, arrows, and router badge. */
+export function renderSignConfirmRouteHtml(
+  quote: Record<string, unknown>,
+  buildPayload?: Record<string, unknown>,
+): string {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const router = quoteRouterBrand(quote);
+  const viaBadge = renderViaRouterBadge(router);
+  if (plan.length === 0) {
+    const details = buildPayload?.details as Record<string, unknown> | undefined;
+    const buildQuote = details?.quote as Record<string, unknown> | undefined;
+    const provider = String(buildPayload?.provider ?? buildQuote?.provider ?? '').trim();
+    const label = provider || 'Vybe';
+    return `<div class="swap-sign-dialog__route-stack"><span class="swap-sign-dialog__route-hop">${renderDexProgramLabel(label)}</span> ${viaBadge}</div>`;
+  }
+  const hops = plan.map((step) => {
+    const label = step.swapInfo?.label?.trim() || 'DEX';
+    const protocol = step.swapInfo?.ammKey ? undefined : step.swapInfo?.label;
+    return `<span class="swap-sign-dialog__route-hop">${renderDexProgramLabel(label, protocol)}</span>`;
+  });
+  const hopChain = hops.join('<span class="swap-sign-dialog__route-arrow" aria-hidden="true">→</span>');
+  return `<div class="swap-sign-dialog__route-stack">${hopChain}<span class="swap-sign-dialog__route-via">${viaBadge}</span></div>`;
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')

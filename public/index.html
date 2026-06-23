@@ -708,7 +708,7 @@
             <span class="swap-sign-dialog__label">You receive</span>
             <span class="swap-sign-dialog__value" id="swapSignConfirmReceive">—</span>
           </div>
-          <div class="swap-sign-dialog__row">
+          <div class="swap-sign-dialog__row swap-sign-dialog__row--route">
             <span class="swap-sign-dialog__label">Route</span>
             <span class="swap-sign-dialog__value" id="swapSignConfirmRoute">—</span>
           </div>
@@ -716,8 +716,11 @@
         <div class="swap-sign-dialog__logs" id="swapSignConfirmLogs" aria-live="polite" aria-relevant="additions"></div>
         <div class="swap-sign-dialog__actions">
           <button type="button" class="swap-ghost-btn" id="swapSignConfirmCancel">Cancel</button>
-          <button type="button" class="swap-ghost-btn swap-sign-dialog__solscan" id="swapSignConfirmSolscan" hidden>View TX on Solscan</button>
-          <button type="button" class="swap-ghost-btn swap-sign-dialog__requote" id="swapSignConfirmRequote" hidden>Requote + Rebuild</button>
+          <div class="swap-sign-dialog__txids" id="swapSignConfirmTxids" hidden></div>
+          <button type="button" class="swap-ghost-btn swap-sign-dialog__requote swap-sign-dialog__btn-with-icon" id="swapSignConfirmRequote" hidden>
+            <span class="swap-sign-dialog__btn-icon swap-sign-dialog__btn-icon--requote" aria-hidden="true"></span>
+            <span>Requote/Rebuild</span>
+          </button>
         </div>
       </div>
     </dialog>

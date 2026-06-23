@@ -112,6 +112,9 @@ import {
   renderQuotePayHeroSubHtml,
   renderQuoteReceiveHeroValueHtml,
   renderQuoteReceiveHeroSubHtml,
+  renderSignConfirmPayHtml,
+  renderSignConfirmReceiveHtml,
+  renderSignConfirmRouteHtml,
   renderRouteDiscoveryLogHtml,
   type EnumeratedRoutesUiState,
 } from './route-ui.js';
@@ -327,7 +330,7 @@ const swapSignConfirmRouteEl = document.getElementById('swapSignConfirmRoute') a
 const swapSignConfirmLogsEl = document.getElementById('swapSignConfirmLogs') as HTMLElement | null;
 const swapSignConfirmCancelEl = document.getElementById('swapSignConfirmCancel') as HTMLButtonElement | null;
 const swapSignConfirmDismissEl = document.getElementById('swapSignConfirmDismiss') as HTMLButtonElement | null;
-const swapSignConfirmSolscanEl = document.getElementById('swapSignConfirmSolscan') as HTMLButtonElement | null;
+const swapSignConfirmTxidsEl = document.getElementById('swapSignConfirmTxids') as HTMLElement | null;
 const swapSignConfirmRequoteEl = document.getElementById('swapSignConfirmRequote') as HTMLButtonElement | null;
 const swapPairCardsEl = document.getElementById('swapPairCards') as HTMLElement | null;
 const swapQuoteDetailsEmptyEl = document.getElementById('swapQuoteDetailsEmpty') as HTMLElement | null;
@@ -5411,50 +5414,29 @@ async function fetchSwapQuote(): Promise<void> {
   }
 }
 
-function formatSignConfirmRoute(
-  quote: Record<string, unknown>,
-  buildPayload?: Record<string, unknown>,
-): string {
-  const details = buildPayload?.details as Record<string, unknown> | undefined;
-  const buildQuote = details?.quote as Record<string, unknown> | undefined;
-  const provider = String(buildPayload?.provider ?? buildQuote?.provider ?? '').trim();
-  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
-  const labels = plan
-    .map((step) => step.swapInfo?.label?.trim())
-    .filter((label): label is string => !!label);
-  if (labels.length) return [...new Set(labels)].join(' → ');
-  if (provider) return provider;
-  return 'Vybe';
-}
-
-function getSignConfirmSummary(
-  quote: Record<string, unknown>,
-  buildPayload?: Record<string, unknown>,
-): { pay: string; receive: string; route: string } {
-  const inSym = getSwapInSym();
-  const outSym = getSwapOutSym();
-  const payAmt = getQuoteWalletPayLabelFromQuote(quote);
-  const outAmt = formatQuoteTokenAmount(quote, 'out');
-  return {
-    pay: `${payAmt} ${inSym}`,
-    receive: `${outAmt.display} ${outSym}`,
-    route: formatSignConfirmRoute(quote, buildPayload),
-  };
-}
-
 let swapSignFlowGeneration = 0;
 let swapSignPendingLogEl: HTMLElement | null = null;
 let swapSignDialogSuccess = false;
 let swapSignSuccessContext: {
   soldMint: string;
   buyMint: string;
-  signature: string;
+  signatures: string[];
 } | null = null;
 
 type SwapSignLogTone = 'neutral' | 'pending' | 'success' | 'error';
 
 function sleepMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+const SWAP_SIGN_CANCEL_BUTTON_HTML = 'Cancel';
+const SWAP_SIGN_RETURN_BUTTON_HTML =
+  '<span class="swap-sign-dialog__btn-with-icon"><span class="swap-sign-dialog__btn-icon swap-sign-dialog__btn-icon--return" aria-hidden="true"></span><span>Return to Trading</span></span>';
+
+function setSwapSignCancelButtonLabel(mode: 'cancel' | 'return'): void {
+  if (!swapSignConfirmCancelEl) return;
+  swapSignConfirmCancelEl.innerHTML =
+    mode === 'return' ? SWAP_SIGN_RETURN_BUTTON_HTML : SWAP_SIGN_CANCEL_BUTTON_HTML;
 }
 
 function resetSwapSignDialogUi(): void {
@@ -5465,12 +5447,37 @@ function resetSwapSignDialogUi(): void {
   if (swapSignConfirmCancelEl) {
     swapSignConfirmCancelEl.hidden = false;
     swapSignConfirmCancelEl.disabled = false;
-    swapSignConfirmCancelEl.textContent = 'Cancel';
+    setSwapSignCancelButtonLabel('cancel');
   }
-  if (swapSignConfirmSolscanEl) swapSignConfirmSolscanEl.hidden = true;
+  setSwapSignTxidButtonsState('hidden');
   if (swapSignConfirmRequoteEl) {
     swapSignConfirmRequoteEl.hidden = true;
     swapSignConfirmRequoteEl.disabled = false;
+  }
+}
+
+function setSwapSignTxidButtonsState(mode: 'hidden' | 'pending' | 'ready'): void {
+  if (!swapSignConfirmTxidsEl) return;
+  swapSignConfirmTxidsEl.innerHTML = '';
+  const sigs = (swapSignSuccessContext?.signatures ?? []).map((s) => s.trim()).filter(Boolean);
+  if (mode === 'hidden' || sigs.length === 0) {
+    swapSignConfirmTxidsEl.hidden = true;
+    return;
+  }
+  swapSignConfirmTxidsEl.hidden = false;
+  const multi = sigs.length > 1;
+  const enabled = mode === 'ready';
+  for (let i = 0; i < sigs.length; i++) {
+    const sig = sigs[i]!;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'swap-ghost-btn swap-sign-dialog__solscan swap-sign-dialog__btn-with-icon';
+    if (!enabled) btn.classList.add('swap-sign-dialog__solscan--pending');
+    btn.disabled = !enabled;
+    btn.dataset.signature = sig;
+    const label = multi ? `View TXID #${i + 1}` : 'View TXID';
+    btn.innerHTML = `<img class="swap-sign-dialog__btn-logo" src="/images/solscan-logo.png" alt="" width="16" height="16" decoding="async" /><span>${label}</span>`;
+    swapSignConfirmTxidsEl.appendChild(btn);
   }
 }
 
@@ -5479,9 +5486,15 @@ function setSwapSignDialogActions(state: 'running' | 'success' | 'failed'): void
   if (swapSignConfirmCancelEl) {
     swapSignConfirmCancelEl.hidden = false;
     swapSignConfirmCancelEl.disabled = false;
-    swapSignConfirmCancelEl.textContent = state === 'success' ? 'Close' : 'Cancel';
+    setSwapSignCancelButtonLabel(state === 'success' ? 'return' : 'cancel');
   }
-  if (swapSignConfirmSolscanEl) swapSignConfirmSolscanEl.hidden = state !== 'success';
+  if (state === 'success') {
+    setSwapSignTxidButtonsState('ready');
+  } else if ((swapSignSuccessContext?.signatures ?? []).some((s) => s.trim())) {
+    setSwapSignTxidButtonsState('pending');
+  } else {
+    setSwapSignTxidButtonsState('hidden');
+  }
   if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.hidden = state !== 'failed';
 }
 
@@ -5504,10 +5517,9 @@ function setSwapSignDialogSummary(
   quote: Record<string, unknown>,
   buildPayload?: Record<string, unknown>,
 ): void {
-  const summary = getSignConfirmSummary(quote, buildPayload);
-  if (swapSignConfirmPayEl) swapSignConfirmPayEl.textContent = summary.pay;
-  if (swapSignConfirmReceiveEl) swapSignConfirmReceiveEl.textContent = summary.receive;
-  if (swapSignConfirmRouteEl) swapSignConfirmRouteEl.textContent = summary.route;
+  if (swapSignConfirmPayEl) swapSignConfirmPayEl.innerHTML = renderSignConfirmPayHtml(quote);
+  if (swapSignConfirmReceiveEl) swapSignConfirmReceiveEl.innerHTML = renderSignConfirmReceiveHtml(quote);
+  if (swapSignConfirmRouteEl) swapSignConfirmRouteEl.innerHTML = renderSignConfirmRouteHtml(quote, buildPayload);
 }
 
 function openSwapSignDialog(quote: Record<string, unknown>, buildPayload?: Record<string, unknown>): void {
@@ -5552,11 +5564,11 @@ async function closeSwapSignDialogAfterSuccess(): Promise<void> {
   syncSwapSellAmountUi();
 }
 
-function openSwapSignTxOnSolscan(): void {
-  const signature = swapSignSuccessContext?.signature.trim();
-  if (!signature) return;
+function openSignatureOnSolscan(signature: string): void {
+  const sig = signature.trim();
+  if (!sig) return;
   window.open(
-    `https://solscan.io/tx/${encodeURIComponent(signature)}`,
+    `https://solscan.io/tx/${encodeURIComponent(sig)}`,
     '_blank',
     'noopener,noreferrer',
   );
@@ -5671,6 +5683,13 @@ async function runSwapSignDialogFlow(
       appendSwapSignLog(`Transaction sent: ${lastSig}`, 'neutral');
     }
 
+    swapSignSuccessContext = {
+      soldMint: swapInputMintInput?.value.trim() ?? '',
+      buyMint: swapOutputMintInput?.value.trim() ?? '',
+      signatures,
+    };
+    setSwapSignTxidButtonsState('pending');
+
     appendSwapSignLog(
       signatures.length > 1 ? 'Confirming transactions' : 'Confirming transaction',
       'pending',
@@ -5700,7 +5719,7 @@ async function runSwapSignDialogFlow(
     swapSignSuccessContext = {
       soldMint: swapInputMintInput?.value.trim() ?? '',
       buyMint: swapOutputMintInput?.value.trim() ?? '',
-      signature: lastSig,
+      signatures,
     };
     scheduleWalletRefreshAfterTxConfirm({
       soldMint: swapSignSuccessContext.soldMint,
@@ -6618,7 +6637,12 @@ function handleSwapSignDialogDismiss(): void {
 
 swapSignConfirmCancelEl?.addEventListener('click', () => handleSwapSignDialogDismiss());
 swapSignConfirmDismissEl?.addEventListener('click', () => handleSwapSignDialogDismiss());
-swapSignConfirmSolscanEl?.addEventListener('click', () => openSwapSignTxOnSolscan());
+swapSignConfirmTxidsEl?.addEventListener('click', (event) => {
+  const btn = (event.target as HTMLElement).closest('button[data-signature]') as HTMLButtonElement | null;
+  if (!btn || btn.disabled) return;
+  const sig = btn.dataset.signature?.trim();
+  if (sig) openSignatureOnSolscan(sig);
+});
 swapSignConfirmRequoteEl?.addEventListener('click', () => void handleSwapSignDialogRequoteRebuild());
 swapSignConfirmDialogEl?.addEventListener('cancel', (event) => {
   event.preventDefault();

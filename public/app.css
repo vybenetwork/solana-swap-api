@@ -7199,6 +7199,7 @@ tr:hover td {
   cursor: pointer;
   text-align: left;
   padding-right: 1.1rem;
+  font-size: 0.67rem;
 }
 
 .swap-protocol-picker__trigger:disabled {
@@ -8550,8 +8551,72 @@ tr:hover td {
   color: #93c5fd;
 }
 
-.swap-sign-dialog__solscan:hover {
+.swap-sign-dialog__solscan:disabled,
+.swap-sign-dialog__solscan--pending {
+  opacity: 0.45;
+  cursor: not-allowed;
+  color: #71717a;
+}
+
+.swap-sign-dialog__solscan:disabled:hover,
+.swap-sign-dialog__solscan--pending:hover {
+  color: #71717a;
+}
+
+.swap-sign-dialog__solscan:hover:not(:disabled):not(.swap-sign-dialog__solscan--pending) {
   color: #bfdbfe;
+}
+
+.swap-sign-dialog__btn-with-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.swap-sign-dialog__btn-logo {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  object-fit: contain;
+  border-radius: 999px;
+}
+
+.swap-sign-dialog__btn-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  color: currentColor;
+}
+
+.swap-sign-dialog__btn-icon--return::before {
+  content: '';
+  display: block;
+  width: 0.85rem;
+  height: 0.85rem;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M10 19a1 1 0 0 1-.7-.3l-7-7a1 1 0 0 1 0-1.4l7-7a1 1 0 0 1 1.4 1.4L5.42 11H20a1 1 0 1 1 0 2H5.42l4.3 4.3a1 1 0 0 1-.72 1.7Z'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M10 19a1 1 0 0 1-.7-.3l-7-7a1 1 0 0 1 0-1.4l7-7a1 1 0 0 1 1.4 1.4L5.42 11H20a1 1 0 1 1 0 2H5.42l4.3 4.3a1 1 0 0 1-.72 1.7Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.swap-sign-dialog__btn-icon--requote::before {
+  content: '';
+  display: block;
+  width: 0.85rem;
+  height: 0.85rem;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35Z'/%3E%3C/svg%3E") center / contain no-repeat;
+          mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='black' d='M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35Z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.swap-sign-dialog__txids {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.4rem;
 }
 
 .swap-sign-dialog__requote {
@@ -8576,6 +8641,76 @@ tr:hover td {
   font-weight: 600;
   color: #f4f4f5;
   text-align: right;
+  min-width: 0;
+}
+
+.swap-sign-dialog__amount-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.28rem;
+}
+
+.swap-sign-dialog__amount-line {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  max-width: 100%;
+}
+
+.swap-sign-dialog__amount-line--extra {
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: #a1a1aa;
+}
+
+.swap-sign-dialog__token-icon {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.swap-sign-dialog__amount-amt {
+  font-variant-numeric: tabular-nums;
+}
+
+.swap-sign-dialog__amount-detail {
+  font-size: 0.68rem;
+  font-weight: 500;
+  color: #71717a;
+}
+
+.swap-sign-dialog__route-stack {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.3rem 0.2rem;
+  max-width: 100%;
+}
+
+.swap-sign-dialog__route-hop {
+  display: inline-flex;
+  align-items: center;
+}
+
+.swap-sign-dialog__route-arrow {
+  color: #71717a;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.swap-sign-dialog__route-via {
+  display: inline-flex;
+  align-items: center;
+}
+
+.swap-sign-dialog__row--route {
+  align-items: flex-start;
 }
 
 .swap-sign-dialog__actions {
