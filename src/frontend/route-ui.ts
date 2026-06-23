@@ -106,6 +106,8 @@ export interface EnumeratedRouteUiEntry {
     protocol?: string;
     programLabel?: string;
     tradeCount?: number;
+    buyCount?: number;
+    sellCount?: number;
     liquidity?: number;
   };
   quote?: Record<string, unknown>;
@@ -118,6 +120,31 @@ export interface EnumeratedRoutesUiState {
 }
 
 const ROUTE_OPTIONS_UI_INITIAL = 3;
+
+type PoolTradeActivityUi = {
+  tradeCount?: number;
+  buyCount?: number;
+  sellCount?: number;
+};
+
+function normalizePoolTradeActivityUi(partial?: PoolTradeActivityUi | null) {
+  const buyCount = Math.max(0, Number(partial?.buyCount ?? 0)) || 0;
+  const sellCount = Math.max(0, Number(partial?.sellCount ?? 0)) || 0;
+  const explicit = Number(partial?.tradeCount ?? NaN);
+  const tradeCount =
+    Number.isFinite(explicit) && explicit > 0 ? explicit : buyCount + sellCount;
+  return { tradeCount, buyCount, sellCount };
+}
+
+function routesHaveTradeActivity(routes: EnumeratedRouteUiEntry[]): boolean {
+  return routes.some((route) => normalizePoolTradeActivityUi(route.candidate).tradeCount > 0);
+}
+
+function formatPoolTradeActivityLabel(activity?: PoolTradeActivityUi | null): string {
+  const { tradeCount, buyCount, sellCount } = normalizePoolTradeActivityUi(activity);
+  if (tradeCount <= 0) return '—';
+  return `${tradeCount} (${sellCount} sell · ${buyCount} buy)`;
+}
 
 function shortPoolId(address: string | undefined): string {
   const a = (address ?? '').trim();
@@ -193,6 +220,8 @@ function renderRouteOptionMetrics(
   quote: Record<string, unknown>,
   outLabel: string,
   liquidity: number | undefined,
+  tradeActivity?: PoolTradeActivityUi | null,
+  showTradeActivity = false,
 ): string {
   const liq =
     liquidity != null && liquidity > 0 ? formatLiquidityUsdCompact(liquidity) : '—';
@@ -204,11 +233,20 @@ function renderRouteOptionMetrics(
     receiveUsd != null && Number.isFinite(receiveUsd)
       ? `$${receiveUsd.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
       : '—';
+  const activity = normalizePoolTradeActivityUi(tradeActivity);
+  const tradesMetric =
+    showTradeActivity && activity.tradeCount > 0
+      ? `<div class="swap-route-option__metric">
+        <dt>Trades</dt>
+        <dd>${deps.escapeHtml(formatPoolTradeActivityLabel(activity))}</dd>
+      </div>`
+      : '';
   return `<dl class="swap-route-option__metrics">
       <div class="swap-route-option__metric">
         <dt>Liquidity</dt>
         <dd${liqTierClass ? ` class="${liqTierClass}"` : ''}>${deps.escapeHtml(liq)}</dd>
       </div>
+      ${tradesMetric}
       <div class="swap-route-option__metric swap-route-option__metric--output">
         <dt>Output</dt>
         <dd><span class="swap-route-option__metric-out">${deps.escapeHtml(outLabel)}</span></dd>
@@ -346,6 +384,7 @@ function renderRouteOptionCard(
   selectedIndex: number,
   displayRank: number,
   highlight: RouteOptionHighlightBadge | undefined,
+  showTradeActivity: boolean,
 ): string {
   const idx = route.index;
   const active = idx === selectedIndex;
@@ -380,7 +419,7 @@ function renderRouteOptionCard(
       </div>
       <div class="swap-route-option__title">${renderDexProgramLabel(programLabel, route.candidate?.protocol)}</div>
       ${renderRoutePoolLink(route.candidate?.marketAddress)}
-      ${renderRouteOptionMetrics(quote, outLabel, liquidity)}
+      ${renderRouteOptionMetrics(quote, outLabel, liquidity, route.candidate, showTradeActivity)}
     </div>`;
 }
 
@@ -405,8 +444,9 @@ export function renderRouteOptionsPanel(): void {
     : Math.min(ROUTE_OPTIONS_UI_INITIAL, state.routes.length);
   const hiddenCount = state.routes.length - visibleCount;
   const highlightBadges = computeRouteHighlightBadges(state.routes);
+  const showTradeActivity = routesHaveTradeActivity(state.routes);
   const cards = state.routes.slice(0, visibleCount).map((route, i) =>
-    renderRouteOptionCard(route, state.selectedIndex, i + 1, highlightBadges.get(route.index)),
+    renderRouteOptionCard(route, state.selectedIndex, i + 1, highlightBadges.get(route.index), showTradeActivity),
   );
   if (!state.expanded && state.routes.length < ROUTE_OPTIONS_UI_INITIAL) {
     for (let rank = state.routes.length + 1; rank <= ROUTE_OPTIONS_UI_INITIAL; rank++) {
@@ -6539,21 +6579,21 @@ function shortSolAddress(addr: string, head = 4, tail = 4): string {
   return `${a.slice(0, head)}…${a.slice(-tail)}`;
 }
 
-const ROUTE_VIA_TRADES_DISABLED_LABELS: Record<string, string> = {
+const ROUTE_DISCOVERY_DISABLED_LABELS: Record<string, string> = {
   discovery_off: 'Market fetch mode not set',
   manual_pool: 'Manual pool pin — trade routing skipped',
   manual_protocol: 'Manual protocol set — trade routing skipped',
   router_not_vybe: 'Router is not Vybe — trade routing skipped',
 };
 
-const ROUTE_VIA_TRADES_OUTCOME_LABELS: Record<string, string> = {
+const ROUTE_DISCOVERY_OUTCOME_LABELS: Record<string, string> = {
   direct: 'Direct pool build succeeded',
   multi: 'Multiple routes enumerated',
   unpinned_vybe: 'Trade queue exhausted — unpinned Vybe RPC scan',
   rpc_only: 'Vybe RPC pool scan (trades skipped)',
   titan_fallback: 'Trade queue exhausted — switched to Titan',
   jupiter_fallback: 'Trade queue exhausted — switched to Jupiter',
-  skipped: 'Route via Trades not used',
+  skipped: 'Route discovery not used',
   failed: 'Trade queue failed',
 };
 
@@ -6583,21 +6623,21 @@ export function formatTradesFetchLookback(oldestBlockTimeSec: unknown): string {
   return `last ${days} day${days === 1 ? '' : 's'}`;
 }
 
-export function renderRouteViaTradesLogHtml(meta: Record<string, unknown> | null | undefined): string {
+export function renderRouteDiscoveryLogHtml(meta: Record<string, unknown> | null | undefined): string {
   if (!meta || typeof meta !== 'object') {
-    return '<p class="routing-empty">Route via Trades log appears on Vybe quotes.</p>';
+    return '<p class="routing-empty">Route discovery log appears on Vybe quotes.</p>';
   }
 
   const enabled = meta.enabled === true;
   const outcome = String(meta.outcome ?? '');
-  const outcomeLabel = ROUTE_VIA_TRADES_OUTCOME_LABELS[outcome] ?? (outcome || '—');
+  const outcomeLabel = ROUTE_DISCOVERY_OUTCOME_LABELS[outcome] ?? (outcome || '—');
   const parts: string[] = [];
 
   parts.push('<div class="rvt-log">');
   parts.push('<div class="rvt-log__summary">');
   if (!enabled) {
     const reason = String(meta.disabledReason ?? '');
-    const reasonLabel = ROUTE_VIA_TRADES_DISABLED_LABELS[reason] ?? (reason || 'Disabled');
+    const reasonLabel = ROUTE_DISCOVERY_DISABLED_LABELS[reason] ?? (reason || 'Disabled');
     parts.push(`<p class="rvt-log__line rvt-log__line--muted"><strong>Skipped:</strong> ${escapeHtml(reasonLabel)}</p>`);
   } else {
     parts.push(`<p class="rvt-log__line"><strong>Outcome:</strong> ${escapeHtml(outcomeLabel)}</p>`);
@@ -6634,11 +6674,15 @@ export function renderRouteViaTradesLogHtml(meta: Record<string, unknown> | null
       const label = String(row.programLabel ?? '');
       const addr = String(row.marketAddress ?? '');
       const count = Number(row.tradeCount ?? 0);
+      const buyCount = Number(row.buyCount ?? 0);
+      const sellCount = Number(row.sellCount ?? 0);
+      const countLabel =
+        count > 0 ? `${count} (${sellCount} sell · ${buyCount} buy)` : '0';
       const eligible = row.eligible === true;
       const supported = row.supportedProgram === true;
       parts.push(
         `<li class="rvt-log__item${eligible ? '' : ' rvt-log__item--fail'}">` +
-          `#${rank} <strong>${count}</strong> trades · ${escapeHtml(label)} ` +
+          `#${rank} <strong>${escapeHtml(countLabel)}</strong> trades · ${escapeHtml(label)} ` +
           `<code class="rvt-log__addr" title="${escapeHtml(addr)}">${escapeHtml(shortSolAddress(addr, 6, 6))}</code> ` +
           `${eligible ? '<span class="rvt-log__badge rvt-log__badge--ok">queued</span>' : supported ? '<span class="rvt-log__badge rvt-log__badge--fail">&lt;5%</span>' : '<span class="rvt-log__badge rvt-log__badge--fail">unsupported</span>'}` +
           `</li>`,
@@ -6655,9 +6699,13 @@ export function renderRouteViaTradesLogHtml(meta: Record<string, unknown> | null
       const label = String(q.programLabel ?? '');
       const addr = String(q.marketAddress ?? '');
       const count = Number(q.tradeCount ?? 0);
+      const buyCount = Number(q.buyCount ?? 0);
+      const sellCount = Number(q.sellCount ?? 0);
+      const countLabel =
+        count > 0 ? `${count} (${sellCount} sell · ${buyCount} buy)` : '0';
       parts.push(
         `<li class="rvt-log__item"><span class="rvt-log__badge rvt-log__badge--queue">#${idx}</span> ` +
-          `<strong>${count}</strong> trades · ${escapeHtml(label)} ` +
+          `<strong>${escapeHtml(countLabel)}</strong> trades · ${escapeHtml(label)} ` +
           `<code class="rvt-log__addr" title="${escapeHtml(addr)}">${escapeHtml(shortSolAddress(addr, 6, 6))}</code></li>`,
       );
     }

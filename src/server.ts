@@ -35,7 +35,7 @@ import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.j
 import { quoteFromBuild } from './api/map-enrichment.js';
 import { createDataHttpClient } from './api/client.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams, type TradesSortField } from './api/trades.js';
-import { fetchRankedTopMarketsFromTrades } from './api/route-via-trades.js';
+import { fetchRankedTopMarketsFromTrades } from './api/route-discovery.js';
 
 loadEnv();
 const tradingApiKey = getTradingApiKey();
@@ -443,8 +443,8 @@ app.get('/api/trades', async (req: Request, res: Response) => {
   }
 });
 
-/** GET /api/route-via-trades/top-markets — rank top trade markets for a mint pair. */
-app.get('/api/route-via-trades/top-markets', async (req: Request, res: Response) => {
+/** GET /api/route-discovery/top-markets — rank top trade markets for a mint pair. */
+app.get('/api/route-discovery/top-markets', async (req: Request, res: Response) => {
   try {
     const inputMintAddress = q(req, 'inputMintAddress').trim();
     const outputMintAddress = q(req, 'outputMintAddress').trim();
@@ -516,7 +516,7 @@ app.get('/api/trading/swap-quote', async (req: Request, res: Response) => {
           : { _buildUnavailable: true }),
         _tokenStats: result.tokenStats,
         _quoteSource: result.quote._quoteSource ?? 'router-quote-build',
-        ...(result.routeViaTrades ? { _routeViaTrades: result.routeViaTrades } : {}),
+        ...(result.routeDiscovery ? { _routeDiscovery: result.routeDiscovery } : {}),
       });
     }
 
@@ -558,7 +558,7 @@ app.post('/api/trading/vybe-quote', async (req: Request, res: Response) => {
         : { _buildUnavailable: true }),
       _tokenStats: result.tokenStats,
       _quoteSource: result.quote._quoteSource ?? 'vybe-price-build',
-      ...(result.routeViaTrades ? { _routeViaTrades: result.routeViaTrades } : {}),
+      ...(result.routeDiscovery ? { _routeDiscovery: result.routeDiscovery } : {}),
     });
   } catch (err) {
     const status =

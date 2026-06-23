@@ -2972,7 +2972,7 @@ tr:hover td {
 .swap-quote-details-collapsible .swap-quote-details-route-steps,
 .swap-quote-details-collapsible .swap-quote-details-fields,
 .swap-quote-details-collapsible .swap-quote-raw-json,
-.swap-quote-details-collapsible .swap-route-via-trades-log {
+.swap-quote-details-collapsible .swap-route-discovery-log {
   padding: 0 0.75rem 0.65rem;
   border-top: 1px solid #27272a;
 }
@@ -2983,7 +2983,7 @@ tr:hover td {
   overflow: auto;
 }
 
-.swap-route-via-trades-log {
+.swap-route-discovery-log {
   font-size: 0.8125rem;
   line-height: 1.45;
   max-height: 360px;
@@ -6957,11 +6957,11 @@ tr:hover td {
   padding-left: 1.35rem;
 }
 
-.swap-toggle-row--route-via-trades .swap-adv-label-row {
+.swap-toggle-row--route-discovery .swap-adv-label-row {
   font-size: 0.65rem;
 }
 
-.swap-toggle-row--route-via-trades .swap-toggle-row__hint {
+.swap-toggle-row--route-discovery .swap-toggle-row__hint {
   font-size: 0.55rem;
 }
 

@@ -1,5 +1,5 @@
 /**
- * Route via Trades: rank recent trade markets for a mint pair and map program → Vybe protocol.
+ * Route discovery: rank recent trade markets for a mint pair and map program → Vybe protocol.
  * Supported programs mirror ix-builder-api (Vybe swap router direct integrations).
  */
 
@@ -34,12 +34,12 @@ import { isQuoteBridgeBuild, type QuoteBridgeBuildDetails } from './quote-bridge
 import { toVybeSwapMint } from './sol-mints.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams } from './trades.js';
 
-export const ROUTE_VIA_TRADES_LIMIT = 1000;
-export const ROUTE_VIA_TRADES_DISPLAY_MARKETS = 15;
+export const ROUTE_DISCOVERY_LIMIT = 1000;
+export const ROUTE_DISCOVERY_DISPLAY_MARKETS = 15;
 /** Keep pools with tradeCount >= this fraction × busiest pool (e.g. 0.05 → ≥5%). */
-export const ROUTE_VIA_TRADES_MIN_COUNT_FRACTION = 0.05;
+export const ROUTE_DISCOVERY_MIN_COUNT_FRACTION = 0.05;
 /** Max pinned build attempts from the eligible trade-ranked queue. */
-export const ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS = 6;
+export const ROUTE_DISCOVERY_MAX_QUEUE_ATTEMPTS = 6;
 export const ROUTE_ENUMERATE_LIQUIDITY_SLOTS = 5;
 /** Max sim-valid routes returned to the client after quote ranking. */
 export const ROUTE_ENUMERATE_MAX_ROUTES = 3;
@@ -57,22 +57,71 @@ export const ROUTE_DISCOVERY_RPC_SKIP_MIN = 3;
 
 export const TRADES_API_UNAVAILABLE_MESSAGE =
   'Vybe GET /v4/trades unavailable (404). Falling back to Jupiter.';
-/** @deprecated Use ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS */
-export const ROUTE_VIA_TRADES_TOP_MARKETS = ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS;
+/** @deprecated Use ROUTE_DISCOVERY_MAX_QUEUE_ATTEMPTS */
+export const ROUTE_DISCOVERY_TOP_MARKETS = ROUTE_DISCOVERY_MAX_QUEUE_ATTEMPTS;
 
 export interface TradeMarketCandidate {
   marketAddress: string;
   programAddress: string;
   protocol?: SwapProxyProtocol;
   ixBuilderProtocol?: string;
+  /** Total recent trades on this pool for the pair (buyCount + sellCount). */
   tradeCount: number;
+  /** Trades where base = output mint and quote = input mint (buy input). */
+  buyCount: number;
+  /** Trades where base = input mint and quote = output mint (sell input). */
+  sellCount: number;
   /** Human-readable DEX name (Raydium AMM v4, Meteora DLMM, …). */
   programLabel?: string;
   /** Liquidity score from PG markets snapshot (markets discovery only). */
   liquidity?: number;
+  /** Discovery source tag from ix-builder (`trades` | `markets` | `rpc`). */
+  discoverySource?: string;
 }
 
-/** Ranked row included in `_routeViaTrades.topMarkets` on quote responses. */
+export interface PoolTradeActivity {
+  tradeCount: number;
+  buyCount: number;
+  sellCount: number;
+}
+
+export function normalizePoolTradeActivity(
+  partial?: Partial<PoolTradeActivity> | null,
+): PoolTradeActivity {
+  const buyCount = Math.max(0, Number(partial?.buyCount ?? 0)) || 0;
+  const sellCount = Math.max(0, Number(partial?.sellCount ?? 0)) || 0;
+  const explicitTotal = Number(partial?.tradeCount ?? NaN);
+  const tradeCount =
+    Number.isFinite(explicitTotal) && explicitTotal > 0 ? explicitTotal : buyCount + sellCount;
+  return { tradeCount, buyCount, sellCount };
+}
+
+export function poolTradeActivityFromBuild(
+  build: import('../types/swap.js').VybeSwapBuildResponse,
+): PoolTradeActivity {
+  const raw = build as Record<string, unknown>;
+  return normalizePoolTradeActivity({
+    tradeCount: Number(raw.tradeCount),
+    buyCount: Number(raw.buyCount),
+    sellCount: Number(raw.sellCount),
+  });
+}
+
+export function poolDiscoverySourceFromBuild(
+  build: import('../types/swap.js').VybeSwapBuildResponse,
+): string | undefined {
+  const raw = build as Record<string, unknown>;
+  const source = raw.source ?? raw.discoverySource;
+  return typeof source === 'string' && source.trim() ? source.trim() : undefined;
+}
+
+export function hasAnyPoolTradeActivity(
+  ...items: Array<Partial<PoolTradeActivity> | null | undefined>
+): boolean {
+  return items.some((item) => normalizePoolTradeActivity(item).tradeCount > 0);
+}
+
+/** Ranked row included in `_routeDiscovery.topMarkets` on quote responses. */
 export interface RankedTradeMarket extends TradeMarketCandidate {
   rank: number;
   programLabel: string;
@@ -80,7 +129,7 @@ export interface RankedTradeMarket extends TradeMarketCandidate {
   eligible: boolean;
 }
 
-export interface RouteViaTradesMarketResolution {
+export interface RouteDiscoveryMarketResolution {
   topMarkets: RankedTradeMarket[];
   queueCandidates: TradeMarketCandidate[];
   maxTradeCount: number;
@@ -113,6 +162,35 @@ export function tradeMatchesSellInputDirection(
   return base === input && quote === output;
 }
 
+/** Trade row matches buy-input ← sell-output (base = output mint, quote = input mint). */
+export function tradeMatchesBuyInputDirection(
+  t: VybeTrade,
+  inputMint: string,
+  outputMint: string,
+): boolean {
+  const base = toVybeSwapMint(t.baseMintAddress ?? '');
+  const quote = toVybeSwapMint(t.quoteMintAddress ?? '');
+  const input = toVybeSwapMint(inputMint);
+  const output = toVybeSwapMint(outputMint);
+  return base === output && quote === input;
+}
+
+function tradeSideForSwapPair(
+  t: VybeTrade,
+  inputMint: string,
+  outputMint: string,
+): 'sell' | 'buy' | null {
+  if (tradeMatchesSellInputDirection(t, inputMint, outputMint)) return 'sell';
+  if (tradeMatchesBuyInputDirection(t, inputMint, outputMint)) return 'buy';
+  return null;
+}
+
+function bumpCandidateTradeActivity(candidate: TradeMarketCandidate, side: 'sell' | 'buy'): void {
+  if (side === 'sell') candidate.sellCount += 1;
+  else candidate.buyCount += 1;
+  candidate.tradeCount = candidate.buyCount + candidate.sellCount;
+}
+
 /** Vybe /v4/trades query: output mint when input is SOL/stable; base+quote when both are. */
 export function buildTradesFetchParams(
   inputMint: string,
@@ -137,17 +215,17 @@ export function buildTradesFetchParams(
   return params;
 }
 
-/** Rank distinct (marketAddress, programAddress) pairs from sell-direction trade rows only. */
+/** Rank distinct (marketAddress, programAddress) pairs from direct pair trade rows. */
 export function rankAllMarketsFromTrades(
   trades: VybeTrade[],
   inputMint: string,
   outputMint: string,
 ): TradeMarketCandidate[] {
-  const source = trades.filter((t) => tradeMatchesSellInputDirection(t, inputMint, outputMint));
+  const byPair = new Map<string, TradeMarketCandidate>();
 
-  const byPair = new Map<string, TradeMarketCandidate & { tradeCount: number }>();
-
-  for (const t of source) {
+  for (const t of trades) {
+    const side = tradeSideForSwapPair(t, inputMint, outputMint);
+    if (!side) continue;
     const marketAddress = (t.marketAddress ?? '').trim();
     const programAddress = (t.programAddress ?? '').trim();
     if (!marketAddress || !programAddress) continue;
@@ -155,29 +233,34 @@ export function rankAllMarketsFromTrades(
     const key = `${marketAddress}\0${programAddress}`;
     const existing = byPair.get(key);
     if (existing) {
-      existing.tradeCount++;
+      bumpCandidateTradeActivity(existing, side);
       continue;
     }
 
-    byPair.set(key, {
+    const candidate: TradeMarketCandidate = {
       marketAddress,
       programAddress,
       protocol: programAddressToProtocol(programAddress),
       ixBuilderProtocol: programAddressToIxBuilderProtocol(programAddress),
-      tradeCount: 1,
-    });
+      tradeCount: 0,
+      buyCount: 0,
+      sellCount: 0,
+      discoverySource: 'trades',
+    };
+    bumpCandidateTradeActivity(candidate, side);
+    byPair.set(key, candidate);
   }
 
   return [...byPair.values()].sort((a, b) => b.tradeCount - a.tradeCount);
 }
 
 /** Apply ix-builder program filter + min trade-count fraction; build display + queue lists. */
-export function resolveMarketsForRouteViaTrades(
+export function resolveMarketsForRouteDiscovery(
   ranked: TradeMarketCandidate[],
   options?: { minCountFraction?: number; displayLimit?: number },
-): RouteViaTradesMarketResolution {
-  const minFraction = options?.minCountFraction ?? ROUTE_VIA_TRADES_MIN_COUNT_FRACTION;
-  const displayLimit = options?.displayLimit ?? ROUTE_VIA_TRADES_DISPLAY_MARKETS;
+): RouteDiscoveryMarketResolution {
+  const minFraction = options?.minCountFraction ?? ROUTE_DISCOVERY_MIN_COUNT_FRACTION;
+  const displayLimit = options?.displayLimit ?? ROUTE_DISCOVERY_DISPLAY_MARKETS;
 
   const maxTradeCount = ranked[0]?.tradeCount ?? 0;
   const minCountThreshold = maxTradeCount > 0 ? maxTradeCount * minFraction : 0;
@@ -201,14 +284,14 @@ export function resolveMarketsForRouteViaTrades(
   return { topMarkets, queueCandidates, maxTradeCount, minCountThreshold };
 }
 
-/** @deprecated Use rankAllMarketsFromTrades + resolveMarketsForRouteViaTrades */
+/** @deprecated Use rankAllMarketsFromTrades + resolveMarketsForRouteDiscovery */
 export function rankMarketsFromTrades(
   trades: VybeTrade[],
   inputMint: string,
   outputMint: string,
 ): TradeMarketCandidate[] {
   const ranked = rankAllMarketsFromTrades(trades, inputMint, outputMint);
-  return resolveMarketsForRouteViaTrades(ranked).queueCandidates;
+  return resolveMarketsForRouteDiscovery(ranked).queueCandidates;
 }
 
 function normalizeProviderId(value: unknown): string {
@@ -278,7 +361,7 @@ export interface RouteBuildSuccess {
   selected: TradeMarketCandidate;
 }
 
-export interface RouteViaTradesBuildAttemptLog {
+export interface RouteDiscoveryBuildAttemptLog {
   queueIndex: number;
   marketAddress: string;
   programLabel: string;
@@ -291,7 +374,7 @@ export interface RouteViaTradesBuildAttemptLog {
 
 /** Trade-ranked queue — capped after eligibility filter (build attempts / legacy queue). */
 export function queueFromTradeCandidates(candidates: TradeMarketCandidate[]): QueuedMarketEntry[] {
-  return toQueuedMarketEntries(candidates, ROUTE_VIA_TRADES_MAX_QUEUE_ATTEMPTS);
+  return toQueuedMarketEntries(candidates, ROUTE_DISCOVERY_MAX_QUEUE_ATTEMPTS);
 }
 
 /** Discovery merge input — keep enough liquidity + trade rows for top-6 selection. */
@@ -342,14 +425,27 @@ function tradeCandidateFromVybeBuild(
     typeof protocolRaw === 'string' ? (protocolRaw as import('./swap-build.js').SwapProxyProtocol) : undefined;
   const programLabel = programAddress ? programLabelForAddress(programAddress) : 'unknown';
   const liquidity = poolLiquidityUsdFromBuild(build);
+  const activity = poolTradeActivityFromBuild(build);
+  const discoverySource = poolDiscoverySourceFromBuild(build);
   return {
     marketAddress,
     programAddress,
     protocol,
-    tradeCount: 0,
+    ...activity,
     programLabel,
     ...(liquidity != null ? { liquidity } : {}),
+    ...(discoverySource ? { discoverySource } : {}),
   };
+}
+
+function discoverySourceFromBuild(
+  build: import('../types/swap.js').VybeSwapBuildResponse,
+): RouteCandidateSource {
+  const raw = poolDiscoverySourceFromBuild(build);
+  if (raw === 'markets') return 'markets';
+  if (raw === 'rpc') return 'rpc';
+  if (raw === 'trades') return 'trades';
+  return 'trades';
 }
 
 function routeBuildSuccessFromVybeBuild(
@@ -360,7 +456,7 @@ function routeBuildSuccessFromVybeBuild(
   const candidate: EnumeratedRouteCandidate = {
     ...selected,
     programLabel: selected.programLabel ?? programLabelForAddress(selected.programAddress),
-    source: 'markets',
+    source: discoverySourceFromBuild(build),
     queueIndex: index + 1,
   };
   return { candidate, build, selected };
@@ -566,7 +662,7 @@ async function fetchTradesForPair(
     };
   } catch (err) {
     if (isVybeApiNotFoundError(err)) {
-      console.warn(`[route-via-trades] ${TRADES_API_UNAVAILABLE_MESSAGE}`);
+      console.warn(`[route-discovery] ${TRADES_API_UNAVAILABLE_MESSAGE}`);
       return { trades: [], rawCount: 0, fetchParams, tradesUnavailable: true };
     }
     throw err;
@@ -577,16 +673,16 @@ function resolveFromTrades(
   trades: VybeTrade[],
   inputMint: string,
   outputMint: string,
-): RouteViaTradesMarketResolution & { pairTradeCount: number } {
+): RouteDiscoveryMarketResolution & { pairTradeCount: number } {
   const pairTradeCount = trades.filter((t) =>
     tradeMatchesSellInputDirection(t, inputMint, outputMint),
   ).length;
   const ranked = rankAllMarketsFromTrades(trades, inputMint, outputMint);
-  const resolved = resolveMarketsForRouteViaTrades(ranked);
+  const resolved = resolveMarketsForRouteDiscovery(ranked);
   return { ...resolved, pairTradeCount };
 }
 
-export interface RouteViaTradesQueueMeta {
+export interface RouteDiscoveryQueueMeta {
   topMarkets: RankedTradeMarket[];
   maxTradeCount: number;
   minCountThreshold: number;
@@ -601,7 +697,7 @@ export interface RouteViaTradesQueueMeta {
   pairTradeCount: number;
   tradeMarketsEligible: number;
   queued: QueuedMarketEntry[];
-  buildLog: RouteViaTradesBuildAttemptLog[];
+  buildLog: RouteDiscoveryBuildAttemptLog[];
   /** GET /v4/trades returned 404 — queue empty, use Jupiter fallback. */
   tradesUnavailable?: boolean;
   tradesSource?: TradesFetchResult['tradesSource'];
@@ -625,17 +721,17 @@ export interface RouteViaTradesQueueMeta {
   };
 }
 
-export interface RouteViaTradesBuildResult extends RouteViaTradesQueueMeta {
+export interface RouteDiscoveryBuildResult extends RouteDiscoveryQueueMeta {
   build: import('../types/swap.js').VybeSwapBuildResponse;
   selected: TradeMarketCandidate;
 }
 
-export interface RouteViaTradesExhaustedResult extends RouteViaTradesQueueMeta {
+export interface RouteDiscoveryExhaustedResult extends RouteDiscoveryQueueMeta {
   kind: 'exhausted';
   lastError: string;
 }
 
-export interface RouteViaTradesMultiResult extends RouteViaTradesQueueMeta {
+export interface RouteDiscoveryMultiResult extends RouteDiscoveryQueueMeta {
   kind: 'multi';
   routes: RouteBuildSuccess[];
   build: import('../types/swap.js').VybeSwapBuildResponse;
@@ -643,9 +739,9 @@ export interface RouteViaTradesMultiResult extends RouteViaTradesQueueMeta {
 }
 
 export type BuildSwapViaTradeMarketsResult =
-  | ({ kind: 'direct' } & RouteViaTradesBuildResult)
-  | RouteViaTradesMultiResult
-  | RouteViaTradesExhaustedResult;
+  | ({ kind: 'direct' } & RouteDiscoveryBuildResult)
+  | RouteDiscoveryMultiResult
+  | RouteDiscoveryExhaustedResult;
 
 function candidatePairKey(marketAddress: string, programAddress: string): string {
   return `${marketAddress.trim()}\0${programAddress.trim()}`;
@@ -709,12 +805,12 @@ async function buildRoutesForCandidates(
 ): Promise<{
   successes: RouteBuildSuccess[];
   tried: TradeMarketCandidate[];
-  buildLog: RouteViaTradesBuildAttemptLog[];
+  buildLog: RouteDiscoveryBuildAttemptLog[];
   lastError: string;
 }> {
   const successes: RouteBuildSuccess[] = [];
   const tried: TradeMarketCandidate[] = [];
-  const buildLog: RouteViaTradesBuildAttemptLog[] = [];
+  const buildLog: RouteDiscoveryBuildAttemptLog[] = [];
   let lastError = 'unknown error';
   let skipRemainingMeteoraDlmm = false;
 
@@ -815,8 +911,8 @@ async function buildRoutesForCandidates(
 }
 
 type BuildAndValidateResult =
-  | { ok: true; tried: true; success: RouteBuildSuccess; buildLog: RouteViaTradesBuildAttemptLog[] }
-  | { ok: false; tried: boolean; lastError: string; buildLog: RouteViaTradesBuildAttemptLog[] };
+  | { ok: true; tried: true; success: RouteBuildSuccess; buildLog: RouteDiscoveryBuildAttemptLog[] }
+  | { ok: false; tried: boolean; lastError: string; buildLog: RouteDiscoveryBuildAttemptLog[] };
 
 /** Build (quote probe) then full on-chain validate a single candidate. One build + one sim. */
 async function buildAndValidateCandidate(
@@ -876,7 +972,7 @@ async function ensureDirectRouteInValidatedTopN(
   startIndex: number,
   successes: RouteBuildSuccess[],
   tried: TradeMarketCandidate[],
-  buildLog: RouteViaTradesBuildAttemptLog[],
+  buildLog: RouteDiscoveryBuildAttemptLog[],
   buildSwap: typeof import('./swap-build.js').buildSwap,
   skipRemainingMeteoraDlmm = false,
 ): Promise<void> {
@@ -979,13 +1075,13 @@ type BuildProbeResult =
       ok: true;
       build: import('../types/swap.js').VybeSwapBuildResponse;
       selected: TradeMarketCandidate;
-      buildLog: RouteViaTradesBuildAttemptLog[];
+      buildLog: RouteDiscoveryBuildAttemptLog[];
       queueEntry: QueuedMarketEntry;
     }
   | {
       ok: false;
       lastError: string;
-      buildLog: RouteViaTradesBuildAttemptLog[];
+      buildLog: RouteDiscoveryBuildAttemptLog[];
       queueEntry: QueuedMarketEntry;
     };
 
@@ -1001,18 +1097,18 @@ async function tryQuoteProbeAttempt(
       build: import('../types/swap.js').VybeSwapBuildResponse;
       selected: TradeMarketCandidate;
       outAmount: bigint;
-      buildLog: RouteViaTradesBuildAttemptLog[];
+      buildLog: RouteDiscoveryBuildAttemptLog[];
       queueEntry: QueuedMarketEntry;
     }
   | {
       ok: false;
       lastError: string;
-      buildLog: RouteViaTradesBuildAttemptLog[];
+      buildLog: RouteDiscoveryBuildAttemptLog[];
       queueEntry: QueuedMarketEntry;
     }
 > {
   const candidate = queueEntry;
-  const baseLog: Omit<RouteViaTradesBuildAttemptLog, 'attempt' | 'success' | 'provider' | 'error'> = {
+  const baseLog: Omit<RouteDiscoveryBuildAttemptLog, 'attempt' | 'success' | 'provider' | 'error'> = {
     queueIndex: queueEntry.queueIndex,
     marketAddress: queueEntry.marketAddress,
     programLabel: queueEntry.programLabel,
@@ -1071,7 +1167,7 @@ async function trySingleBuildAttempt(
   buildSwap: typeof import('./swap-build.js').buildSwap,
 ): Promise<BuildProbeResult> {
   const candidate = queueEntry;
-  const baseLog: Omit<RouteViaTradesBuildAttemptLog, 'attempt' | 'success' | 'provider' | 'error'> = {
+  const baseLog: Omit<RouteDiscoveryBuildAttemptLog, 'attempt' | 'success' | 'provider' | 'error'> = {
     queueIndex: queueEntry.queueIndex,
     marketAddress: queueEntry.marketAddress,
     programLabel: queueEntry.programLabel,
@@ -1143,6 +1239,8 @@ export async function buildSwapForTradeCandidate(
     programAddress?: string;
     protocol?: import('./swap-build.js').BuildSwapParams['protocol'];
     tradeCount?: number;
+    buyCount?: number;
+    sellCount?: number;
   },
 ): Promise<BuildSwapViaTradeMarketsResult> {
   const { buildSwap } = await import('./swap-build.js');
@@ -1154,6 +1252,8 @@ export async function buildSwapForTradeCandidate(
   });
   const programAddress = pinned.programAddress?.trim() ?? '';
   const tradeCount = candidate.tradeCount ?? 1;
+  const buyCount = candidate.buyCount ?? 0;
+  const sellCount = candidate.sellCount ?? 0;
   const totalStart = Date.now();
 
   const entry: QueuedMarketEntry = {
@@ -1162,6 +1262,8 @@ export async function buildSwapForTradeCandidate(
     protocol: pinned.protocol ?? programAddressToProtocol(programAddress),
     ixBuilderProtocol: programAddressToIxBuilderProtocol(programAddress),
     tradeCount,
+    buyCount,
+    sellCount,
     programLabel: programLabelForAddress(programAddress),
     queueIndex: 1,
   };
@@ -1173,8 +1275,8 @@ export async function buildSwapForTradeCandidate(
       eligible: true,
     },
   ];
-  const buildLog: RouteViaTradesBuildAttemptLog[] = [];
-  const timingsMs: NonNullable<RouteViaTradesQueueMeta['timingsMs']> = {
+  const buildLog: RouteDiscoveryBuildAttemptLog[] = [];
+  const timingsMs: NonNullable<RouteDiscoveryQueueMeta['timingsMs']> = {
     fetchTrades: 0,
     total: 0,
   };
@@ -1184,7 +1286,7 @@ export async function buildSwapForTradeCandidate(
     maxTradeCount: tradeCount,
     minCountThreshold: tradeCount,
     tradesFetched: 0,
-    tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+    tradesFetchLimit: ROUTE_DISCOVERY_LIMIT,
     tradesFetchOk: false,
     tradesFetchedForward: 0,
     tradesFetchedInverse: 0,
@@ -1202,7 +1304,7 @@ export async function buildSwapForTradeCandidate(
       kind: 'exhausted',
       ...queueMeta,
       tried: [entry],
-      lastError: 'Route via Trades: missing pool or program address.',
+      lastError: 'Route discovery: missing pool or program address.',
     };
   }
 
@@ -1245,10 +1347,10 @@ function formatTradesFetchLookbackSec(oldestBlockTimeSec: number | null | undefi
   return `last ${days} day${days === 1 ? '' : 's'}`;
 }
 
-/** Human-readable server log for Route via Trades diagnostics. */
-export function formatRouteViaTradesServerLog(
+/** Human-readable server log for Route discovery diagnostics. */
+export function formatRouteDiscoveryServerLog(
   meta: Pick<
-    RouteViaTradesQueueMeta,
+    RouteDiscoveryQueueMeta,
     | 'tradesFetched'
     | 'tradesFetchLimit'
     | 'tradesFetchOk'
@@ -1271,7 +1373,7 @@ export function formatRouteViaTradesServerLog(
 ): string[] {
   const lines: string[] = [];
   if (meta.enabled === false) {
-    lines.push(`Route via Trades: disabled (${meta.disabledReason ?? 'unknown'})`);
+    lines.push(`Route discovery: disabled (${meta.disabledReason ?? 'unknown'})`);
     return lines;
   }
   lines.push(
@@ -1354,7 +1456,7 @@ export async function fetchRankedTopMarketsFromTrades(
 }> {
   const inputMint = params.inputMintAddress.trim();
   const outputMint = params.outputMintAddress.trim();
-  const limit = params.limit ?? ROUTE_VIA_TRADES_LIMIT;
+  const limit = params.limit ?? ROUTE_DISCOVERY_LIMIT;
 
   const { trades, rawCount, tradesUnavailable } = await fetchTradesForPair(
     http,

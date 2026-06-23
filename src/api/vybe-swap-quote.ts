@@ -14,11 +14,11 @@ import { buildSwap, type BuildSwapParams, type MarketFetchMode, type SwapProxyRo
 import { clientParamsToPriceResolveHints } from './swap-client-params.js';
 import {
   buildSwapForTradeCandidate,
-  formatRouteViaTradesServerLog,
+  formatRouteDiscoveryServerLog,
   normalizeBuildErrorMessage,
   parseVybeEnumeratedSwapRoutes,
   poolLiquidityUsdFromBuild,
-  ROUTE_VIA_TRADES_LIMIT,
+  ROUTE_DISCOVERY_LIMIT,
   type BuildSwapViaTradeMarketsResult,
   type EnumeratedRouteCandidate,
   type QueuedMarketEntry,
@@ -26,10 +26,10 @@ import {
   type RouteBuildSuccess,
   type RouteCandidateSource,
   type RouteRpcMeta,
-  type RouteViaTradesBuildAttemptLog,
-  type RouteViaTradesQueueMeta,
+  type RouteDiscoveryBuildAttemptLog,
+  type RouteDiscoveryQueueMeta,
   type TradeMarketCandidate,
-} from './route-via-trades.js';
+} from './route-discovery.js';
 import {
   resolveTokenPrices,
   type TokenPriceStats,
@@ -50,7 +50,7 @@ export interface VybeQuoteParams extends BuildSwapParams {
   forceFullDetailsMints?: string[];
 }
 
-export type RouteViaTradesOutcome =
+export type RouteDiscoveryOutcome =
   | 'direct'
   | 'multi'
   | 'unpinned_vybe'
@@ -60,20 +60,20 @@ export type RouteViaTradesOutcome =
   | 'skipped'
   | 'failed';
 
-export type RouteViaTradesDisabledReason =
+export type RouteDiscoveryDisabledReason =
   | 'discovery_off'
   | 'manual_pool'
   | 'manual_protocol'
   | 'router_not_vybe';
 
-export interface RouteViaTradesRecoveryLogEntry {
+export interface RouteDiscoveryRecoveryLogEntry {
   step: 'unpinned_vybe' | 'titan' | 'jupiter';
   success: boolean;
   provider?: string;
   error?: string;
 }
 
-export interface RouteViaTradesRouteEntry {
+export interface RouteDiscoveryRouteEntry {
   index: number;
   source: RouteCandidateSource;
   candidate: TradeMarketCandidate;
@@ -83,10 +83,10 @@ export interface RouteViaTradesRouteEntry {
   simulatedOutRaw?: string;
 }
 
-export interface RouteViaTradesMeta {
+export interface RouteDiscoveryMeta {
   enabled: boolean;
-  disabledReason?: RouteViaTradesDisabledReason;
-  outcome: RouteViaTradesOutcome;
+  disabledReason?: RouteDiscoveryDisabledReason;
+  outcome: RouteDiscoveryOutcome;
   topMarkets: RankedTradeMarket[];
   maxTradeCount: number;
   minCountThreshold: number;
@@ -100,9 +100,9 @@ export interface RouteViaTradesMeta {
   pairTradeCount: number;
   tradeMarketsEligible: number;
   queued: QueuedMarketEntry[];
-  buildLog: RouteViaTradesBuildAttemptLog[];
-  recoveryLog?: RouteViaTradesRecoveryLogEntry[];
-  timingsMs?: RouteViaTradesQueueMeta['timingsMs'];
+  buildLog: RouteDiscoveryBuildAttemptLog[];
+  recoveryLog?: RouteDiscoveryRecoveryLogEntry[];
+  timingsMs?: RouteDiscoveryQueueMeta['timingsMs'];
   /** Set when queue + unpinned Vybe retry failed and we used an aggregator instead. */
   fallbackRouter?: SwapProxyRouter;
   directRouteFailed?: boolean;
@@ -121,22 +121,22 @@ export interface RouteViaTradesMeta {
   marketFetchMode?: MarketFetchMode;
   enumerateRoutes?: boolean;
   selectedRouteIndex?: number;
-  routes?: RouteViaTradesRouteEntry[];
+  routes?: RouteDiscoveryRouteEntry[];
   /** User-facing banner text (warning or success after Jupiter fallback). */
   userMessage?: string;
 }
 
-function logRouteViaTradesMeta(meta: RouteViaTradesMeta): void {
-  const lines = formatRouteViaTradesServerLog(meta);
+function logRouteDiscoveryMeta(meta: RouteDiscoveryMeta): void {
+  const lines = formatRouteDiscoveryServerLog(meta);
   if (lines.length === 0) return;
-  console.info('[route-via-trades]\n' + lines.join('\n'));
+  console.info('[route-discovery]\n' + lines.join('\n'));
 }
 
-function buildSkippedRouteViaTradesMeta(
+function buildSkippedRouteDiscoveryMeta(
   params: VybeQuoteParams,
   selected: SwapProxyRouter,
-): RouteViaTradesMeta {
-  let disabledReason: RouteViaTradesDisabledReason;
+): RouteDiscoveryMeta {
+  let disabledReason: RouteDiscoveryDisabledReason;
   if (!isMarketDiscoveryEnabled(params)) disabledReason = 'discovery_off';
   else if (selected !== 'vybe') disabledReason = 'router_not_vybe';
   else if (params.poolAddress?.trim() || params.programAddress?.trim()) disabledReason = 'manual_pool';
@@ -152,7 +152,7 @@ function buildSkippedRouteViaTradesMeta(
     minCountThreshold: 0,
     tried: [],
     tradesFetched: 0,
-    tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+    tradesFetchLimit: ROUTE_DISCOVERY_LIMIT,
     tradesFetchOk: false,
     tradesFetchedForward: 0,
     tradesFetchedInverse: 0,
@@ -168,7 +168,7 @@ export interface VybeQuoteResult {
   build: VybeSwapBuildResponse | null;
   builtAt: number;
   tokenStats: Record<string, TokenPriceStats>;
-  routeViaTrades?: RouteViaTradesMeta;
+  routeDiscovery?: RouteDiscoveryMeta;
 }
 
 function normalizeRouterId(value: unknown): string {
@@ -201,11 +201,11 @@ function attachRouterMetadata(
   };
 }
 
-function baseRouteViaTradesMetaFromRouted(
+function baseRouteDiscoveryMetaFromRouted(
   routed: BuildSwapViaTradeMarketsResult,
   marketFetchMode: MarketFetchMode,
   enumerateRoutes: boolean,
-): Omit<RouteViaTradesMeta, 'outcome' | 'selected' | 'enabled'> {
+): Omit<RouteDiscoveryMeta, 'outcome' | 'selected' | 'enabled'> {
   return {
     topMarkets: routed.topMarkets,
     maxTradeCount: routed.maxTradeCount,
@@ -249,7 +249,7 @@ async function runVybeSwapEnumeration(
   },
 ): Promise<{
   build: VybeSwapBuildResponse;
-  routeViaTrades?: RouteViaTradesMeta;
+  routeDiscovery?: RouteDiscoveryMeta;
   precomputedPrimaryQuote?: VybeSwapQuote;
 }> {
   const build = await buildSwap(http, {
@@ -279,7 +279,7 @@ async function runVybeSwapEnumeration(
         protocol: parsed.selected.protocol,
       }),
     );
-    const routeViaTrades: RouteViaTradesMeta = {
+    const routeDiscovery: RouteDiscoveryMeta = {
       enabled: true,
       outcome: 'multi',
       selected: {
@@ -294,19 +294,19 @@ async function runVybeSwapEnumeration(
       marketFetchMode: opts.marketFetchMode,
       enumerateRoutes: opts.enumerateRoutes,
       topMarkets: [],
-      maxTradeCount: 0,
       minCountThreshold: 0,
       tried: parsed.routes.map((r) => ({
         ...r.selected,
         liquidity: r.selected.liquidity ?? poolLiquidityUsdFromBuild(r.build),
       })),
       tradesFetched: 0,
-      tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+      tradesFetchLimit: ROUTE_DISCOVERY_LIMIT,
       tradesFetchOk: false,
       tradesFetchedForward: 0,
       tradesFetchedInverse: 0,
-      pairTradeCount: 0,
+      pairTradeCount: parsed.routes.reduce((sum, r) => sum + r.selected.tradeCount, 0),
       tradeMarketsEligible: parsed.routes.length,
+      maxTradeCount: Math.max(0, ...parsed.routes.map((r) => r.selected.tradeCount)),
       queued: parsed.routes.map((r, i) => ({
         marketAddress: r.selected.marketAddress,
         programAddress: r.selected.programAddress,
@@ -314,14 +314,16 @@ async function runVybeSwapEnumeration(
         programLabel:
           r.selected.programLabel ?? programLabelForAddress(r.selected.programAddress),
         queueIndex: i + 1,
-        tradeCount: 0,
+        tradeCount: r.selected.tradeCount,
+        buyCount: r.selected.buyCount,
+        sellCount: r.selected.sellCount,
         liquidity: r.selected.liquidity ?? poolLiquidityUsdFromBuild(r.build),
       })),
       buildLog: [],
       userMessage,
     };
-    logRouteViaTradesMeta(routeViaTrades);
-    return { build, routeViaTrades, precomputedPrimaryQuote };
+    logRouteDiscoveryMeta(routeDiscovery);
+    return { build, routeDiscovery, precomputedPrimaryQuote };
   }
 
   if (parsed.kind === 'direct') {
@@ -337,7 +339,7 @@ async function runVybeSwapEnumeration(
       ...parsed.selected,
       liquidity: poolLiquidityUsdFromBuild(parsed.build) ?? parsed.selected.liquidity,
     };
-    const routeViaTrades: RouteViaTradesMeta = {
+    const routeDiscovery: RouteDiscoveryMeta = {
       enabled: true,
       outcome: 'direct',
       selected,
@@ -348,7 +350,7 @@ async function runVybeSwapEnumeration(
       minCountThreshold: 0,
       tried: [selected],
       tradesFetched: 0,
-      tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+      tradesFetchLimit: ROUTE_DISCOVERY_LIMIT,
       tradesFetchOk: false,
       tradesFetchedForward: 0,
       tradesFetchedInverse: 0,
@@ -358,15 +360,15 @@ async function runVybeSwapEnumeration(
       buildLog: [],
       userMessage,
     };
-    logRouteViaTradesMeta(routeViaTrades);
-    return { build, routeViaTrades };
+    logRouteDiscoveryMeta(routeDiscovery);
+    return { build, routeDiscovery };
   }
 
   // Single-route mode: trust Vybe API response (incl. aggregator fallback in provider).
   if (!opts.enumerateRoutes) {
     const tx = build.tx ?? build.transaction;
     if (typeof tx === 'string' && tx.length > 0) {
-      const routeViaTrades: RouteViaTradesMeta = {
+      const routeDiscovery: RouteDiscoveryMeta = {
         enabled: true,
         outcome: 'direct',
         marketFetchMode: opts.marketFetchMode,
@@ -376,7 +378,7 @@ async function runVybeSwapEnumeration(
         minCountThreshold: 0,
         tried: [],
         tradesFetched: 0,
-        tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+        tradesFetchLimit: ROUTE_DISCOVERY_LIMIT,
         tradesFetchOk: false,
         tradesFetchedForward: 0,
         tradesFetchedInverse: 0,
@@ -386,15 +388,15 @@ async function runVybeSwapEnumeration(
         buildLog: [],
         userMessage: 'Routed via Vybe swap.',
       };
-      logRouteViaTradesMeta(routeViaTrades);
-      return { build, routeViaTrades };
+      logRouteDiscoveryMeta(routeDiscovery);
+      return { build, routeDiscovery };
     }
   }
 
   throw new Error(exhaustedMessage);
 }
 
-function quoteOutputRawFromEntry(entry: RouteViaTradesRouteEntry): bigint {
+function quoteOutputRawFromEntry(entry: RouteDiscoveryRouteEntry): bigint {
   const sim = entry.simulatedOutRaw?.trim();
   if (sim) {
     try {
@@ -414,7 +416,7 @@ function quoteOutputRawFromEntry(entry: RouteViaTradesRouteEntry): bigint {
   return 0n;
 }
 
-function sortRouteEntriesByOutput(routes: RouteViaTradesRouteEntry[]): RouteViaTradesRouteEntry[] {
+function sortRouteEntriesByOutput(routes: RouteDiscoveryRouteEntry[]): RouteDiscoveryRouteEntry[] {
   const sorted = [...routes].sort((a, b) => Number(quoteOutputRawFromEntry(b) - quoteOutputRawFromEntry(a)));
   return sorted.map((route, i) => ({ ...route, index: i }));
 }
@@ -424,8 +426,8 @@ async function buildEnumeratedRouteQuotes(
   uiInputMint: string,
   uiOutputMint: string,
   selectedRouter: SwapProxyRouter,
-): Promise<RouteViaTradesRouteEntry[]> {
-  const routes: RouteViaTradesRouteEntry[] = [];
+): Promise<RouteDiscoveryRouteEntry[]> {
+  const routes: RouteDiscoveryRouteEntry[] = [];
   for (let i = 0; i < routeBuilds.length; i++) {
     const entry = routeBuilds[i]!;
     // Each enumerated build was produced with enrich:true, so it already carries its
@@ -563,7 +565,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
     useMarketDiscovery && !manualPool && marketFetchMode !== 'rpc';
 
   let build: VybeSwapBuildResponse;
-  let routeViaTrades: RouteViaTradesMeta | undefined;
+  let routeDiscovery: RouteDiscoveryMeta | undefined;
   let precomputedPrimaryQuote: VybeSwapQuote | undefined;
 
   if (useMarketDiscovery && marketFetchMode === 'rpc') {
@@ -582,7 +584,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
         exhaustedMessage: 'Vybe RPC pool scan returned no routes',
       });
       build = enumerated.build;
-      routeViaTrades = enumerated.routeViaTrades;
+      routeDiscovery = enumerated.routeDiscovery;
       precomputedPrimaryQuote = enumerated.precomputedPrimaryQuote;
     } else {
       build = await buildSwap(http, {
@@ -591,7 +593,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
         marketFetchMode: undefined,
         enumerateRoutes: false,
       });
-      routeViaTrades = {
+      routeDiscovery = {
         enabled: true,
         outcome: 'rpc_only',
         marketFetchMode,
@@ -601,7 +603,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
         minCountThreshold: 0,
         tried: [],
         tradesFetched: 0,
-        tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+        tradesFetchLimit: ROUTE_DISCOVERY_LIMIT,
         tradesFetchOk: false,
         tradesFetchedForward: 0,
         tradesFetchedInverse: 0,
@@ -611,7 +613,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
         buildLog: [],
         userMessage: 'Routed via Vybe RPC pool scan.',
       };
-      logRouteViaTradesMeta(routeViaTrades);
+      logRouteDiscoveryMeta(routeDiscovery);
     }
   } else if (useTradeCandidatePin) {
     const routed = await buildSwapForTradeCandidate(http, { ...vybeParams, router: 'vybe' }, {
@@ -637,16 +639,16 @@ export async function buildVybeQuoteFromPriceAndSwap(
           selected,
         );
         precomputedPrimaryQuote = enumRoutes[0]?.quote;
-        routeViaTrades = {
+        routeDiscovery = {
           enabled: true,
           outcome: 'multi',
           selected: routed.selected,
           selectedRouteIndex: 0,
           routes: enumRoutes,
-          ...baseRouteViaTradesMetaFromRouted(routed, marketFetchMode, true),
+          ...baseRouteDiscoveryMetaFromRouted(routed, marketFetchMode, true),
         };
       } else {
-        routeViaTrades = {
+        routeDiscovery = {
           enabled: true,
           outcome: 'direct',
           marketFetchMode,
@@ -669,7 +671,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
           tradesSource: routed.tradesSource,
         };
       }
-      logRouteViaTradesMeta(routeViaTrades);
+      logRouteDiscoveryMeta(routeDiscovery);
     } else {
       throw new Error(
         normalizeBuildErrorMessage(routed.lastError, 'Vybe swap build failed for pinned pool'),
@@ -686,7 +688,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
         bothCommonQuotes,
       });
       build = enumerated.build;
-      routeViaTrades = enumerated.routeViaTrades;
+      routeDiscovery = enumerated.routeDiscovery;
       precomputedPrimaryQuote = enumerated.precomputedPrimaryQuote;
     } else {
       build = await buildSwap(http, {
@@ -698,7 +700,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
       });
       const parsed = parseVybeEnumeratedSwapRoutes(build);
       if (parsed.kind === 'direct') {
-        routeViaTrades = {
+        routeDiscovery = {
           enabled: true,
           outcome: 'direct',
           selected: parsed.selected,
@@ -709,7 +711,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
           minCountThreshold: 0,
           tried: [parsed.selected],
           tradesFetched: 0,
-          tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+          tradesFetchLimit: ROUTE_DISCOVERY_LIMIT,
           tradesFetchOk: false,
           tradesFetchedForward: 0,
           tradesFetchedInverse: 0,
@@ -720,7 +722,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
           userMessage: 'Routed via Vybe swap.',
         };
       } else {
-        routeViaTrades = {
+        routeDiscovery = {
           enabled: true,
           outcome: 'direct',
           marketFetchMode,
@@ -730,7 +732,7 @@ export async function buildVybeQuoteFromPriceAndSwap(
           minCountThreshold: 0,
           tried: [],
           tradesFetched: 0,
-          tradesFetchLimit: ROUTE_VIA_TRADES_LIMIT,
+          tradesFetchLimit: ROUTE_DISCOVERY_LIMIT,
           tradesFetchOk: false,
           tradesFetchedForward: 0,
           tradesFetchedInverse: 0,
@@ -741,13 +743,13 @@ export async function buildVybeQuoteFromPriceAndSwap(
           userMessage: 'Routed via Vybe swap.',
         };
       }
-      logRouteViaTradesMeta(routeViaTrades);
+      logRouteDiscoveryMeta(routeDiscovery);
     }
   } else {
     build = await buildSwap(http, { ...vybeParams, router: selected });
     if (selected === 'vybe') {
-      routeViaTrades = buildSkippedRouteViaTradesMeta(vybeParams, selected);
-      logRouteViaTradesMeta(routeViaTrades);
+      routeDiscovery = buildSkippedRouteDiscoveryMeta(vybeParams, selected);
+      logRouteDiscoveryMeta(routeDiscovery);
     }
   }
   // Vybe API owns routing, enumeration, and any provider fallback in the build response.
@@ -772,6 +774,6 @@ export async function buildVybeQuoteFromPriceAndSwap(
     build,
     builtAt: Date.now(),
     tokenStats,
-    routeViaTrades,
+    routeDiscovery,
   };
 }

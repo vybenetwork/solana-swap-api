@@ -107,7 +107,7 @@ import {
   renderQuotePayHeroSubHtml,
   renderQuoteReceiveHeroValueHtml,
   renderQuoteReceiveHeroSubHtml,
-  renderRouteViaTradesLogHtml,
+  renderRouteDiscoveryLogHtml,
   type EnumeratedRoutesUiState,
 } from './route-ui.js';
 import { formatWarnPercent } from './format-warn-pct.js';
@@ -323,7 +323,7 @@ const swapQuoteDetailsRoutingEl = document.getElementById('swapQuoteDetailsRouti
 const swapQuoteRouteSubtitleEl = document.getElementById('swapQuoteRouteSubtitle') as HTMLElement | null;
 const swapQuoteDetailsFieldsEl = document.getElementById('swapQuoteDetailsFields') as HTMLElement | null;
 const swapQuoteDetailsRouteStepsEl = document.getElementById('swapQuoteDetailsRouteSteps') as HTMLElement | null;
-const swapRouteViaTradesLogEl = document.getElementById('swapRouteViaTradesLog') as HTMLElement | null;
+const swapRouteDiscoveryLogEl = document.getElementById('swapRouteDiscoveryLog') as HTMLElement | null;
 const swapQuoteSummaryEl = document.getElementById('swapQuoteSummary') as HTMLElement | null;
 const swapRawQuoteResponseEl = document.getElementById('swapRawQuoteResponse') as HTMLElement | null;
 const swapRawSwapResponseEl = document.getElementById('swapRawSwapResponse') as HTMLElement | null;
@@ -2994,14 +2994,14 @@ function detectVybeAggregatorFallbackRouter(
   selectedRouter: string,
 ): 'jupiter' | 'titan' | null {
   if (normalizeRouterId(selectedRouter) !== 'vybe') return null;
-  const rvtHandoff = detectRouteViaTradesAggregatorHandoff(body);
+  const rvtHandoff = detectRouteDiscoveryAggregatorHandoff(body);
   if (rvtHandoff) return rvtHandoff;
-  if (body._routeViaTrades != null) return null;
+  if (body._routeDiscovery != null) return null;
   return resolveVybeHandoffAggregatorRouter(body);
 }
 
 function hasAcceptableVybeRouteQuote(body: Record<string, unknown>): boolean {
-  const rvt = body._routeViaTrades as { outcome?: string; routes?: unknown[] } | undefined;
+  const rvt = body._routeDiscovery as { outcome?: string; routes?: unknown[] } | undefined;
   if (rvt?.outcome === 'multi' || rvt?.outcome === 'direct') return true;
   const plan = body.routePlan;
   if (!Array.isArray(plan) || plan.length === 0) return false;
@@ -3010,10 +3010,10 @@ function hasAcceptableVybeRouteQuote(body: Record<string, unknown>): boolean {
   return typeof tx === 'string' && tx.length > 0;
 }
 
-function detectRouteViaTradesAggregatorHandoff(
+function detectRouteDiscoveryAggregatorHandoff(
   body: Record<string, unknown>,
 ): 'jupiter' | 'titan' | null {
-  const rvt = body._routeViaTrades as {
+  const rvt = body._routeDiscovery as {
     enabled?: boolean;
     fallbackRouter?: string;
     outcome?: string;
@@ -3564,13 +3564,13 @@ function renderRawJsonEl(el: HTMLElement | null, data: unknown, emptyMsg: string
   }
 }
 
-function renderRouteViaTradesLogPanel(): void {
-  if (!swapRouteViaTradesLogEl) return;
+function renderRouteDiscoveryLogPanel(): void {
+  if (!swapRouteDiscoveryLogEl) return;
   const raw = lastRawQuoteResponse as Record<string, unknown> | null;
-  const meta = raw?._routeViaTrades as Record<string, unknown> | undefined;
-  swapRouteViaTradesLogEl.innerHTML = swapQuoteFetching
+  const meta = raw?._routeDiscovery as Record<string, unknown> | undefined;
+  swapRouteDiscoveryLogEl.innerHTML = swapQuoteFetching
     ? `<p class="routing-empty routing-empty--loading">${renderLoadingSpinner('sm')}</p>`
-    : renderRouteViaTradesLogHtml(meta);
+    : renderRouteDiscoveryLogHtml(meta);
 }
 
 function renderRawResponsePanels(): void {
@@ -3580,7 +3580,7 @@ function renderRawResponsePanels(): void {
     lastRawSwapResponse,
     'Build a swap to see the raw swap response.',
   );
-  renderRouteViaTradesLogPanel();
+  renderRouteDiscoveryLogPanel();
   renderRouteOptionsPanel();
 }
 
@@ -4204,6 +4204,8 @@ function tradeCandidateFromRoutePlan(
         programAddress: '',
         programLabel: programLabel || undefined,
         tradeCount: 0,
+        buyCount: 0,
+        sellCount: 0,
       };
     }
   }
@@ -4229,6 +4231,8 @@ function tradeCandidateFromRouterOnly(
     programAddress: programAddressFromQuoteBody(body),
     programLabel: routerDisplayLabel(router),
     tradeCount: 0,
+    buyCount: 0,
+    sellCount: 0,
   };
 }
 
@@ -4245,7 +4249,7 @@ function routeOptionCandidatePresent(
 function tradeCandidateFromActiveQuote(
   body: Record<string, unknown>,
 ): EnumeratedRoutesUiState['routes'][0]['candidate'] | null {
-  const rvt = body._routeViaTrades as { selected?: Record<string, unknown> } | undefined;
+  const rvt = body._routeDiscovery as { selected?: Record<string, unknown> } | undefined;
   const selected = rvt?.selected;
   if (selected && typeof selected === 'object') {
     const marketAddress = String(selected.marketAddress ?? '').trim();
@@ -4256,6 +4260,8 @@ function tradeCandidateFromActiveQuote(
         programAddress: programAddress || programAddressFromQuoteBody(body),
         protocol: typeof selected.protocol === 'string' ? selected.protocol : undefined,
         tradeCount: Number(selected.tradeCount ?? 0),
+        buyCount: Number(selected.buyCount ?? 0),
+        sellCount: Number(selected.sellCount ?? 0),
         programLabel:
           typeof selected.programLabel === 'string' ? selected.programLabel.trim() || undefined : undefined,
         liquidity:
@@ -4275,6 +4281,8 @@ function tradeCandidateFromActiveQuote(
       programAddress,
       protocol: typeof protocolRaw === 'string' ? protocolRaw : undefined,
       tradeCount: 0,
+    buyCount: 0,
+    sellCount: 0,
     };
   }
   return tradeCandidateFromRoutePlan(body) ?? tradeCandidateFromRouterOnly(body);
@@ -4311,7 +4319,7 @@ function inferRouteOptionSource(
 }
 
 function syncEnumeratedRoutesFromBody(body: Record<string, unknown>): void {
-  const rvt = body._routeViaTrades as
+  const rvt = body._routeDiscovery as
     | {
         routes?: Array<Record<string, unknown>>;
         enabled?: boolean;
@@ -4365,7 +4373,7 @@ function getQuoteBodyForActiveRoute(body: Record<string, unknown>): Record<strin
     enumeratedRoutesUiState.routes.find((r) => r.index === enumeratedRoutesUiState!.selectedIndex) ??
     enumeratedRoutesUiState.routes[0];
   if (!route?.quote) return body;
-  const routesMeta = (body._routeViaTrades as { routes?: Array<{ build?: unknown }> } | undefined)?.routes;
+  const routesMeta = (body._routeDiscovery as { routes?: Array<{ build?: unknown }> } | undefined)?.routes;
   const routeBuild = routesMeta?.find((r) => Number((r as { index?: number }).index) === route.index)?.build
     ?? routesMeta?.[route.index]?.build;
   return {
@@ -4480,7 +4488,7 @@ function applyVybeQuoteBodyToUi(
   }
   cacheVybeQuoteBuild(activeBody, wallet, inputMint, outputMint, effectiveAmount, vybeCacheBuildOpts(buildOpts));
   if (swapQuoteError) clearInlineError(swapQuoteError);
-  const rvt = body._routeViaTrades as {
+  const rvt = body._routeDiscovery as {
     directRouteFailed?: boolean;
     lastError?: string;
     fallbackRouter?: string;
@@ -4492,7 +4500,7 @@ function applyVybeQuoteBodyToUi(
     if (rvt?.userMessage) {
       showInlineWarning(swapQuoteWarning, rvt.userMessage);
     } else if (rvt?.directRouteFailed && rvt.lastError) {
-      let summary = 'Route via Trades: pinned pools unavailable';
+      let summary = 'Route discovery: pinned pools unavailable';
       if (rvt.fallbackRouter === 'jupiter') summary += ' — fell back to Jupiter';
       else if (rvt.fallbackRouter === 'titan') summary += ' — fell back to Titan';
       else if (rvt.unpinnedVybeRetry) summary += ' — using Vybe auto-route';
