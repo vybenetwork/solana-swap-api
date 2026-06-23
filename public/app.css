@@ -7750,6 +7750,23 @@ tr:hover td {
   color: #52525b;
 }
 
+@keyframes swap-pin-route-field-flash {
+  0%,
+  100% {
+    border-color: #27272a;
+    background: #18181b;
+  }
+  50% {
+    border-color: rgba(250, 204, 21, 0.9);
+    background: rgba(250, 204, 21, 0.14);
+    box-shadow: 0 0 0 1px rgba(250, 204, 21, 0.35);
+  }
+}
+
+.swap-pin-route-field--flash {
+  animation: swap-pin-route-field-flash 0.4s ease-in-out 3;
+}
+
 .swap-quote-btn-debug {
   margin: 0.35rem 0 0;
   padding: 0.45rem 0.6rem;

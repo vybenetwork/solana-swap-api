@@ -417,7 +417,70 @@ function getSwapQuoteDisabledReason(): string | null {
     const vybeErr = validateVybeQuoteWallet();
     if (vybeErr) return vybeErr;
   }
+  const pinErr = getPinRouteQuoteDisabledReason();
+  if (pinErr) return pinErr;
   return null;
+}
+
+const PIN_ROUTE_MIN_MARKET_ADDRESS_LEN = 40;
+
+function isPinRouteProtocolSelected(): boolean {
+  return Boolean(swapProtocolSelect?.value.trim());
+}
+
+function isPinRouteMarketAddressValid(): boolean {
+  return (swapPoolAddressInput?.value.trim() ?? '').length >= PIN_ROUTE_MIN_MARKET_ADDRESS_LEN;
+}
+
+function pinRouteQuoteMissingFields(): { market: boolean; protocol: boolean } {
+  if (!isSwapRoutePinMode()) return { market: false, protocol: false };
+  return {
+    market: !isPinRouteMarketAddressValid(),
+    protocol: !isPinRouteProtocolSelected(),
+  };
+}
+
+function getPinRouteQuoteDisabledReason(): string | null {
+  if (!isSwapRoutePinMode()) return null;
+  const missing = pinRouteQuoteMissingFields();
+  if (missing.market && missing.protocol) {
+    return 'Pin route: enter market address (40+ chars) and select program';
+  }
+  if (missing.market) return 'Pin route: enter market address (40+ chars)';
+  if (missing.protocol) return 'Pin route: select program/protocol';
+  return null;
+}
+
+function isPinRouteQuoteBlockReason(reason: string | null): boolean {
+  return reason !== null && reason.startsWith('Pin route:');
+}
+
+function flashPinRouteField(el: HTMLElement | null): void {
+  if (!el) return;
+  el.classList.remove('swap-pin-route-field--flash');
+  void el.offsetWidth;
+  el.classList.add('swap-pin-route-field--flash');
+  el.addEventListener(
+    'animationend',
+    () => {
+      el.classList.remove('swap-pin-route-field--flash');
+    },
+    { once: true },
+  );
+}
+
+function flashPinRouteQuoteMissingFields(): void {
+  const missing = pinRouteQuoteMissingFields();
+  if (missing.market) flashPinRouteField(swapPoolAddressInput);
+  if (missing.protocol) flashPinRouteField(swapProtocolSelect);
+}
+
+function tryFlashPinRouteOnQuoteAttempt(): boolean {
+  if (!isSwapRoutePinMode()) return false;
+  const missing = pinRouteQuoteMissingFields();
+  if (!missing.market && !missing.protocol) return false;
+  flashPinRouteQuoteMissingFields();
+  return true;
 }
 
 function collectSwapQuoteBtnDiagnostics(): SwapQuoteBtnDiagnostics {
@@ -585,8 +648,9 @@ function syncSwapQuoteButtonState(): void {
     renderSwapQuoteBtnDebug(diag);
     return;
   }
-  const ready = diag.blockReason === null;
-  swapQuoteBtn.disabled = !ready || isQuoteBtnInCooldown();
+  const hardBlocked =
+    diag.blockReason !== null && !isPinRouteQuoteBlockReason(diag.blockReason);
+  swapQuoteBtn.disabled = hardBlocked || isQuoteBtnInCooldown();
   renderSwapQuoteBtnDebug(diag);
   console.debug('[swap-quote-btn]', diag);
   const w = getSolanaWindow();
@@ -5152,6 +5216,7 @@ function validateVybeQuoteWallet(): string | null {
 
 async function fetchSwapQuote(): Promise<void> {
   if (!swapInputMintInput || !swapOutputMintInput || !swapAmountInput) return;
+  if (tryFlashPinRouteOnQuoteAttempt()) return;
   if (!isSwapQuoteInputReady()) return;
   const inputMint = swapInputMintInput.value.trim();
   const outputMint = swapOutputMintInput.value.trim();
@@ -6233,10 +6298,20 @@ swapPartnerInput?.addEventListener('change', syncSwapQuoteButtonState);
 swapPinRouteCheckbox?.addEventListener('change', () => {
   syncSwapRoutePinMode();
   invalidateSwapQuoteAfterInputChange();
+  syncSwapQuoteButtonState();
 });
-swapPoolAddressInput?.addEventListener('input', invalidateSwapQuoteAfterInputChange);
-swapPoolAddressInput?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
-swapProtocolSelect?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
+swapPoolAddressInput?.addEventListener('input', () => {
+  invalidateSwapQuoteAfterInputChange();
+  syncSwapQuoteButtonState();
+});
+swapPoolAddressInput?.addEventListener('change', () => {
+  invalidateSwapQuoteAfterInputChange();
+  syncSwapQuoteButtonState();
+});
+swapProtocolSelect?.addEventListener('change', () => {
+  invalidateSwapQuoteAfterInputChange();
+  syncSwapQuoteButtonState();
+});
 swapMarketFetchModeSelect?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
 swapEnumerateRoutesCheckbox?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
 syncSwapRoutePinMode();
