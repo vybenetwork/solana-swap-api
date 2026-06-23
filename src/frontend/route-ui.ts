@@ -5732,10 +5732,16 @@ function simulationOutputWarningFromQuote(quote: Record<string, unknown>): Recor
   return rec;
 }
 
+const MIN_ROUTE_POOL_LIQUIDITY_USD = 1000;
+
 function lowLiquidityWarningFromQuote(
   quote: Record<string, unknown>,
   marketScore?: number,
 ): Record<string, unknown> | null {
+  const score = Number(marketScore);
+  if (Number.isFinite(score) && score >= MIN_ROUTE_POOL_LIQUIDITY_USD) {
+    return null;
+  }
   const w = quote._lowLiquidityWarning;
   if (w && typeof w === 'object') {
     const rec = w as Record<string, unknown>;
@@ -5744,9 +5750,8 @@ function lowLiquidityWarningFromQuote(
       if (Number.isFinite(liquidityUsd)) return rec;
     }
   }
-  const score = Number(marketScore);
-  if (Number.isFinite(score) && score > 0 && score < 1000) {
-    return { warn: true, thresholdUsd: 1000, liquidityUsd: score };
+  if (Number.isFinite(score) && score > 0 && score < MIN_ROUTE_POOL_LIQUIDITY_USD) {
+    return { warn: true, thresholdUsd: MIN_ROUTE_POOL_LIQUIDITY_USD, liquidityUsd: score };
   }
   return null;
 }

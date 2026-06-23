@@ -443,12 +443,11 @@ async function buildEnumeratedRouteQuotes(
       candidate.marketScore ??
       entry.selected.marketScore ??
       poolMarketScoreFromBuild(entry.build);
-    if (!quote._lowLiquidityWarning) {
-      const lowLiquidityWarning = computeLowLiquidityWarning(marketScore);
-      if (lowLiquidityWarning) {
-        quote = { ...quote, _lowLiquidityWarning: lowLiquidityWarning };
-      }
-    }
+    // Always reconcile from discovery TVL — enrichment may carry a stale sub-threshold warning.
+    quote = {
+      ...quote,
+      _lowLiquidityWarning: computeLowLiquidityWarning(marketScore),
+    };
     const simulatedOutRaw = entry.build.enrichment?.simulatedOutRaw ?? undefined;
     routes.push({
       index: i,

@@ -804,7 +804,16 @@ function getSimulationOutputWarning(quote: Record<string, unknown>): SimulationO
   };
 }
 
-function getLowLiquidityWarning(quote: Record<string, unknown>): LowLiquidityWarning | null {
+const MIN_ROUTE_POOL_LIQUIDITY_USD = 1000;
+
+function getLowLiquidityWarning(
+  quote: Record<string, unknown>,
+  marketScore?: number,
+): LowLiquidityWarning | null {
+  const score = Number(marketScore);
+  if (Number.isFinite(score) && score >= MIN_ROUTE_POOL_LIQUIDITY_USD) {
+    return null;
+  }
   const w = quote._lowLiquidityWarning;
   if (!w || typeof w !== 'object') return null;
   const rec = w as Record<string, unknown>;
@@ -818,9 +827,12 @@ function getLowLiquidityWarning(quote: Record<string, unknown>): LowLiquidityWar
   };
 }
 
-function swapRouteWarningLevel(quote: Record<string, unknown>): SwapRouteWarningLevel {
+function swapRouteWarningLevel(
+  quote: Record<string, unknown>,
+  marketScore?: number,
+): SwapRouteWarningLevel {
   const sim = getSimulationOutputWarning(quote);
-  const liq = getLowLiquidityWarning(quote);
+  const liq = getLowLiquidityWarning(quote, marketScore);
   if (sim && liq) return 'red';
   if (sim || liq) return 'orange';
   return 'none';
@@ -844,19 +856,24 @@ function formatSimulationOutputWarningMessage(
 function formatCombinedRouteWarningsMessage(
   quote: Record<string, unknown>,
   outSym?: string,
+  marketScore?: number,
 ): string | null {
   const sim = getSimulationOutputWarning(quote);
-  const liq = getLowLiquidityWarning(quote);
+  const liq = getLowLiquidityWarning(quote, marketScore);
   const parts: string[] = [];
   if (liq) parts.push(formatLowLiquidityWarningMessage(liq));
   if (sim) parts.push(formatSimulationOutputWarningMessage(sim, outSym));
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
-function renderRouteWarningsHtml(quote: Record<string, unknown>, outSym?: string): string {
-  const level = swapRouteWarningLevel(quote);
+function renderRouteWarningsHtml(
+  quote: Record<string, unknown>,
+  outSym?: string,
+  marketScore?: number,
+): string {
+  const level = swapRouteWarningLevel(quote, marketScore);
   if (level === 'none') return '';
-  const msg = formatCombinedRouteWarningsMessage(quote, outSym);
+  const msg = formatCombinedRouteWarningsMessage(quote, outSym, marketScore);
   if (!msg) return '';
   const levelClass =
     level === 'red' ? ' swap-quote-simulation-warning--severe' : ' swap-quote-simulation-warning--caution';
@@ -866,9 +883,17 @@ function renderRouteWarningsHtml(quote: Record<string, unknown>, outSym?: string
     </div>`;
 }
 
+function selectedEnumeratedRouteMarketScore(): number | undefined {
+  const state = enumeratedRoutesUiState;
+  if (!state?.routes.length) return undefined;
+  const route = state.routes.find((r) => r.index === state.selectedIndex) ?? state.routes[0];
+  const score = Number(route?.candidate?.marketScore);
+  return Number.isFinite(score) && score > 0 ? score : undefined;
+}
+
 function syncRouteOptionsWarningBanner(quote: Record<string, unknown>): void {
   if (!swapRouteOptionsWarningEl) return;
-  const html = renderRouteWarningsHtml(quote, getSwapOutSym());
+  const html = renderRouteWarningsHtml(quote, getSwapOutSym(), selectedEnumeratedRouteMarketScore());
   if (!html) {
     swapRouteOptionsWarningEl.hidden = true;
     swapRouteOptionsWarningEl.setAttribute('aria-hidden', 'true');
@@ -4120,12 +4145,20 @@ function mapEnumeratedRouteEntry(
 ): EnumeratedRoutesUiState['routes'][0] {
   const candidate = r.candidate as EnumeratedRoutesUiState['routes'][0]['candidate'];
   const marketScore = poolMarketScoreFromRouteEntry(r);
+  const rawQuote = (r.quote as Record<string, unknown> | undefined) ?? {};
+  const quote =
+    marketScore != null &&
+    Number.isFinite(marketScore) &&
+    marketScore >= MIN_ROUTE_POOL_LIQUIDITY_USD &&
+    rawQuote._lowLiquidityWarning
+      ? { ...rawQuote, _lowLiquidityWarning: null }
+      : rawQuote;
   return {
     index: Number(r.index ?? i),
     source: typeof r.source === 'string' ? r.source : undefined,
     candidate:
       candidate && marketScore != null ? { ...candidate, marketScore } : candidate,
-    quote: (r.quote as Record<string, unknown> | undefined) ?? undefined,
+    quote,
   };
 }
 
