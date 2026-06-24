@@ -1417,14 +1417,10 @@ function walletHasMintInSession(mint: string): boolean {
   return sessionWalletBalances.items.some((i) => i.mintAddress === m);
 }
 
-/** Ephemeral WSOL path when no WSOL row or WSOL balance is zero (from latest wallet fetch). */
+/** Ephemeral WSOL path only when wallet has no open WSOL ATA (from latest wallet fetch). */
 function resolveCloseWsolAtaFromSession(): boolean {
   if (!sessionWalletBalances) return true;
-  const row = sessionWalletBalances.items.find((i) => i.mintAddress === WSOL_MINT);
-  if (!row) return true;
-  const exact = row.amountExact?.trim().replace(/,/g, '');
-  if (exact && /^\d+$/.test(exact)) return BigInt(exact) === 0n;
-  return !(Number.isFinite(row.amountUi) && row.amountUi > 0);
+  return !sessionWalletBalances.items.some((i) => i.mintAddress === WSOL_MINT);
 }
 
 /**

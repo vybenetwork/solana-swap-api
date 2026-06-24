@@ -14,8 +14,8 @@ export interface SwapWalletAtaHints {
   /** Create output SPL ATA idempotently before the swap (buy when wallet has no ATA). */
   createOutputAta?: boolean;
   /**
-   * WSOL unwrap mode: true = ephemeral (sync + close entire WSOL account);
-   * false = persistent WSOL ATA exists — ix-builder unwraps only this swap's output amount.
+   * WSOL unwrap mode: true = ephemeral (no WSOL ATA — create seed account, sync + close);
+   * false = open WSOL ATA exists (even at zero balance) — ix-builder uses persistent ATA path.
    */
   closeWsolAta?: boolean;
 }
@@ -55,23 +55,9 @@ function walletHasMintRow(
   return rows.some((r) => r.mintAddress.trim() === mint);
 }
 
-function wsolRowHasNonZeroBalance(
-  rows: { mintAddress: string; amount: string; decimals: number }[],
-): boolean {
-  const row = rows.find((r) => r.mintAddress.trim() === WSOL_MINT);
-  if (!row) return false;
-  try {
-    return balanceAmountToRaw(row.amount, row.decimals) > 0n;
-  } catch {
-    return balanceAmountToUi(row.amount, row.decimals) > 0;
-  }
-}
-
-/** true = ephemeral WSOL (no ATA or zero balance); false = persistent WSOL with funds. */
-function resolveCloseWsolAtaFromWalletRows(
-  rows: { mintAddress: string; amount: string; decimals: number }[],
-): boolean {
-  return !wsolRowHasNonZeroBalance(rows);
+/** true = ephemeral WSOL (no open ATA); false = persistent WSOL ATA exists (any balance). */
+function resolveCloseWsolAtaFromWalletRows(rows: { mintAddress: string }[]): boolean {
+  return !walletHasMintRow(rows, WSOL_MINT);
 }
 
 export function appendAtaHintsToPayload(

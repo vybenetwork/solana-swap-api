@@ -4315,7 +4315,7 @@ function collectSwapBuildOptions(): Record<string, unknown> {
     swapFee: resolveSwapServiceFeePct(),
     ...(ataFromCache
       ? {
-          closeWsolAta: ataFromCache.closeWsolAta,
+          ...(ataFromCache.closeWsolAta === true ? { closeWsolAta: true } : { closeWsolAta: false }),
           ...(typeof ataFromCache.createOutputAta === 'boolean'
             ? { createOutputAta: ataFromCache.createOutputAta }
             : {}),
