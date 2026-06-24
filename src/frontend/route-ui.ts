@@ -2165,7 +2165,11 @@ function getQuotePayHeroWalletFeeLineItems(
     for (const item of getHopFeeDisplayItems(step)) {
       if (!isWalletCostFeeItem(item, quote)) continue;
       if (isAccRentWalletFeeItem(item)) continue;
-      const sellLegUi = walletCostFeeToSellMintUi(item, quote);
+      let sellLegUi = walletCostFeeToSellMintUi(item, quote);
+      if (isPriorityFeeItem(item)) {
+        const priorityUi = getQuotePriorityFeeSolUi(quote);
+        if (priorityUi != null) sellLegUi = priorityUi;
+      }
       if (sellLegUi == null || sellLegUi <= 0) continue;
       out.push({
         ui: sellLegUi,
@@ -3628,6 +3632,65 @@ function normalizeFeeItemLabel(label: string): string {
 }
 
 const PRIORITY_FEE_LABEL = 'Priority fee';
+const SIGN_CONFIRM_NETWORK_FEE_LABEL = 'Network Fee (Priority Fee)';
+
+function isPriorityFeeItem(item: Pick<HopFeeItemLite, 'label' | 'destinationKind'>): boolean {
+  if (item.destinationKind === 'network_priority') return true;
+  return normalizeFeeItemLabel(item.label).toLowerCase() === 'priority fee';
+}
+
+function parseQuotePriorityFeeLamports(
+  quote: Record<string, unknown>,
+  buildPayload?: Record<string, unknown>,
+): string | null {
+  const candidates = [
+    quote._networkFeeLamports,
+    buildPayload?._networkFeeLamports,
+    (buildPayload?.enrichment as Record<string, unknown> | undefined)?.networkFeeLamports,
+    (buildPayload?._feeEnrichment as Record<string, unknown> | undefined)?.networkFeeLamports,
+  ];
+  for (const raw of candidates) {
+    const digits = String(raw ?? '').trim().replace(/,/g, '');
+    if (/^\d+$/.test(digits) && digits !== '0') return digits;
+  }
+  return null;
+}
+
+/** Authoritative priority / network fee in SOL — prefers ix-builder simulation lamports. */
+function getQuotePriorityFeeSolUi(
+  quote: Record<string, unknown>,
+  buildPayload?: Record<string, unknown>,
+): number | null {
+  const lamports = parseQuotePriorityFeeLamports(quote, buildPayload);
+  if (lamports) {
+    const ui = deps.rawAmountToUiNumber(lamports, 9);
+    if (Number.isFinite(ui) && ui > 0) return ui;
+  }
+
+  let total = 0;
+  let found = false;
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  for (const step of plan) {
+    for (const item of getHopFeeDisplayItems(step)) {
+      if (!isPriorityFeeItem(item)) continue;
+      if (!isSolMint(item.mint)) continue;
+      const ui = feeAmountToUi(item.amountRaw, item.mint);
+      if (ui == null || ui <= 0) continue;
+      total += ui;
+      found = true;
+    }
+  }
+  return found ? total : null;
+}
+
+function priorityFeeEquivFromUi(
+  priorityUi: number,
+  quote: Record<string, unknown>,
+): FeeAmountEquiv {
+  const decimals = deps.getMintDecimals(WSOL_MINT);
+  const raw = BigInt(Math.round(priorityUi * 10 ** decimals)).toString();
+  return computeFeeEquivalents(raw, WSOL_MINT, quote);
+}
 const SLIPPAGE_SPREAD_LABEL = 'Slippage/Spread';
 
 /** User-facing fee name; renames generic route fees by destination kind. */
@@ -3724,6 +3787,10 @@ function accRentFeeAmountEquiv(item: HopFeeItemLite, quote: Record<string, unkno
 }
 
 function feeEquivForHopItem(item: HopFeeItemLite, quote: Record<string, unknown>): FeeAmountEquiv {
+  if (isPriorityFeeItem(item)) {
+    const priorityUi = getQuotePriorityFeeSolUi(quote);
+    if (priorityUi != null) return priorityFeeEquivFromUi(priorityUi, quote);
+  }
   const fromEnrichment = feeEquivFromEnrichmentItem(item, quote);
   if (fromEnrichment) return fromEnrichment;
   if (isAccRentWalletFeeItem(item) || isAccRentReclaimItem(item)) {
@@ -6906,30 +6973,36 @@ function signConfirmAmountSymbol(mint: string, sym: string): string {
   return isSolMint(mint) ? 'SOL' : sym;
 }
 
-/** Phantom-style SOL amounts — fixed 6 decimal places. */
 function formatSignConfirmSolAmount(ui: number): string {
-  if (!Number.isFinite(ui)) return '0.000000';
-  return Math.abs(ui).toFixed(6);
+  const abs = Math.abs(ui);
+  if (!Number.isFinite(abs)) return '0.000000';
+  return abs.toFixed(6);
 }
 
-/** Non-SOL sign-confirm amounts — up to 5 decimal places with grouping. */
 function formatSignConfirmTokenAmount(ui: number): string {
-  if (!Number.isFinite(ui) || ui === 0) return '0';
   const abs = Math.abs(ui);
+  if (!Number.isFinite(abs) || abs === 0) return '0';
+  if (abs >= 100_000) {
+    return Math.round(abs).toLocaleString(undefined, { maximumFractionDigits: 0, useGrouping: true });
+  }
   const rounded = Math.round(abs * 100_000) / 100_000;
-  const formatted = rounded.toLocaleString(undefined, {
+  let formatted = rounded.toLocaleString(undefined, {
     minimumFractionDigits: 0,
     maximumFractionDigits: 5,
     useGrouping: true,
   });
-  return formatted.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  if (formatted.includes('.')) {
+    formatted = formatted.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+  }
+  return formatted;
 }
 
 function formatSignConfirmBalanceAmount(ui: number, mint: string, sym: string): string {
   const displaySym = signConfirmAmountSymbol(mint, sym);
+  const absUi = Math.abs(ui);
   const amt = isSolMint(mint)
-    ? formatSignConfirmSolAmount(ui)
-    : formatSignConfirmTokenAmount(ui);
+    ? formatSignConfirmSolAmount(absUi)
+    : formatSignConfirmTokenAmount(absUi);
   const prefix = ui < 0 ? '-' : '+';
   return `${prefix}${amt} ${displaySym}`;
 }
@@ -6981,42 +7054,11 @@ function collectSignConfirmBalanceRows(quote: Record<string, unknown>): SignConf
   return rows;
 }
 
-function getSignConfirmNetworkFeeSolUi(
+function getSignConfirmPriorityFeeSolUi(
   quote: Record<string, unknown>,
   buildPayload?: Record<string, unknown>,
 ): number | null {
-  const lamportCandidates = [
-    quote._networkFeeLamports,
-    buildPayload?._networkFeeLamports,
-    (buildPayload?.enrichment as Record<string, unknown> | undefined)?.networkFeeLamports,
-  ];
-  for (const raw of lamportCandidates) {
-    if (raw == null || raw === '') continue;
-    try {
-      const lamports = BigInt(String(raw).replace(/,/g, ''));
-      if (lamports > 0n) return Number(lamports) / 1e9;
-    } catch {
-      /* try next */
-    }
-  }
-
-  let total = 0;
-  let found = false;
-  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
-  for (const step of plan) {
-    for (const item of getHopFeeDisplayItems(step)) {
-      if (!isSolMint(item.mint)) continue;
-      const label = normalizeFeeItemLabel(item.label).toLowerCase();
-      const isNetworkFee =
-        item.destinationKind === 'network_priority' || label === 'priority fee';
-      if (!isNetworkFee) continue;
-      const ui = feeAmountToUi(item.amountRaw, item.mint);
-      if (ui == null || ui <= 0) continue;
-      total += ui;
-      found = true;
-    }
-  }
-  return found ? total : null;
+  return getQuotePriorityFeeSolUi(quote, buildPayload);
 }
 
 /** Phantom-style two-card summary: balance changes + network/route details. */
@@ -7025,7 +7067,7 @@ export function renderSignConfirmSummaryHtml(
   buildPayload?: Record<string, unknown>,
 ): string {
   const balanceRows = collectSignConfirmBalanceRows(quote);
-  const networkFeeUi = getSignConfirmNetworkFeeSolUi(quote, buildPayload);
+  const priorityFeeUi = getSignConfirmPriorityFeeSolUi(quote, buildPayload);
   const routeHtml = renderSignConfirmRouteHtml(quote, buildPayload);
 
   const balanceHtml =
@@ -7039,11 +7081,11 @@ export function renderSignConfirmSummaryHtml(
       `<span class="swap-sign-dialog__card-value-inline">${renderSignConfirmTokenIcon(NATIVE_SOL_MINT)}<span>Solana</span></span>`,
     ),
   ];
-  if (networkFeeUi != null && networkFeeUi > 0) {
+  if (priorityFeeUi != null && priorityFeeUi > 0) {
     detailRows.push(
       renderSignConfirmDetailRowHtml(
-        'Network Fee',
-        deps.escapeHtml(`${formatSignConfirmSolAmount(networkFeeUi)} SOL`),
+        SIGN_CONFIRM_NETWORK_FEE_LABEL,
+        deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`),
       ),
     );
   }

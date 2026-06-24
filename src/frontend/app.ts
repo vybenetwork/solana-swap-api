@@ -3392,6 +3392,7 @@ function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<stri
     swapFeeRaw: enrichment.swapFeeRaw,
     outputFromSimulation: enrichment.outputFromSimulation,
     walletPayDebitRaw: enrichment.walletPayDebitRaw,
+    networkFeeLamports: enrichment.networkFeeLamports,
     simulationOutputWarning: enrichment.simulationOutputWarning ?? null,
     lowLiquidityWarning: enrichment.lowLiquidityWarning ?? null,
   };
@@ -3402,6 +3403,7 @@ function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<stri
     _simulatedOutAmount: enrichment.simulatedOutRaw ?? null,
     _quotedOutAmount: enrichment.quotedOutRaw ?? buildQuote?.outAmount,
     _walletPayDebitRaw: enrichment.walletPayDebitRaw ?? null,
+    _networkFeeLamports: enrichment.networkFeeLamports ?? null,
     _walletTokenAccountCloses: enrichment.walletTokenAccountCloses ?? [],
     _youPay: enrichment.youPay,
     _youReceive: enrichment.youReceive,
@@ -3412,7 +3414,6 @@ function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<stri
     _outputPriceUsd: enrichment.outputPriceUsd,
     _otherAmountThresholdRaw: enrichment.otherAmountThresholdRaw,
     _otherAmountThresholdUi: enrichment.otherAmountThresholdUi,
-    _networkFeeLamports: enrichment.networkFeeLamports,
     _simulationOutputWarning: enrichment.simulationOutputWarning ?? null,
     _lowLiquidityWarning: enrichment.lowLiquidityWarning ?? null,
   };
@@ -3483,9 +3484,8 @@ function applyFeeEnrichmentToQuote(
   const networkFeeLamports =
     buildPayload?._networkFeeLamports ??
     source?.networkFeeLamports ??
-    buildEnrichment?.networkFeeLamports ??
     quote._networkFeeLamports;
-  if (networkFeeLamports != null && String(networkFeeLamports).length > 0) {
+  if (networkFeeLamports != null && String(networkFeeLamports).trim() !== '') {
     next._networkFeeLamports = networkFeeLamports;
   }
 
