@@ -1700,6 +1700,9 @@ function startRefetchHoldingsCooldown(): void {
 
 export function syncRefetchHoldingsBtn(): void {
   if (!refetchHoldingsBtn) return;
+  const showRefetch = activeSide === 'input' || activeTab === 'wallet';
+  refetchHoldingsBtn.hidden = !showRefetch;
+  if (!showRefetch) return;
   const wallet = getWalletAddressCb?.().trim() ?? '';
   const inCooldown = isRefetchHoldingsInCooldown();
   const fetching = getWalletHoldingsFetchingCb?.() ?? false;
