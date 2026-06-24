@@ -9309,8 +9309,8 @@ body.token-picker-scroll-lock {
   flex-shrink: 0;
   box-sizing: border-box;
   height: 28px;
-  min-height: 28px;
-  max-height: 28px;
+  min-height: 28px !important;
+  max-height: 28px !important;
   padding: 0 0.5rem;
   border-radius: 8px;
   gap: 0.35rem;
