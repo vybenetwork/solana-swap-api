@@ -598,12 +598,15 @@ function truncateFeeTableTokenSymbol(sym: string): string {
 
 function accRentFeeDisplayLabel(item: Pick<HopFeeItemLite, 'mint' | 'accountMint' | 'destinationKind' | 'label'>): string {
   const accountMint = accRentAccountMint(item);
+  if (item.destinationKind === 'closed_token_account') {
+    const sym = isSolMint(accountMint)
+      ? 'SOL'
+      : truncateFeeTableTokenSymbol(mintSymbolSync(accountMint));
+    return `${sym} Rent Reclaim`;
+  }
   const sym = isSolMint(accountMint)
     ? 'WSOL'
     : truncateFeeTableTokenSymbol(mintSymbolSync(accountMint));
-  if (item.destinationKind === 'closed_token_account') {
-    return `${sym} Rent Reclaim`;
-  }
   return `${sym} Rent Fee`;
 }
 
@@ -707,7 +710,7 @@ export function quoteOutputMint(quote: Record<string, unknown>): string {
   return fromQuote || deps.getFormOutputMint().trim();
 }
 
-type WalletTokenAccountCloseCategory = 'input' | 'output' | 'wsol' | 'other';
+type WalletTokenAccountCloseCategory = 'input' | 'output' | 'wsol' | 'bridge' | 'other';
 
 interface WalletTokenAccountCloseEntry {
   mint: string;
@@ -723,8 +726,29 @@ const WALLET_ATA_CLOSE_CATEGORIES = new Set<WalletTokenAccountCloseCategory>([
   'input',
   'output',
   'wsol',
+  'bridge',
   'other',
 ]);
+
+/** Whether the built route closes the bridge WSOL ATA (not the same as closeInputAta on the sold token). */
+function quoteClosesWsolAta(quote: Record<string, unknown>): boolean {
+  if (quote.closeWsolAta === true) return true;
+  if (quote.closeWsolAta === false) return false;
+  const build = quote._build as Record<string, unknown> | undefined;
+  const details = build?.details as Record<string, unknown> | undefined;
+  if (details?.closeWsolAta === true) return true;
+  if (details?.closeWsolAta === false) return false;
+  return false;
+}
+
+/** ix-builder may list a bridge WSOL close even when closeWsolAta is false — drop before UI. */
+function getEffectiveWalletTokenAccountCloses(
+  quote: Record<string, unknown>,
+): WalletTokenAccountCloseEntry[] {
+  const closes = getQuoteWalletTokenAccountCloses(quote);
+  if (quoteClosesWsolAta(quote)) return closes;
+  return closes.filter((c) => c.category !== 'bridge' && c.category !== 'wsol');
+}
 
 function getQuoteWalletTokenAccountCloses(
   quote: Record<string, unknown>,
@@ -757,7 +781,7 @@ function closeEntryToReclaimFeeItem(entry: WalletTokenAccountCloseEntry): HopFee
   return {
     label: ACC_RENT_FEE_LABEL,
     amountRaw: entry.reclaimedLamports ?? DEFAULT_TOKEN_ACCOUNT_RENT_LAMPORTS,
-    mint: WSOL_MINT,
+    mint: NATIVE_SOL_MINT,
     accountMint: entry.mint,
     destinationKind: 'closed_token_account',
     destinationNote: 'Rent returned to wallet',
@@ -769,13 +793,15 @@ function getHopAtaRentReclaimItems(
   planIndex: number,
   isLastHop: boolean,
 ): HopFeeItemLite[] {
-  return getQuoteWalletTokenAccountCloses(quote)
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  return getEffectiveWalletTokenAccountCloses(quote)
     .filter((c) => (c.category === 'input' ? planIndex === 0 : isLastHop))
-    .map(closeEntryToReclaimFeeItem);
+    .map(closeEntryToReclaimFeeItem)
+    .filter((item) => !isEphemeralBridgeWsolReclaimItem(item, plan, planIndex));
 }
 
 function hasInputMintRentReclaim(quote: Record<string, unknown>, mint: string): boolean {
-  return getQuoteWalletTokenAccountCloses(quote).some(
+  return getEffectiveWalletTokenAccountCloses(quote).some(
     (c) => c.category === 'input' && routeLegMintMatches(c.mint, mint),
   );
 }
@@ -798,7 +824,7 @@ function dedupeSyntheticReclaimItems(
 /** USD value of input ATA rent returned to wallet (WSOL) on full-balance sells. */
 function sumInputQuoteRentReclaimUsd(quote: Record<string, unknown>): number {
   const fromCloses = sumRentReclaimUsd(
-    getQuoteWalletTokenAccountCloses(quote)
+    getEffectiveWalletTokenAccountCloses(quote)
       .filter((c) => c.category === 'input')
       .map(closeEntryToReclaimFeeItem),
     quote,
@@ -2610,16 +2636,16 @@ export function getQuoteReceiveHeroReclaimStack(
   quote: Record<string, unknown>,
 ): QuoteReceiveHeroReclaimItem[] {
   const out: QuoteReceiveHeroReclaimItem[] = [];
-  for (const entry of getQuoteWalletTokenAccountCloses(quote)) {
+  for (const entry of getEffectiveWalletTokenAccountCloses(quote)) {
     if (entry.category !== 'input') continue;
     const item = closeEntryToReclaimFeeItem(entry);
-    const ui = feeAmountToUi(item.amountRaw, item.mint);
+    const ui = feeAmountToUi(item.amountRaw, NATIVE_SOL_MINT);
     if (ui == null || ui <= 0) continue;
     const accountSym = mintSymbolSync(entry.mint);
     out.push({
       ui,
-      sym: 'WSOL',
-      mint: WSOL_MINT,
+      sym: 'SOL',
+      mint: NATIVE_SOL_MINT,
       label: `${accountSym} Rent Reclaim`,
     });
   }
@@ -3013,7 +3039,7 @@ function getQuoteReceiveGrossOutLabel(quote: Record<string, unknown>): string | 
 
 function sumInputQuoteRentReclaimRaw(quote: Record<string, unknown>): bigint {
   let total = 0n;
-  for (const entry of getQuoteWalletTokenAccountCloses(quote)) {
+  for (const entry of getEffectiveWalletTokenAccountCloses(quote)) {
     if (entry.category !== 'input') continue;
     const raw = parsePositiveBigInt(
       entry.reclaimedLamports ?? DEFAULT_TOKEN_ACCOUNT_RENT_LAMPORTS,
@@ -3616,7 +3642,7 @@ function sumRentReclaimUsd(items: HopFeeItemLite[], quote: Record<string, unknow
 /** Sum USD value of all ATA-close / WSOL rent returned to wallet on this quote. */
 function sumQuoteRentReclaimUsd(quote: Record<string, unknown>): number {
   return sumRentReclaimUsd(
-    getQuoteWalletTokenAccountCloses(quote).map(closeEntryToReclaimFeeItem),
+    getEffectiveWalletTokenAccountCloses(quote).map(closeEntryToReclaimFeeItem),
     quote,
   );
 }
@@ -7029,23 +7055,20 @@ function collectSignConfirmReceiveRows(quote: Record<string, unknown>): SignConf
 }
 
 function getSignConfirmReceiveBonusLines(quote: Record<string, unknown>): QuoteReceiveHeroReclaimItem[] {
-  const items = [...getQuoteReceiveHeroReclaimStack(quote)];
-  const seen = new Set(items.map((row) => `${row.mint}:${row.label}`));
-  for (const entry of getQuoteWalletTokenAccountCloses(quote)) {
-    if (entry.category === 'input') continue;
-    const item = closeEntryToReclaimFeeItem(entry);
-    const ui = feeAmountToUi(item.amountRaw, item.mint);
-    if (ui == null || ui <= 0) continue;
-    const mint = isSolMint(item.mint) ? WSOL_MINT : item.mint;
-    const sym = mintSymbolSync(mint);
-    const label =
-      entry.category === 'wsol'
-        ? 'WSOL reclaim'
-        : `${mintSymbolSync(entry.mint)} rent reclaim`;
-    const key = `${mint}:${label}`;
+  const seen = new Set<string>();
+  const items: QuoteReceiveHeroReclaimItem[] = [];
+  for (const entry of getEffectiveWalletTokenAccountCloses(quote)) {
+    const key = entry.accountAddress?.trim() || `${entry.category}|${entry.mint}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    items.push({ ui, sym, mint, label });
+    const item = closeEntryToReclaimFeeItem(entry);
+    const ui = feeAmountToUi(item.amountRaw, NATIVE_SOL_MINT);
+    if (ui == null || ui <= 0) continue;
+    const label =
+      entry.category === 'wsol' || entry.category === 'bridge'
+        ? 'rent reclaim'
+        : `${mintSymbolSync(entry.mint)} rent reclaim`;
+    items.push({ ui, sym: 'SOL', mint: NATIVE_SOL_MINT, label });
   }
   return items;
 }
