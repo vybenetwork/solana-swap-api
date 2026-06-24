@@ -625,6 +625,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
           swapFeeRaw: enrichment.swapFeeRaw,
           outputFromSimulation: enrichment.outputFromSimulation,
           walletPayDebitRaw: enrichment.walletPayDebitRaw,
+          networkFeeLamports: enrichment.networkFeeLamports,
           simulationOutputWarning: enrichment.simulationOutputWarning ?? null,
           lowLiquidityWarning: enrichment.lowLiquidityWarning ?? null,
         }
@@ -636,6 +637,7 @@ app.post('/api/trading/swap', async (req: Request, res: Response) => {
       _simulatedOutAmount: enrichment?.simulatedOutRaw ?? null,
       _quotedOutAmount: enrichment?.quotedOutRaw ?? data.details?.quote?.outAmount,
       _walletPayDebitRaw: enrichment?.walletPayDebitRaw ?? null,
+      _networkFeeLamports: enrichment?.networkFeeLamports ?? null,
       _walletTokenAccountCloses: enrichment?.walletTokenAccountCloses ?? [],
       _simulationOutputWarning: enrichment?.simulationOutputWarning ?? null,
       _lowLiquidityWarning: enrichment?.lowLiquidityWarning ?? null,

@@ -267,6 +267,7 @@ function renderRouteOptionMetrics(
 }
 
 function sourceBadgeLabel(source: string | undefined): string {
+  if (source === 'shared-quote') return 'shared-quote';
   if (source === 'jupiter') return 'jupiter';
   if (source === 'titan') return 'titan';
   if (source === 'both' || source === 'trades+rpc' || source === 'trades') return 'trades';
@@ -306,6 +307,7 @@ function computeRouteHighlightBadges(
   let highestLiqRouteIndex = -1;
   let bestLiq = 0;
   for (const route of routes) {
+    if (isMultipleMarketsRoute(route)) continue;
     const liq = route.candidate?.liquidity ?? 0;
     if (liq > bestLiq) {
       bestLiq = liq;
@@ -420,11 +422,9 @@ function renderRouteOptionCard(
   const quote = route.quote ?? {};
   const outUi = deps.quoteOutputUiAmount(quote);
   const outLabel = outUi != null ? deps.formatSwapAmountValue(outUi) : '—';
-  const programLabel =
-    route.candidate?.programLabel?.trim() ||
-    route.candidate?.protocol?.replace(/_/g, ' ') ||
-    '—';
-  const liquidity = route.candidate?.liquidity;
+  const multipleMarkets = isMultipleMarketsRoute(route);
+  const programLabel = routeProgramDisplayLabel(route);
+  const liquidity = multipleMarkets ? undefined : route.candidate?.liquidity;
   const warnLevel = swapRouteWarningLevel(quote, liquidity);
   const optionWarnBadge = routeOptionWarnBadge(quote, liquidity);
   const warnClass =
@@ -446,7 +446,7 @@ function renderRouteOptionCard(
           ${warnIcon}
         </span>
       </div>
-      <div class="swap-route-option__title">${renderDexProgramLabel(programLabel, route.candidate?.protocol)}</div>
+      <div class="swap-route-option__title">${multipleMarkets ? deps.escapeHtml(programLabel) : renderDexProgramLabel(programLabel, route.candidate?.protocol)}</div>
       ${renderRoutePoolLink(route.candidate?.marketAddress)}
       ${renderRouteOptionMetrics(quote, outLabel, liquidity, route.candidate, showTradeActivity)}
     </div>`;
@@ -3644,14 +3644,19 @@ function parseQuotePriorityFeeLamports(
   buildPayload?: Record<string, unknown>,
 ): string | null {
   const candidates = [
+    quote._txNetworkFeeLamports,
     quote._networkFeeLamports,
+    buildPayload?._txNetworkFeeLamports,
     buildPayload?._networkFeeLamports,
     (buildPayload?.enrichment as Record<string, unknown> | undefined)?.networkFeeLamports,
     (buildPayload?._feeEnrichment as Record<string, unknown> | undefined)?.networkFeeLamports,
   ];
   for (const raw of candidates) {
     const digits = String(raw ?? '').trim().replace(/,/g, '');
-    if (/^\d+$/.test(digits) && digits !== '0') return digits;
+    if (!/^\d+$/.test(digits) || digits === '0') continue;
+    // Ignore base-signature-only enrichment (Vybe txs without compute budget).
+    if (digits === '5000' || digits === '10000') continue;
+    return digits;
   }
   return null;
 }
@@ -5763,6 +5768,89 @@ export function routerDisplayLabel(routerId: string): string {
 
 type DexBrand = 'raydium' | 'meteora' | 'pump' | 'sanctum';
 
+/** Program id → human label (mirrors ix-builder / pinned-swap-params). */
+const PROGRAM_ADDRESS_LABELS: Record<string, string> = {
+  dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN: 'Meteora DBC',
+  cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG: 'Meteora DAMM v2',
+  LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo: 'Meteora DLMM',
+  LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj: 'Raydium LaunchLab',
+  '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': 'Raydium AMM v4',
+  CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C: 'Raydium CPMM',
+  CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK: 'Raydium CLMM',
+  '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P': 'Pump.fun',
+  pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA: 'PumpSwap',
+  '5ocnV1qiCgaQR8Jb8xWnVbApfaygJ8tNoZfgPwsgx9kx': 'Sanctum',
+};
+
+/** Raw ix-builder / Vybe protocol keys → display label. */
+const PROTOCOL_KEY_LABELS: Record<string, string> = {
+  SHARED_QUOTE_BRIDGE: 'Multiple Markets',
+  METEORA_DLMM: 'Meteora DLMM',
+  METEORADLMM: 'Meteora DLMM',
+  METEORA_DAMM2: 'Meteora DAMM v2',
+  METEORADAMM2: 'Meteora DAMM v2',
+  METEORA_DBC: 'Meteora DBC',
+  METEORADBC: 'Meteora DBC',
+  RAYDIUM_LAUNCHLAB: 'Raydium LaunchLab',
+  RAYDIUMLAUNCHLAB: 'Raydium LaunchLab',
+  LAUNCHLAB: 'Raydium LaunchLab',
+  RAYDIUM_AMM_V4: 'Raydium AMM v4',
+  RAYDIUMAMMV4: 'Raydium AMM v4',
+  RAYDIUM_CPMM: 'Raydium CPMM',
+  RAYDIUMCPMM: 'Raydium CPMM',
+  RAYDIUM_CLMM: 'Raydium CLMM',
+  RAYDIUMCLMM: 'Raydium CLMM',
+  PUMPFUN: 'Pump.fun',
+  PUMPSWAP: 'PumpSwap',
+  SANCTUM: 'Sanctum',
+  JUPITER: 'Jupiter',
+  TITAN: 'Titan',
+  VYBE: 'Vybe',
+};
+
+const KNOWN_DEX_DISPLAY_LABELS = new Set([
+  ...Object.values(PROGRAM_ADDRESS_LABELS),
+  ...Object.values(PROTOCOL_KEY_LABELS),
+]);
+
+const MULTIPLE_MARKETS_LABEL = 'Multiple Markets';
+
+function isMultipleMarketsRoute(
+  route: Pick<EnumeratedRouteUiEntry, 'source' | 'candidate'>,
+): boolean {
+  if (route.source === 'shared-quote') return true;
+  const protocol = normalizeProtocolLookupKey(route.candidate?.protocol ?? '');
+  if (protocol === 'SHARED_QUOTE_BRIDGE') return true;
+  const programLabel = normalizeProtocolLookupKey(route.candidate?.programLabel ?? '');
+  return programLabel === 'SHARED_QUOTE_BRIDGE';
+}
+
+function routeProgramDisplayLabel(route: Pick<EnumeratedRouteUiEntry, 'source' | 'candidate'>): string {
+  if (isMultipleMarketsRoute(route)) return MULTIPLE_MARKETS_LABEL;
+  const fromLabel = route.candidate?.programLabel?.trim();
+  if (fromLabel) return resolveDexProtocolDisplayLabel(fromLabel);
+  return resolveDexProtocolDisplayLabel(route.candidate?.protocol ?? '') || '—';
+}
+
+function normalizeProtocolLookupKey(raw: string): string {
+  return raw
+    .trim()
+    .replace(/^quote-bridge-/i, '')
+    .replace(/^vybe-/i, '')
+    .toUpperCase()
+    .replace(/[\s-]+/g, '_');
+}
+
+/** Map raw provider / protocol strings (e.g. meteora-dlmm) to UI labels. */
+function resolveDexProtocolDisplayLabel(raw: string): string {
+  const text = raw.trim();
+  if (!text) return 'DEX';
+  if (PROGRAM_ADDRESS_LABELS[text]) return PROGRAM_ADDRESS_LABELS[text];
+  if (KNOWN_DEX_DISPLAY_LABELS.has(text)) return text;
+  const key = normalizeProtocolLookupKey(text);
+  return PROTOCOL_KEY_LABELS[key] ?? text;
+}
+
 function detectDexBrand(text: string): DexBrand | null {
   const normalized = text.trim().toLowerCase().replace(/[\s_-]/g, '');
   if (!normalized) return null;
@@ -5787,9 +5875,9 @@ function dexIconSrc(brand: DexBrand): string {
 }
 
 function renderDexProgramLabel(label: string, protocolHint?: string): string {
-  const text = label.trim() || '—';
+  const text = resolveDexProtocolDisplayLabel(protocolHint?.trim() || label.trim() || '—');
   if (text === '—') return deps.escapeHtml(text);
-  const brand = detectDexBrand(text) ?? (protocolHint ? detectDexBrand(protocolHint) : null);
+  const brand = detectDexBrand(text) ?? detectDexBrand(label) ?? (protocolHint ? detectDexBrand(protocolHint) : null);
   if (!brand) return deps.escapeHtml(text);
   return `<span class="dex-program-label"><img class="dex-program-label__icon dex-program-label__icon--${brand}" src="${dexIconSrc(brand)}" alt="" width="16" height="16" decoding="async" /><span class="dex-program-label__text">${deps.escapeHtml(text)}</span></span>`;
 }
@@ -7068,7 +7156,6 @@ export function renderSignConfirmSummaryHtml(
 ): string {
   const balanceRows = collectSignConfirmBalanceRows(quote);
   const priorityFeeUi = getSignConfirmPriorityFeeSolUi(quote, buildPayload);
-  const routeHtml = renderSignConfirmRouteHtml(quote, buildPayload);
 
   const balanceHtml =
     balanceRows.length > 0
@@ -7089,35 +7176,50 @@ export function renderSignConfirmSummaryHtml(
       ),
     );
   }
-  detailRows.push(renderSignConfirmDetailRowHtml('Route', routeHtml));
+  for (const routeRow of renderSignConfirmRouteDetailRows(quote, buildPayload)) {
+    detailRows.push(renderSignConfirmDetailRowHtml(routeRow.label, routeRow.valueHtml));
+  }
 
   return `<div class="swap-sign-dialog__cards">
     <div class="swap-sign-dialog__card">${balanceHtml}</div>
     <div class="swap-sign-dialog__card">${detailRows.join('')}</div>
   </div>`;
 }
-/** Sign-confirm route line — hop venues with DEX icons, arrows, and router badge. */
-function renderSignConfirmRouteHtml(
+/** Sign-confirm route rows — one "Route" row for single-hop, labeled Hop 1/2/… for multi-hop. */
+function renderSignConfirmRouteDetailRows(
   quote: Record<string, unknown>,
   buildPayload?: Record<string, unknown>,
-): string {
+): Array<{ label: string; valueHtml: string }> {
   const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
   const router = quoteRouterBrand(quote);
   const viaBadge = renderViaRouterBadge(router);
+
+  const hopValueHtml = (dexLabel: string, showVia: boolean): string =>
+    `<div class="swap-sign-dialog__route-stack">${renderDexProgramLabel(dexLabel)}${
+      showVia ? `<span class="swap-sign-dialog__route-via">${viaBadge}</span>` : ''
+    }</div>`;
+
   if (plan.length === 0) {
     const details = buildPayload?.details as Record<string, unknown> | undefined;
     const buildQuote = details?.quote as Record<string, unknown> | undefined;
     const provider = String(buildPayload?.provider ?? buildQuote?.provider ?? '').trim();
     const label = provider || 'Vybe';
-    return `<div class="swap-sign-dialog__route-stack"><span class="swap-sign-dialog__route-hop">${renderDexProgramLabel(label)}</span> ${viaBadge}</div>`;
+    return [{ label: 'Route', valueHtml: hopValueHtml(label, true) }];
   }
-  const hops = plan.map((step) => {
+
+  if (plan.length === 1) {
+    const label = plan[0]!.swapInfo?.label?.trim() || 'DEX';
+    return [{ label: 'Route', valueHtml: hopValueHtml(label, true) }];
+  }
+
+  return plan.map((step, index) => {
     const label = step.swapInfo?.label?.trim() || 'DEX';
-    const protocol = step.swapInfo?.ammKey ? undefined : step.swapInfo?.label;
-    return `<span class="swap-sign-dialog__route-hop">${renderDexProgramLabel(label, protocol)}</span>`;
+    const isLast = index === plan.length - 1;
+    return {
+      label: `Hop ${index + 1}`,
+      valueHtml: hopValueHtml(label, isLast),
+    };
   });
-  const hopChain = hops.join('<span class="swap-sign-dialog__route-arrow" aria-hidden="true">→</span>');
-  return `<div class="swap-sign-dialog__route-stack">${hopChain}<span class="swap-sign-dialog__route-via">${viaBadge}</span></div>`;
 }
 
 function escapeHtml(value: string): string {

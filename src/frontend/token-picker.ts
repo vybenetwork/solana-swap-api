@@ -97,7 +97,7 @@ let savedBodyOverflow = '';
 let savedHtmlOverflow = '';
 let savedBodyPaddingRight = '';
 
-function lockPageScroll(): void {
+export function lockPageScroll(): void {
   if (bodyScrollLockActive) return;
   bodyScrollLockActive = true;
   savedBodyOverflow = document.body.style.overflow;
@@ -113,7 +113,7 @@ function lockPageScroll(): void {
   }
 }
 
-function unlockPageScroll(): void {
+export function unlockPageScroll(): void {
   if (!bodyScrollLockActive) return;
   bodyScrollLockActive = false;
   document.documentElement.classList.remove('token-picker-scroll-lock');

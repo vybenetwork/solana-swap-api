@@ -8475,10 +8475,17 @@ tr:hover td {
   max-width: min(420px, calc(100vw - 2rem));
   width: 100%;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
+  margin: auto;
+  overflow: hidden;
+}
+
+.swap-sign-dialog[open] {
+  overscroll-behavior: none;
 }
 
 .swap-sign-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.72);
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
 }
 
 .swap-sign-dialog__shell {
@@ -8815,9 +8822,13 @@ tr:hover td {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-end;
-  gap: 0.28rem 0.18rem;
+  gap: 0.28rem 0.35rem;
   max-width: 100%;
   font-size: 0.82rem;
+}
+
+.swap-sign-dialog__card-row:has(.swap-sign-dialog__route-stack) .swap-sign-dialog__card-value {
+  text-align: right;
 }
 
 .swap-sign-dialog__route-hop {

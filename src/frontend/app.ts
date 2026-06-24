@@ -9,6 +9,7 @@ import {
   VersionedTransaction,
   type AddressLookupTableAccount,
 } from '@solana/web3.js';
+import { estimateNetworkFeeLamportsForSwapTxs } from './swap-tx-network-fee.js';
 import {
   buildSwapClientParams,
   getSwapMintQuoteReadinessIssues,
@@ -66,6 +67,8 @@ import {
   type TokenPickerSide,
   type TokenPriceStats,
   type WalletBalanceListItem,
+  lockPageScroll,
+  unlockPageScroll,
 } from './token-picker.js';
 import {
   initRouteUi,
@@ -5618,11 +5621,13 @@ function openSwapSignDialog(quote: Record<string, unknown>, buildPayload?: Recor
   setSwapSignDialogSummary(quote, buildPayload);
   setSwapSignDialogActions('running');
   swapSignConfirmDialogEl?.showModal();
+  lockPageScroll();
 }
 
 function closeSwapSignDialog(): void {
   swapSignFlowGeneration++;
   if (swapSignConfirmDialogEl?.open) swapSignConfirmDialogEl.close();
+  unlockPageScroll();
   resetSwapSignDialogUi();
 }
 
@@ -5752,7 +5757,25 @@ async function runSwapSignDialogFlow(
   txStrings: string[],
 ): Promise<void> {
   const generation = ++swapSignFlowGeneration;
-  openSwapSignDialog(quote, buildPayload);
+  let confirmQuote = quote;
+  let confirmBuild = buildPayload;
+  try {
+    const txNetworkFeeLamports = await estimateNetworkFeeLamportsForSwapTxs(
+      getBrowserConnection(),
+      txStrings,
+    );
+    if (txNetworkFeeLamports) {
+      confirmBuild = { ...buildPayload, _txNetworkFeeLamports: txNetworkFeeLamports };
+      confirmQuote = {
+        ...applyFeeEnrichmentToQuote(quote, null, confirmBuild),
+        _txNetworkFeeLamports: txNetworkFeeLamports,
+        _networkFeeLamports: txNetworkFeeLamports,
+      };
+    }
+  } catch (err) {
+    console.warn('Could not estimate swap network fee from tx:', err);
+  }
+  openSwapSignDialog(confirmQuote, confirmBuild);
   appendSwapSignLog('Preparing transaction…', 'neutral');
 
   try {
@@ -5925,7 +5948,7 @@ function tryCachedVybeBuildTxForSelectedRoute(): {
   const buildPayload = activeBody._build as Record<string, unknown> | undefined;
   const tx = extractSwapBuildTransaction(buildPayload);
   if (!tx || !buildPayload) return null;
-  return { tx, buildPayload };
+  return { tx, buildPayload: projectSwapBuildForBrowser(buildPayload) };
 }
 
 async function postBuildSwap(): Promise<void> {
@@ -5968,7 +5991,7 @@ async function postBuildSwap(): Promise<void> {
       const cached = tryCachedVybeBuildTxForSelectedRoute();
       if (cached) {
         buildTx = cached.tx;
-        buildPayload = cached.buildPayload;
+        buildPayload = projectSwapBuildForBrowser(cached.buildPayload);
         lastRawSwapResponse = buildPayload;
         lastVybeBuild = {
           tx: buildTx,
@@ -5980,7 +6003,7 @@ async function postBuildSwap(): Promise<void> {
       } else {
         const resolved = await resolveVybeBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
         buildTx = resolved.tx;
-        buildPayload = resolved.buildPayload;
+        buildPayload = projectSwapBuildForBrowser(resolved.buildPayload);
       }
     } else {
       const resolved = await resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
@@ -5988,13 +6011,28 @@ async function postBuildSwap(): Promise<void> {
       buildPayload = projectSwapBuildForBrowser(resolved.buildPayload);
     }
     if (swapBuildMode === 'build-sign') {
-      const confirmQuote = lastSwapQuoteOk
-        ? applyFeeEnrichmentToQuote(lastSwapQuoteOk, null, buildPayload)
-        : {};
-      lastSwapQuoteOk = confirmQuote;
-      renderSwapQuoteUI(confirmQuote);
       const legTxs = extractSwapBuildTransactions(buildPayload);
       const toSign = legTxs.length > 0 ? legTxs : [buildTx];
+      let confirmQuote = lastSwapQuoteOk
+        ? applyFeeEnrichmentToQuote(lastSwapQuoteOk, null, buildPayload)
+        : {};
+      try {
+        const txNetworkFeeLamports = await estimateNetworkFeeLamportsForSwapTxs(
+          getBrowserConnection(),
+          toSign,
+        );
+        if (txNetworkFeeLamports) {
+          confirmQuote = {
+            ...confirmQuote,
+            _txNetworkFeeLamports: txNetworkFeeLamports,
+            _networkFeeLamports: txNetworkFeeLamports,
+          };
+        }
+      } catch (err) {
+        console.warn('Could not estimate swap network fee from tx:', err);
+      }
+      lastSwapQuoteOk = confirmQuote;
+      renderSwapQuoteUI(confirmQuote);
       await runSwapSignDialogFlow(confirmQuote, buildPayload, toSign);
     } else {
       const legTxs = extractSwapBuildTransactions(buildPayload);
@@ -6734,6 +6772,26 @@ swapSignConfirmDialogEl?.addEventListener('cancel', (event) => {
   event.preventDefault();
   handleSwapSignDialogDismiss();
 });
+swapSignConfirmDialogEl?.addEventListener(
+  'wheel',
+  (event) => {
+    if (!swapSignConfirmDialogEl?.open) return;
+    const shell = swapSignConfirmDialogEl.querySelector('.swap-sign-dialog__shell');
+    if (shell && event.target instanceof Node && shell.contains(event.target)) return;
+    event.preventDefault();
+  },
+  { passive: false },
+);
+swapSignConfirmDialogEl?.addEventListener(
+  'touchmove',
+  (event) => {
+    if (!swapSignConfirmDialogEl?.open) return;
+    const shell = swapSignConfirmDialogEl.querySelector('.swap-sign-dialog__shell');
+    if (shell && event.target instanceof Node && shell.contains(event.target)) return;
+    event.preventDefault();
+  },
+  { passive: false },
+);
 
 swapGaslessCheckbox?.addEventListener('change', () => {
   invalidateSwapQuoteAfterInputChange();
