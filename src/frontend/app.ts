@@ -3412,6 +3412,7 @@ function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<stri
     _outputPriceUsd: enrichment.outputPriceUsd,
     _otherAmountThresholdRaw: enrichment.otherAmountThresholdRaw,
     _otherAmountThresholdUi: enrichment.otherAmountThresholdUi,
+    _networkFeeLamports: enrichment.networkFeeLamports,
     _simulationOutputWarning: enrichment.simulationOutputWarning ?? null,
     _lowLiquidityWarning: enrichment.lowLiquidityWarning ?? null,
   };
@@ -3477,6 +3478,15 @@ function applyFeeEnrichmentToQuote(
     quote._walletPayDebitRaw;
   if (typeof walletPayDebitRaw === 'string' && walletPayDebitRaw.length > 0) {
     next._walletPayDebitRaw = walletPayDebitRaw;
+  }
+
+  const networkFeeLamports =
+    buildPayload?._networkFeeLamports ??
+    source?.networkFeeLamports ??
+    buildEnrichment?.networkFeeLamports ??
+    quote._networkFeeLamports;
+  if (networkFeeLamports != null && String(networkFeeLamports).length > 0) {
+    next._networkFeeLamports = networkFeeLamports;
   }
 
   const walletTokenAccountCloses =

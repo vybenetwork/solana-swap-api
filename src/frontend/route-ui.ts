@@ -6906,12 +6906,30 @@ function signConfirmAmountSymbol(mint: string, sym: string): string {
   return isSolMint(mint) ? 'SOL' : sym;
 }
 
+/** Phantom-style SOL amounts — fixed 6 decimal places. */
+function formatSignConfirmSolAmount(ui: number): string {
+  if (!Number.isFinite(ui)) return '0.000000';
+  return Math.abs(ui).toFixed(6);
+}
+
+/** Non-SOL sign-confirm amounts — up to 5 decimal places with grouping. */
+function formatSignConfirmTokenAmount(ui: number): string {
+  if (!Number.isFinite(ui) || ui === 0) return '0';
+  const abs = Math.abs(ui);
+  const rounded = Math.round(abs * 100_000) / 100_000;
+  const formatted = rounded.toLocaleString(undefined, {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 5,
+    useGrouping: true,
+  });
+  return formatted.replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+}
+
 function formatSignConfirmBalanceAmount(ui: number, mint: string, sym: string): string {
   const displaySym = signConfirmAmountSymbol(mint, sym);
-  const absUi = Math.abs(ui);
   const amt = isSolMint(mint)
-    ? formatPayHeroCostDisplay(absUi)
-    : deps.formatSwapAmountValue(absUi);
+    ? formatSignConfirmSolAmount(ui)
+    : formatSignConfirmTokenAmount(ui);
   const prefix = ui < 0 ? '-' : '+';
   return `${prefix}${amt} ${displaySym}`;
 }
@@ -6965,15 +6983,38 @@ function collectSignConfirmBalanceRows(quote: Record<string, unknown>): SignConf
 
 function getSignConfirmNetworkFeeSolUi(
   quote: Record<string, unknown>,
-  sellSym: string,
+  buildPayload?: Record<string, unknown>,
 ): number | null {
+  const lamportCandidates = [
+    quote._networkFeeLamports,
+    buildPayload?._networkFeeLamports,
+    (buildPayload?.enrichment as Record<string, unknown> | undefined)?.networkFeeLamports,
+  ];
+  for (const raw of lamportCandidates) {
+    if (raw == null || raw === '') continue;
+    try {
+      const lamports = BigInt(String(raw).replace(/,/g, ''));
+      if (lamports > 0n) return Number(lamports) / 1e9;
+    } catch {
+      /* try next */
+    }
+  }
+
   let total = 0;
   let found = false;
-  for (const row of getSignConfirmPayExtraLines(quote, sellSym)) {
-    if (row.kind !== 'fee') continue;
-    if (!isSolMint(row.mint)) continue;
-    total += row.ui;
-    found = true;
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  for (const step of plan) {
+    for (const item of getHopFeeDisplayItems(step)) {
+      if (!isSolMint(item.mint)) continue;
+      const label = normalizeFeeItemLabel(item.label).toLowerCase();
+      const isNetworkFee =
+        item.destinationKind === 'network_priority' || label === 'priority fee';
+      if (!isNetworkFee) continue;
+      const ui = feeAmountToUi(item.amountRaw, item.mint);
+      if (ui == null || ui <= 0) continue;
+      total += ui;
+      found = true;
+    }
   }
   return found ? total : null;
 }
@@ -6984,8 +7025,7 @@ export function renderSignConfirmSummaryHtml(
   buildPayload?: Record<string, unknown>,
 ): string {
   const balanceRows = collectSignConfirmBalanceRows(quote);
-  const sellSym = deps.getSwapInSym();
-  const networkFeeUi = getSignConfirmNetworkFeeSolUi(quote, sellSym);
+  const networkFeeUi = getSignConfirmNetworkFeeSolUi(quote, buildPayload);
   const routeHtml = renderSignConfirmRouteHtml(quote, buildPayload);
 
   const balanceHtml =
@@ -7003,7 +7043,7 @@ export function renderSignConfirmSummaryHtml(
     detailRows.push(
       renderSignConfirmDetailRowHtml(
         'Network Fee',
-        deps.escapeHtml(`${formatPayHeroCostDisplay(networkFeeUi)} SOL`),
+        deps.escapeHtml(`${formatSignConfirmSolAmount(networkFeeUi)} SOL`),
       ),
     );
   }
