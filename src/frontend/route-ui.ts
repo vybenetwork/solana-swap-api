@@ -6826,24 +6826,6 @@ function renderSignConfirmTokenIcon(mint: string): string {
   return renderTokenIconImgHtml(iconSrc, 'swap-sign-dialog__token-icon');
 }
 
-function renderSignConfirmAmountLine(
-  ui: number,
-  sym: string,
-  mint: string,
-  detailLabel?: string,
-  modifier = '',
-): string {
-  const symCls = tokenSymColorClass(mint, sym);
-  const detail = detailLabel?.trim()
-    ? `<span class="swap-sign-dialog__amount-detail">${deps.escapeHtml(detailLabel)}</span>`
-    : '';
-  return `<div class="swap-sign-dialog__amount-line${modifier}">
-    ${renderSignConfirmTokenIcon(mint)}
-    <span class="swap-sign-dialog__amount-amt">${deps.escapeHtml(formatPayHeroCostDisplay(ui))}</span>
-    <span class="swap-sign-dialog__amount-sym ${symCls}">${deps.escapeHtml(sym)}</span>${detail}
-  </div>`;
-}
-
 function getSignConfirmPayExtraLines(
   quote: Record<string, unknown>,
   sellSym: string,
@@ -6855,85 +6837,12 @@ function getSignConfirmPayExtraLines(
   return getQuotePayHeroCostStack(quote, sellSym);
 }
 
-interface SignConfirmPayRow {
-  ui: number;
-  sym: string;
-  mint: string;
-  detailLabel?: string;
-  isExtra?: boolean;
-}
-
-function collectSignConfirmPayRows(quote: Record<string, unknown>, sellSym: string): SignConfirmPayRow[] {
-  const sellMint = quoteInputMint(quote);
-  const swapLabel = getQuoteSwapLegLabelFromQuote(quote);
-  const swapUi = quoteInAmountUi(quote, sellMint ?? '');
-  const rows: SignConfirmPayRow[] = [];
-  if (swapUi != null && swapUi > 0 && sellMint) {
-    rows.push({ ui: swapUi, sym: sellSym, mint: sellMint });
-  } else if (swapLabel !== '—' && sellMint) {
-    const parsed = Number.parseFloat(swapLabel.replace(/,/g, ''));
-    if (Number.isFinite(parsed) && parsed > 0) {
-      rows.push({ ui: parsed, sym: sellSym, mint: sellMint });
-    }
-  }
-  for (const row of getSignConfirmPayExtraLines(quote, sellSym)) {
-    rows.push({
-      ui: row.ui,
-      sym: row.sym,
-      mint: row.mint,
-      detailLabel: row.detailLabel ?? payHeroCostRowDetailLabel(row),
-      isExtra: true,
-    });
-  }
-  return rows;
-}
-
-/** Totals at top of pay stack when multiple lines; one total per currency if several mints. */
-function renderSignConfirmPayTotalLines(rows: SignConfirmPayRow[]): string[] {
-  if (rows.length <= 1) return [];
-
-  const groups = new Map<string, { sym: string; mint: string; totalUi: number }>();
-  for (const row of rows) {
-    if (!(row.ui > 0)) continue;
-    const key = signConfirmReceiveRowGroupKey(row.mint);
-    const existing = groups.get(key);
-    if (existing) {
-      existing.totalUi += row.ui;
-      continue;
-    }
-    groups.set(key, { sym: row.sym, mint: row.mint, totalUi: row.ui });
-  }
-
-  if (groups.size === 0) return [];
-
-  const totals: string[] = [];
-  for (const [key, group] of groups) {
-    const isSolGroup = key === WSOL_MINT;
-    totals.push(
-      renderSignConfirmAmountLine(
-        group.totalUi,
-        isSolGroup ? 'SOL' : group.sym,
-        isSolGroup ? NATIVE_SOL_MINT : group.mint,
-        'Total',
-        ' swap-sign-dialog__amount-line--total swap-sign-dialog__amount-line--total-head',
-      ),
-    );
-  }
-  return totals;
-}
-
 interface SignConfirmReceiveRow {
   ui: number;
   sym: string;
   mint: string;
   label?: string;
   isExtra?: boolean;
-}
-
-function signConfirmReceiveRowGroupKey(mint: string): string {
-  const m = mint.trim();
-  if (isSolMint(m)) return WSOL_MINT;
-  return m;
 }
 
 function collectSignConfirmReceiveRows(quote: Record<string, unknown>): SignConfirmReceiveRow[] {
@@ -6964,40 +6873,6 @@ function collectSignConfirmReceiveRows(quote: Record<string, unknown>): SignConf
   return rows;
 }
 
-function renderSignConfirmReceiveTotalLines(rows: SignConfirmReceiveRow[]): string[] {
-  const groups = new Map<
-    string,
-    { sym: string; mint: string; totalUi: number; count: number }
-  >();
-  for (const row of rows) {
-    if (!(row.ui > 0)) continue;
-    const key = signConfirmReceiveRowGroupKey(row.mint);
-    const existing = groups.get(key);
-    if (existing) {
-      existing.totalUi += row.ui;
-      existing.count += 1;
-      continue;
-    }
-    groups.set(key, { sym: row.sym, mint: row.mint, totalUi: row.ui, count: 1 });
-  }
-
-  const totals: string[] = [];
-  for (const [key, group] of groups) {
-    if (group.count <= 1) continue;
-    const isSolGroup = key === WSOL_MINT;
-    totals.push(
-      renderSignConfirmAmountLine(
-        group.totalUi,
-        isSolGroup ? 'SOL' : group.sym,
-        isSolGroup ? NATIVE_SOL_MINT : group.mint,
-        'TOTAL',
-        ' swap-sign-dialog__amount-line--total',
-      ),
-    );
-  }
-  return totals;
-}
-
 function getSignConfirmReceiveBonusLines(quote: Record<string, unknown>): QuoteReceiveHeroReclaimItem[] {
   const items = [...getQuoteReceiveHeroReclaimStack(quote)];
   const seen = new Set(items.map((row) => `${row.mint}:${row.label}`));
@@ -7020,49 +6895,127 @@ function getSignConfirmReceiveBonusLines(quote: Record<string, unknown>): QuoteR
   return items;
 }
 
-/** Sign-confirm dialog: swap leg plus wallet fee / rent lines with token icons. */
-export function renderSignConfirmPayHtml(quote: Record<string, unknown>): string {
+function signConfirmTokenDisplayName(mint: string, sym: string): string {
+  const meta = getCachedTokenMeta(mint);
+  if (meta?.name?.trim()) return meta.name.trim();
+  if (isSolMint(mint)) return 'Solana';
+  return sym;
+}
+
+function signConfirmAmountSymbol(mint: string, sym: string): string {
+  return isSolMint(mint) ? 'SOL' : sym;
+}
+
+function formatSignConfirmBalanceAmount(ui: number, mint: string, sym: string): string {
+  const displaySym = signConfirmAmountSymbol(mint, sym);
+  const absUi = Math.abs(ui);
+  const amt = isSolMint(mint)
+    ? formatPayHeroCostDisplay(absUi)
+    : deps.formatSwapAmountValue(absUi);
+  const prefix = ui < 0 ? '-' : '+';
+  return `${prefix}${amt} ${displaySym}`;
+}
+
+function renderSignConfirmBalanceRowHtml(mint: string, sym: string, signedUi: number): string {
+  const tone = signedUi < 0 ? 'neg' : 'pos';
+  const iconMint = isSolMint(mint) ? NATIVE_SOL_MINT : mint;
+  return `<div class="swap-sign-dialog__card-row">
+    <span class="swap-sign-dialog__card-left">
+      ${renderSignConfirmTokenIcon(iconMint)}
+      <span class="swap-sign-dialog__token-name">${deps.escapeHtml(signConfirmTokenDisplayName(mint, sym))}</span>
+    </span>
+    <span class="swap-sign-dialog__card-amt swap-sign-dialog__card-amt--${tone}">${deps.escapeHtml(formatSignConfirmBalanceAmount(signedUi, mint, sym))}</span>
+  </div>`;
+}
+
+function renderSignConfirmDetailRowHtml(label: string, valueHtml: string): string {
+  return `<div class="swap-sign-dialog__card-row">
+    <span class="swap-sign-dialog__card-label">${deps.escapeHtml(label)}</span>
+    <span class="swap-sign-dialog__card-value">${valueHtml}</span>
+  </div>`;
+}
+
+interface SignConfirmBalanceRow {
+  ui: number;
+  sym: string;
+  mint: string;
+}
+
+function collectSignConfirmBalanceRows(quote: Record<string, unknown>): SignConfirmBalanceRow[] {
   const sellSym = deps.getSwapInSym();
   const sellMint = quoteInputMint(quote);
-  const payRows = collectSignConfirmPayRows(quote, sellSym);
-  const lines: string[] = [...renderSignConfirmPayTotalLines(payRows)];
-  for (const row of payRows) {
-    const modifier = row.isExtra ? ' swap-sign-dialog__amount-line--extra' : '';
-    if (row.detailLabel) {
-      lines.push(renderSignConfirmAmountLine(row.ui, row.sym, row.mint, row.detailLabel, modifier));
-    } else {
-      lines.push(renderSignConfirmAmountLine(row.ui, row.sym, row.mint, undefined, modifier));
-    }
-  }
-  if (lines.length === 0) {
+  const rows: SignConfirmBalanceRow[] = [];
+  const swapUi = quoteInAmountUi(quote, sellMint ?? '');
+  if (swapUi != null && swapUi > 0 && sellMint) {
+    rows.push({ ui: -swapUi, sym: sellSym, mint: sellMint });
+  } else {
     const swapLabel = getQuoteSwapLegLabelFromQuote(quote);
     if (swapLabel !== '—' && sellMint) {
-      return `<div class="swap-sign-dialog__amount-stack"><div class="swap-sign-dialog__amount-line">${renderSignConfirmTokenIcon(sellMint)}<span class="swap-sign-dialog__amount-amt">${deps.escapeHtml(swapLabel)}</span><span class="swap-sign-dialog__amount-sym ${tokenSymColorClass(sellMint, sellSym)}">${deps.escapeHtml(sellSym)}</span></div></div>`;
+      const parsed = Number.parseFloat(swapLabel.replace(/,/g, ''));
+      if (Number.isFinite(parsed) && parsed > 0) {
+        rows.push({ ui: -parsed, sym: sellSym, mint: sellMint });
+      }
     }
-    return '—';
   }
-  return `<div class="swap-sign-dialog__amount-stack">${lines.join('')}</div>`;
+  for (const row of collectSignConfirmReceiveRows(quote)) {
+    if (row.ui > 0) rows.push({ ui: row.ui, sym: row.sym, mint: row.mint });
+  }
+  return rows;
 }
 
-/** Sign-confirm dialog: output amount plus rent / WSOL reclaim lines with token icons. */
-export function renderSignConfirmReceiveHtml(quote: Record<string, unknown>): string {
-  const receiveRows = collectSignConfirmReceiveRows(quote);
-  const lines: string[] = [];
-  for (const row of receiveRows) {
-    const modifier = row.isExtra ? ' swap-sign-dialog__amount-line--extra' : '';
-    lines.push(
-      row.label
-        ? renderSignConfirmAmountLine(row.ui, row.sym, row.mint, row.label, modifier)
-        : renderSignConfirmAmountLine(row.ui, row.sym, row.mint, undefined, modifier),
+function getSignConfirmNetworkFeeSolUi(
+  quote: Record<string, unknown>,
+  sellSym: string,
+): number | null {
+  let total = 0;
+  let found = false;
+  for (const row of getSignConfirmPayExtraLines(quote, sellSym)) {
+    if (row.kind !== 'fee') continue;
+    if (!isSolMint(row.mint)) continue;
+    total += row.ui;
+    found = true;
+  }
+  return found ? total : null;
+}
+
+/** Phantom-style two-card summary: balance changes + network/route details. */
+export function renderSignConfirmSummaryHtml(
+  quote: Record<string, unknown>,
+  buildPayload?: Record<string, unknown>,
+): string {
+  const balanceRows = collectSignConfirmBalanceRows(quote);
+  const sellSym = deps.getSwapInSym();
+  const networkFeeUi = getSignConfirmNetworkFeeSolUi(quote, sellSym);
+  const routeHtml = renderSignConfirmRouteHtml(quote, buildPayload);
+
+  const balanceHtml =
+    balanceRows.length > 0
+      ? balanceRows.map((row) => renderSignConfirmBalanceRowHtml(row.mint, row.sym, row.ui)).join('')
+      : '<div class="swap-sign-dialog__card-row"><span class="swap-sign-dialog__card-label">—</span></div>';
+
+  const detailRows: string[] = [
+    renderSignConfirmDetailRowHtml(
+      'Network',
+      `<span class="swap-sign-dialog__card-value-inline">${renderSignConfirmTokenIcon(NATIVE_SOL_MINT)}<span>Solana</span></span>`,
+    ),
+  ];
+  if (networkFeeUi != null && networkFeeUi > 0) {
+    detailRows.push(
+      renderSignConfirmDetailRowHtml(
+        'Network Fee',
+        deps.escapeHtml(`${formatPayHeroCostDisplay(networkFeeUi)} SOL`),
+      ),
     );
   }
-  lines.push(...renderSignConfirmReceiveTotalLines(receiveRows));
-  if (lines.length === 0) return '—';
-  return `<div class="swap-sign-dialog__amount-stack">${lines.join('')}</div>`;
-}
+  detailRows.push(renderSignConfirmDetailRowHtml('Route', routeHtml));
 
-/** Sign-confirm dialog: hop venues with DEX icons, arrows, and router badge. */
-export function renderSignConfirmRouteHtml(
+  return `<div class="swap-sign-dialog__cards">
+    <div class="swap-sign-dialog__card">${balanceHtml}</div>
+    <div class="swap-sign-dialog__card">${detailRows.join('')}</div>
+  </div>`;
+}
+/** Sign-confirm route line — hop venues with DEX icons, arrows, and router badge. */
+function renderSignConfirmRouteHtml(
   quote: Record<string, unknown>,
   buildPayload?: Record<string, unknown>,
 ): string {

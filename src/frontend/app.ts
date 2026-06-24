@@ -113,9 +113,7 @@ import {
   renderQuotePayHeroSubHtml,
   renderQuoteReceiveHeroValueHtml,
   renderQuoteReceiveHeroSubHtml,
-  renderSignConfirmPayHtml,
-  renderSignConfirmReceiveHtml,
-  renderSignConfirmRouteHtml,
+  renderSignConfirmSummaryHtml,
   renderRouteDiscoveryLogHtml,
   type EnumeratedRoutesUiState,
 } from './route-ui.js';
@@ -330,9 +328,7 @@ const routingDialogTitleEl = document.getElementById('routingDialogTitle') as HT
 const routingDialogBodyEl = document.getElementById('routingDialogBody') as HTMLElement | null;
 const routingDialogCloseEl = document.getElementById('routingDialogClose') as HTMLButtonElement | null;
 const swapSignConfirmDialogEl = document.getElementById('swapSignConfirmDialog') as HTMLDialogElement | null;
-const swapSignConfirmPayEl = document.getElementById('swapSignConfirmPay') as HTMLElement | null;
-const swapSignConfirmReceiveEl = document.getElementById('swapSignConfirmReceive') as HTMLElement | null;
-const swapSignConfirmRouteEl = document.getElementById('swapSignConfirmRoute') as HTMLElement | null;
+const swapSignConfirmSummaryEl = document.getElementById('swapSignConfirmSummary') as HTMLElement | null;
 const swapSignConfirmLogsEl = document.getElementById('swapSignConfirmLogs') as HTMLElement | null;
 const swapSignConfirmCancelEl = document.getElementById('swapSignConfirmCancel') as HTMLButtonElement | null;
 const swapSignConfirmDismissEl = document.getElementById('swapSignConfirmDismiss') as HTMLButtonElement | null;
@@ -5602,9 +5598,9 @@ function setSwapSignDialogSummary(
   quote: Record<string, unknown>,
   buildPayload?: Record<string, unknown>,
 ): void {
-  if (swapSignConfirmPayEl) swapSignConfirmPayEl.innerHTML = renderSignConfirmPayHtml(quote);
-  if (swapSignConfirmReceiveEl) swapSignConfirmReceiveEl.innerHTML = renderSignConfirmReceiveHtml(quote);
-  if (swapSignConfirmRouteEl) swapSignConfirmRouteEl.innerHTML = renderSignConfirmRouteHtml(quote, buildPayload);
+  if (swapSignConfirmSummaryEl) {
+    swapSignConfirmSummaryEl.innerHTML = renderSignConfirmSummaryHtml(quote, buildPayload);
+  }
 }
 
 function openSwapSignDialog(quote: Record<string, unknown>, buildPayload?: Record<string, unknown>): void {
