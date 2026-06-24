@@ -8689,6 +8689,15 @@ tr:hover td {
   color: #e4e4e7;
 }
 
+.swap-sign-dialog__amount-line--total-head {
+  margin-top: 0;
+  margin-bottom: 0.12rem;
+  padding-top: 0;
+  padding-bottom: 0.2rem;
+  border-top: none;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 .swap-sign-dialog__amount-line--total .swap-sign-dialog__amount-detail {
   color: #a1a1aa;
   font-weight: 600;

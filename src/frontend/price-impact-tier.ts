@@ -33,6 +33,20 @@ export function formatPriceImpactPctTwoDecimals(
   return `${sign}${displayed.toFixed(2)}%`;
 }
 
+/** Route/market cards: 2 decimals below ±10%; whole percent at ±10% and beyond. */
+export function formatPriceImpactPctRouteCard(
+  pct: number,
+  options?: { leadingPlus?: boolean },
+): string {
+  const displayed = displayPriceImpactPct(pct);
+  if (displayed === 0) return '0%';
+  const sign = options?.leadingPlus && displayed > 0 ? '+' : '';
+  if (displayed >= 10 || displayed <= -10) {
+    return `${sign}${Math.round(displayed)}%`;
+  }
+  return `${sign}${displayed.toFixed(2)}%`;
+}
+
 /** Tier bands: green ≥ 0, yellow-green [−0.5, 0), yellow (−2, −0.5), orange (−10, −2], red ≤ −10%. */
 export function priceImpactTier(pct: number): PriceImpactTier {
   if (pct >= 0) return 'green';

@@ -21,7 +21,7 @@
 import { formatWarnPercent } from './format-warn-pct.js';
 import {
   displayPriceImpactPct,
-  formatPriceImpactPctTwoDecimals,
+  formatPriceImpactPctRouteCard,
   formatPriceImpactPctWithArrow,
   parsePriceImpactPct,
   priceImpactTierClassForValue,
@@ -203,7 +203,7 @@ function formatRoutePriceImpact(quote: Record<string, unknown>): string | null {
   const pct = parsePriceImpactPct(quote.priceImpactPct);
   if (pct == null) return null;
   const displayed = displayPriceImpactPct(pct);
-  const formatted = formatPriceImpactPctTwoDecimals(pct, { leadingPlus: true });
+  const formatted = formatPriceImpactPctRouteCard(pct, { leadingPlus: true });
   return formatPriceImpactPctWithArrow(displayed, formatted);
 }
 
@@ -6855,6 +6855,73 @@ function getSignConfirmPayExtraLines(
   return getQuotePayHeroCostStack(quote, sellSym);
 }
 
+interface SignConfirmPayRow {
+  ui: number;
+  sym: string;
+  mint: string;
+  detailLabel?: string;
+  isExtra?: boolean;
+}
+
+function collectSignConfirmPayRows(quote: Record<string, unknown>, sellSym: string): SignConfirmPayRow[] {
+  const sellMint = quoteInputMint(quote);
+  const swapLabel = getQuoteSwapLegLabelFromQuote(quote);
+  const swapUi = quoteInAmountUi(quote, sellMint ?? '');
+  const rows: SignConfirmPayRow[] = [];
+  if (swapUi != null && swapUi > 0 && sellMint) {
+    rows.push({ ui: swapUi, sym: sellSym, mint: sellMint });
+  } else if (swapLabel !== '—' && sellMint) {
+    const parsed = Number.parseFloat(swapLabel.replace(/,/g, ''));
+    if (Number.isFinite(parsed) && parsed > 0) {
+      rows.push({ ui: parsed, sym: sellSym, mint: sellMint });
+    }
+  }
+  for (const row of getSignConfirmPayExtraLines(quote, sellSym)) {
+    rows.push({
+      ui: row.ui,
+      sym: row.sym,
+      mint: row.mint,
+      detailLabel: row.detailLabel ?? payHeroCostRowDetailLabel(row),
+      isExtra: true,
+    });
+  }
+  return rows;
+}
+
+/** Totals at top of pay stack when multiple lines; one total per currency if several mints. */
+function renderSignConfirmPayTotalLines(rows: SignConfirmPayRow[]): string[] {
+  if (rows.length <= 1) return [];
+
+  const groups = new Map<string, { sym: string; mint: string; totalUi: number }>();
+  for (const row of rows) {
+    if (!(row.ui > 0)) continue;
+    const key = signConfirmReceiveRowGroupKey(row.mint);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.totalUi += row.ui;
+      continue;
+    }
+    groups.set(key, { sym: row.sym, mint: row.mint, totalUi: row.ui });
+  }
+
+  if (groups.size === 0) return [];
+
+  const totals: string[] = [];
+  for (const [key, group] of groups) {
+    const isSolGroup = key === WSOL_MINT;
+    totals.push(
+      renderSignConfirmAmountLine(
+        group.totalUi,
+        isSolGroup ? 'SOL' : group.sym,
+        isSolGroup ? NATIVE_SOL_MINT : group.mint,
+        'Total',
+        ' swap-sign-dialog__amount-line--total swap-sign-dialog__amount-line--total-head',
+      ),
+    );
+  }
+  return totals;
+}
+
 interface SignConfirmReceiveRow {
   ui: number;
   sym: string;
@@ -6957,21 +7024,23 @@ function getSignConfirmReceiveBonusLines(quote: Record<string, unknown>): QuoteR
 export function renderSignConfirmPayHtml(quote: Record<string, unknown>): string {
   const sellSym = deps.getSwapInSym();
   const sellMint = quoteInputMint(quote);
-  const swapLabel = getQuoteSwapLegLabelFromQuote(quote);
-  const swapUi = quoteInAmountUi(quote, sellMint);
-  const lines: string[] = [];
-  if (swapUi != null && swapUi > 0 && sellMint) {
-    lines.push(renderSignConfirmAmountLine(swapUi, sellSym, sellMint));
-  } else if (swapLabel !== '—') {
-    lines.push(
-      `<div class="swap-sign-dialog__amount-line">${renderSignConfirmTokenIcon(sellMint)}<span class="swap-sign-dialog__amount-amt">${deps.escapeHtml(swapLabel)}</span><span class="swap-sign-dialog__amount-sym ${tokenSymColorClass(sellMint, sellSym)}">${deps.escapeHtml(sellSym)}</span></div>`,
-    );
+  const payRows = collectSignConfirmPayRows(quote, sellSym);
+  const lines: string[] = [...renderSignConfirmPayTotalLines(payRows)];
+  for (const row of payRows) {
+    const modifier = row.isExtra ? ' swap-sign-dialog__amount-line--extra' : '';
+    if (row.detailLabel) {
+      lines.push(renderSignConfirmAmountLine(row.ui, row.sym, row.mint, row.detailLabel, modifier));
+    } else {
+      lines.push(renderSignConfirmAmountLine(row.ui, row.sym, row.mint, undefined, modifier));
+    }
   }
-  for (const row of getSignConfirmPayExtraLines(quote, sellSym)) {
-    const detail = row.detailLabel ?? payHeroCostRowDetailLabel(row);
-    lines.push(renderSignConfirmAmountLine(row.ui, row.sym, row.mint, detail, ' swap-sign-dialog__amount-line--extra'));
+  if (lines.length === 0) {
+    const swapLabel = getQuoteSwapLegLabelFromQuote(quote);
+    if (swapLabel !== '—' && sellMint) {
+      return `<div class="swap-sign-dialog__amount-stack"><div class="swap-sign-dialog__amount-line">${renderSignConfirmTokenIcon(sellMint)}<span class="swap-sign-dialog__amount-amt">${deps.escapeHtml(swapLabel)}</span><span class="swap-sign-dialog__amount-sym ${tokenSymColorClass(sellMint, sellSym)}">${deps.escapeHtml(sellSym)}</span></div></div>`;
+    }
+    return '—';
   }
-  if (lines.length === 0) return '—';
   return `<div class="swap-sign-dialog__amount-stack">${lines.join('')}</div>`;
 }
 
