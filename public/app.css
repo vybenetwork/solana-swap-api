@@ -9276,7 +9276,9 @@ body.token-picker-scroll-lock {
 .token-picker-refetch-btn {
   width: auto;
   flex-shrink: 0;
-  padding: 0.38rem 0.62rem;
+  min-height: 28px;
+  max-height: 28px;
+  padding: 0 0.62rem;
   border-radius: 8px;
   gap: 0.45rem;
 }

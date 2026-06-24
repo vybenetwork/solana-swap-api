@@ -177,6 +177,9 @@ const STABLECOIN_USD_FALLBACK_PRICE = 1;
 /** Default slippage tolerance percent (matches #swapSlippage input). */
 const DEFAULT_SWAP_SLIPPAGE_PCT = 2;
 
+/** Default sell-amount percent for SOL and stablecoins when auto-filling from wallet balance. */
+const DEFAULT_SOL_STABLE_SELL_AMOUNT_PERCENT = 25;
+
 /** Prefer native SOL, then USDC when auto-picking sell token from wallet balances. */
 const SELL_TOKEN_PRIORITY_MINTS: readonly string[] = [
   NATIVE_SOL_MINT,
@@ -1711,6 +1714,13 @@ function getMaxSellPercentForMint(_mint: string): number {
   return 100;
 }
 
+function getDefaultSellAmountPercentForMint(mint: string, symbolHint?: string): number {
+  const kind = getTokenMintColorKind(mint, symbolHint);
+  return kind === 'sol' || kind === 'stable'
+    ? DEFAULT_SOL_STABLE_SELL_AMOUNT_PERCENT
+    : getMaxSellPercentForMint(mint);
+}
+
 function formatMaxSellPercentButtonLabel(_mint: string): string {
   return '100%';
 }
@@ -1964,7 +1974,10 @@ function setSwapSellAmountToBalance(amountUi: number, mint: string, silent = fal
   }
 }
 
-function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: boolean): void {
+function applySellTokenFromBalance(
+  item: WalletBalanceListItem,
+  initialSellPercent?: number | 'max',
+): void {
   if (!swapInputMintInput) return;
   const swapMint = item.mintAddress.trim();
   swapInputMintInput.value = swapMint;
@@ -1975,7 +1988,8 @@ function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: bo
   if (swapInputSymbolEl) swapInputSymbolEl.textContent = sym;
   if (item.decimals != null) routeMintDecimalsCache[swapMint] = item.decimals;
   syncSwapAmountMaxFromBalance();
-  if (useMaxAmount) {
+  const sellPercent = initialSellPercent ?? getDefaultSellAmountPercentForMint(swapMint, sym);
+  if (sellPercent === 'max') {
     const item = getWalletBalanceListItem(swapMint);
     if (item && getSwapRouter() === 'vybe' && !isNativeSolMint(swapMint)) {
       if (swapAmountInput) {
@@ -1988,6 +2002,8 @@ function applySellTokenFromBalance(item: WalletBalanceListItem, useMaxAmount: bo
         setSwapSellAmountToBalance(sellable, swapMint, true);
       }
     }
+  } else {
+    applySellAmountPercent(sellPercent);
   }
   void refreshSwapSymbols();
 }
@@ -2014,7 +2030,7 @@ async function refreshWalletBalancesForSwap(
       lastAutoAppliedWalletAddress = wallet;
       const pick = pickDefaultSellBalance(items);
       if (pick) {
-        applySellTokenFromBalance(pick, true);
+        applySellTokenFromBalance(pick);
         await prefetchSwapPairPrices({
           forceFullDetails: true,
           mints: [pick.mintAddress],
@@ -2260,8 +2276,8 @@ function applyFlippedOutputAsSellAmount(outputAmountUi: number): void {
   setSwapSellAmountToBalance(amount, mint);
 }
 
-function flipSellBuyTokens(): void {
-  if (getFlipBlockedReason()) return;
+function flipSellBuyTokens(options?: { force?: boolean }): void {
+  if (!options?.force && getFlipBlockedReason()) return;
   if (!swapInputMintInput || !swapOutputMintInput) return;
   const sellMint = swapInputMintInput.value;
   const buyMint = swapOutputMintInput.value;
@@ -2283,7 +2299,9 @@ function afterSellBuyTokensFlipped(flippedOutputAmountUi: number | null = null):
     if (flippedOutputAmountUi != null) {
       applyFlippedOutputAsSellAmount(flippedOutputAmountUi);
     } else {
-      applySellAmountPercent(getMaxSellPercentForMint(newSellMint));
+      applySellAmountPercent(
+        getDefaultSellAmountPercentForMint(newSellMint, swapInputSymbolEl?.textContent ?? undefined),
+      );
     }
   }
   void prefetchSwapPairPrices({ forceFullDetails: true, mints: newSellMint ? [newSellMint] : undefined });
@@ -2345,7 +2363,9 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
     syncSwapAmountMaxFromBalance();
     const sellable = getWalletSellableForUi(resolvedMint);
     if (sellable != null && sellable > 0) {
-      setSwapSellAmountToBalance(sellable, resolvedMint);
+      applySellAmountPercent(
+        getDefaultSellAmountPercentForMint(resolvedMint, meta?.symbol),
+      );
     }
     const prefetchMints = [resolvedMint, ...(autoOutputMint ? [autoOutputMint] : [])];
     void prefetchSwapPairPrices({ forceFullDetails: true, mints: prefetchMints }).then(() => {
@@ -5541,9 +5561,13 @@ function closeSwapSignDialog(): void {
 }
 
 async function closeSwapSignDialogAfterSuccess(): Promise<void> {
-  const ctx = swapSignSuccessContext;
+  if (!swapSignSuccessContext) {
+    closeSwapSignDialog();
+    return;
+  }
+
+  const flippedOutputAmountUi = parseFlipOutputAmountUi();
   closeSwapSignDialog();
-  if (!ctx?.soldMint) return;
 
   if (postTxConfirmRefreshPromise) {
     try {
@@ -5553,20 +5577,12 @@ async function closeSwapSignDialogAfterSuccess(): Promise<void> {
     }
   }
 
-  const soldBalance =
-    getWalletSellableForUi(ctx.soldMint) ?? getWalletBalanceAmountUi(ctx.soldMint) ?? 0;
-  if (soldBalance > 0 || !ctx.buyMint) return;
+  if (!swapInputMintInput?.value.trim() || !swapOutputMintInput?.value.trim()) return;
 
-  applySelectedToken(ctx.buyMint, 'input');
-  await syncSwapSideLabels();
-  updateSwapTokenIcons();
-  updateSwapPairCards();
-  syncSwapAmountMaxFromBalance();
-  if (hasValidSwapWallet()) {
-    applySellAmountPercent(getMaxSellPercentForMint(ctx.buyMint));
-  }
+  flipSellBuyTokens({ force: true });
+  await refreshSwapSymbols();
   invalidateSwapQuoteAfterInputChange();
-  syncSwapSellAmountUi();
+  afterSellBuyTokensFlipped(flippedOutputAmountUi);
 }
 
 function openSignatureOnSolscan(signature: string): void {
