@@ -9318,6 +9318,10 @@ body.token-picker-scroll-lock {
   overflow: hidden;
 }
 
+.token-picker-refetch-btn[hidden] {
+  display: none !important;
+}
+
 .token-picker-refetch-btn .swap-action-btn__text {
   flex: 0 1 auto;
   gap: 0;
