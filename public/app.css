@@ -7372,6 +7372,7 @@ tr:hover td {
   color: #e4e4e7;
   min-width: 0;
   box-sizing: border-box;
+  max-height: 27px;
 }
 
 .swap-toggle-field__suffix-wrap {
