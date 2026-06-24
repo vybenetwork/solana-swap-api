@@ -6946,6 +6946,11 @@ function collectSignConfirmBalanceRows(quote: Record<string, unknown>): SignConf
       }
     }
   }
+  for (const row of getQuotePayHeroCostStack(quote, sellSym)) {
+    if (row.kind === 'rent' && row.ui > 0) {
+      rows.push({ ui: -row.ui, sym: row.sym, mint: row.mint });
+    }
+  }
   for (const row of collectSignConfirmReceiveRows(quote)) {
     if (row.ui > 0) rows.push({ ui: row.ui, sym: row.sym, mint: row.mint });
   }
