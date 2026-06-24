@@ -80,6 +80,8 @@ let topTabEl: HTMLElement | null = null;
 let statusEl: HTMLElement | null = null;
 let onSelectCb: ((mint: string, side: TokenPickerSide) => void) | null = null;
 let getWalletAddressCb: (() => string) | null = null;
+let getSwapInputMintCb: (() => string) | null = null;
+let getSwapInputSymbolCb: (() => string) | null = null;
 let canOpenSellPickerCb: (() => boolean) | null = null;
 let canOpenBuyPickerCb: (() => boolean) | null = null;
 let onRefetchHoldingsCb: (() => void | Promise<void>) | null = null;
@@ -826,6 +828,28 @@ function isSellPickerWalletSearch(): boolean {
   return activeSide === 'input' && isPickerSearchActive();
 }
 
+function getSwapInputMintForPicker(): string {
+  return preferNativeSolMint(getSwapInputMintCb?.().trim() ?? '');
+}
+
+function isBuyOutputPickerRestricted(): boolean {
+  if (activeSide !== 'output') return false;
+  const inputMint = getSwapInputMintForPicker();
+  if (!inputMint) return false;
+  const inputSym = getSwapInputSymbolCb?.()?.trim();
+  return !isSolOrStableMint(inputMint, inputSym);
+}
+
+function isAllowedBuyOutputMint(mint: string, symbolHint?: string): boolean {
+  if (!isBuyOutputPickerRestricted()) return true;
+  return isSolOrStableMint(mint, symbolHint);
+}
+
+function filterTokensForBuyOutputPicker(tokens: TokenMeta[]): TokenMeta[] {
+  if (!isBuyOutputPickerRestricted()) return tokens;
+  return tokens.filter((t) => isSolOrStableMint(t.mint, t.symbol));
+}
+
 function getVisibleTokens(): TokenMeta[] {
   if (activeSide === 'input' && isPickerSearchActive()) {
     return [];
@@ -844,7 +868,7 @@ function getVisibleTokens(): TokenMeta[] {
     if (activeSide === 'input' && activeTab === 'recent') {
       return sortTokensForSellPicker(base);
     }
-    return base;
+    return filterTokensForBuyOutputPicker(base);
   }
 
   const exact = rawQ.startsWith('"') && rawQ.endsWith('"') && rawQ.length > 2;
@@ -855,7 +879,7 @@ function getVisibleTokens(): TokenMeta[] {
       activeTab === 'wallet' &&
       (sessionWalletBalances?.items.some((i) => i.mintAddress === q) ?? false);
     const hit = catalogTokens.find((t) => t.mint === q) ?? cache[q];
-    if (hit) return inWallet ? [] : [hit];
+    if (hit) return inWallet ? [] : filterTokensForBuyOutputPicker([hit]);
     if (pendingMintLookup === q) return [];
     return [];
   }
@@ -878,7 +902,7 @@ function getVisibleTokens(): TokenMeta[] {
   if (activeSide === 'input') {
     return sortTokensForSellPicker(merged);
   }
-  return merged;
+  return filterTokensForBuyOutputPicker(merged);
 }
 
 async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
@@ -1309,6 +1333,11 @@ export function getTokenMintColorKind(mint: string, symbolHint?: string): TokenM
   const sym = (meta?.symbol ?? '').toUpperCase();
   if (sym && KNOWN_STABLE_SYMBOLS.has(sym)) return 'stable';
   return 'alt';
+}
+
+export function isSolOrStableMint(mint: string, symbolHint?: string): boolean {
+  const kind = getTokenMintColorKind(mint, symbolHint);
+  return kind === 'sol' || kind === 'stable';
 }
 
 export function tokenBoxColorClass(mint: string, symbolHint?: string): string {
@@ -1756,7 +1785,10 @@ async function onRefetchHoldingsClick(): Promise<void> {
 function renderWalletListHtml(items: WalletBalanceListItem[]): void {
   if (!walletBalancesListEl) return;
   const q = searchQuery.trim();
-  const visible = q ? items.filter((item) => walletItemMatchesQuery(item, q)) : items;
+  let visible = q ? items.filter((item) => walletItemMatchesQuery(item, q)) : items;
+  if (activeSide === 'output' && isBuyOutputPickerRestricted()) {
+    visible = visible.filter((item) => isSolOrStableMint(item.mintAddress, item.symbol));
+  }
   const sorted =
     activeSide === 'input' ? sortWalletBalancesForSellPicker(visible) : visible;
   if (sorted.length === 0) {
@@ -1886,6 +1918,16 @@ const SHORTCUT_MINTS = [
   'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
 ];
 
+const BUY_EXIT_SHORTCUT_MINTS = [
+  NATIVE_SOL_MINT,
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+];
+
+function tokenMetaFromMint(mint: string): TokenMeta | null {
+  return catalogTokens.find((t) => t.mint === mint) ?? readCache()[mint] ?? null;
+}
+
 /** Sell picker shortcuts: wallet tokens ≥ $0.01, recent-first when still tradable. */
 function getSellPickerShortcutTokens(): TokenMeta[] {
   const wallet = getWalletAddressCb?.().trim() ?? '';
@@ -1929,9 +1971,14 @@ function renderShortcuts(): void {
       shortcutsEl.innerHTML = '';
       return;
     }
+  } else if (isBuyOutputPickerRestricted()) {
+    shortcutsEl.hidden = false;
+    tokens = BUY_EXIT_SHORTCUT_MINTS.map((mint) => tokenMetaFromMint(mint)).filter(
+      (t): t is TokenMeta => Boolean(t),
+    );
   } else {
     shortcutsEl.hidden = false;
-    const picks = SHORTCUT_MINTS.map((mint) => catalogTokens.find((t) => t.mint === mint)).filter(
+    const picks = SHORTCUT_MINTS.map((mint) => tokenMetaFromMint(mint)).filter(
       (t): t is TokenMeta => Boolean(t),
     );
     const fallback = catalogTokens.slice(0, 6);
@@ -1981,7 +2028,7 @@ function renderList(): void {
       listEl.innerHTML = '<div class="token-picker-empty">No token found for that address.</div>';
       return;
     }
-    listEl.innerHTML = `<div class="token-picker-empty">${q ? 'No tokens match your search.' : 'No tokens to show.'}</div>`;
+    listEl.innerHTML = `<div class="token-picker-empty">${q ? (isBuyOutputPickerRestricted() ? 'When selling this token, output must be SOL or a stablecoin.' : 'No tokens match your search.') : 'No tokens to show.'}</div>`;
     return;
   }
   listEl.innerHTML = tokens.map(renderTokenRow).join('');
@@ -1997,6 +2044,7 @@ function syncTabs(): void {
 
 function selectToken(mint: string): void {
   if (isBlockedPickerMint(mint)) return;
+  if (!isAllowedBuyOutputMint(mint)) return;
   const walletItem = sessionWalletBalances?.items.find((i) => i.mintAddress === mint);
   if (walletItem) {
     saveTokenMeta(walletItemToTokenMeta(walletItem));
@@ -2081,6 +2129,8 @@ function debouncedSearch(): void {
 export function initTokenPicker(options: {
   onSelect: (mint: string, side: TokenPickerSide) => void;
   getWalletAddress?: () => string;
+  getSwapInputMint?: () => string;
+  getSwapInputSymbol?: () => string;
   canOpenSellPicker?: () => boolean;
   canOpenBuyPicker?: () => boolean;
   onRefetchHoldings?: () => void | Promise<void>;
@@ -2089,6 +2139,8 @@ export function initTokenPicker(options: {
   ensureTokenIconErrorHandling();
   onSelectCb = options.onSelect;
   getWalletAddressCb = options.getWalletAddress ?? null;
+  getSwapInputMintCb = options.getSwapInputMint ?? null;
+  getSwapInputSymbolCb = options.getSwapInputSymbol ?? null;
   canOpenSellPickerCb = options.canOpenSellPicker ?? null;
   canOpenBuyPickerCb = options.canOpenBuyPicker ?? null;
   onRefetchHoldingsCb = options.onRefetchHoldings ?? null;

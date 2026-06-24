@@ -42,6 +42,7 @@ import {
   isNearMaxSellAmountUi,
   isAtMaxSellAmountUi,
   preferNativeSolMint,
+  isSolOrStableMint,
   NATIVE_SOL_MINT,
   SOL_MIN_AUTO_PICK_TOTAL_UI,
   WSOL_MINT,
@@ -145,6 +146,8 @@ const SWAP_TX_CONFIRM_MAX_POLLS = 90;
 const POST_TX_CONFIRM_WALLET_REFRESH_DELAY_MS = 500;
 /** Default service fee % on build for Vybe, Jupiter, and Titan (0 = none). */
 const DEFAULT_SWAP_SERVICE_FEE_PCT = 0;
+/** Default buy token when selling a non-SOL/non-stable and output is invalid. */
+const SWAP_DEFAULT_STABLE_OUTPUT_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 
 /** Hardcoded mint → symbol; never fetch these from API. */
 const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
@@ -2284,8 +2287,32 @@ function activeSwapQuoteForUi(): Record<string, unknown> | null {
 }
 
 function isSwapQuoteSolOrStableMint(mint: string, symbolHint?: string): boolean {
-  const kind = getTokenMintColorKind(mint, symbolHint);
-  return kind === 'sol' || kind === 'stable';
+  return isSolOrStableMint(mint, symbolHint);
+}
+
+function setSwapOutputMintUi(mint: string): void {
+  if (!swapOutputMintInput) return;
+  const resolvedMint = mint.trim();
+  swapOutputMintInput.value = resolvedMint;
+  const meta = getCachedTokenMeta(resolvedMint);
+  if (meta && swapOutputSymbolEl) {
+    swapOutputSymbolEl.textContent =
+      meta.symbol === 'wSOL' ? 'WSOL' : meta.symbol === 'WSOL' ? 'WSOL' : meta.symbol;
+  }
+  if (meta?.decimals != null) routeMintDecimalsCache[resolvedMint] = meta.decimals;
+}
+
+/** Non-SOL/non-stable sells may only buy SOL or stables — reset invalid output mints. */
+function applyOutputMintConstraintForInput(): void {
+  if (!swapInputMintInput || !swapOutputMintInput) return;
+  const inputMint = swapInputMintInput.value.trim();
+  const inputSym = swapInputSymbolEl?.textContent?.trim();
+  const outputMint = swapOutputMintInput.value.trim();
+  if (isSolOrStableMint(inputMint, inputSym)) return;
+  if (!outputMint || isSolOrStableMint(outputMint)) return;
+  setSwapOutputMintUi(SWAP_DEFAULT_STABLE_OUTPUT_MINT);
+  updateSwapTokenIcons();
+  updateSwapPairCards();
 }
 
 function parseFlipOutputAmountUi(): number | null {
@@ -2339,6 +2366,7 @@ function afterSellBuyTokensFlipped(flippedOutputAmountUi: number | null = null):
   invalidateSwapQuoteUi();
   void syncSwapSideLabels();
   updateSwapTokenIcons();
+  applyOutputMintConstraintForInput();
   updateSwapPairCards();
   syncSwapAmountMaxFromBalance();
   const newSellMint = swapInputMintInput?.value.trim() ?? '';
@@ -2372,6 +2400,15 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
   const resolvedMint = mint.trim();
   const otherMint = otherInput?.value.trim() ?? '';
 
+  if (
+    side === 'output' &&
+    swapInputMintInput &&
+    !isSolOrStableMint(swapInputMintInput.value.trim(), swapInputSymbolEl?.textContent?.trim()) &&
+    !isSolOrStableMint(resolvedMint)
+  ) {
+    return;
+  }
+
   if (otherMint && swapPairMintsMatch(resolvedMint, otherMint)) {
     const flippedOutputAmountUi = parseFlipOutputAmountUi();
     flipSellBuyTokens();
@@ -2389,6 +2426,14 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
     !swapPairMintsMatch(resolvedMint, previousInputMint)
   ) {
     autoOutputMint = previousInputMint;
+  } else if (
+    side === 'input' &&
+    otherInput &&
+    !isSwapQuoteSolOrStableMint(resolvedMint) &&
+    otherMint &&
+    !isSwapQuoteSolOrStableMint(otherMint)
+  ) {
+    autoOutputMint = SWAP_DEFAULT_STABLE_OUTPUT_MINT;
   }
 
   input.value = resolvedMint;
@@ -2398,14 +2443,9 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
       meta.symbol === 'wSOL' ? 'WSOL' : meta.symbol === 'WSOL' ? 'WSOL' : meta.symbol;
   }
   if (autoOutputMint && swapOutputMintInput) {
-    swapOutputMintInput.value = autoOutputMint;
-    const outMeta = getCachedTokenMeta(autoOutputMint);
-    if (outMeta && swapOutputSymbolEl) {
-      swapOutputSymbolEl.textContent =
-        outMeta.symbol === 'wSOL' ? 'WSOL' : outMeta.symbol === 'WSOL' ? 'WSOL' : outMeta.symbol;
-    }
-    if (outMeta?.decimals != null) routeMintDecimalsCache[autoOutputMint] = outMeta.decimals;
+    setSwapOutputMintUi(autoOutputMint);
   }
+  applyOutputMintConstraintForInput();
   void syncSwapSideLabels();
   if (meta?.decimals != null) routeMintDecimalsCache[resolvedMint] = meta.decimals;
   updateSwapTokenIcons();
@@ -6671,6 +6711,8 @@ if (swapCopyTxBtn && swapTxBase64El) {
 initTokenPicker({
   onSelect: applySelectedToken,
   getWalletAddress: () => swapWalletAddressInput?.value.trim() ?? '',
+  getSwapInputMint: () => swapInputMintInput?.value.trim() ?? '',
+  getSwapInputSymbol: () => swapInputSymbolEl?.textContent?.trim() ?? '',
   canOpenSellPicker: hasValidSwapWallet,
   canOpenBuyPicker: hasValidSwapWallet,
   onRefetchHoldings: async () => {
@@ -6806,6 +6848,7 @@ syncSlippageInputForAutoSlippage();
 if (swapInputMintInput) {
   swapInputMintInput.addEventListener('input', () => {
     invalidateSwapQuoteAfterInputChange();
+    applyOutputMintConstraintForInput();
     updateSwapPairCards();
     void refreshSwapSymbols();
     void refreshLowSolTradeWarning();
@@ -6849,6 +6892,7 @@ swapAmountInput?.addEventListener('change', () => {
 
 void ensureTokenCatalogLoaded().then(async () => {
   updateSwapTokenIcons();
+  applyOutputMintConstraintForInput();
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
   const pairMints = [...new Set([inputMint, outputMint].filter(Boolean))];
