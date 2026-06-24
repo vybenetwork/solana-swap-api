@@ -9276,27 +9276,46 @@ body.token-picker-scroll-lock {
 .token-picker-refetch-btn {
   width: auto;
   flex-shrink: 0;
+  box-sizing: border-box;
+  height: 28px;
   min-height: 28px;
   max-height: 28px;
-  padding: 0 0.62rem;
+  padding: 0 0.5rem;
   border-radius: 8px;
-  gap: 0.45rem;
+  gap: 0.35rem;
+  line-height: 1;
+  overflow: hidden;
 }
 
 .token-picker-refetch-btn .swap-action-btn__text {
   flex: 0 1 auto;
+  gap: 0;
+  min-height: 0;
 }
 
 .token-picker-refetch-btn .swap-action-btn__label {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   font-weight: 600;
+  line-height: 1;
   white-space: nowrap;
 }
 
 .token-picker-refetch-btn .swap-action-btn__timer {
-  width: 1.55rem;
-  height: 1.55rem;
+  width: 1.125rem;
+  height: 1.125rem;
   margin-left: 0;
+  flex-shrink: 0;
+}
+
+.token-picker-refetch-btn .swap-action-btn__timer-track,
+.token-picker-refetch-btn .swap-action-btn__timer-progress {
+  stroke-width: 2.25;
+}
+
+.token-picker-refetch-btn .swap-action-btn__timer-label {
+  font-size: 0.5rem;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .token-picker-tabs {
