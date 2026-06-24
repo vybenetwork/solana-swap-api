@@ -117,7 +117,6 @@ import {
   renderQuoteReceiveHeroValueHtml,
   renderQuoteReceiveHeroSubHtml,
   renderSignConfirmSummaryHtml,
-  renderRouteDiscoveryLogHtml,
   type EnumeratedRoutesUiState,
 } from './route-ui.js';
 import { formatWarnPercent } from './format-warn-pct.js';
@@ -344,7 +343,6 @@ const swapQuoteDetailsRoutingEl = document.getElementById('swapQuoteDetailsRouti
 const swapQuoteRouteSubtitleEl = document.getElementById('swapQuoteRouteSubtitle') as HTMLElement | null;
 const swapQuoteDetailsFieldsEl = document.getElementById('swapQuoteDetailsFields') as HTMLElement | null;
 const swapQuoteDetailsRouteStepsEl = document.getElementById('swapQuoteDetailsRouteSteps') as HTMLElement | null;
-const swapRouteDiscoveryLogEl = document.getElementById('swapRouteDiscoveryLog') as HTMLElement | null;
 const swapQuoteSummaryEl = document.getElementById('swapQuoteSummary') as HTMLElement | null;
 const swapRawQuoteResponseEl = document.getElementById('swapRawQuoteResponse') as HTMLElement | null;
 const swapRawSwapResponseEl = document.getElementById('swapRawSwapResponse') as HTMLElement | null;
@@ -3845,15 +3843,6 @@ function renderRawJsonEl(el: HTMLElement | null, data: unknown, emptyMsg: string
   }
 }
 
-function renderRouteDiscoveryLogPanel(): void {
-  if (!swapRouteDiscoveryLogEl) return;
-  const raw = lastRawQuoteResponse as Record<string, unknown> | null;
-  const meta = raw?._routeDiscovery as Record<string, unknown> | undefined;
-  swapRouteDiscoveryLogEl.innerHTML = swapQuoteFetching
-    ? `<p class="routing-empty routing-empty--loading">${renderLoadingSpinner('sm')}</p>`
-    : renderRouteDiscoveryLogHtml(meta);
-}
-
 function renderRawResponsePanels(): void {
   renderRawJsonEl(swapRawQuoteResponseEl, lastRawQuoteResponse, 'No quote response yet.');
   renderRawJsonEl(
@@ -3861,7 +3850,6 @@ function renderRawResponsePanels(): void {
     lastRawSwapResponse,
     'Build a swap to see the raw swap response.',
   );
-  renderRouteDiscoveryLogPanel();
   renderRouteOptionsPanel();
 }
 
