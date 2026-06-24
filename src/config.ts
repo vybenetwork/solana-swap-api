@@ -99,7 +99,7 @@ export const SOL_MIN_TX_FEE_BALANCE_UI = 0.006;
 export const DEFAULT_SWAP_SERVICE_FEE_PCT = 0;
 
 /** Default slippage tolerance percent when the client does not specify one. */
-export const DEFAULT_SWAP_SLIPPAGE_PCT = 2;
+export const DEFAULT_SWAP_SLIPPAGE_PCT = 20;
 
 function parseEnvBool(raw: string | undefined, defaultValue: boolean): boolean {
   const v = (raw ?? '').trim().toLowerCase();
