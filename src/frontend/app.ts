@@ -10,6 +10,7 @@ import {
   type AddressLookupTableAccount,
 } from '@solana/web3.js';
 import {
+  buildSwapClientParams,
   getSwapMintQuoteReadinessIssues,
   ensureTokenCatalogLoaded,
   ensureTokenMetaForMint,
@@ -6784,7 +6785,15 @@ swapAmountInput?.addEventListener('change', () => {
   syncSellPctButtonsState();
 });
 
-void ensureTokenCatalogLoaded().then(() => updateSwapTokenIcons());
+void ensureTokenCatalogLoaded().then(async () => {
+  updateSwapTokenIcons();
+  const inputMint = swapInputMintInput?.value.trim() ?? '';
+  const outputMint = swapOutputMintInput?.value.trim() ?? '';
+  const pairMints = [...new Set([inputMint, outputMint].filter(Boolean))];
+  if (pairMints.length === 0) return;
+  await Promise.all(pairMints.map((m) => ensureTokenMetaForMint(m)));
+  await prefetchSwapPairPrices({ forceFullDetails: true, mints: pairMints });
+});
 void refreshSwapSymbols();
 updateSwapPairCards();
 syncSwapAmountDisplayOverlay();
@@ -6796,10 +6805,6 @@ resetSwapQuoteDetailsPanel();
 /** Page load: live Vybe+RPC wallet balances (same policy as resolve-prices — always network). */
 onWalletAddressReady(true);
 
-const initialSellMint = swapInputMintInput?.value.trim() ?? '';
-if (initialSellMint) {
-  void prefetchSwapPairPrices({ forceFullDetails: true, mints: [initialSellMint] });
-}
 syncSwapQuoteButtonState();
 void fetch('/api/ui-config')
   .then((res) => (res.ok ? res.json() : null))
