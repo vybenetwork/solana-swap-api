@@ -42,6 +42,9 @@ import {
   type TokenPriceStats,
 } from './token-picker.js';
 
+/** Route card Trades metric (sell/buy counts). Set true when product surfaces trade activity on cards. */
+const SHOW_ROUTE_TRADE_METRIC = false;
+
 export interface RouteUiDeps {
   getFormInputMint: () => string;
   getFormOutputMint: () => string;
@@ -272,11 +275,15 @@ function sourceBadgeLabel(source: string | undefined): string {
   return 'trades';
 }
 
-type RouteOptionHighlightBadge = 'best-price' | 'highest-liquidity';
-
 function routeOutputAmount(route: EnumeratedRouteUiEntry): number {
   const out = deps.quoteOutputUiAmount(route.quote ?? {});
   return out != null && Number.isFinite(out) ? out : 0;
+}
+
+type RouteOptionHighlightBadge = 'best-price' | 'highest-liquidity' | 'highest-activity';
+
+function routeTradeActivityScore(route: EnumeratedRouteUiEntry): number {
+  return normalizePoolTradeActivityUi(route.candidate).tradeCount;
 }
 
 function computeRouteHighlightBadges(
@@ -307,6 +314,24 @@ function computeRouteHighlightBadges(
   }
   if (highestLiqRouteIndex >= 0 && highestLiqRouteIndex !== bestPriceRouteIndex && bestLiq > 0) {
     badges.set(highestLiqRouteIndex, 'highest-liquidity');
+  }
+
+  let highestActivityRouteIndex = -1;
+  let bestActivity = 0;
+  for (const route of routes) {
+    const activity = routeTradeActivityScore(route);
+    if (activity > bestActivity) {
+      bestActivity = activity;
+      highestActivityRouteIndex = route.index;
+    }
+  }
+  if (
+    highestActivityRouteIndex >= 0 &&
+    highestActivityRouteIndex !== bestPriceRouteIndex &&
+    bestActivity > 0
+  ) {
+    // Overwrites source / highest-liquidity on this route; never overwrites best-price.
+    badges.set(highestActivityRouteIndex, 'highest-activity');
   }
   return badges;
 }
@@ -343,6 +368,9 @@ function renderRouteOptionBadge(
   }
   if (highlight === 'best-price') {
     return '<span class="swap-route-option__badge swap-route-option__badge--best-price">Best Price</span>';
+  }
+  if (highlight === 'highest-activity') {
+    return '<span class="swap-route-option__badge swap-route-option__badge--highest-activity">Highest Activity</span>';
   }
   if (highlight === 'highest-liquidity') {
     return '<span class="swap-route-option__badge swap-route-option__badge--highest-liquidity">Highest Liquidity</span>';
@@ -445,7 +473,7 @@ export function renderRouteOptionsPanel(): void {
     : Math.min(ROUTE_OPTIONS_UI_INITIAL, state.routes.length);
   const hiddenCount = state.routes.length - visibleCount;
   const highlightBadges = computeRouteHighlightBadges(state.routes);
-  const showTradeActivity = routesHaveTradeActivity(state.routes);
+  const showTradeActivity = SHOW_ROUTE_TRADE_METRIC && routesHaveTradeActivity(state.routes);
   const cards = state.routes.slice(0, visibleCount).map((route, i) =>
     renderRouteOptionCard(route, state.selectedIndex, i + 1, highlightBadges.get(route.index), showTradeActivity),
   );

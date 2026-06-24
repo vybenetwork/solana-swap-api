@@ -2089,6 +2089,11 @@ tr:hover td {
   color: #fde68a;
 }
 
+.swap-route-option__badge--highest-activity {
+  background: rgba(56, 189, 248, 0.18);
+  color: #bae6fd;
+}
+
 .swap-route-option__badge--highest-liquidity {
   background: rgba(56, 189, 248, 0.18);
   color: #bae6fd;
@@ -8921,6 +8926,53 @@ body.token-picker-scroll-lock {
 
 .token-picker-dialog--wallet-tab .token-picker-wallet-balances-head {
   display: none;
+}
+
+.token-picker-dialog--wallet-search .token-picker-wallet-balances {
+  flex: 0 1 auto;
+  max-height: 42%;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 0.35rem;
+}
+
+.token-picker-dialog--wallet-search .token-picker-wallet-balances-head {
+  display: block;
+}
+
+.token-picker-dialog--wallet-search .token-picker-wallet-balances-list {
+  flex: 0 1 auto;
+  max-height: 11rem;
+}
+
+.token-picker-dialog--wallet-search .token-picker-list-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.token-picker-dialog--wallet-search .token-picker-list-head {
+  display: block;
+  flex-shrink: 0;
+  padding: 0.15rem 0.35rem 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #71717a;
+}
+
+.token-picker-dialog--wallet-search .token-picker-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.token-picker-list-head[hidden] {
+  display: none !important;
 }
 
 .token-picker-dialog--wallet-tab .token-picker-wallet-balances-list {
