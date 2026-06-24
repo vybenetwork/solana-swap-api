@@ -13,6 +13,7 @@ import {
   VYBE_API_BASE,
   VYBE_DATA_API_BASE,
   getSolanaRpcProviderLabel,
+  isSwapQuoteBtnDebugEnabled,
 } from './config.js';
 import { getSolanaRpcHost, logBrowserRpc429 } from './api/solana-connection.js';
 import { createClient } from './api/index.js';
@@ -704,6 +705,12 @@ app.post('/api/solana/prepare-swap-tx', async (req: Request, res: Response) => {
 
 app.get('/api/health', (_req: Request, res: Response) => {
   res.json({ ok: true });
+});
+
+app.get('/api/ui-config', (_req: Request, res: Response) => {
+  res.json({
+    enableSwapQuoteBtnDebug: isSwapQuoteBtnDebugEnabled(),
+  });
 });
 
 const PORT = Number(process.env.PORT) || 3000;

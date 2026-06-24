@@ -249,6 +249,8 @@ const swapBuildBtnTimerEl = document.getElementById('swapBuildBtnTimer') as HTML
 const SWAP_QUOTE_BTN_COOLDOWN_SEC = 10;
 const SWAP_BUILD_BTN_QUOTE_TTL_SEC = 30;
 
+let swapQuoteBtnDebugEnabled = false;
+
 let quoteBtnCooldownEndsAt = 0;
 let quoteBtnCooldownRaf = 0;
 let buildBtnQuoteValidUntil = 0;
@@ -607,7 +609,13 @@ function collectSwapQuoteBtnDiagnostics(): SwapQuoteBtnDiagnostics {
 }
 
 function renderSwapQuoteBtnDebug(diag: SwapQuoteBtnDiagnostics): void {
-  if (!swapQuoteBtnDebugEl) return;
+  if (!swapQuoteBtnDebugEl || !swapQuoteBtnDebugEnabled) {
+    if (swapQuoteBtnDebugEl) {
+      swapQuoteBtnDebugEl.hidden = true;
+      swapQuoteBtnDebugEl.textContent = '';
+    }
+    return;
+  }
   if (diag.ready) {
     swapQuoteBtnDebugEl.hidden = true;
     swapQuoteBtnDebugEl.textContent = '';
@@ -6784,3 +6792,10 @@ if (initialSellMint) {
   void prefetchSwapPairPrices({ forceFullDetails: true, mints: [initialSellMint] });
 }
 syncSwapQuoteButtonState();
+void fetch('/api/ui-config')
+  .then((res) => (res.ok ? res.json() : null))
+  .then((cfg: { enableSwapQuoteBtnDebug?: boolean } | null) => {
+    swapQuoteBtnDebugEnabled = cfg?.enableSwapQuoteBtnDebug === true;
+    syncSwapQuoteButtonState();
+  })
+  .catch(() => {});

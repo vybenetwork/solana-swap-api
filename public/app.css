@@ -7172,8 +7172,9 @@ tr:hover td {
 .swap-route-pin-row .swap-toggle-row--pin-protocol .swap-toggle-field__input--pin-protocol,
 .swap-route-pin-row .swap-toggle-row--pin-protocol .swap-protocol-picker__trigger {
   flex: 1 1 auto;
-  min-width: 0;
-  max-width: 118px;
+  min-width: 96px;
+  max-width: 124px;
+  margin-right: 5px;
 }
 
 .swap-protocol-picker {
@@ -7237,6 +7238,11 @@ tr:hover td {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+.swap-protocol-picker__trigger[data-protocol='PUMPSWAP'] .swap-protocol-picker__label,
+.swap-protocol-picker__trigger[data-protocol='RAYDIUMLAUNCHLAB'] .swap-protocol-picker__label {
+  font-size: 85%;
 }
 
 .swap-protocol-picker__chevron {
@@ -7373,6 +7379,7 @@ tr:hover td {
   min-width: 0;
   box-sizing: border-box;
   max-height: 27px;
+  min-height: 27px;
 }
 
 .swap-toggle-field__suffix-wrap {
@@ -7678,6 +7685,8 @@ tr:hover td {
     box-shadow 0.12s ease,
     border-color 0.12s ease,
     filter 0.12s ease;
+  max-height: 59px !important;
+  min-height: 59px !important;
 }
 
 .swap-action-btn:active:not(:disabled) {

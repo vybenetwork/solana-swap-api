@@ -91,6 +91,8 @@ export function wireSwapProtocolPicker(
       : `<span class="swap-protocol-picker__label">${displayLabel}</span>`;
     if (value && displayLabel !== fullLabel) triggerEl.title = fullLabel;
     else triggerEl.removeAttribute('title');
+    if (value) triggerEl.dataset.protocol = value;
+    else delete triggerEl.dataset.protocol;
     triggerEl.classList.toggle('swap-protocol-picker__trigger--placeholder', !value);
     for (const item of menuEl.querySelectorAll<HTMLElement>('.swap-protocol-picker__option')) {
       const selected = item.dataset.value === value;

@@ -101,3 +101,16 @@ export const DEFAULT_SWAP_SERVICE_FEE_PCT = 0;
 /** Default slippage tolerance percent when the client does not specify one. */
 export const DEFAULT_SWAP_SLIPPAGE_PCT = 2;
 
+function parseEnvBool(raw: string | undefined, defaultValue: boolean): boolean {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (!v) return defaultValue;
+  if (v === '1' || v === 'true' || v === 'yes' || v === 'on') return true;
+  if (v === '0' || v === 'false' || v === 'no' || v === 'off') return false;
+  return defaultValue;
+}
+
+/** Show inline "Get quote blocked" debug meta under the quote button (default: off). */
+export function isSwapQuoteBtnDebugEnabled(): boolean {
+  return parseEnvBool(process.env.ENABLE_SWAP_QUOTE_BTN_DEBUG, false);
+}
+
