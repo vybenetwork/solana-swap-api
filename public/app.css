@@ -8917,7 +8917,13 @@ body.token-picker-scroll-lock {
 .token-picker-shortcuts[hidden],
 .token-picker-tabs[hidden],
 .token-picker-list-wrap[hidden],
-.token-picker-wallet-balances[hidden] {
+.token-picker-wallet-balances[hidden],
+.token-picker-tab[hidden] {
+  display: none !important;
+}
+
+.token-picker-dialog--sell .token-picker-tab[data-tab="top"],
+.token-picker-dialog--sell .token-picker-tab[data-tab="recent"] {
   display: none !important;
 }
 
@@ -8974,6 +8980,21 @@ body.token-picker-scroll-lock {
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+}
+
+.token-picker-dialog--sell-wallet-search .token-picker-wallet-balances {
+  flex: 1;
+  min-height: 0;
+  border-bottom: none;
+  padding-bottom: 0.15rem;
+}
+
+.token-picker-dialog--sell-wallet-search .token-picker-wallet-balances-head {
+  display: none;
+}
+
+.token-picker-dialog--sell-wallet-search .token-picker-list-wrap {
+  display: none !important;
 }
 
 .token-picker-list-head[hidden] {

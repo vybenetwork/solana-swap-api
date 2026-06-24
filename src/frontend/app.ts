@@ -1446,6 +1446,7 @@ function parseSwapAmountInputValue(raw: string): number {
 }
 
 function syncSwapSellAmountUi(): void {
+  discardSwapQuoteIfPairMismatch();
   syncSwapAmountDisplayOverlay();
   const amount = parseSwapAmountInputValue(swapAmountInput?.value ?? '');
   const hasPositiveAmount = Number.isFinite(amount) && amount > 0;
@@ -1537,6 +1538,7 @@ function resetSwapQuoteToMock(): void {
   lastSwapQuoteOk = null;
   lastVybeBuild = null;
   lastRawQuoteResponse = null;
+  lastRawSwapResponse = null;
   enumeratedRoutesUiState = null;
   lastVybeQuoteBodyForRoutes = null;
   swapQuoteWalletSnapshot = '';
@@ -2157,16 +2159,9 @@ async function refreshWalletHoldingsFull(
     mints: [...mints],
   });
 
-  lastSwapQuoteOk = null;
-  lastVybeBuild = null;
-  lastRawQuoteResponse = null;
-  lastRawSwapResponse = null;
-  if (swapTxBase64El) swapTxBase64El.value = '';
-  syncSwapBuildResultPanel();
-
+  resetSwapQuoteToMock();
   updateSwapPairCards();
   updateSwapTokenIcons();
-  syncSwapSellAmountUi();
   syncSwapAmountMaxFromBalance();
   syncSwapQuoteButtonState();
   void refreshSwapSymbols();
@@ -2237,6 +2232,42 @@ function swapPairMintsMatch(a: string, b: string): boolean {
   return left === right;
 }
 
+function swapFormMintMatchesQuoteMint(formMint: string, quoteMint: string): boolean {
+  const a = preferNativeSolMint(formMint.trim());
+  const b = preferNativeSolMint(quoteMint.trim());
+  return Boolean(a && b && a === b);
+}
+
+function swapQuoteMatchesFormPair(quote: Record<string, unknown> | null): boolean {
+  if (!quote || !swapInputMintInput || !swapOutputMintInput) return false;
+  const formIn = swapInputMintInput.value.trim();
+  const formOut = swapOutputMintInput.value.trim();
+  const quoteIn = quoteInputMint(quote) ?? '';
+  const quoteOut = quoteOutputMint(quote) ?? '';
+  return (
+    swapFormMintMatchesQuoteMint(formIn, quoteIn) &&
+    swapFormMintMatchesQuoteMint(formOut, quoteOut)
+  );
+}
+
+/** Drop cached quote/enrichment when mint inputs no longer match the quoted pair. */
+function discardSwapQuoteIfPairMismatch(): boolean {
+  if (!lastSwapQuoteOk || swapQuoteMatchesFormPair(lastSwapQuoteOk)) return false;
+  lastSwapQuoteOk = null;
+  lastVybeBuild = null;
+  lastRawQuoteResponse = null;
+  lastRawSwapResponse = null;
+  enumeratedRoutesUiState = null;
+  lastVybeQuoteBodyForRoutes = null;
+  if (swapBuildBtn) syncBuildButtonState();
+  return true;
+}
+
+function activeSwapQuoteForUi(): Record<string, unknown> | null {
+  discardSwapQuoteIfPairMismatch();
+  return lastSwapQuoteOk;
+}
+
 function isSwapQuoteSolOrStableMint(mint: string, symbolHint?: string): boolean {
   const kind = getTokenMintColorKind(mint, symbolHint);
   return kind === 'sol' || kind === 'stable';
@@ -2290,11 +2321,13 @@ function flipSellBuyTokens(options?: { force?: boolean }): void {
 }
 
 function afterSellBuyTokensFlipped(flippedOutputAmountUi: number | null = null): void {
+  invalidateSwapQuoteUi();
   void syncSwapSideLabels();
   updateSwapTokenIcons();
   updateSwapPairCards();
   syncSwapAmountMaxFromBalance();
   const newSellMint = swapInputMintInput?.value.trim() ?? '';
+  const newBuyMint = swapOutputMintInput?.value.trim() ?? '';
   if (newSellMint && hasValidSwapWallet()) {
     if (flippedOutputAmountUi != null) {
       applyFlippedOutputAsSellAmount(flippedOutputAmountUi);
@@ -2304,7 +2337,12 @@ function afterSellBuyTokensFlipped(flippedOutputAmountUi: number | null = null):
       );
     }
   }
-  void prefetchSwapPairPrices({ forceFullDetails: true, mints: newSellMint ? [newSellMint] : undefined });
+  const prefetchMints = [newSellMint, newBuyMint].filter(Boolean);
+  void prefetchSwapPairPrices({ forceFullDetails: true, mints: prefetchMints }).then(() => {
+    updateSwapPairCards();
+    syncSwapSellAmountUi();
+    if (isSwapQuoteInputReady()) void fetchSwapQuote();
+  });
   void refreshLowSolTradeWarning();
   syncFlipButtonState();
 }
@@ -3003,7 +3041,7 @@ function renderPairCard(
   }
   const symbol = pairCardSymbol(mint, side);
   const displayName = swapSideTokenName(mint, symbol);
-  const stats = pairCardEffectiveStats(mint, lastSwapQuoteOk ?? undefined);
+  const stats = pairCardEffectiveStats(mint, activeSwapQuoteForUi() ?? undefined);
   const showLoading = loading && side === 'buy';
 
   el.innerHTML = `<div class="swap-pair-card-head-left">
@@ -3063,7 +3101,7 @@ function updateSwapSideChanges(loading = false): void {
   const outMint = swapOutputMintInput?.value.trim() ?? '';
   const sellEl = document.getElementById('swapSellChanges');
   const buyEl = document.getElementById('swapBuyChanges');
-  const quote = lastSwapQuoteOk ?? undefined;
+  const quote = activeSwapQuoteForUi() ?? undefined;
   if (sellEl) {
     sellEl.innerHTML = renderSwapSideChangeHtml(
       inMint ? pairCardEffectiveStats(inMint, quote) : undefined,
@@ -3986,6 +4024,11 @@ function clearSwapQuotePanel(): void {
 }
 
 function renderSwapQuoteUI(quote: Record<string, unknown>): void {
+  if (!swapQuoteMatchesFormPair(quote)) {
+    discardSwapQuoteIfPairMismatch();
+    syncSwapSellAmountUi();
+    return;
+  }
   setBuyReadoutLoading(false);
   setBuyFiatLoading(false);
   const outAmt = formatQuoteTokenAmount(quote, 'out');
@@ -5579,9 +5622,9 @@ async function closeSwapSignDialogAfterSuccess(): Promise<void> {
 
   if (!swapInputMintInput?.value.trim() || !swapOutputMintInput?.value.trim()) return;
 
+  invalidateSwapQuoteUi();
   flipSellBuyTokens({ force: true });
   await refreshSwapSymbols();
-  invalidateSwapQuoteAfterInputChange();
   afterSellBuyTokensFlipped(flippedOutputAmountUi);
 }
 
@@ -6601,7 +6644,6 @@ if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
     }
     if (swapQuoteError) clearInlineError(swapQuoteError);
     const flippedOutputAmountUi = parseFlipOutputAmountUi();
-    invalidateSwapQuoteAfterInputChange();
     flipSellBuyTokens();
     afterSellBuyTokensFlipped(flippedOutputAmountUi);
   });

@@ -794,10 +794,17 @@ function isPickerSearchActive(): boolean {
 }
 
 function isWalletTabSearchCombo(): boolean {
-  return activeTab === 'wallet' && isPickerSearchActive();
+  return activeTab === 'wallet' && isPickerSearchActive() && activeSide !== 'input';
+}
+
+function isSellPickerWalletSearch(): boolean {
+  return activeSide === 'input' && isPickerSearchActive();
 }
 
 function getVisibleTokens(): TokenMeta[] {
+  if (activeSide === 'input' && isPickerSearchActive()) {
+    return [];
+  }
   const cache = readCache();
   const recentMints = readRecent();
   const rawQ = searchQuery.trim();
@@ -991,6 +998,15 @@ function syncWalletBalancesVisibility(): void {
   walletBalancesEl.hidden = activeTab !== 'wallet';
 }
 
+function syncSellPickerTabVisibility(): void {
+  const isSell = activeSide === 'input';
+  document
+    .querySelectorAll('.token-picker-tab[data-tab="top"], .token-picker-tab[data-tab="recent"]')
+    .forEach((el) => {
+      (el as HTMLElement).hidden = isSell;
+    });
+}
+
 function syncTopTabDisabledState(): void {
   const isSell = activeSide === 'input';
   document.querySelectorAll('.token-picker-tab[data-tab="top"]').forEach((el) => {
@@ -1004,18 +1020,27 @@ function syncTopTabDisabledState(): void {
 function syncPickerLayout(): void {
   const isSell = activeSide === 'input';
   const walletSearchCombo = isWalletTabSearchCombo();
+  if (isSell && (activeTab === 'top' || activeTab === 'recent')) {
+    activeTab = 'wallet';
+  }
   if (dialogEl) {
     dialogEl.classList.toggle('token-picker-dialog--sell', isSell);
     dialogEl.classList.toggle('token-picker-dialog--buy', !isSell);
     dialogEl.classList.toggle('token-picker-dialog--wallet-tab', activeTab === 'wallet');
-    dialogEl.classList.toggle('token-picker-dialog--list-tab', activeTab === 'top' || activeTab === 'recent');
+    dialogEl.classList.toggle(
+      'token-picker-dialog--list-tab',
+      !isSell && (activeTab === 'top' || activeTab === 'recent'),
+    );
     dialogEl.classList.toggle('token-picker-dialog--wallet-search', walletSearchCombo);
+    dialogEl.classList.toggle('token-picker-dialog--sell-wallet-search', isSellPickerWalletSearch());
   }
   if (searchWrapEl) searchWrapEl.hidden = false;
   if (tabsEl) tabsEl.hidden = false;
-  if (shortcutsEl) shortcutsEl.hidden = false;
+  syncSellPickerTabVisibility();
+  if (shortcutsEl && !isSell) shortcutsEl.hidden = false;
   if (listWrapEl) {
-    listWrapEl.hidden = !(activeTab === 'top' || activeTab === 'recent' || walletSearchCombo);
+    listWrapEl.hidden =
+      isSell || !(activeTab === 'top' || activeTab === 'recent' || walletSearchCombo);
   }
   if (listHeadEl) listHeadEl.hidden = !walletSearchCombo;
   syncTopTabDisabledState();
@@ -1585,6 +1610,7 @@ export function refreshWalletBalancesPanel(): void {
     return;
   }
   if (activeTab === 'wallet') showWalletBalancesTab();
+  if (activeSide === 'input' && dialogEl?.open) renderShortcuts();
 }
 
 function showWalletBalancesTab(): void {
@@ -1836,14 +1862,58 @@ const SHORTCUT_MINTS = [
   'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
 ];
 
+/** Sell picker shortcuts: wallet tokens ≥ $0.01, recent-first when still tradable. */
+function getSellPickerShortcutTokens(): TokenMeta[] {
+  const wallet = getWalletAddressCb?.().trim() ?? '';
+  if (!wallet || !sessionWalletBalances || sessionWalletBalances.wallet !== wallet) return [];
+
+  const tradableItems = sessionWalletBalances.items.filter((item) =>
+    isWalletTokenTradable(item.mintAddress),
+  );
+  const tradableByMint = new Map(tradableItems.map((item) => [item.mintAddress, item]));
+  const orderedMints: string[] = [];
+  const seen = new Set<string>();
+
+  for (const mint of readRecent()) {
+    const item = getWalletBalanceListItem(mint);
+    if (!item || !isWalletTokenTradable(item.mintAddress) || seen.has(item.mintAddress)) continue;
+    seen.add(item.mintAddress);
+    orderedMints.push(item.mintAddress);
+  }
+
+  for (const item of sortWalletBalancesForSellPicker(tradableItems)) {
+    if (seen.has(item.mintAddress)) continue;
+    seen.add(item.mintAddress);
+    orderedMints.push(item.mintAddress);
+  }
+
+  return orderedMints
+    .map((mint) => {
+      const item = tradableByMint.get(mint);
+      return item ? walletItemToTokenMeta(item) : null;
+    })
+    .filter((t): t is TokenMeta => Boolean(t));
+}
+
 function renderShortcuts(): void {
   if (!shortcutsEl) return;
-  const picks = SHORTCUT_MINTS.map((mint) => catalogTokens.find((t) => t.mint === mint)).filter(
-    (t): t is TokenMeta => Boolean(t),
-  );
-  const fallback = catalogTokens.slice(0, 6);
-  const tokens = picks.length > 0 ? picks : fallback;
-  const ordered = activeSide === 'input' ? sortTokensForSellPicker(tokens) : tokens;
+  let tokens: TokenMeta[];
+  if (activeSide === 'input') {
+    tokens = getSellPickerShortcutTokens();
+    shortcutsEl.hidden = tokens.length === 0;
+    if (tokens.length === 0) {
+      shortcutsEl.innerHTML = '';
+      return;
+    }
+  } else {
+    shortcutsEl.hidden = false;
+    const picks = SHORTCUT_MINTS.map((mint) => catalogTokens.find((t) => t.mint === mint)).filter(
+      (t): t is TokenMeta => Boolean(t),
+    );
+    const fallback = catalogTokens.slice(0, 6);
+    tokens = picks.length > 0 ? picks : fallback;
+  }
+  const ordered = tokens;
   const leadMint =
     activeSide === 'input'
       ? ordered.find((t) => isSellPickerMintTradable(t.mint))?.mint
@@ -1872,7 +1942,7 @@ function setStatus(msg: string): void {
 
 function renderList(): void {
   if (!listEl) return;
-  if (activeTab === 'wallet' && !isPickerSearchActive()) {
+  if (activeSide === 'input' || (activeTab === 'wallet' && !isPickerSearchActive())) {
     listEl.innerHTML = '';
     return;
   }
@@ -1921,7 +1991,7 @@ export function openTokenPicker(side: TokenPickerSide): void {
   if (side === 'input' && canOpenSellPickerCb && !canOpenSellPickerCb()) return;
   if (side === 'output' && canOpenBuyPickerCb && !canOpenBuyPickerCb()) return;
   activeSide = side;
-  activeTab = 'wallet';
+  activeTab = side === 'input' ? 'wallet' : 'top';
   searchQuery = '';
   pendingMintLookup = null;
   if (searchInputEl) searchInputEl.value = '';
@@ -1949,6 +2019,14 @@ export function closeTokenPicker(): void {
 async function onSearchInput(): Promise<void> {
   if (!searchInputEl) return;
   searchQuery = searchInputEl.value;
+
+  if (activeSide === 'input') {
+    renderList();
+    syncPickerLayout();
+    showWalletBalancesTab();
+    return;
+  }
+
   const q = searchQuery.trim();
 
   if (BASE58_RE.test(q)) {
@@ -2029,7 +2107,7 @@ export function initTokenPicker(options: {
   document.querySelectorAll('.token-picker-tab').forEach((el) => {
     el.addEventListener('click', () => {
       const tab = (el as HTMLElement).dataset.tab;
-      if (tab === 'top' && activeSide === 'input') return;
+      if ((tab === 'top' || tab === 'recent') && activeSide === 'input') return;
       if (tab === 'top' || tab === 'recent' || tab === 'wallet') {
         activeTab = tab;
         syncPickerLayout();
