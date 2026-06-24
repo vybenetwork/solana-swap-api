@@ -3402,6 +3402,8 @@ function projectSwapBuildForBrowser(build: Record<string, unknown>): Record<stri
 
   return {
     ...build,
+    ...(typeof build.closeWsolAta === 'boolean' ? { closeWsolAta: build.closeWsolAta } : {}),
+    ...(typeof buildDetails?.closeWsolAta === 'boolean' ? { closeWsolAta: buildDetails.closeWsolAta } : {}),
     _feeEnrichment: feeEnrichment,
     _simulatedOutAmount: enrichment.simulatedOutRaw ?? null,
     _quotedOutAmount: enrichment.quotedOutRaw ?? buildQuote?.outAmount,
@@ -3496,6 +3498,14 @@ function applyFeeEnrichmentToQuote(
     buildPayload?._walletTokenAccountCloses ?? quote._walletTokenAccountCloses;
   if (Array.isArray(walletTokenAccountCloses)) {
     next._walletTokenAccountCloses = walletTokenAccountCloses;
+  }
+
+  const closeWsolAta =
+    buildPayload?.closeWsolAta ??
+    (buildDetails?.closeWsolAta as boolean | undefined) ??
+    quote.closeWsolAta;
+  if (typeof closeWsolAta === 'boolean') {
+    next.closeWsolAta = closeWsolAta;
   }
 
   const simulationOutputWarning =

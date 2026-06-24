@@ -31,6 +31,7 @@ export {
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
 import { staticAccountKeysFromSwapTx, validateTradeBuildStatic } from './pool-address-validation.js';
 import { isQuoteBridgeBuild, type QuoteBridgeBuildDetails } from './quote-bridge-detect.js';
+import { isQuoteBridgeHopComboDisabled, quoteBridgeHopComboKey } from './quote-bridge-hop-combos.js';
 import { toVybeSwapMint } from './sol-mints.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams } from './trades.js';
 
@@ -482,13 +483,19 @@ export function parseVybeEnumeratedSwapRoutes(
 ): VybeEnumeratedSwapParseResult {
   const routesRaw = build.routes;
   if (build.outcome === 'multi' && Array.isArray(routesRaw) && routesRaw.length > 0) {
-    const routes = routesRaw.map((route, i) =>
-      routeBuildSuccessFromVybeBuild(route as import('../types/swap.js').VybeSwapBuildResponse, i),
-    );
+    const routes = routesRaw
+      .map((route, i) =>
+        routeBuildSuccessFromVybeBuild(route as import('../types/swap.js').VybeSwapBuildResponse, i),
+      )
+      .filter((entry) => !isQuoteBridgeHopComboDisabled(entry.build));
+    if (routes.length === 0) return { kind: 'none' };
     const primary = routes[0]!;
     return { kind: 'multi', routes, build: primary.build, selected: primary.selected };
   }
   if (swapHasTx(build)) {
+    if (isQuoteBridgeHopComboDisabled(build)) {
+      return { kind: 'none' };
+    }
     const selected = tradeCandidateFromVybeBuild(build);
     if (selected.marketAddress && selected.programAddress) {
       return { kind: 'direct', build, selected };
@@ -548,6 +555,11 @@ function validateTradeBuild(
   const tx = build.tx ?? build.transaction;
   if (typeof tx !== 'string' || !tx.trim()) {
     return { ok: false, reason: 'Built tx missing' };
+  }
+
+  if (isQuoteBridgeHopComboDisabled(build)) {
+    const combo = quoteBridgeHopComboKey(build) ?? 'unknown';
+    return { ok: false, reason: `Quote-bridge hop combination disabled: ${combo}` };
   }
 
   if (isQuoteBridgeBuild(build)) {

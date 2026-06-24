@@ -114,3 +114,18 @@ export function isSwapQuoteBtnDebugEnabled(): boolean {
   return parseEnvBool(process.env.ENABLE_SWAP_QUOTE_BTN_DEBUG, false);
 }
 
+/**
+ * Quote-bridge hop pairs to skip during route discovery (comma-separated).
+ * Keys use short protocol slugs joined by `-`, e.g. `damm2-damm2`, `ammv4-ammv4`.
+ */
+export function getDisabledQuoteBridgeHopCombos(): ReadonlySet<string> {
+  const raw = (process.env.DISABLED_QUOTE_BRIDGE_HOP_COMBOS ?? '').trim();
+  if (!raw) return new Set();
+  return new Set(
+    raw
+      .split(',')
+      .map((entry) => entry.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
