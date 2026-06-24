@@ -2341,7 +2341,6 @@ function afterSellBuyTokensFlipped(flippedOutputAmountUi: number | null = null):
   void prefetchSwapPairPrices({ forceFullDetails: true, mints: prefetchMints }).then(() => {
     updateSwapPairCards();
     syncSwapSellAmountUi();
-    if (isSwapQuoteInputReady()) void fetchSwapQuote();
   });
   void refreshLowSolTradeWarning();
   syncFlipButtonState();
