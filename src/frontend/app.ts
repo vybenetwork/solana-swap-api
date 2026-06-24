@@ -5452,6 +5452,7 @@ function resetSwapSignDialogUi(): void {
   setSwapSignTxidButtonsState('hidden');
   if (swapSignConfirmRequoteEl) {
     swapSignConfirmRequoteEl.hidden = true;
+    swapSignConfirmRequoteEl.style.display = 'none';
     swapSignConfirmRequoteEl.disabled = false;
   }
 }
@@ -5495,7 +5496,11 @@ function setSwapSignDialogActions(state: 'running' | 'success' | 'failed'): void
   } else {
     setSwapSignTxidButtonsState('hidden');
   }
-  if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.hidden = state !== 'failed';
+  if (swapSignConfirmRequoteEl) {
+    const showRequote = state === 'failed';
+    swapSignConfirmRequoteEl.hidden = !showRequote;
+    swapSignConfirmRequoteEl.style.display = showRequote ? '' : 'none';
+  }
 }
 
 function appendSwapSignLog(text: string, tone: SwapSignLogTone = 'neutral'): HTMLElement | null {

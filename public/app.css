@@ -8725,6 +8725,11 @@ tr:hover td {
   gap: 0.55rem;
 }
 
+.swap-sign-dialog__actions [hidden],
+.swap-sign-dialog__requote[hidden] {
+  display: none !important;
+}
+
 
 /* --- Vybe swap quote / build (legacy grid / inline routes) --- */
 .swap-panel .swap-params-grid {
