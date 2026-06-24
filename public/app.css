@@ -8681,6 +8681,21 @@ tr:hover td {
   color: #a1a1aa;
 }
 
+.swap-sign-dialog__amount-line--total {
+  margin-top: 0.12rem;
+  padding-top: 0.2rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-weight: 600;
+  color: #e4e4e7;
+}
+
+.swap-sign-dialog__amount-line--total .swap-sign-dialog__amount-detail {
+  color: #a1a1aa;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 .swap-sign-dialog__token-icon {
   width: 1rem;
   height: 1rem;

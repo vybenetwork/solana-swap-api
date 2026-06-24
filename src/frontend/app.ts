@@ -10,7 +10,7 @@ import {
   type AddressLookupTableAccount,
 } from '@solana/web3.js';
 import {
-  buildSwapClientParams,
+  getSwapMintQuoteReadinessIssues,
   ensureTokenCatalogLoaded,
   ensureTokenMetaForMint,
   getCachedTokenMeta,
@@ -450,6 +450,15 @@ function getSwapQuoteDisabledReason(): string | null {
   }
   const sellMint = swapInputMintInput?.value.trim() ?? '';
   if (!sellMint) return 'No sell mint selected';
+  const buyMint = swapOutputMintInput?.value.trim() ?? '';
+  if (!buyMint) return 'No buy mint selected';
+  const tokenMetaIssues = [
+    ...getSwapMintQuoteReadinessIssues(sellMint, getSwapInSym()),
+    ...getSwapMintQuoteReadinessIssues(buyMint, getSwapOutSym()),
+  ];
+  if (tokenMetaIssues.length > 0) {
+    return `Waiting for token data: ${tokenMetaIssues.join(', ')}`;
+  }
   const amountRaw = swapAmountInput?.value ?? '';
   const amount = Number(amountRaw);
   if (!Number.isFinite(amount) || amount <= 0) {
@@ -2413,12 +2422,11 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
       );
     }
     const prefetchMints = [resolvedMint, ...(autoOutputMint ? [autoOutputMint] : [])];
-    void prefetchSwapPairPrices({ forceFullDetails: true, mints: prefetchMints }).then(() => {
-      syncSwapQuoteButtonState();
-    });
+    void prefetchSwapPairPrices({ forceFullDetails: true, mints: prefetchMints });
   } else {
     void prefetchSwapPairPrices({ forceFullDetails: true });
   }
+  syncSwapQuoteButtonState();
   void refreshLowSolTradeWarning();
   syncFlipButtonState();
 }
@@ -4011,11 +4019,12 @@ async function prefetchSwapPairPrices(options?: {
     }
     updateSwapPairCards(stats);
     syncSwapSellAmountUi();
-    syncSwapQuoteButtonState();
     refreshWalletBalancesPanel();
     updateWalletTotalUsdUi();
   } catch {
     // Prefetch is best-effort; pair cards keep last known stats or em dashes.
+  } finally {
+    syncSwapQuoteButtonState();
   }
 }
 

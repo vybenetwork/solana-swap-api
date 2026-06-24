@@ -367,6 +367,31 @@ function decimalsFromCachedMeta(mint: string): number | undefined {
   return dec != null && Number.isFinite(dec) && dec >= 0 && dec <= 255 ? Math.trunc(dec) : undefined;
 }
 
+/** Session USD spot for swap gating (resolve-prices / Vybe). */
+export function hasCachedMintPriceUsd(mint: string): boolean {
+  return priceFromCachedMeta(mint) != null;
+}
+
+/** Mint decimals from catalog/cache/session meta. */
+export function hasCachedMintDecimals(mint: string): boolean {
+  return decimalsFromCachedMeta(mint) != null;
+}
+
+export function isSwapMintQuoteReady(mint: string): boolean {
+  const m = mint.trim();
+  if (!m) return false;
+  return hasCachedMintPriceUsd(m) && hasCachedMintDecimals(m);
+}
+
+export function getSwapMintQuoteReadinessIssues(mint: string, label: string): string[] {
+  const m = mint.trim();
+  if (!m) return [`${label}: mint missing`];
+  const issues: string[] = [];
+  if (!hasCachedMintDecimals(m)) issues.push(`${label} decimals`);
+  if (!hasCachedMintPriceUsd(m)) issues.push(`${label} price`);
+  return issues;
+}
+
 /** Explicit client swap params for Vybe / ix-builder (prices + decimals from cache). */
 export function buildSwapClientParams(inputMint: string, outputMint: string): {
   inputMintPrice?: number;

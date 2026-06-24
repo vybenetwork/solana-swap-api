@@ -6855,6 +6855,82 @@ function getSignConfirmPayExtraLines(
   return getQuotePayHeroCostStack(quote, sellSym);
 }
 
+interface SignConfirmReceiveRow {
+  ui: number;
+  sym: string;
+  mint: string;
+  label?: string;
+  isExtra?: boolean;
+}
+
+function signConfirmReceiveRowGroupKey(mint: string): string {
+  const m = mint.trim();
+  if (isSolMint(m)) return WSOL_MINT;
+  return m;
+}
+
+function collectSignConfirmReceiveRows(quote: Record<string, unknown>): SignConfirmReceiveRow[] {
+  const outSym = deps.getSwapOutSym();
+  const outMint = quoteOutputMint(quote);
+  const outAmt = formatQuoteTokenAmount(quote, 'out');
+  const rows: SignConfirmReceiveRow[] = [];
+  if (outAmt.display !== '—' && outMint) {
+    const outUi = deps.quoteOutputUiAmount(quote);
+    if (outUi != null && outUi > 0) {
+      rows.push({ ui: outUi, sym: outSym, mint: outMint });
+    } else if (outAmt.display !== '—') {
+      const parsed = Number.parseFloat(outAmt.display.replace(/,/g, ''));
+      if (Number.isFinite(parsed) && parsed > 0) {
+        rows.push({ ui: parsed, sym: outSym, mint: outMint });
+      }
+    }
+  }
+  for (const row of getSignConfirmReceiveBonusLines(quote)) {
+    rows.push({
+      ui: row.ui,
+      sym: row.sym,
+      mint: row.mint,
+      label: row.label,
+      isExtra: true,
+    });
+  }
+  return rows;
+}
+
+function renderSignConfirmReceiveTotalLines(rows: SignConfirmReceiveRow[]): string[] {
+  const groups = new Map<
+    string,
+    { sym: string; mint: string; totalUi: number; count: number }
+  >();
+  for (const row of rows) {
+    if (!(row.ui > 0)) continue;
+    const key = signConfirmReceiveRowGroupKey(row.mint);
+    const existing = groups.get(key);
+    if (existing) {
+      existing.totalUi += row.ui;
+      existing.count += 1;
+      continue;
+    }
+    groups.set(key, { sym: row.sym, mint: row.mint, totalUi: row.ui, count: 1 });
+  }
+
+  const totals: string[] = [];
+  for (const [key, group] of groups) {
+    if (group.count <= 1) continue;
+    const isSolGroup = key === WSOL_MINT;
+    totals.push(
+      renderSignConfirmAmountLine(
+        group.totalUi,
+        isSolGroup ? 'SOL' : group.sym,
+        isSolGroup ? NATIVE_SOL_MINT : group.mint,
+        'TOTAL',
+        ' swap-sign-dialog__amount-line--total',
+      ),
+    );
+  }
+  return totals;
+}
+
 function getSignConfirmReceiveBonusLines(quote: Record<string, unknown>): QuoteReceiveHeroReclaimItem[] {
   const items = [...getQuoteReceiveHeroReclaimStack(quote)];
   const seen = new Set(items.map((row) => `${row.mint}:${row.label}`));
@@ -6901,25 +6977,17 @@ export function renderSignConfirmPayHtml(quote: Record<string, unknown>): string
 
 /** Sign-confirm dialog: output amount plus rent / WSOL reclaim lines with token icons. */
 export function renderSignConfirmReceiveHtml(quote: Record<string, unknown>): string {
-  const outSym = deps.getSwapOutSym();
-  const outMint = quoteOutputMint(quote);
-  const outAmt = formatQuoteTokenAmount(quote, 'out');
+  const receiveRows = collectSignConfirmReceiveRows(quote);
   const lines: string[] = [];
-  if (outAmt.display !== '—' && outMint) {
-    const outUi = deps.quoteOutputUiAmount(quote);
-    if (outUi != null && outUi > 0) {
-      lines.push(renderSignConfirmAmountLine(outUi, outSym, outMint));
-    } else {
-      lines.push(
-        `<div class="swap-sign-dialog__amount-line">${renderSignConfirmTokenIcon(outMint)}<span class="swap-sign-dialog__amount-amt">${deps.escapeHtml(outAmt.display)}</span><span class="swap-sign-dialog__amount-sym ${tokenSymColorClass(outMint, outSym)}">${deps.escapeHtml(outSym)}</span></div>`,
-      );
-    }
-  }
-  for (const row of getSignConfirmReceiveBonusLines(quote)) {
+  for (const row of receiveRows) {
+    const modifier = row.isExtra ? ' swap-sign-dialog__amount-line--extra' : '';
     lines.push(
-      renderSignConfirmAmountLine(row.ui, row.sym, row.mint, row.label, ' swap-sign-dialog__amount-line--extra'),
+      row.label
+        ? renderSignConfirmAmountLine(row.ui, row.sym, row.mint, row.label, modifier)
+        : renderSignConfirmAmountLine(row.ui, row.sym, row.mint, undefined, modifier),
     );
   }
+  lines.push(...renderSignConfirmReceiveTotalLines(receiveRows));
   if (lines.length === 0) return '—';
   return `<div class="swap-sign-dialog__amount-stack">${lines.join('')}</div>`;
 }
