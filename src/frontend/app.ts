@@ -480,6 +480,55 @@ function getSwapQuoteDisabledReason(): string | null {
 
 const PIN_ROUTE_MIN_MARKET_ADDRESS_LEN = 40;
 
+/** Program id → Vybe protocol select value (mirrors pinned-swap-params). */
+const PIN_ROUTE_PROGRAM_TO_PROTOCOL: Record<string, string> = {
+  dbcij3LWUppWqq96dh6gJWwBifmcGfLSB5D4DuSMaqN: 'METEORADBC',
+  cpamdpZCGKUy5JxQXB4dcpGPiikHawvSWAd6mEn1sGG: 'METEORADAMM2',
+  LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo: 'METEORADLMM',
+  LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj: 'RAYDIUMLAUNCHLAB',
+  '675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8': 'RAYDIUMAMMV4',
+  CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C: 'RAYDIUMCPMM',
+  CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK: 'RAYDIUMCLMM',
+  '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P': 'PUMPFUN',
+  pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA: 'PUMPSWAP',
+  '5ocnV1qiCgaQR8Jb8xWnVbApfaygJ8tNoZfgPwsgx9kx': 'SANCTUM',
+};
+
+function normalizePinProtocolKey(raw: string): string {
+  return raw.trim().toUpperCase().replace(/[\s_-]+/g, '');
+}
+
+function resolvePinProtocolSelectValue(
+  candidate: EnumeratedRoutesUiState['routes'][0]['candidate'] | null | undefined,
+): string | null {
+  if (!candidate || !swapProtocolSelect) return null;
+  const protocolRaw = candidate.protocol?.trim();
+  if (protocolRaw) {
+    const key = normalizePinProtocolKey(protocolRaw);
+    for (const opt of swapProtocolSelect.options) {
+      if (opt.value && normalizePinProtocolKey(opt.value) === key) return opt.value;
+    }
+  }
+  const program = candidate.programAddress?.trim();
+  if (program && PIN_ROUTE_PROGRAM_TO_PROTOCOL[program]) {
+    return PIN_ROUTE_PROGRAM_TO_PROTOCOL[program];
+  }
+  return null;
+}
+
+function applyEnumeratedRouteCandidateToPinFields(
+  candidate: EnumeratedRoutesUiState['routes'][0]['candidate'] | null | undefined,
+): void {
+  if (!candidate || !isSwapRoutePinMode()) return;
+  const market = candidate.marketAddress?.trim();
+  if (market && swapPoolAddressInput) swapPoolAddressInput.value = market;
+  const protocol = resolvePinProtocolSelectValue(candidate);
+  if (protocol && swapProtocolSelect) {
+    swapProtocolSelect.value = protocol;
+    swapProtocolPicker?.syncFromSelect();
+  }
+}
+
 function isPinRouteProtocolSelected(): boolean {
   return Boolean(swapProtocolSelect?.value.trim());
 }
@@ -4272,6 +4321,7 @@ let swapRoutePinModeWasOn: boolean | null = null;
 
 function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
   const pinOn = isSwapRoutePinMode();
+  const enteringPin = swapRoutePinModeWasOn !== true && pinOn;
   const leavingPin = swapRoutePinModeWasOn === true && !pinOn;
   swapRoutePinModeWasOn = pinOn;
 
@@ -4291,6 +4341,10 @@ function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
     setWalletGatedDisabled(swapPoolAddressInput, !walletValid);
     setWalletGatedDisabled(swapProtocolSelect, !walletValid);
     swapProtocolPicker?.setDisabled(!walletValid, SWAP_WALLET_LOCKED_TITLE);
+    if (enteringPin && enumeratedRoutesUiState?.routes.length) {
+      applyEnumeratedRouteCandidateToPinFields(getSelectedEnumeratedRouteCandidate());
+      renderRouteOptionsPanel();
+    }
   } else {
     if (swapEnablePoolAddressCheckbox) {
       swapEnablePoolAddressCheckbox.checked = false;
@@ -4321,7 +4375,9 @@ function vybeMarketDiscoveryActive(): boolean {
 }
 
 function swapRouteOptionsPanelActive(): boolean {
-  if (isSwapRoutePinMode()) return false;
+  if (isSwapRoutePinMode()) {
+    return Boolean(enumeratedRoutesUiState?.routes.length);
+  }
   const router = normalizeRouterId(getSwapRouter());
   return router === 'vybe' || router === 'jupiter' || router === 'titan';
 }
@@ -4751,6 +4807,7 @@ function selectEnumeratedRoute(index: number): void {
   const route = enumeratedRoutesUiState.routes.find((r) => r.index === index);
   if (!route) return;
   enumeratedRoutesUiState = { ...enumeratedRoutesUiState, selectedIndex: index };
+  applyEnumeratedRouteCandidateToPinFields(route.candidate);
   const wallet = swapQuoteWalletSnapshot ?? swapWalletAddressInput?.value.trim() ?? '';
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
@@ -5557,13 +5614,21 @@ function sleepMs(ms: number): Promise<void> {
 }
 
 const SWAP_SIGN_CANCEL_BUTTON_HTML = 'Cancel';
-const SWAP_SIGN_RETURN_BUTTON_HTML =
-  '<span class="swap-sign-dialog__btn-with-icon"><span class="swap-sign-dialog__btn-icon swap-sign-dialog__btn-icon--return" aria-hidden="true"></span><span>Return to Trading</span></span>';
+const SWAP_SIGN_CLOSE_BUTTON_HTML = 'Close';
 
-function setSwapSignCancelButtonLabel(mode: 'cancel' | 'return'): void {
+function setSwapSignCancelButtonLabel(mode: 'cancel' | 'close'): void {
   if (!swapSignConfirmCancelEl) return;
-  swapSignConfirmCancelEl.innerHTML =
-    mode === 'return' ? SWAP_SIGN_RETURN_BUTTON_HTML : SWAP_SIGN_CANCEL_BUTTON_HTML;
+  swapSignConfirmCancelEl.classList.remove(
+    'swap-sign-dialog__btn--primary',
+    'swap-sign-dialog__btn--secondary',
+  );
+  if (mode === 'close') {
+    swapSignConfirmCancelEl.classList.add('swap-sign-dialog__btn--primary');
+    swapSignConfirmCancelEl.textContent = SWAP_SIGN_CLOSE_BUTTON_HTML;
+  } else {
+    swapSignConfirmCancelEl.classList.add('swap-sign-dialog__btn--secondary');
+    swapSignConfirmCancelEl.textContent = SWAP_SIGN_CANCEL_BUTTON_HTML;
+  }
 }
 
 function resetSwapSignDialogUi(): void {
@@ -5599,7 +5664,8 @@ function setSwapSignTxidButtonsState(mode: 'hidden' | 'pending' | 'ready'): void
     const sig = sigs[i]!;
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'swap-ghost-btn swap-sign-dialog__solscan swap-sign-dialog__btn-with-icon';
+    btn.className =
+      'swap-sign-dialog__btn swap-sign-dialog__btn--secondary swap-sign-dialog__solscan swap-sign-dialog__btn-with-icon';
     if (!enabled) btn.classList.add('swap-sign-dialog__solscan--pending');
     btn.disabled = !enabled;
     btn.dataset.signature = sig;
@@ -5614,7 +5680,7 @@ function setSwapSignDialogActions(state: 'running' | 'success' | 'failed'): void
   if (swapSignConfirmCancelEl) {
     swapSignConfirmCancelEl.hidden = false;
     swapSignConfirmCancelEl.disabled = false;
-    setSwapSignCancelButtonLabel(state === 'success' ? 'return' : 'cancel');
+    setSwapSignCancelButtonLabel(state === 'success' ? 'close' : 'cancel');
   }
   if (state === 'success') {
     setSwapSignTxidButtonsState('ready');
@@ -6592,8 +6658,24 @@ swapEnablePartnerCheckbox?.addEventListener('change', () => {
 swapPartnerInput?.addEventListener('input', syncSwapQuoteButtonState);
 swapPartnerInput?.addEventListener('change', syncSwapQuoteButtonState);
 swapPinRouteCheckbox?.addEventListener('change', () => {
+  const hadEnumeratedRoutes = Boolean(enumeratedRoutesUiState?.routes.length);
+  const savedRoutes = enumeratedRoutesUiState;
+  const savedBody = lastVybeQuoteBodyForRoutes;
+  const savedQuote = lastSwapQuoteOk;
+  const savedRawQuote = lastRawQuoteResponse;
+
   syncSwapRoutePinMode();
-  invalidateSwapQuoteAfterInputChange();
+
+  if (isSwapRoutePinMode() && hadEnumeratedRoutes && savedRoutes) {
+    enumeratedRoutesUiState = savedRoutes;
+    lastVybeQuoteBodyForRoutes = savedBody;
+    lastSwapQuoteOk = savedQuote;
+    lastRawQuoteResponse = savedRawQuote;
+    applyEnumeratedRouteCandidateToPinFields(getSelectedEnumeratedRouteCandidate());
+    renderRouteOptionsPanel();
+  } else {
+    invalidateSwapQuoteAfterInputChange();
+  }
   syncSwapQuoteButtonState();
 });
 swapPoolAddressInput?.addEventListener('input', () => {

@@ -8590,6 +8590,8 @@ tr:hover td {
 
 .swap-sign-dialog__solscan {
   color: #93c5fd;
+  border-color: rgba(96, 165, 250, 0.35);
+  background: rgba(37, 99, 235, 0.12);
 }
 
 .swap-sign-dialog__solscan:disabled,
@@ -8597,15 +8599,21 @@ tr:hover td {
   opacity: 0.45;
   cursor: not-allowed;
   color: #71717a;
+  border-color: #3f3f46;
+  background: #18181b;
 }
 
 .swap-sign-dialog__solscan:disabled:hover,
 .swap-sign-dialog__solscan--pending:hover {
   color: #71717a;
+  background: #18181b;
+  border-color: #3f3f46;
 }
 
 .swap-sign-dialog__solscan:hover:not(:disabled):not(.swap-sign-dialog__solscan--pending) {
   color: #bfdbfe;
+  border-color: rgba(96, 165, 250, 0.55);
+  background: rgba(37, 99, 235, 0.2);
 }
 
 .swap-sign-dialog__btn-with-icon {
@@ -8661,8 +8669,7 @@ tr:hover td {
 }
 
 .swap-sign-dialog__requote {
-  color: #fde68a;
-  border-color: rgba(251, 191, 36, 0.35);
+  /* Retry tone from swap-sign-dialog__btn--retry */
 }
 
 .swap-sign-dialog__row {
@@ -8787,7 +8794,65 @@ tr:hover td {
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 0.55rem;
+  margin-top: 0.15rem;
+}
+
+.swap-sign-dialog__btn {
+  margin-top: 0;
+  border-radius: 10px;
+  padding: 0.5rem 1rem;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1.2;
+  min-height: 2.25rem;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    box-shadow 0.15s ease,
+    opacity 0.15s ease;
+}
+
+.swap-sign-dialog__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.swap-sign-dialog__btn--secondary {
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  color: #e4e4e7;
+}
+
+.swap-sign-dialog__btn--secondary:hover:not(:disabled) {
+  background: #27272a;
+  border-color: #52525b;
+}
+
+.swap-sign-dialog__btn--primary {
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  color: #f8fafc;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.swap-sign-dialog__btn--primary:hover:not(:disabled) {
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  border-color: rgba(147, 197, 253, 0.55);
+}
+
+.swap-sign-dialog__btn--retry {
+  border: 1px solid rgba(251, 191, 36, 0.42);
+  background: rgba(251, 191, 36, 0.1);
+  color: #fde68a;
+}
+
+.swap-sign-dialog__btn--retry:hover:not(:disabled) {
+  background: rgba(251, 191, 36, 0.18);
+  border-color: rgba(251, 191, 36, 0.58);
 }
 
 .swap-sign-dialog__actions [hidden],
