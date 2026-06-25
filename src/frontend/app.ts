@@ -128,6 +128,7 @@ import {
   applyPriceImpactTierClass,
   clearPriceImpactTierClass,
   displayPriceImpactPct,
+  formatPriceImpactPctMarketBox,
   formatPriceImpactPctWithArrow,
   parsePriceImpactPct,
 } from './price-impact-tier.js';
@@ -368,6 +369,9 @@ let swapBuildMode: SwapBuildMode = 'build-sign';
 let walletConnectLoading = false;
 let swapQuoteFetching = false;
 let swapQuoteWalletSnapshot = '';
+/** Build-option changes keep route UI visible; quote refetches on Build & sign. */
+let swapQuoteBuildOptsStale = false;
+let lastSwapQuoteBuildOptsKey: string | null = null;
 
 function renderLoadingSpinner(size: 'sm' | 'md' | 'lg' = 'sm'): string {
   return `<span class="inline-loading-spinner inline-loading-spinner--${size}" aria-hidden="true"></span>`;
@@ -1611,6 +1615,7 @@ function resetSwapQuoteToMock(): void {
   lastRawSwapResponse = null;
   enumeratedRoutesUiState = null;
   lastVybeQuoteBodyForRoutes = null;
+  clearSwapQuoteBuildOptsTracking();
   swapQuoteWalletSnapshot = '';
   if (swapBuildBtn) syncBuildButtonState();
   setFooterStatsLoading(false);
@@ -1655,6 +1660,110 @@ function invalidateSwapQuoteAfterInputChange(): void {
   if (swapQuoteFetching) return;
   if (!hasStaleSwapQuoteState()) return;
   resetSwapQuoteToMock();
+}
+
+function quoteAffectingBuildOptsSnapshot(buildOpts: Record<string, unknown>): Record<string, unknown> {
+  return {
+    slippage: buildOpts.slippage,
+    gasless: buildOpts.gasless,
+    autoCalculateSlippage: buildOpts.autoCalculateSlippage,
+    partner: buildOpts.partner,
+    swapFee: buildOpts.swapFee,
+    marketFetchMode: buildOpts.marketFetchMode,
+    enumerateRoutes: buildOpts.enumerateRoutes,
+    router: buildOpts.router,
+  };
+}
+
+function quoteAffectingBuildOptsKey(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): string {
+  return JSON.stringify({
+    wallet,
+    inputMint,
+    outputMint,
+    amount,
+    opts: quoteAffectingBuildOptsSnapshot(buildOpts),
+  });
+}
+
+function rememberSwapQuoteBuildOptsKey(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): void {
+  swapQuoteBuildOptsStale = false;
+  lastSwapQuoteBuildOptsKey = quoteAffectingBuildOptsKey(wallet, inputMint, outputMint, amount, buildOpts);
+}
+
+function clearSwapQuoteBuildOptsTracking(): void {
+  swapQuoteBuildOptsStale = false;
+  lastSwapQuoteBuildOptsKey = null;
+}
+
+/** Slippage, gasless, discovery, partner/fee, etc. — keep diagram + market cards. */
+function markSwapQuoteBuildOptsStale(): void {
+  if (swapQuoteFetching) return;
+  if (!lastSwapQuoteOk) return;
+  swapQuoteBuildOptsStale = true;
+  lastVybeBuild = null;
+  lastRawSwapResponse = null;
+  syncBuildButtonState();
+}
+
+function needsQuoteRefetchBeforeBuild(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): boolean {
+  if (!lastSwapQuoteOk) return false;
+  if (swapQuoteBuildOptsStale) return true;
+  const key = quoteAffectingBuildOptsKey(wallet, inputMint, outputMint, amount, buildOpts);
+  return lastSwapQuoteBuildOptsKey !== key;
+}
+
+async function refetchSwapQuoteBeforeBuild(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): Promise<void> {
+  const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  const quoteAmount =
+    typeof buildOpts.amount === 'number' && Number.isFinite(buildOpts.amount)
+      ? buildOpts.amount
+      : amount;
+
+  swapQuoteFetching = true;
+  try {
+    if (router === 'vybe') {
+      const walletErr = validateVybeQuoteWallet();
+      if (walletErr) throw new Error(walletErr);
+      await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+    } else {
+      await requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+    }
+    if (!lastSwapQuoteOk) {
+      throw new Error('Quote refresh failed before build.');
+    }
+    rememberSwapQuoteBuildOptsKey(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+  } finally {
+    swapQuoteFetching = false;
+  }
+}
+
+function onSwapBuildOptionChanged(): void {
+  markSwapQuoteBuildOptsStale();
+  syncSwapQuoteButtonState();
 }
 
 function invalidateSwapQuoteUi(): void {
@@ -3031,15 +3140,15 @@ function formatSwapRate(value: unknown): string {
   return formatSwapAmount(value).display;
 }
 
-/** Footer price impact — two decimal places; zero shows as 0%. */
+/** Footer price impact — compact K/M for extreme values; two decimals otherwise. */
 function formatPriceImpactPct(value: unknown): string {
   if (value == null || value === '') return '—';
   const n = parsePriceImpactPct(value);
   if (n == null) return '—';
   const displayed = displayPriceImpactPct(n);
   if (displayed === 0) return '0%';
-  const sign = displayed > 0 ? '+' : '';
-  return formatPriceImpactPctWithArrow(displayed, `${sign}${displayed.toFixed(2)}%`);
+  const formatted = formatPriceImpactPctMarketBox(displayed, { leadingPlus: displayed > 0 });
+  return formatPriceImpactPctWithArrow(displayed, formatted);
 }
 
 
@@ -4914,6 +5023,7 @@ function applyVybeQuoteBodyToUi(
   renderRouteOptionsPanel();
   openRoutePlanPanelIfClosed();
   void enrichRouteLabels(quote);
+  rememberSwapQuoteBuildOptsKey(wallet, inputMint, outputMint, effectiveAmount, buildOpts);
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
 }
@@ -5224,6 +5334,7 @@ function applyAggregatorBuildToUi(
   renderSwapQuoteUI(quote);
   openRoutePlanPanelIfClosed();
   void enrichRouteLabels(quote);
+  rememberSwapQuoteBuildOptsKey(wallet, inputMint, outputMint, effectiveAmount, buildOpts);
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
 }
@@ -6126,6 +6237,10 @@ async function postBuildSwap(): Promise<void> {
   if (swapBuildBtn) swapBuildBtn.disabled = true;
 
   try {
+    if (needsQuoteRefetchBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts)) {
+      await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
+    }
+
     let buildTx: string;
     let buildPayload: Record<string, unknown>;
     if (router === 'vybe') {
@@ -6678,11 +6793,16 @@ initRouteUi({
 wireBuildOptionToggle(swapEnablePartnerCheckbox, swapPartnerFieldEl, swapPartnerInput);
 swapEnablePartnerCheckbox?.addEventListener('change', () => {
   syncServiceFeePartnerGate(hasValidSwapWallet());
-  invalidateSwapQuoteAfterInputChange();
+  onSwapBuildOptionChanged();
+});
+swapPartnerInput?.addEventListener('input', () => {
+  onSwapBuildOptionChanged();
   syncSwapQuoteButtonState();
 });
-swapPartnerInput?.addEventListener('input', syncSwapQuoteButtonState);
-swapPartnerInput?.addEventListener('change', syncSwapQuoteButtonState);
+swapPartnerInput?.addEventListener('change', () => {
+  onSwapBuildOptionChanged();
+  syncSwapQuoteButtonState();
+});
 swapPinRouteCheckbox?.addEventListener('change', () => {
   const hadEnumeratedRoutes = Boolean(enumeratedRoutesUiState?.routes.length);
   const savedRoutes = enumeratedRoutesUiState;
@@ -6716,8 +6836,8 @@ swapProtocolSelect?.addEventListener('change', () => {
   invalidateSwapQuoteAfterInputChange();
   syncSwapQuoteButtonState();
 });
-swapMarketFetchModeSelect?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
-swapEnumerateRoutesCheckbox?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
+swapMarketFetchModeSelect?.addEventListener('change', onSwapBuildOptionChanged);
+swapEnumerateRoutesCheckbox?.addEventListener('change', onSwapBuildOptionChanged);
 syncSwapRoutePinMode();
 
 function syncServiceFeePartnerGate(walletValid = hasValidSwapWallet()): void {
@@ -6758,18 +6878,18 @@ function wireServiceFeeToggle(): void {
       swapServiceFeeInput.value = String(DEFAULT_SWAP_SERVICE_FEE_PCT);
     }
     syncServiceFeePartnerGate();
-    invalidateSwapQuoteAfterInputChange();
+    onSwapBuildOptionChanged();
   };
   swapEnableServiceFeeCheckbox.addEventListener('change', () => {
     sync();
     syncSwapQuoteButtonState();
   });
   swapServiceFeeInput?.addEventListener('input', () => {
-    invalidateSwapQuoteAfterInputChange();
+    onSwapBuildOptionChanged();
     syncSwapQuoteButtonState();
   });
   swapServiceFeeInput?.addEventListener('change', () => {
-    invalidateSwapQuoteAfterInputChange();
+    onSwapBuildOptionChanged();
     syncSwapQuoteButtonState();
   });
   sync();
@@ -6953,15 +7073,15 @@ swapSignConfirmDialogEl?.addEventListener(
 );
 
 swapGaslessCheckbox?.addEventListener('change', () => {
-  invalidateSwapQuoteAfterInputChange();
+  onSwapBuildOptionChanged();
   void refreshLowSolTradeWarning();
 });
 swapAutoSlippageCheckbox?.addEventListener('change', () => {
   syncSlippageInputForAutoSlippage();
-  invalidateSwapQuoteAfterInputChange();
+  onSwapBuildOptionChanged();
 });
-swapSlippageInput?.addEventListener('input', invalidateSwapQuoteAfterInputChange);
-swapSlippageInput?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
+swapSlippageInput?.addEventListener('input', onSwapBuildOptionChanged);
+swapSlippageInput?.addEventListener('change', onSwapBuildOptionChanged);
 syncSlippageInputForAutoSlippage();
 
 if (swapInputMintInput) {

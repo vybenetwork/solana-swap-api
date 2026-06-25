@@ -49,11 +49,17 @@ export function formatPriceImpactPctRouteCard(
 
 function formatThousandsCompactPct(absPct: number): string {
   const k = absPct / 1000;
-  if (k >= 100) return `${Math.round(k)}k`;
-  return `${parseFloat(k.toFixed(2))}k`;
+  if (k >= 100) return `${Math.round(k)}K`;
+  return `${parseFloat(k.toFixed(2))}K`;
 }
 
-/** Market route cards only: compact k% above 9999% (e.g. 10180 → 10.18k%). */
+function formatMillionsCompactPct(absPct: number): string {
+  const m = absPct / 1_000_000;
+  if (m >= 100) return `${Math.round(m)}M`;
+  return `${parseFloat(m.toFixed(2))}M`;
+}
+
+/** Market route cards only: compact K% above 9999%; M% above 999k% (e.g. 1.02M%). */
 export function formatPriceImpactPctMarketBox(
   pct: number,
   options?: { leadingPlus?: boolean },
@@ -61,6 +67,11 @@ export function formatPriceImpactPctMarketBox(
   const displayed = displayPriceImpactPct(pct);
   if (displayed === 0) return '0%';
   const abs = Math.abs(displayed);
+  if (abs > 999_000) {
+    const compact = formatMillionsCompactPct(abs);
+    if (displayed < 0) return `-${compact}%`;
+    return `${options?.leadingPlus ? '+' : ''}${compact}%`;
+  }
   if (abs > 9999) {
     const compact = formatThousandsCompactPct(abs);
     if (displayed < 0) return `-${compact}%`;
