@@ -368,7 +368,21 @@ type SwapBuildMode = 'build' | 'build-sign' | 'paste-sign';
 let swapBuildMode: SwapBuildMode = 'build-sign';
 let walletConnectLoading = false;
 let swapQuoteFetching = false;
+/** Suppress client /api/tokens/resolve-prices during build/refetch/sign-retry flows. */
+let suppressClientPriceResolve = 0;
 let swapQuoteWalletSnapshot = '';
+function pushSuppressClientPriceResolve(): void {
+  suppressClientPriceResolve++;
+}
+
+function popSuppressClientPriceResolve(): void {
+  suppressClientPriceResolve = Math.max(0, suppressClientPriceResolve - 1);
+}
+
+function clientPriceResolveSuppressed(): boolean {
+  return suppressClientPriceResolve > 0;
+}
+
 /** Build-option changes keep route UI visible; quote refetches on Build & sign. */
 let swapQuoteBuildOptsStale = false;
 let lastSwapQuoteBuildOptsKey: string | null = null;
@@ -724,7 +738,8 @@ function isQuoteBtnInCooldown(): boolean {
 }
 
 function isBuildBtnQuoteExpired(): boolean {
-  if (buildBtnQuoteValidUntil <= 0) return true;
+  // validUntil <= 0 means no TTL started yet (e.g. mid-fetch) — not expired.
+  if (buildBtnQuoteValidUntil <= 0) return false;
   return performance.now() >= buildBtnQuoteValidUntil;
 }
 
@@ -783,8 +798,11 @@ function tickBuildBtnQuoteWindow(now: number): void {
   if (!swapBuildBtn || buildBtnQuoteValidUntil <= 0) return;
   const remainMs = buildBtnQuoteValidUntil - now;
   if (remainMs <= 0) {
-    clearBuildBtnQuoteWindow();
+    cancelAnimationFrame(buildBtnQuoteRaf);
+    buildBtnQuoteRaf = 0;
+    setActionBtnTimerVisible(swapBuildBtn, swapBuildBtnTimerEl, false);
     syncBuildButtonState();
+    syncBuildButtonLabel();
     return;
   }
   const label = swapBuildBtnTimerEl?.querySelector('.swap-action-btn__timer-label');
@@ -1771,16 +1789,32 @@ function restoreVybeRouterQuoteFromCache(): boolean {
 }
 
 function quoteAffectingBuildOptsSnapshot(buildOpts: Record<string, unknown>): Record<string, unknown> {
+  const poolPinned = String(buildOpts.poolAddress ?? '').trim().length > 0;
   return {
     slippage: buildOpts.slippage,
     gasless: buildOpts.gasless,
     autoCalculateSlippage: buildOpts.autoCalculateSlippage,
     partner: buildOpts.partner,
     swapFee: buildOpts.swapFee,
-    marketFetchMode: buildOpts.marketFetchMode,
-    enumerateRoutes: buildOpts.enumerateRoutes,
+    marketFetchMode: poolPinned ? undefined : buildOpts.marketFetchMode,
+    enumerateRoutes: poolPinned ? false : buildOpts.enumerateRoutes,
     router: buildOpts.router,
   };
+}
+
+/** Same wallet/mints/amount/build opts key used when quoting and when building. */
+function currentSwapQuoteTrackingKey(): string | null {
+  const wallet = swapQuoteWalletSnapshot ?? swapWalletAddressInput?.value.trim() ?? '';
+  const inputMint = swapInputMintInput?.value.trim() ?? '';
+  const outputMint = swapOutputMintInput?.value.trim() ?? '';
+  const amountUi = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
+  if (!inputMint || !outputMint || !Number.isFinite(amountUi)) return null;
+  const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+  const amount =
+    typeof buildOpts.amount === 'number' && Number.isFinite(buildOpts.amount)
+      ? buildOpts.amount
+      : amountUi;
+  return quoteAffectingBuildOptsKey(wallet, inputMint, outputMint, amount, buildOpts);
 }
 
 function quoteAffectingBuildOptsKey(
@@ -1799,15 +1833,9 @@ function quoteAffectingBuildOptsKey(
   });
 }
 
-function rememberSwapQuoteBuildOptsKey(
-  wallet: string,
-  inputMint: string,
-  outputMint: string,
-  amount: number,
-  buildOpts: Record<string, unknown>,
-): void {
+function rememberSwapQuoteBuildOptsKey(): void {
   swapQuoteBuildOptsStale = false;
-  lastSwapQuoteBuildOptsKey = quoteAffectingBuildOptsKey(wallet, inputMint, outputMint, amount, buildOpts);
+  lastSwapQuoteBuildOptsKey = currentSwapQuoteTrackingKey();
 }
 
 function clearSwapQuoteBuildOptsTracking(): void {
@@ -1825,16 +1853,11 @@ function markSwapQuoteBuildOptsStale(): void {
   syncBuildButtonState();
 }
 
-function needsQuoteRefetchBeforeBuild(
-  wallet: string,
-  inputMint: string,
-  outputMint: string,
-  amount: number,
-  buildOpts: Record<string, unknown>,
-): boolean {
+function needsQuoteRefetchBeforeBuild(): boolean {
   if (!lastSwapQuoteOk) return false;
   if (swapQuoteBuildOptsStale) return true;
-  const key = quoteAffectingBuildOptsKey(wallet, inputMint, outputMint, amount, buildOpts);
+  const key = currentSwapQuoteTrackingKey();
+  if (!key || !lastSwapQuoteBuildOptsKey) return false;
   return lastSwapQuoteBuildOptsKey !== key;
 }
 
@@ -1846,26 +1869,30 @@ async function refetchSwapQuoteBeforeBuild(
   buildOpts: Record<string, unknown>,
 ): Promise<void> {
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  const pinnedOpts = mergeSelectedRoutePinIntoBuildOpts(buildOpts);
   const quoteAmount =
-    typeof buildOpts.amount === 'number' && Number.isFinite(buildOpts.amount)
-      ? buildOpts.amount
+    typeof pinnedOpts.amount === 'number' && Number.isFinite(pinnedOpts.amount)
+      ? pinnedOpts.amount
       : amount;
 
   swapQuoteFetching = true;
+  pushSuppressClientPriceResolve();
   try {
     if (router === 'vybe') {
       const walletErr = validateVybeQuoteWallet();
       if (walletErr) throw new Error(walletErr);
-      await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+      await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, pinnedOpts);
     } else {
-      await requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+      await requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, quoteAmount, pinnedOpts);
     }
     if (!lastSwapQuoteOk) {
       throw new Error('Quote refresh failed before build.');
     }
-    rememberSwapQuoteBuildOptsKey(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+    rememberSwapQuoteBuildOptsKey();
+    startBuildBtnQuoteWindow();
   } finally {
     swapQuoteFetching = false;
+    popSuppressClientPriceResolve();
   }
 }
 
@@ -3904,7 +3931,7 @@ function refreshQuoteUiAfterBuild(buildPayload: Record<string, unknown>): void {
   const enriched = applyFeeEnrichmentToQuote(lastSwapQuoteOk, null, buildPayload);
   lastSwapQuoteOk = enriched;
   renderSwapQuoteUI(enriched);
-  void enrichRouteLabels(enriched);
+  void enrichRouteLabels(enriched, { skipPricePrefetch: true });
 }
 
 
@@ -4330,6 +4357,7 @@ async function prefetchSwapPairPrices(options?: {
   forceFullDetails?: boolean;
   mints?: string[];
 }): Promise<void> {
+  if (clientPriceResolveSuppressed()) return;
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
   const mints = [
@@ -4470,6 +4498,7 @@ async function prefetchRouteTokenMetas(quote: Record<string, unknown>): Promise<
 }
 
 async function prefetchRouteTokenPrices(quote: Record<string, unknown>): Promise<void> {
+  if (clientPriceResolveSuppressed()) return;
   const mints = collectRoutePriceMints(quote).filter((m) => {
     const price = lookupMintPriceUsd(m, quote);
     return !(Number.isFinite(price) && price > 0);
@@ -4512,11 +4541,47 @@ async function prefetchRouteTokenPrices(quote: Record<string, unknown>): Promise
   }
 }
 
-async function enrichRouteLabels(quote: Record<string, unknown>): Promise<void> {
+function mergeQuoteTokenStatsFromBody(
+  quote: Record<string, unknown>,
+  tokenStats: Record<string, TokenPriceStats> | undefined,
+): Record<string, unknown> {
+  if (!tokenStats || Object.keys(tokenStats).length === 0) return quote;
+  const prev = (quote._tokenStats as Record<string, TokenPriceStats> | undefined) ?? {};
+  return { ...quote, _tokenStats: { ...prev, ...tokenStats } };
+}
+
+function routePriceMintsMissingFromQuote(quote: Record<string, unknown>): string[] {
+  return collectRoutePriceMints(quote).filter((m) => {
+    const price = lookupMintPriceUsd(m, quote);
+    return !(Number.isFinite(price) && price > 0);
+  });
+}
+
+type EnrichRouteLabelsOptions = {
+  /** Vybe/aggregator quote responses already include _tokenStats from server-side resolve. */
+  skipPricePrefetch?: boolean;
+};
+
+function shouldSkipRoutePricePrefetch(quote: Record<string, unknown>, options?: EnrichRouteLabelsOptions): boolean {
+  if (options?.skipPricePrefetch || clientPriceResolveSuppressed()) return true;
+  const quoteStats = quote._tokenStats as Record<string, unknown> | undefined;
+  if (quoteStats && Object.keys(quoteStats).length > 0) return true;
+  const raw = lastRawQuoteResponse as Record<string, unknown> | null;
+  const rawStats = raw?._tokenStats as Record<string, unknown> | undefined;
+  if (rawStats && Object.keys(rawStats).length > 0) return true;
+  return false;
+}
+
+async function enrichRouteLabels(
+  quote: Record<string, unknown>,
+  options?: EnrichRouteLabelsOptions,
+): Promise<void> {
   try {
     await prefetchRouteMintSymbols(quote);
     await prefetchRouteTokenMetas(quote);
-    await prefetchRouteTokenPrices(quote);
+    if (!shouldSkipRoutePricePrefetch(quote, options) && routePriceMintsMissingFromQuote(quote).length > 0) {
+      await prefetchRouteTokenPrices(quote);
+    }
     const inputMint = swapInputMintInput?.value.trim() ?? quoteInputMint(quote) ?? '';
     const outputMint = swapOutputMintInput?.value.trim() ?? quoteOutputMint(quote) ?? '';
     const activeQuote = attachQuoteTokenPriceMeta(
@@ -4965,6 +5030,117 @@ function inferRouteOptionSource(
   return inferDirectRouteSource(rvt);
 }
 
+function shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts: Record<string, unknown>): boolean {
+  if (!enumeratedRoutesUiState || enumeratedRoutesUiState.routes.length <= 1) return false;
+  if (buildOpts.enumerateRoutes !== false) return false;
+  const pool = String(buildOpts.poolAddress ?? '').trim();
+  if (!pool) return false;
+  const candidate = getSelectedEnumeratedRouteCandidate();
+  const selectedPool = String(candidate?.marketAddress ?? '').trim();
+  return selectedPool === pool;
+}
+
+/** Update only the selected route card — leave other enumerated markets untouched. */
+function mergePinnedRouteCandidateForRefetch(
+  prev: EnumeratedRoutesUiState['routes'][0]['candidate'] | undefined,
+  next: EnumeratedRoutesUiState['routes'][0]['candidate'] | null,
+  liquidityFromBody: number | undefined,
+): EnumeratedRoutesUiState['routes'][0]['candidate'] | undefined {
+  if (!prev && !next) return undefined;
+  const liquidity =
+    liquidityFromBody != null && Number.isFinite(liquidityFromBody) && liquidityFromBody > 0
+      ? liquidityFromBody
+      : prev?.liquidity ?? next?.liquidity;
+  return {
+    ...(prev ?? {}),
+    ...(next ?? {}),
+    marketAddress: prev?.marketAddress?.trim() || next?.marketAddress || '',
+    programAddress: prev?.programAddress?.trim() || next?.programAddress || '',
+    programLabel: prev?.programLabel ?? next?.programLabel,
+    protocol: prev?.protocol ?? next?.protocol,
+    tradeCount: prev?.tradeCount ?? next?.tradeCount ?? 0,
+    buyCount: prev?.buyCount ?? next?.buyCount ?? 0,
+    sellCount: prev?.sellCount ?? next?.sellCount ?? 0,
+    ...(liquidity != null ? { liquidity } : {}),
+  };
+}
+
+/** Keep discovery liquidity/impact on market cards; refresh output amounts from the refetch. */
+function mergePinnedRouteCardQuoteForRefetch(
+  prev: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...next };
+  const prevImpact = prev.priceImpactPct;
+  if (prevImpact != null && String(prevImpact).length > 0) {
+    merged.priceImpactPct = prevImpact;
+  }
+  if (prev._lowLiquidityWarning !== undefined) {
+    merged._lowLiquidityWarning = prev._lowLiquidityWarning;
+  }
+  return merged;
+}
+
+function mergePinnedRouteQuoteIntoEnumeratedRoutes(body: Record<string, unknown>): void {
+  if (!enumeratedRoutesUiState) return;
+
+  const selectedIndex = enumeratedRoutesUiState.selectedIndex;
+  const routeIdx = enumeratedRoutesUiState.routes.findIndex((r) => r.index === selectedIndex);
+  if (routeIdx < 0) return;
+
+  const prevRoute = enumeratedRoutesUiState.routes[routeIdx];
+  const rvt = body._routeDiscovery as
+    | {
+        tradesFetched?: number;
+        pairTradeCount?: number;
+      }
+    | undefined;
+  const liquidityFromBody = poolLiquidityFromQuoteBody(body);
+  const newCandidate = tradeCandidateFromActiveQuote(body);
+  const newQuote = stripVybeQuoteMetadata(body);
+  const buildPayload = body._build;
+  const source = inferRouteOptionSource(body, rvt ?? {});
+
+  const updatedCandidate = mergePinnedRouteCandidateForRefetch(
+    prevRoute.candidate,
+    newCandidate,
+    liquidityFromBody,
+  );
+  const updatedQuote = mergePinnedRouteCardQuoteForRefetch(prevRoute.quote ?? {}, newQuote);
+
+  const routes = enumeratedRoutesUiState.routes.map((r, i) =>
+    i === routeIdx ? { ...r, source, candidate: updatedCandidate, quote: updatedQuote } : r,
+  );
+
+  enumeratedRoutesUiState = {
+    routes,
+    selectedIndex: enumeratedRoutesUiState.selectedIndex,
+    expanded: enumeratedRoutesUiState.expanded,
+  };
+
+  const prevBody = lastVybeQuoteBodyForRoutes ?? body;
+  const prevRvt = prevBody._routeDiscovery as { routes?: Array<Record<string, unknown>> } | undefined;
+  if (Array.isArray(prevRvt?.routes) && prevRvt.routes.length > 0) {
+    const metaRoutes = prevRvt.routes.map((r) => {
+      const ri = Number(r.index ?? -1);
+      if (ri !== selectedIndex) return r;
+      return {
+        ...r,
+        source,
+        candidate: updatedCandidate,
+        quote: updatedQuote,
+        build: buildPayload ?? r.build,
+      };
+    });
+    lastVybeQuoteBodyForRoutes = {
+      ...prevBody,
+      _routeDiscovery: { ...prevRvt, routes: metaRoutes },
+    };
+  } else {
+    lastVybeQuoteBodyForRoutes = prevBody;
+  }
+}
+
 function syncEnumeratedRoutesFromBody(body: Record<string, unknown>): void {
   const rvt = body._routeDiscovery as
     | {
@@ -5065,7 +5241,7 @@ function applyActiveRouteQuoteToUi(
   renderRawResponsePanels();
   renderSwapQuoteUI(quote);
   renderRouteOptionsPanel();
-  void enrichRouteLabels(quote);
+  void enrichRouteLabels(quote, { skipPricePrefetch: true });
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
 }
@@ -5110,8 +5286,15 @@ function applyVybeQuoteBodyToUi(
   }
   quotedMintSession.add(inputMint);
   quotedMintSession.add(outputMint);
-  syncEnumeratedRoutesFromBody(body);
-  const activeBody = getQuoteBodyForActiveRoute(body);
+  const preserveEnumeratedRoutes = shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts);
+  if (preserveEnumeratedRoutes) {
+    mergePinnedRouteQuoteIntoEnumeratedRoutes(body);
+  } else {
+    syncEnumeratedRoutesFromBody(body);
+  }
+  const quoteBody =
+    preserveEnumeratedRoutes && lastVybeQuoteBodyForRoutes ? lastVybeQuoteBodyForRoutes : body;
+  const activeBody = getQuoteBodyForActiveRoute(quoteBody);
   const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   let quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(activeBody), selectedRouter);
   const buildPayload = activeBody._build as Record<string, unknown> | undefined;
@@ -5119,6 +5302,7 @@ function applyVybeQuoteBodyToUi(
     quote = applyFeeEnrichmentToQuote(quote, undefined, projectSwapBuildForBrowser(buildPayload));
   }
   quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
+  quote = mergeQuoteTokenStatsFromBody(quote, body._tokenStats);
   let effectiveAmount = amount;
   const inRaw = parseRawAmountDigits(activeBody.inAmount ?? quote.inAmount);
   if (inRaw) {
@@ -5161,8 +5345,8 @@ function applyVybeQuoteBodyToUi(
   renderSwapQuoteUI(quote);
   renderRouteOptionsPanel();
   openRoutePlanPanelIfClosed();
-  void enrichRouteLabels(quote);
-  rememberSwapQuoteBuildOptsKey(wallet, inputMint, outputMint, effectiveAmount, buildOpts);
+  void enrichRouteLabels(quote, { skipPricePrefetch: true });
+  rememberSwapQuoteBuildOptsKey();
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
 }
@@ -5425,6 +5609,14 @@ function applyAggregatorBuildToUi(
   lastRawQuoteResponse = quoteBody;
   lastRawSwapResponse = swapBody;
 
+  const tokenStats = quoteBody._tokenStats as Record<string, TokenPriceStats> | undefined;
+  if (tokenStats) {
+    for (const [mint, s] of Object.entries(tokenStats)) {
+      saveTokenPriceStats(mint, s);
+    }
+    updateSwapPairCards(tokenStats);
+  }
+
   let quote = annotateQuoteRouterMeta(quoteBody, router);
   quote = applyFeeEnrichmentToQuote(
     quote,
@@ -5454,6 +5646,7 @@ function applyAggregatorBuildToUi(
   }
 
   quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
+  quote = mergeQuoteTokenStatsFromBody(quote, tokenStats);
   lastSwapQuoteOk = quote;
   swapQuoteWalletSnapshot = wallet;
 
@@ -5472,8 +5665,8 @@ function applyAggregatorBuildToUi(
   renderRawResponsePanels();
   renderSwapQuoteUI(quote);
   openRoutePlanPanelIfClosed();
-  void enrichRouteLabels(quote);
-  rememberSwapQuoteBuildOptsKey(wallet, inputMint, outputMint, effectiveAmount, buildOpts);
+  void enrichRouteLabels(quote, { skipPricePrefetch: Boolean(tokenStats) });
+  rememberSwapQuoteBuildOptsKey();
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
 }
@@ -6237,18 +6430,28 @@ async function runSwapSignDialogFlow(
 async function handleSwapSignDialogRequoteRebuild(): Promise<void> {
   if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = true;
   appendSwapSignLog('Fetching a fresh quote…', 'pending');
+  pushSuppressClientPriceResolve();
   try {
-    await fetchSwapQuote();
+    let wallet = swapWalletAddressInput?.value.trim() ?? '';
+    wallet = await ensureBrowserWalletConnected(wallet);
+    const inputMint = swapInputMintInput?.value.trim() ?? '';
+    const outputMint = swapOutputMintInput?.value.trim() ?? '';
+    const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
+    const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+
+    await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
     if (!lastSwapQuoteOk) {
       appendSwapSignLog('Quote failed — fix inputs and try again.', 'error');
       if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = false;
       return;
     }
     appendSwapSignLog('Quote received — rebuilding swap…', 'neutral');
-    await postBuildSwap();
+    await postBuildSwap({ skipQuoteRefetch: true });
   } catch (err) {
     appendSwapSignLog(err instanceof Error ? err.message : String(err), 'error');
     if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = false;
+  } finally {
+    popSuppressClientPriceResolve();
   }
 }
 
@@ -6298,11 +6501,45 @@ function syncBuildButtonState(): void {
   if (!swapBuildBtn) return;
   if (swapBuildMode === 'paste-sign') {
     swapBuildBtn.disabled = false;
+    syncBuildButtonLabel();
     return;
   }
-  const hasQuote = lastSwapQuoteOk != null;
-  const withinWindow = !isBuildBtnQuoteExpired();
-  swapBuildBtn.disabled = !hasQuote || !withinWindow;
+  swapBuildBtn.disabled = lastSwapQuoteOk == null;
+  syncBuildButtonLabel();
+}
+
+function syncBuildButtonLabel(): void {
+  if (!swapBuildBtn) return;
+  const buildLabelEl = swapBuildBtn.querySelector('.swap-action-btn__label');
+  const buildHintEl = swapBuildBtn.querySelector('.swap-action-btn__hint');
+  if (!buildLabelEl) return;
+
+  const isPasteMode = swapBuildMode === 'paste-sign';
+  const isSignMode = swapBuildMode === 'build-sign';
+  const expired = isBuildBtnQuoteExpired() && lastSwapQuoteOk != null;
+
+  if (isPasteMode) {
+    buildLabelEl.textContent = 'Sign pasted tx';
+    if (buildHintEl) buildHintEl.textContent = 'Wallet signs pasted base64';
+    return;
+  }
+  if (isSignMode) {
+    buildLabelEl.textContent = expired
+      ? 'Refetch then build & sign swap'
+      : 'Build & sign swap';
+    if (buildHintEl) {
+      buildHintEl.textContent = expired
+        ? 'Refresh selected route quote, then sign'
+        : 'Connect wallet & sign';
+    }
+    return;
+  }
+  buildLabelEl.textContent = expired ? 'Refetch then build swap' : 'Build swap (no signing)';
+  if (buildHintEl) {
+    buildHintEl.textContent = expired
+      ? 'Refresh selected route quote, then build'
+      : 'Requires quote & wallet';
+  }
 }
 
 function getSelectedEnumeratedRouteCandidate():
@@ -6342,7 +6579,7 @@ function tryCachedVybeBuildTxForSelectedRoute(): {
   return { tx, buildPayload: projectSwapBuildForBrowser(buildPayload) };
 }
 
-async function postBuildSwap(): Promise<void> {
+async function postBuildSwap(options?: { skipQuoteRefetch?: boolean }): Promise<void> {
   if (swapBuildMode === 'paste-sign') {
     return postPasteSignSwap();
   }
@@ -6350,33 +6587,38 @@ async function postBuildSwap(): Promise<void> {
     if (swapQuoteError) showInlineError(swapQuoteError, 'Get a quote first.');
     return;
   }
-  let wallet = swapWalletAddressInput?.value.trim() ?? '';
-  if (swapBuildMode === 'build-sign') {
-    try {
-      wallet = await ensureBrowserWalletConnected(wallet);
-    } catch (err) {
-      if (swapQuoteError) {
-        showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+
+  pushSuppressClientPriceResolve();
+  try {
+    let wallet = swapWalletAddressInput?.value.trim() ?? '';
+    if (swapBuildMode === 'build-sign') {
+      try {
+        wallet = await ensureBrowserWalletConnected(wallet);
+      } catch (err) {
+        if (swapQuoteError) {
+          showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+        }
+        return;
       }
+    } else if (!wallet) {
+      if (swapQuoteError) showInlineError(swapQuoteError, 'Wallet (accountAddress) is required to build the transaction.');
       return;
     }
-  } else if (!wallet) {
-    if (swapQuoteError) showInlineError(swapQuoteError, 'Wallet (accountAddress) is required to build the transaction.');
-    return;
-  }
-  const inputMint = swapInputMintInput?.value.trim() ?? '';
-  const outputMint = swapOutputMintInput?.value.trim() ?? '';
-  const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
-  const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
-  const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+    const inputMint = swapInputMintInput?.value.trim() ?? '';
+    const outputMint = swapOutputMintInput?.value.trim() ?? '';
+    const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
+    const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+    const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
 
-  if (!swapBuildResultEl || !swapTxBase64El) return;
-  if (swapQuoteError) clearInlineError(swapQuoteError);
-  void refreshLowSolTradeWarning();
-  if (swapBuildBtn) swapBuildBtn.disabled = true;
+    if (!swapBuildResultEl || !swapTxBase64El) return;
+    if (swapQuoteError) clearInlineError(swapQuoteError);
+    void refreshLowSolTradeWarning();
+    if (swapBuildBtn) swapBuildBtn.disabled = true;
 
-  try {
-    if (needsQuoteRefetchBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts)) {
+    if (
+      !options?.skipQuoteRefetch &&
+      (isBuildBtnQuoteExpired() || needsQuoteRefetchBeforeBuild())
+    ) {
       await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
     }
 
@@ -6440,6 +6682,7 @@ async function postBuildSwap(): Promise<void> {
   } catch (err) {
     if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
   } finally {
+    popSuppressClientPriceResolve();
     syncBuildButtonState();
   }
 }
@@ -6477,7 +6720,14 @@ async function ensureBrowserWalletConnected(existingWallet: string): Promise<str
   }
   syncWalletFieldForMode();
   syncSellTokenPickerState();
-  onWalletAddressReady(true);
+  const prevFieldWallet = existingWallet.trim();
+  const needsBalanceRefresh =
+    connected !== prevFieldWallet ||
+    walletBalancesReadyFor !== connected ||
+    !isWalletBalanceCacheReady(connected);
+  if (needsBalanceRefresh) {
+    onWalletAddressReady(true);
+  }
   return connected;
 }
 
@@ -6776,22 +7026,7 @@ function syncSwapBuildModeUi(): void {
   syncBuildButtonState();
   syncSwapQuoteButtonState();
 
-  const buildLabelEl = swapBuildBtn?.querySelector('.swap-action-btn__label');
-  const buildHintEl = swapBuildBtn?.querySelector('.swap-action-btn__hint');
-  if (buildLabelEl) {
-    buildLabelEl.textContent = isPasteMode
-      ? 'Sign pasted tx'
-      : isSignMode
-        ? 'Build & sign swap'
-        : 'Build swap (no signing)';
-  }
-  if (buildHintEl) {
-    buildHintEl.textContent = isPasteMode
-      ? 'Wallet signs pasted base64'
-      : isSignMode
-        ? 'Connect wallet & sign'
-        : 'Requires quote & wallet';
-  }
+  syncBuildButtonLabel();
   if (swapBuildResultTitleEl) {
     swapBuildResultTitleEl.textContent =
       isSignMode || isPasteMode ? 'Transaction signature' : 'Unsigned transaction (base64)';

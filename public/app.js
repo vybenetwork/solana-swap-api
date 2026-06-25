@@ -27410,7 +27410,17 @@ var pairTokenStats = {};
 var swapBuildMode = "build-sign";
 var walletConnectLoading = false;
 var swapQuoteFetching = false;
+var suppressClientPriceResolve = 0;
 var swapQuoteWalletSnapshot = "";
+function pushSuppressClientPriceResolve() {
+  suppressClientPriceResolve++;
+}
+function popSuppressClientPriceResolve() {
+  suppressClientPriceResolve = Math.max(0, suppressClientPriceResolve - 1);
+}
+function clientPriceResolveSuppressed() {
+  return suppressClientPriceResolve > 0;
+}
 var swapQuoteBuildOptsStale = false;
 var lastSwapQuoteBuildOptsKey = null;
 var vybeRouterQuoteCache = null;
@@ -27686,7 +27696,7 @@ function isQuoteBtnInCooldown() {
   return quoteBtnCooldownEndsAt > performance.now();
 }
 function isBuildBtnQuoteExpired() {
-  if (buildBtnQuoteValidUntil <= 0) return true;
+  if (buildBtnQuoteValidUntil <= 0) return false;
   return performance.now() >= buildBtnQuoteValidUntil;
 }
 function setActionBtnTimerVisible(btn, timerEl, visible, durationSec) {
@@ -27734,8 +27744,11 @@ function tickBuildBtnQuoteWindow(now) {
   if (!swapBuildBtn || buildBtnQuoteValidUntil <= 0) return;
   const remainMs = buildBtnQuoteValidUntil - now;
   if (remainMs <= 0) {
-    clearBuildBtnQuoteWindow();
+    cancelAnimationFrame(buildBtnQuoteRaf);
+    buildBtnQuoteRaf = 0;
+    setActionBtnTimerVisible(swapBuildBtn, swapBuildBtnTimerEl, false);
     syncBuildButtonState();
+    syncBuildButtonLabel();
     return;
   }
   const label = swapBuildBtnTimerEl?.querySelector(".swap-action-btn__timer-label");
@@ -28559,16 +28572,27 @@ function restoreVybeRouterQuoteFromCache() {
   return true;
 }
 function quoteAffectingBuildOptsSnapshot(buildOpts) {
+  const poolPinned = String(buildOpts.poolAddress ?? "").trim().length > 0;
   return {
     slippage: buildOpts.slippage,
     gasless: buildOpts.gasless,
     autoCalculateSlippage: buildOpts.autoCalculateSlippage,
     partner: buildOpts.partner,
     swapFee: buildOpts.swapFee,
-    marketFetchMode: buildOpts.marketFetchMode,
-    enumerateRoutes: buildOpts.enumerateRoutes,
+    marketFetchMode: poolPinned ? void 0 : buildOpts.marketFetchMode,
+    enumerateRoutes: poolPinned ? false : buildOpts.enumerateRoutes,
     router: buildOpts.router
   };
+}
+function currentSwapQuoteTrackingKey() {
+  const wallet = swapQuoteWalletSnapshot ?? swapWalletAddressInput?.value.trim() ?? "";
+  const inputMint = swapInputMintInput?.value.trim() ?? "";
+  const outputMint = swapOutputMintInput?.value.trim() ?? "";
+  const amountUi = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
+  if (!inputMint || !outputMint || !Number.isFinite(amountUi)) return null;
+  const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+  const amount = typeof buildOpts.amount === "number" && Number.isFinite(buildOpts.amount) ? buildOpts.amount : amountUi;
+  return quoteAffectingBuildOptsKey(wallet, inputMint, outputMint, amount, buildOpts);
 }
 function quoteAffectingBuildOptsKey(wallet, inputMint, outputMint, amount, buildOpts) {
   return JSON.stringify({
@@ -28579,9 +28603,9 @@ function quoteAffectingBuildOptsKey(wallet, inputMint, outputMint, amount, build
     opts: quoteAffectingBuildOptsSnapshot(buildOpts)
   });
 }
-function rememberSwapQuoteBuildOptsKey(wallet, inputMint, outputMint, amount, buildOpts) {
+function rememberSwapQuoteBuildOptsKey() {
   swapQuoteBuildOptsStale = false;
-  lastSwapQuoteBuildOptsKey = quoteAffectingBuildOptsKey(wallet, inputMint, outputMint, amount, buildOpts);
+  lastSwapQuoteBuildOptsKey = currentSwapQuoteTrackingKey();
 }
 function clearSwapQuoteBuildOptsTracking() {
   swapQuoteBuildOptsStale = false;
@@ -28595,30 +28619,35 @@ function markSwapQuoteBuildOptsStale() {
   lastRawSwapResponse = null;
   syncBuildButtonState();
 }
-function needsQuoteRefetchBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts) {
+function needsQuoteRefetchBeforeBuild() {
   if (!lastSwapQuoteOk) return false;
   if (swapQuoteBuildOptsStale) return true;
-  const key = quoteAffectingBuildOptsKey(wallet, inputMint, outputMint, amount, buildOpts);
+  const key = currentSwapQuoteTrackingKey();
+  if (!key || !lastSwapQuoteBuildOptsKey) return false;
   return lastSwapQuoteBuildOptsKey !== key;
 }
 async function refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts) {
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
-  const quoteAmount = typeof buildOpts.amount === "number" && Number.isFinite(buildOpts.amount) ? buildOpts.amount : amount;
+  const pinnedOpts = mergeSelectedRoutePinIntoBuildOpts(buildOpts);
+  const quoteAmount = typeof pinnedOpts.amount === "number" && Number.isFinite(pinnedOpts.amount) ? pinnedOpts.amount : amount;
   swapQuoteFetching = true;
+  pushSuppressClientPriceResolve();
   try {
     if (router === "vybe") {
       const walletErr = validateVybeQuoteWallet();
       if (walletErr) throw new Error(walletErr);
-      await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+      await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, pinnedOpts);
     } else {
-      await requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+      await requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, quoteAmount, pinnedOpts);
     }
     if (!lastSwapQuoteOk) {
       throw new Error("Quote refresh failed before build.");
     }
-    rememberSwapQuoteBuildOptsKey(wallet, inputMint, outputMint, quoteAmount, buildOpts);
+    rememberSwapQuoteBuildOptsKey();
+    startBuildBtnQuoteWindow();
   } finally {
     swapQuoteFetching = false;
+    popSuppressClientPriceResolve();
   }
 }
 function onSwapBuildOptionChanged() {
@@ -30196,7 +30225,7 @@ function refreshQuoteUiAfterBuild(buildPayload) {
   const enriched = applyFeeEnrichmentToQuote(lastSwapQuoteOk, null, buildPayload);
   lastSwapQuoteOk = enriched;
   renderSwapQuoteUI(enriched);
-  void enrichRouteLabels(enriched);
+  void enrichRouteLabels(enriched, { skipPricePrefetch: true });
 }
 var SWAP_QUOTE_FIELD_ORDER = [
   "inputMintAddress",
@@ -30512,6 +30541,7 @@ function resetSwapQuoteDetailsPanel() {
   renderRawResponsePanels();
 }
 async function prefetchSwapPairPrices(options) {
+  if (clientPriceResolveSuppressed()) return;
   const inputMint = swapInputMintInput?.value.trim() ?? "";
   const outputMint = swapOutputMintInput?.value.trim() ?? "";
   const mints = [
@@ -30626,6 +30656,7 @@ async function prefetchRouteTokenMetas(quote) {
   await prefetchTokenMetas([...mints]);
 }
 async function prefetchRouteTokenPrices(quote) {
+  if (clientPriceResolveSuppressed()) return;
   const mints = collectRoutePriceMints(quote).filter((m) => {
     const price = lookupMintPriceUsd(m, quote);
     return !(Number.isFinite(price) && price > 0);
@@ -30662,11 +30693,33 @@ async function prefetchRouteTokenPrices(quote) {
   } catch {
   }
 }
-async function enrichRouteLabels(quote) {
+function mergeQuoteTokenStatsFromBody(quote, tokenStats) {
+  if (!tokenStats || Object.keys(tokenStats).length === 0) return quote;
+  const prev = quote._tokenStats ?? {};
+  return { ...quote, _tokenStats: { ...prev, ...tokenStats } };
+}
+function routePriceMintsMissingFromQuote(quote) {
+  return collectRoutePriceMints(quote).filter((m) => {
+    const price = lookupMintPriceUsd(m, quote);
+    return !(Number.isFinite(price) && price > 0);
+  });
+}
+function shouldSkipRoutePricePrefetch(quote, options) {
+  if (options?.skipPricePrefetch || clientPriceResolveSuppressed()) return true;
+  const quoteStats = quote._tokenStats;
+  if (quoteStats && Object.keys(quoteStats).length > 0) return true;
+  const raw = lastRawQuoteResponse;
+  const rawStats = raw?._tokenStats;
+  if (rawStats && Object.keys(rawStats).length > 0) return true;
+  return false;
+}
+async function enrichRouteLabels(quote, options) {
   try {
     await prefetchRouteMintSymbols(quote);
     await prefetchRouteTokenMetas(quote);
-    await prefetchRouteTokenPrices(quote);
+    if (!shouldSkipRoutePricePrefetch(quote, options) && routePriceMintsMissingFromQuote(quote).length > 0) {
+      await prefetchRouteTokenPrices(quote);
+    }
     const inputMint = swapInputMintInput?.value.trim() ?? quoteInputMint(quote) ?? "";
     const outputMint = swapOutputMintInput?.value.trim() ?? quoteOutputMint(quote) ?? "";
     const activeQuote = attachQuoteTokenPriceMeta(
@@ -30980,6 +31033,90 @@ function inferRouteOptionSource(body, rvt) {
   if (router === "jupiter" || router === "titan") return router;
   return inferDirectRouteSource(rvt);
 }
+function shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts) {
+  if (!enumeratedRoutesUiState || enumeratedRoutesUiState.routes.length <= 1) return false;
+  if (buildOpts.enumerateRoutes !== false) return false;
+  const pool = String(buildOpts.poolAddress ?? "").trim();
+  if (!pool) return false;
+  const candidate = getSelectedEnumeratedRouteCandidate();
+  const selectedPool = String(candidate?.marketAddress ?? "").trim();
+  return selectedPool === pool;
+}
+function mergePinnedRouteCandidateForRefetch(prev, next, liquidityFromBody) {
+  if (!prev && !next) return void 0;
+  const liquidity = liquidityFromBody != null && Number.isFinite(liquidityFromBody) && liquidityFromBody > 0 ? liquidityFromBody : prev?.liquidity ?? next?.liquidity;
+  return {
+    ...prev ?? {},
+    ...next ?? {},
+    marketAddress: prev?.marketAddress?.trim() || next?.marketAddress || "",
+    programAddress: prev?.programAddress?.trim() || next?.programAddress || "",
+    programLabel: prev?.programLabel ?? next?.programLabel,
+    protocol: prev?.protocol ?? next?.protocol,
+    tradeCount: prev?.tradeCount ?? next?.tradeCount ?? 0,
+    buyCount: prev?.buyCount ?? next?.buyCount ?? 0,
+    sellCount: prev?.sellCount ?? next?.sellCount ?? 0,
+    ...liquidity != null ? { liquidity } : {}
+  };
+}
+function mergePinnedRouteCardQuoteForRefetch(prev, next) {
+  const merged = { ...next };
+  const prevImpact = prev.priceImpactPct;
+  if (prevImpact != null && String(prevImpact).length > 0) {
+    merged.priceImpactPct = prevImpact;
+  }
+  if (prev._lowLiquidityWarning !== void 0) {
+    merged._lowLiquidityWarning = prev._lowLiquidityWarning;
+  }
+  return merged;
+}
+function mergePinnedRouteQuoteIntoEnumeratedRoutes(body) {
+  if (!enumeratedRoutesUiState) return;
+  const selectedIndex = enumeratedRoutesUiState.selectedIndex;
+  const routeIdx = enumeratedRoutesUiState.routes.findIndex((r) => r.index === selectedIndex);
+  if (routeIdx < 0) return;
+  const prevRoute = enumeratedRoutesUiState.routes[routeIdx];
+  const rvt = body._routeDiscovery;
+  const liquidityFromBody = poolLiquidityFromQuoteBody(body);
+  const newCandidate = tradeCandidateFromActiveQuote(body);
+  const newQuote = stripVybeQuoteMetadata(body);
+  const buildPayload = body._build;
+  const source = inferRouteOptionSource(body, rvt ?? {});
+  const updatedCandidate = mergePinnedRouteCandidateForRefetch(
+    prevRoute.candidate,
+    newCandidate,
+    liquidityFromBody
+  );
+  const updatedQuote = mergePinnedRouteCardQuoteForRefetch(prevRoute.quote ?? {}, newQuote);
+  const routes = enumeratedRoutesUiState.routes.map(
+    (r, i) => i === routeIdx ? { ...r, source, candidate: updatedCandidate, quote: updatedQuote } : r
+  );
+  enumeratedRoutesUiState = {
+    routes,
+    selectedIndex: enumeratedRoutesUiState.selectedIndex,
+    expanded: enumeratedRoutesUiState.expanded
+  };
+  const prevBody = lastVybeQuoteBodyForRoutes ?? body;
+  const prevRvt = prevBody._routeDiscovery;
+  if (Array.isArray(prevRvt?.routes) && prevRvt.routes.length > 0) {
+    const metaRoutes = prevRvt.routes.map((r) => {
+      const ri = Number(r.index ?? -1);
+      if (ri !== selectedIndex) return r;
+      return {
+        ...r,
+        source,
+        candidate: updatedCandidate,
+        quote: updatedQuote,
+        build: buildPayload ?? r.build
+      };
+    });
+    lastVybeQuoteBodyForRoutes = {
+      ...prevBody,
+      _routeDiscovery: { ...prevRvt, routes: metaRoutes }
+    };
+  } else {
+    lastVybeQuoteBodyForRoutes = prevBody;
+  }
+}
 function syncEnumeratedRoutesFromBody(body) {
   const rvt = body._routeDiscovery;
   if (Array.isArray(rvt?.routes) && rvt.routes.length > 0) {
@@ -31056,7 +31193,7 @@ function applyActiveRouteQuoteToUi(body, wallet, inputMint, outputMint, amount, 
   renderRawResponsePanels();
   renderSwapQuoteUI(quote);
   renderRouteOptionsPanel();
-  void enrichRouteLabels(quote);
+  void enrichRouteLabels(quote, { skipPricePrefetch: true });
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
 }
@@ -31092,8 +31229,14 @@ function applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, bui
   }
   quotedMintSession.add(inputMint);
   quotedMintSession.add(outputMint);
-  syncEnumeratedRoutesFromBody(body);
-  const activeBody = getQuoteBodyForActiveRoute(body);
+  const preserveEnumeratedRoutes = shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts);
+  if (preserveEnumeratedRoutes) {
+    mergePinnedRouteQuoteIntoEnumeratedRoutes(body);
+  } else {
+    syncEnumeratedRoutesFromBody(body);
+  }
+  const quoteBody = preserveEnumeratedRoutes && lastVybeQuoteBodyForRoutes ? lastVybeQuoteBodyForRoutes : body;
+  const activeBody = getQuoteBodyForActiveRoute(quoteBody);
   const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   let quote = annotateQuoteRouterMeta(stripVybeQuoteMetadata(activeBody), selectedRouter);
   const buildPayload = activeBody._build;
@@ -31101,6 +31244,7 @@ function applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, bui
     quote = applyFeeEnrichmentToQuote(quote, void 0, projectSwapBuildForBrowser(buildPayload));
   }
   quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
+  quote = mergeQuoteTokenStatsFromBody(quote, body._tokenStats);
   let effectiveAmount = amount;
   const inRaw = parseRawAmountDigits(activeBody.inAmount ?? quote.inAmount);
   if (inRaw) {
@@ -31136,8 +31280,8 @@ function applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, bui
   renderSwapQuoteUI(quote);
   renderRouteOptionsPanel();
   openRoutePlanPanelIfClosed();
-  void enrichRouteLabels(quote);
-  rememberSwapQuoteBuildOptsKey(wallet, inputMint, outputMint, effectiveAmount, buildOpts);
+  void enrichRouteLabels(quote, { skipPricePrefetch: true });
+  rememberSwapQuoteBuildOptsKey();
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
 }
@@ -31333,6 +31477,13 @@ function applyAggregatorBuildToUi(quoteBody, swapBody, router, wallet, inputMint
   quotedMintSession.add(outputMint);
   lastRawQuoteResponse = quoteBody;
   lastRawSwapResponse = swapBody;
+  const tokenStats = quoteBody._tokenStats;
+  if (tokenStats) {
+    for (const [mint, s] of Object.entries(tokenStats)) {
+      saveTokenPriceStats(mint, s);
+    }
+    updateSwapPairCards(tokenStats);
+  }
   let quote = annotateQuoteRouterMeta(quoteBody, router);
   quote = applyFeeEnrichmentToQuote(
     quote,
@@ -31359,6 +31510,7 @@ function applyAggregatorBuildToUi(quoteBody, swapBody, router, wallet, inputMint
     }
   }
   quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
+  quote = mergeQuoteTokenStatsFromBody(quote, tokenStats);
   lastSwapQuoteOk = quote;
   swapQuoteWalletSnapshot = wallet;
   syncEnumeratedRoutesFromBody({ ...quote, _build: swapBody });
@@ -31374,8 +31526,8 @@ function applyAggregatorBuildToUi(quoteBody, swapBody, router, wallet, inputMint
   renderRawResponsePanels();
   renderSwapQuoteUI(quote);
   openRoutePlanPanelIfClosed();
-  void enrichRouteLabels(quote);
-  rememberSwapQuoteBuildOptsKey(wallet, inputMint, outputMint, effectiveAmount, buildOpts);
+  void enrichRouteLabels(quote, { skipPricePrefetch: Boolean(tokenStats) });
+  rememberSwapQuoteBuildOptsKey();
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
 }
@@ -31971,18 +32123,27 @@ async function runSwapSignDialogFlow(quote, buildPayload, txStrings) {
 async function handleSwapSignDialogRequoteRebuild() {
   if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = true;
   appendSwapSignLog("Fetching a fresh quote\u2026", "pending");
+  pushSuppressClientPriceResolve();
   try {
-    await fetchSwapQuote();
+    let wallet = swapWalletAddressInput?.value.trim() ?? "";
+    wallet = await ensureBrowserWalletConnected(wallet);
+    const inputMint = swapInputMintInput?.value.trim() ?? "";
+    const outputMint = swapOutputMintInput?.value.trim() ?? "";
+    const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
+    const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+    await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
     if (!lastSwapQuoteOk) {
       appendSwapSignLog("Quote failed \u2014 fix inputs and try again.", "error");
       if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = false;
       return;
     }
     appendSwapSignLog("Quote received \u2014 rebuilding swap\u2026", "neutral");
-    await postBuildSwap();
+    await postBuildSwap({ skipQuoteRefetch: true });
   } catch (err) {
     appendSwapSignLog(err instanceof Error ? err.message : String(err), "error");
     if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = false;
+  } finally {
+    popSuppressClientPriceResolve();
   }
 }
 async function applyBuiltSwapTx(buildTx, buildPayload) {
@@ -32029,11 +32190,36 @@ function syncBuildButtonState() {
   if (!swapBuildBtn) return;
   if (swapBuildMode === "paste-sign") {
     swapBuildBtn.disabled = false;
+    syncBuildButtonLabel();
     return;
   }
-  const hasQuote = lastSwapQuoteOk != null;
-  const withinWindow = !isBuildBtnQuoteExpired();
-  swapBuildBtn.disabled = !hasQuote || !withinWindow;
+  swapBuildBtn.disabled = lastSwapQuoteOk == null;
+  syncBuildButtonLabel();
+}
+function syncBuildButtonLabel() {
+  if (!swapBuildBtn) return;
+  const buildLabelEl = swapBuildBtn.querySelector(".swap-action-btn__label");
+  const buildHintEl = swapBuildBtn.querySelector(".swap-action-btn__hint");
+  if (!buildLabelEl) return;
+  const isPasteMode = swapBuildMode === "paste-sign";
+  const isSignMode = swapBuildMode === "build-sign";
+  const expired = isBuildBtnQuoteExpired() && lastSwapQuoteOk != null;
+  if (isPasteMode) {
+    buildLabelEl.textContent = "Sign pasted tx";
+    if (buildHintEl) buildHintEl.textContent = "Wallet signs pasted base64";
+    return;
+  }
+  if (isSignMode) {
+    buildLabelEl.textContent = expired ? "Refetch then build & sign swap" : "Build & sign swap";
+    if (buildHintEl) {
+      buildHintEl.textContent = expired ? "Refresh selected route quote, then sign" : "Connect wallet & sign";
+    }
+    return;
+  }
+  buildLabelEl.textContent = expired ? "Refetch then build swap" : "Build swap (no signing)";
+  if (buildHintEl) {
+    buildHintEl.textContent = expired ? "Refresh selected route quote, then build" : "Requires quote & wallet";
+  }
 }
 function getSelectedEnumeratedRouteCandidate() {
   if (!enumeratedRoutesUiState?.routes.length) return null;
@@ -32061,7 +32247,7 @@ function tryCachedVybeBuildTxForSelectedRoute() {
   if (!tx || !buildPayload) return null;
   return { tx, buildPayload: projectSwapBuildForBrowser(buildPayload) };
 }
-async function postBuildSwap() {
+async function postBuildSwap(options) {
   if (swapBuildMode === "paste-sign") {
     return postPasteSignSwap();
   }
@@ -32069,31 +32255,32 @@ async function postBuildSwap() {
     if (swapQuoteError) showInlineError(swapQuoteError, "Get a quote first.");
     return;
   }
-  let wallet = swapWalletAddressInput?.value.trim() ?? "";
-  if (swapBuildMode === "build-sign") {
-    try {
-      wallet = await ensureBrowserWalletConnected(wallet);
-    } catch (err) {
-      if (swapQuoteError) {
-        showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+  pushSuppressClientPriceResolve();
+  try {
+    let wallet = swapWalletAddressInput?.value.trim() ?? "";
+    if (swapBuildMode === "build-sign") {
+      try {
+        wallet = await ensureBrowserWalletConnected(wallet);
+      } catch (err) {
+        if (swapQuoteError) {
+          showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+        }
+        return;
       }
+    } else if (!wallet) {
+      if (swapQuoteError) showInlineError(swapQuoteError, "Wallet (accountAddress) is required to build the transaction.");
       return;
     }
-  } else if (!wallet) {
-    if (swapQuoteError) showInlineError(swapQuoteError, "Wallet (accountAddress) is required to build the transaction.");
-    return;
-  }
-  const inputMint = swapInputMintInput?.value.trim() ?? "";
-  const outputMint = swapOutputMintInput?.value.trim() ?? "";
-  const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
-  const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
-  const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
-  if (!swapBuildResultEl || !swapTxBase64El) return;
-  if (swapQuoteError) clearInlineError(swapQuoteError);
-  void refreshLowSolTradeWarning();
-  if (swapBuildBtn) swapBuildBtn.disabled = true;
-  try {
-    if (needsQuoteRefetchBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts)) {
+    const inputMint = swapInputMintInput?.value.trim() ?? "";
+    const outputMint = swapOutputMintInput?.value.trim() ?? "";
+    const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
+    const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+    const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+    if (!swapBuildResultEl || !swapTxBase64El) return;
+    if (swapQuoteError) clearInlineError(swapQuoteError);
+    void refreshLowSolTradeWarning();
+    if (swapBuildBtn) swapBuildBtn.disabled = true;
+    if (!options?.skipQuoteRefetch && (isBuildBtnQuoteExpired() || needsQuoteRefetchBeforeBuild())) {
       await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
     }
     let buildTx;
@@ -32154,6 +32341,7 @@ async function postBuildSwap() {
   } catch (err) {
     if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
   } finally {
+    popSuppressClientPriceResolve();
     syncBuildButtonState();
   }
 }
@@ -32188,7 +32376,11 @@ async function ensureBrowserWalletConnected(existingWallet) {
   }
   syncWalletFieldForMode();
   syncSellTokenPickerState();
-  onWalletAddressReady(true);
+  const prevFieldWallet = existingWallet.trim();
+  const needsBalanceRefresh = connected !== prevFieldWallet || walletBalancesReadyFor !== connected || !isWalletBalanceCacheReady(connected);
+  if (needsBalanceRefresh) {
+    onWalletAddressReady(true);
+  }
   return connected;
 }
 function getBrowserConnection() {
@@ -32397,14 +32589,7 @@ function syncSwapBuildModeUi() {
   syncWalletFieldForMode();
   syncBuildButtonState();
   syncSwapQuoteButtonState();
-  const buildLabelEl = swapBuildBtn?.querySelector(".swap-action-btn__label");
-  const buildHintEl = swapBuildBtn?.querySelector(".swap-action-btn__hint");
-  if (buildLabelEl) {
-    buildLabelEl.textContent = isPasteMode ? "Sign pasted tx" : isSignMode ? "Build & sign swap" : "Build swap (no signing)";
-  }
-  if (buildHintEl) {
-    buildHintEl.textContent = isPasteMode ? "Wallet signs pasted base64" : isSignMode ? "Connect wallet & sign" : "Requires quote & wallet";
-  }
+  syncBuildButtonLabel();
   if (swapBuildResultTitleEl) {
     swapBuildResultTitleEl.textContent = isSignMode || isPasteMode ? "Transaction signature" : "Unsigned transaction (base64)";
   }
