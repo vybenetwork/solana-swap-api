@@ -1973,7 +1973,7 @@ function syncSellPctButtonsState(): void {
       activePct != null &&
       (isMaxBtn ? activePct >= maxPct : Number.isFinite(pct) && pct === activePct);
     btn.classList.toggle('swap-sell-pct-btn--active', isActive);
-    btn.disabled = !walletReady || isActive;
+    btn.disabled = !walletReady;
   }
 
   const maxBtn = container.querySelector<HTMLButtonElement>('[data-sell-pct-max]');
@@ -2142,7 +2142,7 @@ function setSwapSellAmountToBalance(amountUi: number, mint: string, silent = fal
     item &&
     getSwapRouter() === 'vybe' &&
     !isSolMint(mint) &&
-    isVybeFullSplSellAmount(amountUi, item, isVybeMaxSellSelected(mint))
+    isVybeFullSplSellAmount(amountUi, item, false)
   ) {
     formatted = maxSwapInputStringForWalletItem(item);
   } else {
@@ -4848,7 +4848,7 @@ function syncEnumeratedRoutesFromBody(body: Record<string, unknown>): void {
     return;
   }
 
-  if (!swapRouteOptionsPanelActive()) {
+  if (!swapRouteOptionsPanelActive() && !isSwapRoutePinMode()) {
     enumeratedRoutesUiState = null;
     lastVybeQuoteBodyForRoutes = null;
     return;
@@ -6804,21 +6804,30 @@ swapPartnerInput?.addEventListener('change', () => {
   syncSwapQuoteButtonState();
 });
 swapPinRouteCheckbox?.addEventListener('change', () => {
-  const hadEnumeratedRoutes = Boolean(enumeratedRoutesUiState?.routes.length);
+  const hadQuote = lastSwapQuoteOk != null;
   const savedRoutes = enumeratedRoutesUiState;
   const savedBody = lastVybeQuoteBodyForRoutes;
   const savedQuote = lastSwapQuoteOk;
   const savedRawQuote = lastRawQuoteResponse;
+  const savedVybeBuild = lastVybeBuild;
 
   syncSwapRoutePinMode();
 
-  if (isSwapRoutePinMode() && hadEnumeratedRoutes && savedRoutes) {
+  if (hadQuote && savedQuote) {
     enumeratedRoutesUiState = savedRoutes;
     lastVybeQuoteBodyForRoutes = savedBody;
     lastSwapQuoteOk = savedQuote;
     lastRawQuoteResponse = savedRawQuote;
-    applyEnumeratedRouteCandidateToPinFields(getSelectedEnumeratedRouteCandidate());
+    lastVybeBuild = savedVybeBuild;
+    if ((!enumeratedRoutesUiState || !enumeratedRoutesUiState.routes.length) && savedBody) {
+      syncEnumeratedRoutesFromBody(savedBody);
+    }
+    if (isSwapRoutePinMode()) {
+      applyEnumeratedRouteCandidateToPinFields(getSelectedEnumeratedRouteCandidate());
+    }
+    renderSwapQuoteUI(savedQuote);
     renderRouteOptionsPanel();
+    markSwapQuoteBuildOptsStale();
   } else {
     invalidateSwapQuoteAfterInputChange();
   }
