@@ -1950,8 +1950,41 @@ tr:hover td {
   min-width: 0;
 }
 
+.swap-route-option__title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .swap-route-option__title .dex-program-label {
   max-width: 100%;
+  min-width: 0;
+}
+
+.route-hop-extra {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.route-hop-extra__count {
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1;
+}
+
+.route-hop-extra__icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.route-hop-extra__icon {
+  display: block;
 }
 
 .routing-dex-caption .dex-program-label {

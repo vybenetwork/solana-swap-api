@@ -9,7 +9,10 @@ import {
   VersionedTransaction,
   type AddressLookupTableAccount,
 } from '@solana/web3.js';
-import { estimateNetworkFeeLamportsForSwapTxs } from './swap-tx-network-fee.js';
+import {
+  computeSwapTxSizesBytes,
+  estimateNetworkFeeLamportsForSwapTxs,
+} from './swap-tx-network-fee.js';
 import {
   buildSwapClientParams,
   getSwapMintQuoteReadinessIssues,
@@ -5907,6 +5910,11 @@ async function runSwapSignDialogFlow(
     }
   } catch (err) {
     console.warn('Could not estimate swap network fee from tx:', err);
+  }
+  const txSizeBytes = computeSwapTxSizesBytes(txStrings);
+  if (txSizeBytes.length > 0) {
+    confirmBuild = { ...confirmBuild, _txSizeBytes: txSizeBytes };
+    confirmQuote = { ...confirmQuote, _txSizeBytes: txSizeBytes };
   }
   openSwapSignDialog(confirmQuote, confirmBuild);
   appendSwapSignLog('Preparing transaction…', 'neutral');

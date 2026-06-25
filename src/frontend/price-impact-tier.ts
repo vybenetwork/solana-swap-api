@@ -47,6 +47,28 @@ export function formatPriceImpactPctRouteCard(
   return `${sign}${displayed.toFixed(2)}%`;
 }
 
+function formatThousandsCompactPct(absPct: number): string {
+  const k = absPct / 1000;
+  if (k >= 100) return `${Math.round(k)}k`;
+  return `${parseFloat(k.toFixed(2))}k`;
+}
+
+/** Market route cards only: compact k% above 9999% (e.g. 10180 → 10.18k%). */
+export function formatPriceImpactPctMarketBox(
+  pct: number,
+  options?: { leadingPlus?: boolean },
+): string {
+  const displayed = displayPriceImpactPct(pct);
+  if (displayed === 0) return '0%';
+  const abs = Math.abs(displayed);
+  if (abs > 9999) {
+    const compact = formatThousandsCompactPct(abs);
+    if (displayed < 0) return `-${compact}%`;
+    return `${options?.leadingPlus ? '+' : ''}${compact}%`;
+  }
+  return formatPriceImpactPctRouteCard(pct, options);
+}
+
 /** Tier bands: green ≥ 0, yellow-green [−0.5, 0), yellow (−2, −0.5), orange (−10, −2], red ≤ −10%. */
 export function priceImpactTier(pct: number): PriceImpactTier {
   if (pct >= 0) return 'green';

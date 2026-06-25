@@ -21,7 +21,7 @@
 import { formatWarnPercent } from './format-warn-pct.js';
 import {
   displayPriceImpactPct,
-  formatPriceImpactPctRouteCard,
+  formatPriceImpactPctMarketBox,
   formatPriceImpactPctWithArrow,
   parsePriceImpactPct,
   priceImpactTierClassForValue,
@@ -203,7 +203,7 @@ function formatRoutePriceImpact(quote: Record<string, unknown>): string | null {
   const pct = parsePriceImpactPct(quote.priceImpactPct);
   if (pct == null) return null;
   const displayed = displayPriceImpactPct(pct);
-  const formatted = formatPriceImpactPctRouteCard(pct, { leadingPlus: true });
+  const formatted = formatPriceImpactPctMarketBox(pct, { leadingPlus: true });
   return formatPriceImpactPctWithArrow(displayed, formatted);
 }
 
@@ -424,6 +424,9 @@ function renderRouteOptionCard(
   const outLabel = outUi != null ? deps.formatSwapAmountValue(outUi) : '—';
   const multipleMarkets = isMultipleMarketsRoute(route);
   const programLabel = routeProgramDisplayLabel(route);
+  const hopExtra = multipleMarkets ? 0 : routeHopExtraCount(route.quote);
+  const hopSuffix =
+    hopExtra > 0 ? renderRouteHopExtraSuffix(route.quote, hopExtra, route.candidate, programLabel) : '';
   const liquidity = multipleMarkets ? undefined : route.candidate?.liquidity;
   const warnLevel = swapRouteWarningLevel(quote, liquidity);
   const optionWarnBadge = routeOptionWarnBadge(quote, liquidity);
@@ -446,7 +449,7 @@ function renderRouteOptionCard(
           ${warnIcon}
         </span>
       </div>
-      <div class="swap-route-option__title">${multipleMarkets ? deps.escapeHtml(programLabel) : renderDexProgramLabel(programLabel, route.candidate?.protocol)}</div>
+      <div class="swap-route-option__title">${multipleMarkets ? deps.escapeHtml(programLabel) : `<span class="swap-route-option__title-row">${renderDexProgramLabel(programLabel, route.candidate?.protocol)}${hopSuffix}</span>`}</div>
       ${renderRoutePoolLink(route.candidate?.marketAddress)}
       ${renderRouteOptionMetrics(quote, outLabel, liquidity, route.candidate, showTradeActivity)}
     </div>`;
@@ -3677,6 +3680,21 @@ function normalizeFeeItemLabel(label: string): string {
 
 const PRIORITY_FEE_LABEL = 'Priority fee';
 const SIGN_CONFIRM_NETWORK_FEE_LABEL = 'Network Fee (Priority Fee)';
+const SIGN_CONFIRM_TX_SIZE_LABEL = 'Transaction size';
+
+function formatSignConfirmTxSizeDisplay(
+  quote: Record<string, unknown>,
+  buildPayload?: Record<string, unknown>,
+): string | null {
+  const raw = quote._txSizeBytes ?? buildPayload?._txSizeBytes;
+  if (raw == null) return null;
+  const sizes = (Array.isArray(raw) ? raw : [raw])
+    .map((n) => Number(n))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (sizes.length === 0) return null;
+  if (sizes.length === 1) return `${sizes[0]} bytes`;
+  return sizes.map((n) => `${n} bytes`).join(' + ');
+}
 
 function isPriorityFeeItem(item: Pick<HopFeeItemLite, 'label' | 'destinationKind'>): boolean {
   if (item.destinationKind === 'network_priority') return true;
@@ -5876,6 +5894,99 @@ function routeProgramDisplayLabel(route: Pick<EnumeratedRouteUiEntry, 'source' |
   return resolveDexProtocolDisplayLabel(route.candidate?.protocol ?? '') || '—';
 }
 
+function routePlanHopMetas(quote: Record<string, unknown> | undefined): RouteHopMeta[] {
+  if (!quote) return [];
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  if (plan.length === 0) return [];
+  const tree = buildRouteTree(plan);
+  const metas: RouteHopMeta[] = [];
+  collectRouteHopMetas(tree, metas);
+  if (metas.length > 0) return metas;
+  const hopCount = countRouteTreeHops(tree) || plan.length;
+  return plan.slice(0, hopCount).map((step, planIndex) => ({
+    step,
+    planIndex,
+    label: String(planIndex + 1),
+  }));
+}
+
+/** Extra hops beyond the primary venue shown in the route option card (2 hops → +1). */
+function routeHopExtraCount(quote: Record<string, unknown> | undefined): number {
+  const metas = routePlanHopMetas(quote);
+  return metas.length > 1 ? metas.length - 1 : 0;
+}
+
+function findTitledHopIndex(
+  metas: RouteHopMeta[],
+  candidate: EnumeratedRouteUiEntry['candidate'],
+  titledProgramLabel: string,
+): number {
+  if (metas.length === 0) return -1;
+  const primaryDisplay = normalizeProtocolLookupKey(
+    resolveDexProtocolDisplayLabel(
+      titledProgramLabel.trim() ||
+        candidate?.programLabel?.trim() ||
+        candidate?.protocol?.trim() ||
+        '',
+    ),
+  );
+  if (primaryDisplay) {
+    for (let i = 0; i < metas.length; i++) {
+      const hopDisplay = normalizeProtocolLookupKey(
+        resolveDexProtocolDisplayLabel(metas[i]!.step.swapInfo?.label?.trim() || ''),
+      );
+      if (hopDisplay && hopDisplay === primaryDisplay) return i;
+      const hopKey = normalizeProtocolLookupKey(metas[i]!.step.swapInfo?.label ?? '');
+      const protoKey = normalizeProtocolLookupKey(candidate?.protocol ?? '');
+      const labelKey = normalizeProtocolLookupKey(candidate?.programLabel ?? '');
+      if (hopKey && (hopKey === protoKey || hopKey === labelKey)) return i;
+    }
+  }
+  const market = (candidate?.marketAddress ?? '').trim();
+  if (market) {
+    const byPool = metas.findIndex((m) => (m.step.swapInfo?.ammKey ?? '').trim() === market);
+    if (byPool >= 0) return byPool;
+  }
+  return metas.length - 1;
+}
+
+function otherHopMetasForCandidate(
+  metas: RouteHopMeta[],
+  candidate: EnumeratedRouteUiEntry['candidate'],
+  titledProgramLabel: string,
+): RouteHopMeta[] {
+  if (metas.length <= 1) return [];
+  const titledIdx = findTitledHopIndex(metas, candidate, titledProgramLabel);
+  if (titledIdx >= 0) return metas.filter((_, i) => i !== titledIdx);
+  return metas.slice(0, -1);
+}
+
+function renderRouteHopExtraSuffix(
+  quote: Record<string, unknown> | undefined,
+  hopExtra: number,
+  candidate: EnumeratedRouteUiEntry['candidate'],
+  titledProgramLabel: string,
+): string {
+  if (hopExtra <= 0) return '';
+  const metas = routePlanHopMetas(quote);
+  const otherMetas = otherHopMetasForCandidate(metas, candidate, titledProgramLabel);
+  const primaryBrand = resolveDexBrand(titledProgramLabel, candidate?.protocol);
+  const seenBrands = new Set<DexBrand>();
+  if (primaryBrand) seenBrands.add(primaryBrand);
+  const iconParts: string[] = [];
+  for (const meta of otherMetas) {
+    if (iconParts.length >= hopExtra) break;
+    const label = meta.step.swapInfo?.label?.trim() || 'DEX';
+    const brand = resolveDexBrand(label);
+    if (brand && seenBrands.has(brand)) continue;
+    if (brand) seenBrands.add(brand);
+    const icon = renderDexProtocolIcon(label);
+    if (icon) iconParts.push(icon);
+  }
+  const icons = iconParts.join('');
+  return `<span class="route-hop-extra"><span class="route-hop-extra__count">+${hopExtra}</span>${icons ? `<span class="route-hop-extra__icons">${icons}</span>` : ''}</span>`;
+}
+
 function normalizeProtocolLookupKey(raw: string): string {
   return raw
     .trim()
@@ -5918,10 +6029,24 @@ function dexIconSrc(brand: DexBrand): string {
   return '/images/pump-logo.png';
 }
 
+function resolveDexBrand(label: string, protocolHint?: string): DexBrand | null {
+  const text = resolveDexProtocolDisplayLabel(protocolHint?.trim() || label.trim() || '—');
+  if (text === '—') return null;
+  return detectDexBrand(text) ?? detectDexBrand(label) ?? (protocolHint ? detectDexBrand(protocolHint) : null);
+}
+
+function renderDexProtocolIcon(label: string, protocolHint?: string): string {
+  const text = resolveDexProtocolDisplayLabel(protocolHint?.trim() || label.trim() || '—');
+  const brand = resolveDexBrand(label, protocolHint);
+  if (!brand) return '';
+  const title = text !== '—' ? ` title="${deps.escapeHtml(text)}"` : '';
+  return `<img class="dex-program-label__icon dex-program-label__icon--${brand} route-hop-extra__icon"${title} src="${dexIconSrc(brand)}" alt="" width="16" height="16" decoding="async" />`;
+}
+
 function renderDexProgramLabel(label: string, protocolHint?: string): string {
   const text = resolveDexProtocolDisplayLabel(protocolHint?.trim() || label.trim() || '—');
   if (text === '—') return deps.escapeHtml(text);
-  const brand = detectDexBrand(text) ?? detectDexBrand(label) ?? (protocolHint ? detectDexBrand(protocolHint) : null);
+  const brand = resolveDexBrand(label, protocolHint);
   if (!brand) return deps.escapeHtml(text);
   return `<span class="dex-program-label"><img class="dex-program-label__icon dex-program-label__icon--${brand}" src="${dexIconSrc(brand)}" alt="" width="16" height="16" decoding="async" /><span class="dex-program-label__text">${deps.escapeHtml(text)}</span></span>`;
 }
@@ -7147,6 +7272,15 @@ export function renderSignConfirmSummaryHtml(
       renderSignConfirmDetailRowHtml(
         SIGN_CONFIRM_NETWORK_FEE_LABEL,
         deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`),
+      ),
+    );
+  }
+  const txSizeDisplay = formatSignConfirmTxSizeDisplay(quote, buildPayload);
+  if (txSizeDisplay) {
+    detailRows.push(
+      renderSignConfirmDetailRowHtml(
+        SIGN_CONFIRM_TX_SIZE_LABEL,
+        deps.escapeHtml(txSizeDisplay),
       ),
     );
   }

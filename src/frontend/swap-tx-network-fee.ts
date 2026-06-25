@@ -128,6 +128,35 @@ export async function estimateNetworkFeeLamportsForSwapTx(
   }
 }
 
+/** Serialized v0 transaction wire size in bytes. */
+export function computeSwapTxSizeBytes(txString: string): number | null {
+  const trimmed = txString.trim();
+  if (!trimmed) return null;
+  try {
+    const vtx = decodeVersionedSwapTxFromBase64(trimmed);
+    return vtx.serialize().length;
+  } catch {
+    return null;
+  }
+}
+
+/** One size per leg tx (pre → main → post). */
+export function computeSwapTxSizesBytes(txStrings: string[]): number[] {
+  const sizes: number[] = [];
+  for (const tx of txStrings) {
+    const bytes = computeSwapTxSizeBytes(tx);
+    if (bytes != null && bytes > 0) sizes.push(bytes);
+  }
+  return sizes;
+}
+
+/** e.g. `1161 bytes` or `1200 bytes + 848 bytes` */
+export function formatSwapTxSizesBytesDisplay(sizes: number[]): string | null {
+  if (sizes.length === 0) return null;
+  if (sizes.length === 1) return `${sizes[0]} bytes`;
+  return sizes.map((n) => `${n} bytes`).join(' + ');
+}
+
 /** Sum network fees across quote-bridge legs (pre / main / post). */
 export async function estimateNetworkFeeLamportsForSwapTxs(
   connection: Connection,
