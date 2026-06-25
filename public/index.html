@@ -701,9 +701,12 @@
         <div class="swap-sign-dialog__actions">
           <button type="button" class="swap-sign-dialog__btn swap-sign-dialog__btn--secondary" id="swapSignConfirmCancel">Cancel</button>
           <div class="swap-sign-dialog__txids" id="swapSignConfirmTxids" hidden></div>
-          <button type="button" class="swap-sign-dialog__btn swap-sign-dialog__btn--retry swap-sign-dialog__requote swap-sign-dialog__btn-with-icon" id="swapSignConfirmRequote" hidden>
-            <span class="swap-sign-dialog__btn-icon swap-sign-dialog__btn-icon--requote" aria-hidden="true"></span>
+          <button type="button" class="swap-sign-dialog__btn swap-sign-dialog__btn--retry swap-sign-dialog__retry-action" id="swapSignConfirmRetry" hidden>
             <span>Try Again</span>
+          </button>
+          <button type="button" class="swap-sign-dialog__btn swap-sign-dialog__btn--retry swap-sign-dialog__requote swap-sign-dialog__retry-action swap-sign-dialog__btn-with-icon" id="swapSignConfirmRefetchRetry" hidden>
+            <span class="swap-sign-dialog__btn-icon swap-sign-dialog__btn-icon--requote" aria-hidden="true"></span>
+            <span>Refetch &amp; Try Again</span>
           </button>
         </div>
       </div>
@@ -720,7 +723,7 @@
       import bs58 from 'bs58';
       window.bs58 = bs58;
     </script>
-    <script type="module" src="app.js?v=82"></script>
+    <script type="module" src="app.js?v=83"></script>
   </body>
 </html>
 

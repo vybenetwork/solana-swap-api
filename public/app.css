@@ -8889,6 +8889,7 @@ tr:hover td {
 }
 
 .swap-sign-dialog__actions [hidden],
+.swap-sign-dialog__retry-action[hidden],
 .swap-sign-dialog__requote[hidden] {
   display: none !important;
 }

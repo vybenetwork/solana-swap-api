@@ -27388,7 +27388,8 @@ var swapSignConfirmLogsEl = document.getElementById("swapSignConfirmLogs");
 var swapSignConfirmCancelEl = document.getElementById("swapSignConfirmCancel");
 var swapSignConfirmDismissEl = document.getElementById("swapSignConfirmDismiss");
 var swapSignConfirmTxidsEl = document.getElementById("swapSignConfirmTxids");
-var swapSignConfirmRequoteEl = document.getElementById("swapSignConfirmRequote");
+var swapSignConfirmRetryEl = document.getElementById("swapSignConfirmRetry");
+var swapSignConfirmRefetchRetryEl = document.getElementById("swapSignConfirmRefetchRetry");
 var swapPairCardsEl = document.getElementById("swapPairCards");
 var swapQuoteDetailsEmptyEl = document.getElementById("swapQuoteDetailsEmpty");
 var swapQuoteDetailsBodyEl = document.getElementById("swapQuoteDetailsBody");
@@ -27749,6 +27750,9 @@ function tickBuildBtnQuoteWindow(now) {
     setActionBtnTimerVisible(swapBuildBtn, swapBuildBtnTimerEl, false);
     syncBuildButtonState();
     syncBuildButtonLabel();
+    if (swapSignConfirmDialogEl?.open && !swapSignDialogSuccess) {
+      syncSignDialogRetryButtons(true);
+    }
     return;
   }
   const label = swapBuildBtnTimerEl?.querySelector(".swap-action-btn__timer-label");
@@ -31822,6 +31826,7 @@ async function fetchSwapQuote() {
 var swapSignFlowGeneration = 0;
 var swapSignPendingLogEl = null;
 var swapSignDialogSuccess = false;
+var swapSignRetryContext = null;
 var swapSignSuccessContext = null;
 function sleepMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -31847,16 +31852,31 @@ function resetSwapSignDialogUi() {
   swapSignPendingLogEl = null;
   swapSignDialogSuccess = false;
   swapSignSuccessContext = null;
+  swapSignRetryContext = null;
   if (swapSignConfirmCancelEl) {
     swapSignConfirmCancelEl.hidden = false;
     swapSignConfirmCancelEl.disabled = false;
     setSwapSignCancelButtonLabel("cancel");
   }
   setSwapSignTxidButtonsState("hidden");
-  if (swapSignConfirmRequoteEl) {
-    swapSignConfirmRequoteEl.hidden = true;
-    swapSignConfirmRequoteEl.style.display = "none";
-    swapSignConfirmRequoteEl.disabled = false;
+  syncSignDialogRetryButtons(false);
+  if (swapSignConfirmRetryEl) swapSignConfirmRetryEl.disabled = false;
+  if (swapSignConfirmRefetchRetryEl) swapSignConfirmRefetchRetryEl.disabled = false;
+}
+function setSignDialogRetryButtonsDisabled(disabled) {
+  if (swapSignConfirmRetryEl) swapSignConfirmRetryEl.disabled = disabled;
+  if (swapSignConfirmRefetchRetryEl) swapSignConfirmRefetchRetryEl.disabled = disabled;
+}
+function syncSignDialogRetryButtons(visible) {
+  const expired = isBuildBtnQuoteExpired();
+  if (swapSignConfirmRetryEl) {
+    const showTryAgain = visible && !expired;
+    swapSignConfirmRetryEl.hidden = !showTryAgain;
+    swapSignConfirmRetryEl.style.display = showTryAgain ? "" : "none";
+  }
+  if (swapSignConfirmRefetchRetryEl) {
+    swapSignConfirmRefetchRetryEl.hidden = !visible;
+    swapSignConfirmRefetchRetryEl.style.display = visible ? "" : "none";
   }
 }
 function setSwapSignTxidButtonsState(mode) {
@@ -31897,11 +31917,7 @@ function setSwapSignDialogActions(state) {
   } else {
     setSwapSignTxidButtonsState("hidden");
   }
-  if (swapSignConfirmRequoteEl) {
-    const showRequote = state === "failed";
-    swapSignConfirmRequoteEl.hidden = !showRequote;
-    swapSignConfirmRequoteEl.style.display = showRequote ? "" : "none";
-  }
+  syncSignDialogRetryButtons(state === "failed");
 }
 function appendSwapSignLog(text, tone = "neutral") {
   if (!swapSignConfirmLogsEl) return null;
@@ -32037,6 +32053,57 @@ async function signAndSendSwapLegs(txStrings) {
   }
   return signatures;
 }
+async function completeSwapSignFlow(generation, txStrings) {
+  appendSwapSignLog("Waiting for user to sign transaction", "pending");
+  const signatures = await signAndSendSwapLegs(txStrings);
+  if (generation !== swapSignFlowGeneration) return;
+  appendSwapSignLog("User signed transaction", "success");
+  const lastSig = signatures[signatures.length - 1] ?? "";
+  if (!lastSig) throw new Error("Wallet did not return a transaction signature.");
+  if (signatures.length > 1) {
+    appendSwapSignLog(`Sent ${signatures.length} transactions`, "neutral");
+  } else {
+    appendSwapSignLog(`Transaction sent: ${lastSig}`, "neutral");
+  }
+  swapSignSuccessContext = {
+    soldMint: swapInputMintInput?.value.trim() ?? "",
+    buyMint: swapOutputMintInput?.value.trim() ?? "",
+    signatures
+  };
+  setSwapSignTxidButtonsState("pending");
+  appendSwapSignLog(
+    signatures.length > 1 ? "Confirming transactions" : "Confirming transaction",
+    "pending"
+  );
+  const confirmed = await pollAllTransactionConfirmations(signatures, generation, (leg, total) => {
+    appendSwapSignLog(`Confirming transaction ${leg} of ${total}`, "pending");
+  });
+  if (generation !== swapSignFlowGeneration) return;
+  if (!confirmed.ok) {
+    appendSwapSignLog(
+      confirmed.err === "Cancelled" ? "Confirmation cancelled" : `Transaction failed: ${confirmed.err ?? "unknown error"}`,
+      "error"
+    );
+    setSwapSignDialogActions("failed");
+    return;
+  }
+  appendSwapSignLog("Transaction confirmed", "success");
+  if (swapTxBase64El) swapTxBase64El.value = lastSig;
+  syncSwapBuildResultPanel();
+  if (swapQuoteWarning) {
+    showInlineWarning(swapQuoteWarning, `Transaction confirmed: ${lastSig}`);
+  }
+  swapSignSuccessContext = {
+    soldMint: swapInputMintInput?.value.trim() ?? "",
+    buyMint: swapOutputMintInput?.value.trim() ?? "",
+    signatures
+  };
+  scheduleWalletRefreshAfterTxConfirm({
+    soldMint: swapSignSuccessContext.soldMint,
+    buyMint: swapSignSuccessContext.buyMint
+  });
+  setSwapSignDialogActions("success");
+}
 async function runSwapSignDialogFlow(quote, buildPayload, txStrings) {
   const generation = ++swapSignFlowGeneration;
   let confirmQuote = quote;
@@ -32062,66 +32129,35 @@ async function runSwapSignDialogFlow(quote, buildPayload, txStrings) {
     confirmBuild = { ...confirmBuild, _txSizeBytes: txSizeBytes };
     confirmQuote = { ...confirmQuote, _txSizeBytes: txSizeBytes };
   }
+  swapSignRetryContext = { quote: confirmQuote, buildPayload: confirmBuild, txStrings };
   openSwapSignDialog(confirmQuote, confirmBuild);
   appendSwapSignLog("Preparing transaction\u2026", "neutral");
   try {
-    appendSwapSignLog("Waiting for user to sign transaction", "pending");
-    const signatures = await signAndSendSwapLegs(txStrings);
-    if (generation !== swapSignFlowGeneration) return;
-    appendSwapSignLog("User signed transaction", "success");
-    const lastSig = signatures[signatures.length - 1] ?? "";
-    if (!lastSig) throw new Error("Wallet did not return a transaction signature.");
-    if (signatures.length > 1) {
-      appendSwapSignLog(`Sent ${signatures.length} transactions`, "neutral");
-    } else {
-      appendSwapSignLog(`Transaction sent: ${lastSig}`, "neutral");
-    }
-    swapSignSuccessContext = {
-      soldMint: swapInputMintInput?.value.trim() ?? "",
-      buyMint: swapOutputMintInput?.value.trim() ?? "",
-      signatures
-    };
-    setSwapSignTxidButtonsState("pending");
-    appendSwapSignLog(
-      signatures.length > 1 ? "Confirming transactions" : "Confirming transaction",
-      "pending"
-    );
-    const confirmed = await pollAllTransactionConfirmations(signatures, generation, (leg, total) => {
-      appendSwapSignLog(`Confirming transaction ${leg} of ${total}`, "pending");
-    });
-    if (generation !== swapSignFlowGeneration) return;
-    if (!confirmed.ok) {
-      appendSwapSignLog(
-        confirmed.err === "Cancelled" ? "Confirmation cancelled" : `Transaction failed: ${confirmed.err ?? "unknown error"}`,
-        "error"
-      );
-      setSwapSignDialogActions("failed");
-      return;
-    }
-    appendSwapSignLog("Transaction confirmed", "success");
-    if (swapTxBase64El) swapTxBase64El.value = lastSig;
-    syncSwapBuildResultPanel();
-    if (swapQuoteWarning) {
-      showInlineWarning(swapQuoteWarning, `Transaction confirmed: ${lastSig}`);
-    }
-    swapSignSuccessContext = {
-      soldMint: swapInputMintInput?.value.trim() ?? "",
-      buyMint: swapOutputMintInput?.value.trim() ?? "",
-      signatures
-    };
-    scheduleWalletRefreshAfterTxConfirm({
-      soldMint: swapSignSuccessContext.soldMint,
-      buyMint: swapSignSuccessContext.buyMint
-    });
-    setSwapSignDialogActions("success");
+    await completeSwapSignFlow(generation, txStrings);
   } catch (err) {
     if (generation !== swapSignFlowGeneration) return;
     appendSwapSignLog(err instanceof Error ? err.message : String(err), "error");
     setSwapSignDialogActions("failed");
   }
 }
-async function handleSwapSignDialogRequoteRebuild() {
-  if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = true;
+async function handleSwapSignDialogRetry() {
+  if (!swapSignRetryContext?.txStrings.length) return;
+  setSignDialogRetryButtonsDisabled(true);
+  appendSwapSignLog("Retrying with current quote\u2026", "neutral");
+  const generation = ++swapSignFlowGeneration;
+  try {
+    await completeSwapSignFlow(generation, swapSignRetryContext.txStrings);
+  } catch (err) {
+    if (generation !== swapSignFlowGeneration) return;
+    appendSwapSignLog(err instanceof Error ? err.message : String(err), "error");
+    setSwapSignDialogActions("failed");
+  } finally {
+    setSignDialogRetryButtonsDisabled(false);
+    syncSignDialogRetryButtons(true);
+  }
+}
+async function handleSwapSignDialogRefetchRebuild() {
+  setSignDialogRetryButtonsDisabled(true);
   appendSwapSignLog("Fetching a fresh quote\u2026", "pending");
   pushSuppressClientPriceResolve();
   try {
@@ -32134,14 +32170,16 @@ async function handleSwapSignDialogRequoteRebuild() {
     await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
     if (!lastSwapQuoteOk) {
       appendSwapSignLog("Quote failed \u2014 fix inputs and try again.", "error");
-      if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = false;
+      setSignDialogRetryButtonsDisabled(false);
+      syncSignDialogRetryButtons(true);
       return;
     }
     appendSwapSignLog("Quote received \u2014 rebuilding swap\u2026", "neutral");
     await postBuildSwap({ skipQuoteRefetch: true });
   } catch (err) {
     appendSwapSignLog(err instanceof Error ? err.message : String(err), "error");
-    if (swapSignConfirmRequoteEl) swapSignConfirmRequoteEl.disabled = false;
+    setSignDialogRetryButtonsDisabled(false);
+    syncSignDialogRetryButtons(true);
   } finally {
     popSuppressClientPriceResolve();
   }
@@ -32925,7 +32963,8 @@ swapSignConfirmTxidsEl?.addEventListener("click", (event) => {
   const sig = btn.dataset.signature?.trim();
   if (sig) openSignatureOnSolscan(sig);
 });
-swapSignConfirmRequoteEl?.addEventListener("click", () => void handleSwapSignDialogRequoteRebuild());
+swapSignConfirmRetryEl?.addEventListener("click", () => void handleSwapSignDialogRetry());
+swapSignConfirmRefetchRetryEl?.addEventListener("click", () => void handleSwapSignDialogRefetchRebuild());
 swapSignConfirmDialogEl?.addEventListener("cancel", (event) => {
   event.preventDefault();
   handleSwapSignDialogDismiss();
