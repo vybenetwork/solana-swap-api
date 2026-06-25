@@ -8687,6 +8687,10 @@ tr:hover td {
   margin-left: -7px;
 }
 
+.swap-sign-dialog__btn-icon.swap-sign-dialog__btn-icon--retry {
+  margin-left: -7px;
+}
+
 .swap-sign-dialog__btn-icon--requote::before {
   content: '';
   display: block;
