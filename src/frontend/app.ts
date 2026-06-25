@@ -4514,10 +4514,24 @@ function cacheVybeQuoteBuild(
 function poolLiquidityFromRouteEntry(r: Record<string, unknown>): number | undefined {
   const candidate = r.candidate as { liquidity?: number } | undefined;
   const fromCandidate = Number(candidate?.liquidity);
-  if (Number.isFinite(fromCandidate) && fromCandidate > 0) return fromCandidate;
+  if (Number.isFinite(fromCandidate) && fromCandidate > 0 && fromCandidate <= 10_000_000_000) {
+    return fromCandidate;
+  }
   const build = r.build as { details?: { poolLiquidity?: number; liquidity?: number } } | undefined;
   const fromBuild = Number(build?.details?.poolLiquidity ?? build?.details?.liquidity);
-  if (Number.isFinite(fromBuild) && fromBuild > 0) return fromBuild;
+  if (Number.isFinite(fromBuild) && fromBuild > 0 && fromBuild <= 10_000_000_000) return fromBuild;
+  return undefined;
+}
+
+function poolLiquidityFromQuoteBody(body: Record<string, unknown>): number | undefined {
+  const build = body._build as { details?: { poolLiquidity?: number; liquidity?: number } } | undefined;
+  const fromBuild = Number(build?.details?.poolLiquidity ?? build?.details?.liquidity);
+  if (Number.isFinite(fromBuild) && fromBuild > 0 && fromBuild <= 10_000_000_000) return fromBuild;
+  const rvt = body._routeDiscovery as { selected?: { liquidity?: number } } | undefined;
+  const fromSelected = Number(rvt?.selected?.liquidity);
+  if (Number.isFinite(fromSelected) && fromSelected > 0 && fromSelected <= 10_000_000_000) {
+    return fromSelected;
+  }
   return undefined;
 }
 
@@ -4645,7 +4659,10 @@ function tradeCandidateFromActiveQuote(
         programLabel:
           typeof selected.programLabel === 'string' ? selected.programLabel.trim() || undefined : undefined,
         liquidity:
-          selected.liquidity != null && Number.isFinite(Number(selected.liquidity))
+          selected.liquidity != null &&
+          Number.isFinite(Number(selected.liquidity)) &&
+          Number(selected.liquidity) > 0 &&
+          Number(selected.liquidity) <= 10_000_000_000
             ? Number(selected.liquidity)
             : undefined,
       };
@@ -4732,13 +4749,14 @@ function syncEnumeratedRoutesFromBody(body: Record<string, unknown>): void {
     return;
   }
 
+  const liquidity = poolLiquidityFromQuoteBody(body);
   lastVybeQuoteBodyForRoutes = body;
   enumeratedRoutesUiState = {
     routes: [
       {
         index: 0,
         source: inferRouteOptionSource(body, rvt ?? {}),
-        candidate,
+        candidate: candidate && liquidity != null ? { ...candidate, liquidity } : candidate,
         quote: stripVybeQuoteMetadata(body),
       },
     ],

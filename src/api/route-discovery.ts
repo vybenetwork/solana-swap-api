@@ -406,6 +406,8 @@ function swapHasTx(build: import('../types/swap.js').VybeSwapBuildResponse): boo
 }
 
 /** USD pool TVL from ix-builder build details (`poolLiquidity`). */
+const MAX_SANE_POOL_LIQUIDITY_USD = 10_000_000_000;
+
 export function poolLiquidityUsdFromBuild(
   build: import('../types/swap.js').VybeSwapBuildResponse,
 ): number | undefined {
@@ -413,7 +415,8 @@ export function poolLiquidityUsdFromBuild(
   const details = raw.details as Record<string, unknown> | undefined;
   const score = details?.poolLiquidity ?? details?.liquidity ?? raw.liquidity;
   const n = Number(score);
-  return Number.isFinite(n) && n > 0 ? n : undefined;
+  if (!Number.isFinite(n) || n <= 0 || n > MAX_SANE_POOL_LIQUIDITY_USD) return undefined;
+  return n;
 }
 
 function tradeCandidateFromVybeBuild(
