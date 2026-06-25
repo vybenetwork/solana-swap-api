@@ -6724,11 +6724,11 @@ function wireBuildOptionToggle(
       if (valueEl instanceof HTMLSelectElement) valueEl.selectedIndex = 0;
       else valueEl.value = '';
     }
-    invalidateSwapQuoteAfterInputChange();
+    onSwapBuildOptionChanged();
   };
   enableEl.addEventListener('change', sync);
-  valueEl?.addEventListener('input', invalidateSwapQuoteAfterInputChange);
-  valueEl?.addEventListener('change', invalidateSwapQuoteAfterInputChange);
+  valueEl?.addEventListener('input', onSwapBuildOptionChanged);
+  valueEl?.addEventListener('change', onSwapBuildOptionChanged);
   sync();
 }
 
