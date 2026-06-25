@@ -5783,8 +5783,19 @@ async function signAndSendSwapLegs(txStrings: string[]): Promise<string[]> {
       ? [await provider.signTransaction(prepared[0]!)]
       : await provider.signAllTransactions!(prepared);
 
-  for (const stx of signed) {
-    signatures.push(await connection.sendRawTransaction(stx.serialize(), { skipPreflight: false }));
+  // Quote-bridge post-swap: leg 2 spends WSOL produced by leg 1 — confirm each leg before the next send.
+  for (let i = 0; i < signed.length; i++) {
+    const stx = signed[i]!;
+    const sig = await connection.sendRawTransaction(stx.serialize(), { skipPreflight: false });
+    signatures.push(sig);
+    if (i < signed.length - 1) {
+      const confirmed = await pollTransactionConfirmation(sig, null);
+      if (!confirmed.ok) {
+        throw new Error(
+          confirmed.err ?? `Transaction leg ${i + 1} failed to confirm before sending leg ${i + 2}`,
+        );
+      }
+    }
   }
   return signatures;
 }

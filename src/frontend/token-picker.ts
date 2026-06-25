@@ -1172,8 +1172,13 @@ function quotedBuildOutAmountRaw(buildPayload?: Record<string, unknown> | null):
 
 function isQuoteBridgeBuildPayload(buildPayload?: Record<string, unknown> | null): boolean {
   if (!buildPayload) return false;
-  const details = buildPayload.details as { preSwapNeeded?: boolean } | undefined;
-  return details?.preSwapNeeded === true || buildPayload.preSwapNeeded === true;
+  const details = buildPayload.details as { preSwapNeeded?: boolean; postSwapNeeded?: boolean } | undefined;
+  return (
+    details?.preSwapNeeded === true ||
+    details?.postSwapNeeded === true ||
+    buildPayload.preSwapNeeded === true ||
+    buildPayload.postSwapNeeded === true
+  );
 }
 
 /** Prefer nested `_build` when the vybe-quote API body is passed whole. */

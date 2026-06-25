@@ -1453,6 +1453,7 @@ export function getQuoteWalletCostBucketsUsd(
       const usd = computeFeeUsdNumeric(item, quote);
       if (usd == null || usd <= 0) continue;
       if (isAccRentWalletFeeItem(item)) {
+        if (!shouldShowPayRentDeduction(quote)) continue;
         const sellMint = quoteInputMint(quote);
         if (sellMint && routeLegMintMatches(item.mint, sellMint) && hasInputMintRentReclaim(quote, sellMint)) {
           continue;
@@ -1522,7 +1523,7 @@ export function resolveQuoteYouPayUsd(quote: Record<string, unknown>): QuoteYouP
   if (enriched && typeof enriched === 'object' && Number(enriched.totalUsd) > 0) {
     const buckets = getQuoteWalletCostBucketsUsd(quote);
     let feeUsd = Number(enriched.feeUsd ?? 0);
-    const rentUsd = Number(enriched.rentUsd ?? 0);
+    const rentUsd = shouldShowPayRentDeduction(quote) ? Number(enriched.rentUsd ?? 0) : 0;
     const reconciledFeeUsd = resolveQuoteYouPayFeeUsd(quote, buckets);
     // ix-builder residual feeUsd can underflow to ~0 while hop items / pay debit show real fees.
     if (
@@ -1664,6 +1665,7 @@ function getQuoteWalletCostBucketsUsdThroughHop(
       const usd = computeFeeUsdNumeric(item, quote);
       if (usd == null || usd <= 0) continue;
       if (isAccRentWalletFeeItem(item)) {
+        if (!shouldShowPayRentDeduction(quote)) continue;
         rentUsd += usd;
         foundRent = true;
       } else {
@@ -2073,6 +2075,7 @@ export function getQuotePayHeroCostStack(
 
       const sameMint = routeLegMintMatches(item.mint, mint);
       if (isAccRentWalletFeeItem(item)) {
+        if (!shouldShowPayRentDeduction(quote)) continue;
         if (isEphemeralSameTxWsolAccRentItem(item, hopItems, quote, step, i)) continue;
         if (sameMint && hasInputMintRentReclaim(quote, mint)) continue;
         const accountSym = mintSymbolSync(accRentAccountMint(item));
@@ -2255,6 +2258,7 @@ function getQuotePayHeroTooltipStack(
 
 /** Acc-rent rows debited from wallet and not reclaimed via an input close in the same tx. */
 function countDeductedRentFeeItems(quote: Record<string, unknown>): number {
+  if (!shouldShowPayRentDeduction(quote)) return 0;
   const mint = quoteInputMint(quote);
   if (!mint) return 0;
   let count = 0;
@@ -2631,10 +2635,23 @@ export interface QuoteReceiveHeroReclaimItem {
   label: string;
 }
 
+/** SOL rent reclaim is already netted into the receive amount when output is SOL/WSOL. */
+function shouldShowReceiveRentReclaim(quote: Record<string, unknown>): boolean {
+  const outMint = quoteOutputMint(quote);
+  return Boolean(outMint) && !isSolMint(outMint);
+}
+
+/** Acc-rent debits are already netted into the sell amount when input is SOL/WSOL. */
+function shouldShowPayRentDeduction(quote: Record<string, unknown>): boolean {
+  const inMint = quoteInputMint(quote);
+  return Boolean(inMint) && !isSolMint(inMint);
+}
+
 /** Input ATA rent returned to wallet (shown on You receive, not You pay). */
 export function getQuoteReceiveHeroReclaimStack(
   quote: Record<string, unknown>,
 ): QuoteReceiveHeroReclaimItem[] {
+  if (!shouldShowReceiveRentReclaim(quote)) return [];
   const out: QuoteReceiveHeroReclaimItem[] = [];
   for (const entry of getEffectiveWalletTokenAccountCloses(quote)) {
     if (entry.category !== 'input') continue;
@@ -3207,10 +3224,11 @@ export function renderQuoteReceiveHeroSubHtml(
 export function getQuoteYouReceiveSubLabel(quote: Record<string, unknown>): string | null {
   const enriched = quote._youReceive as { reclaimUsd?: number } | undefined;
   const receiveUsd = deps.getQuoteReceiveUsd(quote);
-  const reclaimUsd =
-    enriched && Number.isFinite(enriched.reclaimUsd)
+  const reclaimUsd = shouldShowReceiveRentReclaim(quote)
+    ? enriched && Number.isFinite(enriched.reclaimUsd)
       ? Number(enriched.reclaimUsd)
-      : sumInputQuoteRentReclaimUsd(quote);
+      : sumInputQuoteRentReclaimUsd(quote)
+    : 0;
   if (receiveUsd == null && reclaimUsd <= 0) return null;
   let valuePart = '';
   if (receiveUsd != null && receiveUsd > 0) {
@@ -6842,6 +6860,7 @@ function collectSignConfirmReceiveRows(quote: Record<string, unknown>): SignConf
 }
 
 function getSignConfirmReceiveBonusLines(quote: Record<string, unknown>): QuoteReceiveHeroReclaimItem[] {
+  if (!shouldShowReceiveRentReclaim(quote)) return [];
   const seen = new Set<string>();
   const items: QuoteReceiveHeroReclaimItem[] = [];
   for (const entry of getEffectiveWalletTokenAccountCloses(quote)) {
@@ -6930,15 +6949,22 @@ interface SignConfirmBalanceRow {
   mint: string;
 }
 
+/** Wallet SOL/token debit for sign-confirm — matches Phantom (swap + same-mint costs incl. rent). */
+function getSignConfirmSellDebitUi(quote: Record<string, unknown>, sellMint: string): number | null {
+  const walletPayUi = quoteWalletPayUi(quote, sellMint);
+  if (walletPayUi != null && walletPayUi > 0) return walletPayUi;
+  return quoteInAmountUi(quote, sellMint);
+}
+
 function collectSignConfirmBalanceRows(quote: Record<string, unknown>): SignConfirmBalanceRow[] {
   const sellSym = deps.getSwapInSym();
   const sellMint = quoteInputMint(quote);
   const rows: SignConfirmBalanceRow[] = [];
-  const swapUi = quoteInAmountUi(quote, sellMint ?? '');
-  if (swapUi != null && swapUi > 0 && sellMint) {
-    rows.push({ ui: -swapUi, sym: sellSym, mint: sellMint });
+  const debitUi = sellMint ? getSignConfirmSellDebitUi(quote, sellMint) : null;
+  if (debitUi != null && debitUi > 0 && sellMint) {
+    rows.push({ ui: -debitUi, sym: sellSym, mint: sellMint });
   } else {
-    const swapLabel = getQuoteSwapLegLabelFromQuote(quote);
+    const swapLabel = getQuoteWalletPayLabelFromQuote(quote);
     if (swapLabel !== '—' && sellMint) {
       const parsed = Number.parseFloat(swapLabel.replace(/,/g, ''));
       if (Number.isFinite(parsed) && parsed > 0) {
@@ -6946,6 +6972,7 @@ function collectSignConfirmBalanceRows(quote: Record<string, unknown>): SignConf
       }
     }
   }
+  // Extra rent row only for non-SOL sells (SOL rent is included in wallet pay debit above).
   for (const row of getQuotePayHeroCostStack(quote, sellSym)) {
     if (row.kind === 'rent' && row.ui > 0) {
       rows.push({ ui: -row.ui, sym: row.sym, mint: row.mint });
@@ -7029,10 +7056,9 @@ function renderSignConfirmRouteDetailRows(
 
   return plan.map((step, index) => {
     const label = step.swapInfo?.label?.trim() || 'DEX';
-    const isLast = index === plan.length - 1;
     return {
       label: `Hop ${index + 1}`,
-      valueHtml: hopValueHtml(label, isLast),
+      valueHtml: hopValueHtml(label, true),
     };
   });
 }
