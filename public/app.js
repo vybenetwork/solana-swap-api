@@ -22655,6 +22655,11 @@ function renderRouteOptionCard(route, selectedIndex, displayRank, highlight, sho
 function renderRouteOptionsPanel() {
   const el = deps.dom.swapRouteOptionsEl;
   if (!el) return;
+  if (!deps.swapRouteOptionsPanelActive()) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
   const state = deps.getEnumeratedRoutesState();
   if (!state || state.routes.length === 0) {
     if (deps.swapRouteOptionsPanelActive()) {
@@ -26288,6 +26293,7 @@ function updateRouteDiagramTitle(quote) {
   applyTitle(deps.dom.routingDialogTitleEl);
 }
 function renderRoutePanels(quote) {
+  if (!deps.swapRouteOptionsPanelActive()) return;
   updateRouteDiagramTitle(quote);
   renderRouteOptionsPanel();
   mountRoutingDiagram(deps.dom.swapQuoteDetailsRoutingEl, renderRoutingDiagram(quote));
@@ -27407,6 +27413,7 @@ var swapQuoteFetching = false;
 var swapQuoteWalletSnapshot = "";
 var swapQuoteBuildOptsStale = false;
 var lastSwapQuoteBuildOptsKey = null;
+var vybeRouterQuoteCache = null;
 function renderLoadingSpinner(size = "sm") {
   return `<span class="inline-loading-spinner inline-loading-spinner--${size}" aria-hidden="true"></span>`;
 }
@@ -28428,6 +28435,7 @@ function resetSwapQuoteToMock() {
   lastRawSwapResponse = null;
   enumeratedRoutesUiState = null;
   lastVybeQuoteBodyForRoutes = null;
+  vybeRouterQuoteCache = null;
   clearSwapQuoteBuildOptsTracking();
   swapQuoteWalletSnapshot = "";
   if (swapBuildBtn) syncBuildButtonState();
@@ -28463,8 +28471,92 @@ function hasStaleSwapQuoteState() {
 }
 function invalidateSwapQuoteAfterInputChange() {
   if (swapQuoteFetching) return;
+  vybeRouterQuoteCache = null;
   if (!hasStaleSwapQuoteState()) return;
   resetSwapQuoteToMock();
+}
+function vybeRouteDiscoveryUiVisible() {
+  return normalizeRouterId(getSwapRouter()) === "vybe";
+}
+function currentSwapQuoteRestoreContextKey() {
+  const wallet = swapWalletAddressInput?.value.trim() ?? "";
+  const inputMint = swapInputMintInput?.value.trim() ?? "";
+  const outputMint = swapOutputMintInput?.value.trim() ?? "";
+  const amount = parseSwapAmountInputValue(swapAmountInput?.value ?? "");
+  if (!wallet || !inputMint || !outputMint || !Number.isFinite(amount) || amount <= 0) return null;
+  const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : void 0;
+  return JSON.stringify({
+    wallet,
+    inputMint,
+    outputMint,
+    amount,
+    pin: isSwapRoutePinMode(),
+    poolAddress: isSwapRoutePinMode() ? swapPoolAddressInput?.value.trim() ?? "" : "",
+    protocol: isSwapRoutePinMode() ? swapProtocolSelect?.value.trim() ?? "" : "",
+    opts: {
+      slippage: Number.isFinite(slippage) ? slippage : void 0,
+      gasless: swapGaslessCheckbox?.checked === true,
+      autoCalculateSlippage: swapAutoSlippageCheckbox?.checked === true,
+      partner: swapEnablePartnerCheckbox?.checked === true ? swapPartnerInput?.value.trim() || void 0 : void 0,
+      swapFee: resolveSwapServiceFeePct(),
+      marketFetchMode: swapMarketFetchModeSelect?.value.trim() || "full",
+      enumerateRoutes: swapEnumerateRoutesCheckbox?.checked !== false
+    }
+  });
+}
+function hideVybeRouteDiscoveryPanels() {
+  if (swapRouteOptionsEl) {
+    swapRouteOptionsEl.hidden = true;
+    swapRouteOptionsEl.innerHTML = "";
+  }
+  clearRoutingDiagram(swapQuoteDetailsRoutingEl);
+  mountRoutingDiagram(swapQuoteDetailsRoutingEl, renderRoutingDiagramPlaceholder(false));
+  if (swapQuoteDetailsRouteStepsEl) {
+    swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(false);
+  }
+  clearRoutingDiagram(routingDialogBodyEl);
+  syncRoutePlanStepsUi();
+}
+function snapshotVybeRouterQuoteForRouterSwitch() {
+  if (!lastSwapQuoteOk) {
+    vybeRouterQuoteCache = null;
+    return;
+  }
+  const contextKey = currentSwapQuoteRestoreContextKey();
+  if (!contextKey) return;
+  vybeRouterQuoteCache = {
+    contextKey,
+    enumeratedRoutesUiState,
+    lastVybeQuoteBodyForRoutes,
+    lastSwapQuoteOk,
+    lastRawQuoteResponse,
+    lastVybeBuild,
+    lastSwapQuoteBuildOptsKey,
+    swapQuoteBuildOptsStale,
+    swapQuoteWalletSnapshot
+  };
+}
+function restoreVybeRouterQuoteFromCache() {
+  if (!vybeRouterQuoteCache) return false;
+  const contextKey = currentSwapQuoteRestoreContextKey();
+  if (!contextKey || contextKey !== vybeRouterQuoteCache.contextKey) return false;
+  enumeratedRoutesUiState = vybeRouterQuoteCache.enumeratedRoutesUiState;
+  lastVybeQuoteBodyForRoutes = vybeRouterQuoteCache.lastVybeQuoteBodyForRoutes;
+  lastSwapQuoteOk = vybeRouterQuoteCache.lastSwapQuoteOk;
+  lastRawQuoteResponse = vybeRouterQuoteCache.lastRawQuoteResponse;
+  lastVybeBuild = vybeRouterQuoteCache.lastVybeBuild;
+  lastSwapQuoteBuildOptsKey = vybeRouterQuoteCache.lastSwapQuoteBuildOptsKey;
+  swapQuoteBuildOptsStale = vybeRouterQuoteCache.swapQuoteBuildOptsStale;
+  swapQuoteWalletSnapshot = vybeRouterQuoteCache.swapQuoteWalletSnapshot;
+  if ((!enumeratedRoutesUiState || !enumeratedRoutesUiState.routes.length) && lastVybeQuoteBodyForRoutes) {
+    syncEnumeratedRoutesFromBody(lastVybeQuoteBodyForRoutes);
+  }
+  renderSwapQuoteUI(lastSwapQuoteOk);
+  renderRouteOptionsPanel();
+  renderRawResponsePanels();
+  if (swapBuildBtn) syncBuildButtonState();
+  syncSwapBuildResultFromQuote();
+  return true;
 }
 function quoteAffectingBuildOptsSnapshot(buildOpts) {
   return {
@@ -29795,10 +29887,29 @@ function setSwapRouter(router, options) {
     btn.setAttribute("aria-selected", active ? "true" : "false");
   }
   if (normalized !== prev && options?.invalidateQuote !== false) {
-    invalidateSwapQuoteAfterInputChange();
+    const leavingVybe = prev === "vybe" && (normalized === "jupiter" || normalized === "titan");
+    const returningToVybe = normalized === "vybe" && (prev === "jupiter" || prev === "titan");
+    const aggregatorSwitch = (prev === "jupiter" || prev === "titan") && (normalized === "jupiter" || normalized === "titan");
+    if (leavingVybe) {
+      snapshotVybeRouterQuoteForRouterSwitch();
+      enumeratedRoutesUiState = null;
+      lastVybeQuoteBodyForRoutes = null;
+      hideVybeRouteDiscoveryPanels();
+      if (lastSwapQuoteOk) renderSwapQuoteUI(lastSwapQuoteOk);
+    } else if (returningToVybe) {
+      if (!restoreVybeRouterQuoteFromCache() && hasStaleSwapQuoteState()) {
+        invalidateSwapQuoteAfterInputChange();
+      }
+    } else if (aggregatorSwitch) {
+      hideVybeRouteDiscoveryPanels();
+    } else {
+      vybeRouterQuoteCache = null;
+      invalidateSwapQuoteAfterInputChange();
+    }
   }
   syncRouterFallbackToggleUi();
   syncSwapAmountMaxFromBalance();
+  syncSwapQuoteButtonState();
 }
 function isRouterFallbackEnabled() {
   return swapVybeFallbackCheckbox?.checked === true;
@@ -30282,7 +30393,11 @@ function renderSwapQuoteDetailsPanel(quote) {
     swapQuoteSummaryEl.innerHTML = renderQuoteSummary(quote);
     swapQuoteSummaryEl.hidden = false;
   }
-  renderRoutePanels(quote);
+  if (vybeRouteDiscoveryUiVisible()) {
+    renderRoutePanels(quote);
+  } else {
+    hideVybeRouteDiscoveryPanels();
+  }
   if (swapQuoteDetailsFieldsEl) swapQuoteDetailsFieldsEl.innerHTML = renderQuoteFieldsTable(quote);
   renderRawResponsePanels();
 }
@@ -30485,7 +30600,11 @@ function renderSwapQuoteUI(quote) {
   }
   const plan = Array.isArray(quote.routePlan) ? quote.routePlan : [];
   setRouteChipLabel(formatRouteChipLabel(plan), plan.length === 0);
-  mountRoutingDiagram(routingDialogBodyEl, renderRoutingDiagram(quote));
+  if (vybeRouteDiscoveryUiVisible()) {
+    mountRoutingDiagram(routingDialogBodyEl, renderRoutingDiagram(quote));
+  } else {
+    clearRoutingDiagram(routingDialogBodyEl);
+  }
   renderSwapQuoteDetailsPanel(quote);
   syncSwapRouteWarnings(quote);
   updateSwapPairCards();
@@ -30640,11 +30759,11 @@ function vybeMarketDiscoveryActive() {
   return getSwapRouter() === "vybe" && !isSwapRoutePinMode();
 }
 function swapRouteOptionsPanelActive() {
+  if (!vybeRouteDiscoveryUiVisible()) return false;
   if (isSwapRoutePinMode()) {
     return Boolean(enumeratedRoutesUiState?.routes.length);
   }
-  const router = normalizeRouterId(getSwapRouter());
-  return router === "vybe" || router === "jupiter" || router === "titan";
+  return true;
 }
 function collectSwapBuildOptions() {
   const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : void 0;
@@ -30964,6 +31083,7 @@ function selectEnumeratedRoute(index) {
 }
 function applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, buildOpts) {
   if (!swapQuoteFetching) return;
+  vybeRouterQuoteCache = null;
   if (body._tokenStats) {
     for (const [mint, s] of Object.entries(body._tokenStats)) {
       saveTokenPriceStats(mint, s);
@@ -32490,7 +32610,9 @@ swapRouterSwitchEl?.addEventListener("click", (e) => {
   if (!btn?.dataset.router) return;
   setSwapRouter(btn.dataset.router);
 });
-swapVybeFallbackCheckbox?.addEventListener("change", invalidateSwapQuoteAfterInputChange);
+swapVybeFallbackCheckbox?.addEventListener("change", () => {
+  syncSwapQuoteButtonState();
+});
 syncRouterFallbackToggleUi();
 swapConnectWalletBtn?.addEventListener("click", () => {
   if (walletConnectLoading || swapConnectWalletBtn.disabled) return;

@@ -458,6 +458,11 @@ function renderRouteOptionCard(
 export function renderRouteOptionsPanel(): void {
   const el = deps.dom.swapRouteOptionsEl;
   if (!el) return;
+  if (!deps.swapRouteOptionsPanelActive()) {
+    el.hidden = true;
+    el.innerHTML = '';
+    return;
+  }
   const state = deps.getEnumeratedRoutesState();
   if (!state || state.routes.length === 0) {
     if (deps.swapRouteOptionsPanelActive()) {
@@ -6216,6 +6221,7 @@ export function updateRouteDiagramTitle(quote: Record<string, unknown>): void {
   applyTitle(deps.dom.routingDialogTitleEl);
 }
 export function renderRoutePanels(quote: Record<string, unknown>): void {
+  if (!deps.swapRouteOptionsPanelActive()) return;
   updateRouteDiagramTitle(quote);
   renderRouteOptionsPanel();
   mountRoutingDiagram(deps.dom.swapQuoteDetailsRoutingEl, renderRoutingDiagram(quote));
