@@ -6924,7 +6924,8 @@ function formatSignConfirmBalanceAmount(ui: number, mint: string, sym: string): 
   return `${prefix}${amt} ${displaySym}`;
 }
 
-function renderSignConfirmBalanceRowHtml(mint: string, sym: string, signedUi: number): string {
+function renderSignConfirmBalanceRowHtml(row: SignConfirmBalanceRow): string {
+  const { mint, sym, ui: signedUi } = row;
   const tone = signedUi < 0 ? 'neg' : 'pos';
   const iconMint = isSolMint(mint) ? NATIVE_SOL_MINT : mint;
   return `<div class="swap-sign-dialog__card-row">
@@ -6949,6 +6950,30 @@ interface SignConfirmBalanceRow {
   mint: string;
 }
 
+interface SignConfirmHopBalanceGroup {
+  hopLabel: string;
+  routeHtml: string;
+  rows: SignConfirmBalanceRow[];
+}
+
+function signConfirmDisplayMint(mint: string): string {
+  return isSolMint(mint) ? NATIVE_SOL_MINT : mint;
+}
+
+function signConfirmDisplaySym(mint: string, sym: string): string {
+  return isSolMint(mint) ? 'SOL' : sym;
+}
+
+function pushSignConfirmBalanceRow(
+  rows: SignConfirmBalanceRow[],
+  ui: number,
+  mint: string,
+  sym: string,
+): void {
+  const displayMint = signConfirmDisplayMint(mint);
+  rows.push({ ui, mint: displayMint, sym: signConfirmDisplaySym(mint, sym) });
+}
+
 /** Wallet SOL/token debit for sign-confirm — matches Phantom (swap + same-mint costs incl. rent). */
 function getSignConfirmSellDebitUi(quote: Record<string, unknown>, sellMint: string): number | null {
   const walletPayUi = quoteWalletPayUi(quote, sellMint);
@@ -6956,7 +6981,91 @@ function getSignConfirmSellDebitUi(quote: Record<string, unknown>, sellMint: str
   return quoteInAmountUi(quote, sellMint);
 }
 
+function collectSignConfirmHopBalanceGroups(
+  quote: Record<string, unknown>,
+  plan: VybeRoutePlanStepLite[],
+): SignConfirmHopBalanceGroup[] {
+  const router = quoteRouterBrand(quote);
+  const viaBadge = renderViaRouterBadge(router);
+  const sellSym = deps.getSwapInSym();
+  const sellMint = quoteInputMint(quote);
+  const groups: SignConfirmHopBalanceGroup[] = [];
+
+  for (let i = 0; i < plan.length; i++) {
+    const step = plan[i]!;
+    const isLastHop = i === plan.length - 1;
+    const dexLabel = step.swapInfo?.label?.trim() || 'DEX';
+    const routeHtml = `<div class="swap-sign-dialog__route-stack">${renderDexProgramLabel(dexLabel)}<span class="swap-sign-dialog__route-via">${viaBadge}</span></div>`;
+    const rows: SignConfirmBalanceRow[] = [];
+
+    if (i === 0 && sellMint) {
+      const debitUi = getSignConfirmSellDebitUi(quote, sellMint);
+      if (debitUi != null && debitUi > 0) {
+        pushSignConfirmBalanceRow(rows, -debitUi, sellMint, sellSym);
+      } else {
+        const swapLabel = getQuoteWalletPayLabelFromQuote(quote);
+        if (swapLabel !== '—') {
+          const parsed = Number.parseFloat(swapLabel.replace(/,/g, ''));
+          if (Number.isFinite(parsed) && parsed > 0) {
+            pushSignConfirmBalanceRow(rows, -parsed, sellMint, sellSym);
+          }
+        }
+      }
+    }
+
+    for (const item of hopAccRentDisplayItems(step, quote, i, isLastHop)) {
+      const ui = feeAmountToUi(item.amountRaw, item.mint);
+      if (ui == null || ui <= 0) continue;
+      const itemMint = String(item.mint ?? NATIVE_SOL_MINT).trim() || NATIVE_SOL_MINT;
+      const itemSym = mintSymbolSync(itemMint);
+
+      if (isAccRentWalletFeeItem(item)) {
+        if (!shouldShowPayRentDeduction(quote)) continue;
+        pushSignConfirmBalanceRow(rows, -ui, itemMint, itemSym);
+      } else if (isAccRentReclaimItem(item)) {
+        if (!shouldShowReceiveRentReclaim(quote)) continue;
+        pushSignConfirmBalanceRow(rows, ui, itemMint, itemSym);
+      }
+    }
+
+    if (isLastHop) {
+      const outSym = deps.getSwapOutSym();
+      const outMint = quoteOutputMint(quote);
+      const outUi = deps.quoteOutputUiAmount(quote);
+      if (outUi != null && outUi > 0 && outMint) {
+        pushSignConfirmBalanceRow(rows, outUi, outMint, outSym);
+      } else {
+        const outAmt = formatQuoteTokenAmount(quote, 'out');
+        if (outAmt.display !== '—' && outMint) {
+          const parsed = Number.parseFloat(outAmt.display.replace(/,/g, ''));
+          if (Number.isFinite(parsed) && parsed > 0) {
+            pushSignConfirmBalanceRow(rows, parsed, outMint, outSym);
+          }
+        }
+      }
+    }
+
+    if (rows.length > 0) {
+      groups.push({ hopLabel: `Hop ${i + 1}`, routeHtml, rows });
+    }
+  }
+
+  return groups;
+}
+
+function collectSignConfirmBalanceRowsMultiHop(
+  quote: Record<string, unknown>,
+  plan: VybeRoutePlanStepLite[],
+): SignConfirmBalanceRow[] {
+  return collectSignConfirmHopBalanceGroups(quote, plan).flatMap((g) => g.rows);
+}
+
 function collectSignConfirmBalanceRows(quote: Record<string, unknown>): SignConfirmBalanceRow[] {
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  if (plan.length > 1) {
+    return collectSignConfirmBalanceRowsMultiHop(quote, plan);
+  }
+
   const sellSym = deps.getSwapInSym();
   const sellMint = quoteInputMint(quote);
   const rows: SignConfirmBalanceRow[] = [];
@@ -6991,18 +7100,41 @@ function getSignConfirmPriorityFeeSolUi(
   return getQuotePriorityFeeSolUi(quote, buildPayload);
 }
 
-/** Phantom-style two-card summary: balance changes + network/route details. */
+/** Phantom-style summary: balance change card(s) + network details. */
 export function renderSignConfirmSummaryHtml(
   quote: Record<string, unknown>,
   buildPayload?: Record<string, unknown>,
 ): string {
-  const balanceRows = collectSignConfirmBalanceRows(quote);
+  const plan = Array.isArray(quote.routePlan) ? (quote.routePlan as VybeRoutePlanStepLite[]) : [];
+  const isMultiHop = plan.length > 1;
   const priorityFeeUi = getSignConfirmPriorityFeeSolUi(quote, buildPayload);
 
-  const balanceHtml =
-    balanceRows.length > 0
-      ? balanceRows.map((row) => renderSignConfirmBalanceRowHtml(row.mint, row.sym, row.ui)).join('')
-      : '<div class="swap-sign-dialog__card-row"><span class="swap-sign-dialog__card-label">—</span></div>';
+  let balanceCardsHtml: string;
+  if (isMultiHop) {
+    const hopGroups = collectSignConfirmHopBalanceGroups(quote, plan);
+    balanceCardsHtml = hopGroups
+      .map(
+        (group) => `<div class="swap-sign-dialog__hop-section">
+      <div class="swap-sign-dialog__hop-head">
+        <span class="swap-sign-dialog__hop-head-label">${deps.escapeHtml(group.hopLabel)}</span>
+        <span class="swap-sign-dialog__hop-head-route">${group.routeHtml}</span>
+      </div>
+      <div class="swap-sign-dialog__card">${group.rows.map((row) => renderSignConfirmBalanceRowHtml(row)).join('')}</div>
+    </div>`,
+      )
+      .join('');
+    if (!balanceCardsHtml) {
+      balanceCardsHtml =
+        '<div class="swap-sign-dialog__card"><div class="swap-sign-dialog__card-row"><span class="swap-sign-dialog__card-label">—</span></div></div>';
+    }
+  } else {
+    const balanceRows = collectSignConfirmBalanceRows(quote);
+    const balanceHtml =
+      balanceRows.length > 0
+        ? balanceRows.map((row) => renderSignConfirmBalanceRowHtml(row)).join('')
+        : '<div class="swap-sign-dialog__card-row"><span class="swap-sign-dialog__card-label">—</span></div>';
+    balanceCardsHtml = `<div class="swap-sign-dialog__card">${balanceHtml}</div>`;
+  }
 
   const detailRows: string[] = [
     renderSignConfirmDetailRowHtml(
@@ -7018,12 +7150,14 @@ export function renderSignConfirmSummaryHtml(
       ),
     );
   }
-  for (const routeRow of renderSignConfirmRouteDetailRows(quote, buildPayload)) {
-    detailRows.push(renderSignConfirmDetailRowHtml(routeRow.label, routeRow.valueHtml));
+  if (!isMultiHop) {
+    for (const routeRow of renderSignConfirmRouteDetailRows(quote, buildPayload)) {
+      detailRows.push(renderSignConfirmDetailRowHtml(routeRow.label, routeRow.valueHtml));
+    }
   }
 
   return `<div class="swap-sign-dialog__cards">
-    <div class="swap-sign-dialog__card">${balanceHtml}</div>
+    ${balanceCardsHtml}
     <div class="swap-sign-dialog__card">${detailRows.join('')}</div>
   </div>`;
 }

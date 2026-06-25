@@ -8428,6 +8428,37 @@ tr:hover td {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
 
+.swap-sign-dialog__hop-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.swap-sign-dialog__hop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.15rem;
+}
+
+.swap-sign-dialog__hop-head-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.swap-sign-dialog__hop-head-route {
+  min-width: 0;
+  font-size: 0.72rem;
+}
+
+.swap-sign-dialog__hop-head-route .swap-sign-dialog__route-stack {
+  justify-content: flex-end;
+}
+
 .swap-sign-dialog__card-left {
   display: inline-flex;
   align-items: center;
