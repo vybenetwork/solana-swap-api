@@ -32129,8 +32129,8 @@ async function runSwapSignDialogFlow(quote, buildPayload, txStrings) {
     confirmBuild = { ...confirmBuild, _txSizeBytes: txSizeBytes };
     confirmQuote = { ...confirmQuote, _txSizeBytes: txSizeBytes };
   }
-  swapSignRetryContext = { quote: confirmQuote, buildPayload: confirmBuild, txStrings };
   openSwapSignDialog(confirmQuote, confirmBuild);
+  swapSignRetryContext = { quote: confirmQuote, buildPayload: confirmBuild, txStrings };
   appendSwapSignLog("Preparing transaction\u2026", "neutral");
   try {
     await completeSwapSignFlow(generation, txStrings);
