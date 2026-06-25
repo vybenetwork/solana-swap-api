@@ -6126,7 +6126,7 @@ function setSignDialogRetryButtonsDisabled(disabled: boolean): void {
   if (swapSignConfirmRefetchRetryEl) swapSignConfirmRefetchRetryEl.disabled = disabled;
 }
 
-/** Failed sign dialog: Try Again while quote TTL active; Refetch & Try Again always (only button when expired). */
+/** Failed sign dialog: Retry while quote TTL active; Refetch & Retry always (only button when expired). */
 function syncSignDialogRetryButtons(visible: boolean): void {
   const expired = isBuildBtnQuoteExpired();
   if (swapSignConfirmRetryEl) {
