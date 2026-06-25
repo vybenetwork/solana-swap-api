@@ -9,9 +9,8 @@ dist/
 .DS_Store
 *.log
 
-# Frontend is built from src/frontend/*.ts
-public/app.js
-public/app.js.map
+# Frontend bundle — tracked so git-pull deploys (e.g. GCP) get UI updates without esbuild on server.
+# Rebuild after src/frontend changes: npm run build:frontend
 public/token-picker.js
 
 # Stray file
