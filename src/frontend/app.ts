@@ -11,6 +11,7 @@ import {
 } from '@solana/web3.js';
 import {
   computeSwapTxSizesBytes,
+  computeNetworkFeeLamportsFromSwapTxStrings,
   estimateNetworkFeeLamportsForSwapTxs,
 } from './swap-tx-network-fee.js';
 import {
@@ -6834,23 +6835,25 @@ async function runSwapSignDialogFlow(
   const generation = options?.generation ?? ++swapSignFlowGeneration;
   let confirmQuote = quote;
   let confirmBuild = buildPayload;
+  const txSizeBytes = computeSwapTxSizesBytes(txStrings);
+  let txNetworkFeeLamports = computeNetworkFeeLamportsFromSwapTxStrings(txStrings);
   try {
-    const txNetworkFeeLamports = await estimateNetworkFeeLamportsForSwapTxs(
+    const estimated = await estimateNetworkFeeLamportsForSwapTxs(
       getBrowserConnection(),
       txStrings,
     );
-    if (txNetworkFeeLamports) {
-      confirmBuild = { ...buildPayload, _txNetworkFeeLamports: txNetworkFeeLamports };
-      confirmQuote = {
-        ...applyFeeEnrichmentToQuote(quote, null, confirmBuild),
-        _txNetworkFeeLamports: txNetworkFeeLamports,
-        _networkFeeLamports: txNetworkFeeLamports,
-      };
-    }
+    if (estimated) txNetworkFeeLamports = estimated;
   } catch (err) {
     console.warn('Could not estimate swap network fee from tx:', err);
   }
-  const txSizeBytes = computeSwapTxSizesBytes(txStrings);
+  if (txNetworkFeeLamports) {
+    confirmBuild = { ...buildPayload, _txNetworkFeeLamports: txNetworkFeeLamports };
+    confirmQuote = {
+      ...applyFeeEnrichmentToQuote(quote, null, confirmBuild),
+      _txNetworkFeeLamports: txNetworkFeeLamports,
+      _networkFeeLamports: txNetworkFeeLamports,
+    };
+  }
   if (txSizeBytes.length > 0) {
     confirmBuild = { ...confirmBuild, _txSizeBytes: txSizeBytes };
     confirmQuote = { ...confirmQuote, _txSizeBytes: txSizeBytes };

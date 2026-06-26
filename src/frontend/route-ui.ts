@@ -3728,6 +3728,29 @@ function parseQuotePriorityFeeLamports(
   return null;
 }
 
+/** Built tx decode/sim only — quote-time enrichment estimates are not shown in sign-confirm. */
+function hasAuthoritativeSignConfirmNetworkFee(
+  quote: Record<string, unknown>,
+  buildPayload?: Record<string, unknown>,
+): boolean {
+  for (const raw of [quote._txNetworkFeeLamports, buildPayload?._txNetworkFeeLamports]) {
+    const digits = String(raw ?? '').trim().replace(/,/g, '');
+    if (/^\d+$/.test(digits) && digits !== '0') return true;
+  }
+  return false;
+}
+
+function parseAuthoritativeTxNetworkFeeLamports(
+  quote: Record<string, unknown>,
+  buildPayload?: Record<string, unknown>,
+): string | null {
+  for (const raw of [quote._txNetworkFeeLamports, buildPayload?._txNetworkFeeLamports]) {
+    const digits = String(raw ?? '').trim().replace(/,/g, '');
+    if (/^\d+$/.test(digits) && digits !== '0') return digits;
+  }
+  return null;
+}
+
 /** Authoritative priority / network fee in SOL — prefers ix-builder simulation lamports. */
 function getQuotePriorityFeeSolUi(
   quote: Record<string, unknown>,
@@ -7318,6 +7341,13 @@ function getSignConfirmPriorityFeeSolUi(
   quote: Record<string, unknown>,
   buildPayload?: Record<string, unknown>,
 ): number | null {
+  if (quoteRouterBrand(quote) === 'vybe') {
+    if (!hasAuthoritativeSignConfirmNetworkFee(quote, buildPayload)) return null;
+    const lamports = parseAuthoritativeTxNetworkFeeLamports(quote, buildPayload);
+    if (!lamports) return null;
+    const ui = deps.rawAmountToUiNumber(lamports, 9);
+    return Number.isFinite(ui) && ui > 0 ? ui : null;
+  }
   return getQuotePriorityFeeSolUi(quote, buildPayload);
 }
 
@@ -7363,11 +7393,14 @@ export function renderSignConfirmSummaryHtml(
       `<span class="swap-sign-dialog__card-value-inline">${renderSignConfirmTokenIcon(NATIVE_SOL_MINT)}<span>Solana</span></span>`,
     ),
   ];
-  if (priorityFeeUi != null && priorityFeeUi > 0) {
+  const isVybeSignConfirm = quoteRouterBrand(quote) === 'vybe';
+  if (isVybeSignConfirm || (priorityFeeUi != null && priorityFeeUi > 0)) {
     detailRows.push(
       renderSignConfirmDetailRowHtml(
         SIGN_CONFIRM_NETWORK_FEE_LABEL,
-        deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`),
+        priorityFeeUi != null && priorityFeeUi > 0
+          ? deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`)
+          : '—',
       ),
     );
   }

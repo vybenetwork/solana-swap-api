@@ -109,6 +109,36 @@ async function estimateNetworkFeeLamportsFromSimulation(
   return base + priority;
 }
 
+/** Decode network fee from tx wire bytes (no RPC). Same decode path as tx size. */
+export function computeNetworkFeeLamportsFromSwapTx(txString: string): string | null {
+  const trimmed = txString.trim();
+  if (!trimmed) return null;
+  try {
+    const vtx = decodeVersionedSwapTxFromBase64(trimmed);
+    const fee = computeNetworkFeeLamportsFromVersionedTx(vtx);
+    return fee > 0n ? fee.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Sum decoded network fees across quote-bridge legs (pre / main / post). */
+export function computeNetworkFeeLamportsFromSwapTxStrings(txStrings: string[]): string | null {
+  let total = 0n;
+  let found = false;
+  for (const tx of txStrings) {
+    const lamports = computeNetworkFeeLamportsFromSwapTx(tx);
+    if (!lamports) continue;
+    try {
+      total += BigInt(lamports);
+      found = true;
+    } catch {
+      /* skip */
+    }
+  }
+  return found ? total.toString() : null;
+}
+
 export async function estimateNetworkFeeLamportsForSwapTx(
   connection: Connection,
   txString: string,
@@ -122,9 +152,9 @@ export async function estimateNetworkFeeLamportsForSwapTx(
       return decoded.toString();
     }
     const estimated = await estimateNetworkFeeLamportsFromSimulation(connection, vtx);
-    return estimated > 0n ? estimated.toString() : null;
+    return estimated > 0n ? estimated.toString() : decoded > 0n ? decoded.toString() : null;
   } catch {
-    return null;
+    return computeNetworkFeeLamportsFromSwapTx(trimmed);
   }
 }
 

@@ -20507,6 +20507,31 @@ async function estimateNetworkFeeLamportsFromSimulation(connection, vtx) {
   const priority = (units * microLamports + 999999n) / 1000000n;
   return base + priority;
 }
+function computeNetworkFeeLamportsFromSwapTx(txString) {
+  const trimmed = txString.trim();
+  if (!trimmed) return null;
+  try {
+    const vtx = decodeVersionedSwapTxFromBase64(trimmed);
+    const fee = computeNetworkFeeLamportsFromVersionedTx(vtx);
+    return fee > 0n ? fee.toString() : null;
+  } catch {
+    return null;
+  }
+}
+function computeNetworkFeeLamportsFromSwapTxStrings(txStrings) {
+  let total = 0n;
+  let found = false;
+  for (const tx of txStrings) {
+    const lamports = computeNetworkFeeLamportsFromSwapTx(tx);
+    if (!lamports) continue;
+    try {
+      total += BigInt(lamports);
+      found = true;
+    } catch {
+    }
+  }
+  return found ? total.toString() : null;
+}
 async function estimateNetworkFeeLamportsForSwapTx(connection, txString) {
   const trimmed = txString.trim();
   if (!trimmed) return null;
@@ -20517,9 +20542,9 @@ async function estimateNetworkFeeLamportsForSwapTx(connection, txString) {
       return decoded.toString();
     }
     const estimated = await estimateNetworkFeeLamportsFromSimulation(connection, vtx);
-    return estimated > 0n ? estimated.toString() : null;
+    return estimated > 0n ? estimated.toString() : decoded > 0n ? decoded.toString() : null;
   } catch {
-    return null;
+    return computeNetworkFeeLamportsFromSwapTx(trimmed);
   }
 }
 function computeSwapTxSizeBytes(txString) {
@@ -24622,6 +24647,20 @@ function parseQuotePriorityFeeLamports(quote, buildPayload) {
   }
   return null;
 }
+function hasAuthoritativeSignConfirmNetworkFee(quote, buildPayload) {
+  for (const raw of [quote._txNetworkFeeLamports, buildPayload?._txNetworkFeeLamports]) {
+    const digits = String(raw ?? "").trim().replace(/,/g, "");
+    if (/^\d+$/.test(digits) && digits !== "0") return true;
+  }
+  return false;
+}
+function parseAuthoritativeTxNetworkFeeLamports(quote, buildPayload) {
+  for (const raw of [quote._txNetworkFeeLamports, buildPayload?._txNetworkFeeLamports]) {
+    const digits = String(raw ?? "").trim().replace(/,/g, "");
+    if (/^\d+$/.test(digits) && digits !== "0") return digits;
+  }
+  return null;
+}
 function getQuotePriorityFeeSolUi(quote, buildPayload) {
   const lamports = parseQuotePriorityFeeLamports(quote, buildPayload);
   if (lamports) {
@@ -27112,6 +27151,13 @@ function collectSignConfirmBalanceRows(quote) {
   return rows;
 }
 function getSignConfirmPriorityFeeSolUi(quote, buildPayload) {
+  if (quoteRouterBrand(quote) === "vybe") {
+    if (!hasAuthoritativeSignConfirmNetworkFee(quote, buildPayload)) return null;
+    const lamports = parseAuthoritativeTxNetworkFeeLamports(quote, buildPayload);
+    if (!lamports) return null;
+    const ui = deps.rawAmountToUiNumber(lamports, 9);
+    return Number.isFinite(ui) && ui > 0 ? ui : null;
+  }
   return getQuotePriorityFeeSolUi(quote, buildPayload);
 }
 function renderSignConfirmSummaryHtml(quote, buildPayload) {
@@ -27144,11 +27190,12 @@ function renderSignConfirmSummaryHtml(quote, buildPayload) {
       `<span class="swap-sign-dialog__card-value-inline">${renderSignConfirmTokenIcon(NATIVE_SOL_MINT)}<span>Solana</span></span>`
     )
   ];
-  if (priorityFeeUi != null && priorityFeeUi > 0) {
+  const isVybeSignConfirm = quoteRouterBrand(quote) === "vybe";
+  if (isVybeSignConfirm || priorityFeeUi != null && priorityFeeUi > 0) {
     detailRows.push(
       renderSignConfirmDetailRowHtml(
         SIGN_CONFIRM_NETWORK_FEE_LABEL,
-        deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`)
+        priorityFeeUi != null && priorityFeeUi > 0 ? deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`) : "\u2014"
       )
     );
   }
@@ -32492,23 +32539,25 @@ async function runSwapSignDialogFlow(quote, buildPayload, txStrings, options) {
   const generation = options?.generation ?? ++swapSignFlowGeneration;
   let confirmQuote = quote;
   let confirmBuild = buildPayload;
+  const txSizeBytes = computeSwapTxSizesBytes(txStrings);
+  let txNetworkFeeLamports = computeNetworkFeeLamportsFromSwapTxStrings(txStrings);
   try {
-    const txNetworkFeeLamports = await estimateNetworkFeeLamportsForSwapTxs(
+    const estimated = await estimateNetworkFeeLamportsForSwapTxs(
       getBrowserConnection(),
       txStrings
     );
-    if (txNetworkFeeLamports) {
-      confirmBuild = { ...buildPayload, _txNetworkFeeLamports: txNetworkFeeLamports };
-      confirmQuote = {
-        ...applyFeeEnrichmentToQuote(quote, null, confirmBuild),
-        _txNetworkFeeLamports: txNetworkFeeLamports,
-        _networkFeeLamports: txNetworkFeeLamports
-      };
-    }
+    if (estimated) txNetworkFeeLamports = estimated;
   } catch (err) {
     console.warn("Could not estimate swap network fee from tx:", err);
   }
-  const txSizeBytes = computeSwapTxSizesBytes(txStrings);
+  if (txNetworkFeeLamports) {
+    confirmBuild = { ...buildPayload, _txNetworkFeeLamports: txNetworkFeeLamports };
+    confirmQuote = {
+      ...applyFeeEnrichmentToQuote(quote, null, confirmBuild),
+      _txNetworkFeeLamports: txNetworkFeeLamports,
+      _networkFeeLamports: txNetworkFeeLamports
+    };
+  }
   if (txSizeBytes.length > 0) {
     confirmBuild = { ...confirmBuild, _txSizeBytes: txSizeBytes };
     confirmQuote = { ...confirmQuote, _txSizeBytes: txSizeBytes };
