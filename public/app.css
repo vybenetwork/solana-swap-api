@@ -1839,6 +1839,8 @@ tr:hover td {
     border-color 0.14s ease,
     box-shadow 0.14s ease,
     transform 0.12s ease;
+  min-height: 178px;
+  max-height: 178px;
 }
 
 .swap-route-option:hover:not(.swap-route-option--disabled) {
@@ -2410,6 +2412,8 @@ tr:hover td {
   padding: 0.75rem 0.85rem;
   background: #12121a;
   border: 1px solid #33333d;
+  min-height: 103px;
+  max-height: 103px;
 }
 
 .swap-quote-summary-tile--pay,
@@ -7003,6 +7007,8 @@ tr:hover td {
   align-items: center;
   column-gap: 0.45rem;
   row-gap: 0.35rem;
+  min-height: 43px;
+  max-height: 43px;
 }
 
 .swap-build-toggles-row .swap-toggle-row--expandable .swap-toggle-row__text {
@@ -8174,8 +8180,9 @@ tr:hover td {
   border: 1px solid #2e2e38;
   border-radius: 16px;
   padding: 0.85rem 0.9rem;
-  min-height: 0;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  min-height: 95px;
+  max-height: 95px;
 }
 
 .swap-pair-card--sell,
