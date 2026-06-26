@@ -249,10 +249,10 @@
                 <button type="button" class="swap-mode-switch__btn" id="swapRouterJupiter" role="tab" aria-selected="false" data-router="jupiter"><img class="swap-router-switch__icon swap-router-switch__icon--jupiter" src="/images/jupiter-logo.png" alt="" width="18" height="18" decoding="async" />Jupiter</button>
                 <button type="button" class="swap-mode-switch__btn" id="swapRouterTitan" role="tab" aria-selected="false" data-router="titan"><img class="swap-router-switch__icon swap-router-switch__icon--titan" src="/images/titan-logo.png" alt="" width="18" height="18" decoding="async" />Titan</button>
               </div>
-              <div class="swap-router-fallback-row" id="swapVybeFallbackRow">
+              <div class="swap-router-fallback-row swap-router-fallback-row--locked" id="swapVybeFallbackRow">
                 <span class="swap-router-fallback-row__label" id="swapRouterFallbackLabel">Fallback to Jupiter or Titan if Vybe cannot find routes</span>
-                <label class="swap-pill-switch" id="swapRouterFallbackSwitch" title="Fallback to Jupiter or Titan when Vybe has no route">
-                  <input type="checkbox" id="swapVybeFallback" class="swap-pill-switch__input" checked />
+                <label class="swap-pill-switch swap-router-fallback-row--locked" id="swapRouterFallbackSwitch" title="Router fallback is enabled">
+                  <input type="checkbox" id="swapVybeFallback" class="swap-pill-switch__input" checked disabled />
                   <span class="swap-pill-switch__track" aria-hidden="true"><span class="swap-pill-switch__thumb"></span></span>
                 </label>
               </div>
