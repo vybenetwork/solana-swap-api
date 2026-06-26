@@ -8569,23 +8569,57 @@ tr:hover td {
   min-width: 0;
 }
 
+.swap-sign-dialog__logs-shell {
+  margin-bottom: 1rem;
+  min-height: 150px;
+  max-height: 150px;
+  background: #050506;
+  border: 1px solid #27272a;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.swap-sign-dialog__logs-shell:has(.swap-sign-dialog__logs:empty) {
+  display: none;
+}
+
 .swap-sign-dialog__logs {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-  max-height: 9.5rem;
-  overflow-y: auto;
-  margin-bottom: 1rem;
-  padding: 0.65rem 0.75rem;
+  box-sizing: border-box;
+  height: 100%;
+  min-height: 150px;
+  max-height: 150px;
+  overflow: auto;
+  padding: 0.65rem 0.55rem 0.65rem 0.75rem;
   background: #050506;
-  border: 1px solid #27272a;
-  border-radius: 12px;
+  border: none;
+  border-radius: 0;
   font-size: 0.74rem;
   line-height: 1.4;
+  scrollbar-width: thin;
+  scrollbar-color: #52525b transparent;
 }
 
-.swap-sign-dialog__logs:empty {
-  display: none;
+.swap-sign-dialog__logs::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.swap-sign-dialog__logs::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.swap-sign-dialog__logs::-webkit-scrollbar-thumb {
+  background-color: #52525b;
+  border-radius: 999px;
+  border: 2px solid #050506;
+  background-clip: padding-box;
+}
+
+.swap-sign-dialog__logs::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 .swap-sign-dialog__log {
@@ -8593,6 +8627,8 @@ tr:hover td {
   align-items: flex-start;
   gap: 0.45rem;
   color: #a1a1aa;
+  white-space: nowrap;
+  min-width: min-content;
 }
 
 .swap-sign-dialog__log::before {
