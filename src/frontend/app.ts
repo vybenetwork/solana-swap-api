@@ -189,7 +189,7 @@ const STABLECOIN_USD_FALLBACK_MINTS: ReadonlySet<string> = new Set([
 const STABLECOIN_USD_FALLBACK_PRICE = 1;
 
 /** Default slippage tolerance percent (matches #swapSlippage input). */
-const DEFAULT_SWAP_SLIPPAGE_PCT = 20;
+const DEFAULT_SWAP_SLIPPAGE_PCT = 5;
 
 /** Default sell-amount percent for SOL and stablecoins when auto-filling from wallet balance. */
 const DEFAULT_SOL_STABLE_SELL_AMOUNT_PERCENT = 25;
