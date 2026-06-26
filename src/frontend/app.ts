@@ -1857,8 +1857,15 @@ function markSwapQuoteBuildOptsStale(): void {
   syncBuildButtonState();
 }
 
+function canUseCachedRouteBuildWithoutRefetch(): boolean {
+  if (isBuildBtnQuoteExpired()) return false;
+  if (swapQuoteBuildOptsStale) return false;
+  return tryCachedVybeBuildTxForSelectedRoute() != null;
+}
+
 function needsQuoteRefetchBeforeBuild(): boolean {
   if (!lastSwapQuoteOk) return false;
+  if (canUseCachedRouteBuildWithoutRefetch()) return false;
   if (swapQuoteBuildOptsStale) return true;
   const key = currentSwapQuoteTrackingKey();
   if (!key || !lastSwapQuoteBuildOptsKey) return false;
@@ -1902,6 +1909,19 @@ async function refetchSwapQuoteBeforeBuild(
 
 function onSwapBuildOptionChanged(): void {
   markSwapQuoteBuildOptsStale();
+  syncSwapQuoteButtonState();
+}
+
+function onEnumerateRoutesChanged(): void {
+  if (swapEnumerateRoutesCheckbox?.checked === false) {
+    if (!swapQuoteBuildOptsStale && tryCachedVybeBuildTxForSelectedRoute()) {
+      rememberSwapQuoteBuildOptsKey();
+    } else {
+      markSwapQuoteBuildOptsStale();
+    }
+  } else {
+    markSwapQuoteBuildOptsStale();
+  }
   syncSwapQuoteButtonState();
 }
 
@@ -4901,6 +4921,36 @@ function programAddressFromQuoteBody(body: Record<string, unknown>): string {
   return String(body.programAddress ?? build?.programAddress ?? '').trim();
 }
 
+function enrichTradeCandidateFromBody(
+  base: NonNullable<EnumeratedRoutesUiState['routes'][0]['candidate']>,
+  body: Record<string, unknown>,
+): EnumeratedRoutesUiState['routes'][0]['candidate'] {
+  const fromPlan = tradeCandidateFromRoutePlan(body);
+  const build = body._build as Record<string, unknown> | undefined;
+  const protocolRaw = body.protocol ?? build?.protocol;
+  const programAddress =
+    base.programAddress?.trim() ||
+    programAddressFromQuoteBody(body) ||
+    fromPlan?.programAddress?.trim() ||
+    '';
+  const protocol =
+    base.protocol?.trim() ||
+    (typeof protocolRaw === 'string' ? protocolRaw.trim() : '') ||
+    (programAddress ? PIN_ROUTE_PROGRAM_TO_PROTOCOL[programAddress] : '') ||
+    undefined;
+  const programLabel =
+    base.programLabel?.trim() ||
+    fromPlan?.programLabel?.trim() ||
+    undefined;
+  return {
+    ...base,
+    marketAddress: base.marketAddress?.trim() || poolAddressFromQuoteBody(body) || fromPlan?.marketAddress || '',
+    programAddress,
+    protocol,
+    programLabel,
+  };
+}
+
 function tradeCandidateFromRoutePlan(
   body: Record<string, unknown>,
 ): EnumeratedRoutesUiState['routes'][0]['candidate'] | null {
@@ -4968,38 +5018,41 @@ function tradeCandidateFromActiveQuote(
     const marketAddress = String(selected.marketAddress ?? '').trim();
     const programAddress = String(selected.programAddress ?? '').trim();
     if (marketAddress || programAddress) {
-      return {
-        marketAddress: marketAddress || poolAddressFromQuoteBody(body),
-        programAddress: programAddress || programAddressFromQuoteBody(body),
-        protocol: typeof selected.protocol === 'string' ? selected.protocol : undefined,
-        tradeCount: Number(selected.tradeCount ?? 0),
-        buyCount: Number(selected.buyCount ?? 0),
-        sellCount: Number(selected.sellCount ?? 0),
-        programLabel:
-          typeof selected.programLabel === 'string' ? selected.programLabel.trim() || undefined : undefined,
-        liquidity:
-          selected.liquidity != null &&
-          Number.isFinite(Number(selected.liquidity)) &&
-          Number(selected.liquidity) > 0 &&
-          Number(selected.liquidity) <= 10_000_000_000
-            ? Number(selected.liquidity)
-            : undefined,
-      };
+      return enrichTradeCandidateFromBody(
+        {
+          marketAddress: marketAddress || poolAddressFromQuoteBody(body),
+          programAddress: programAddress || programAddressFromQuoteBody(body),
+          protocol: typeof selected.protocol === 'string' ? selected.protocol : undefined,
+          tradeCount: Number(selected.tradeCount ?? 0),
+          buyCount: Number(selected.buyCount ?? 0),
+          sellCount: Number(selected.sellCount ?? 0),
+          programLabel:
+            typeof selected.programLabel === 'string' ? selected.programLabel.trim() || undefined : undefined,
+          liquidity:
+            selected.liquidity != null &&
+            Number.isFinite(Number(selected.liquidity)) &&
+            Number(selected.liquidity) > 0 &&
+            Number(selected.liquidity) <= 10_000_000_000
+              ? Number(selected.liquidity)
+              : undefined,
+        },
+        body,
+      );
     }
   }
   const marketAddress = poolAddressFromQuoteBody(body);
   const programAddress = programAddressFromQuoteBody(body);
   if (marketAddress || programAddress) {
-    const build = body._build as Record<string, unknown> | undefined;
-    const protocolRaw = body.protocol ?? build?.protocol;
-    return {
-      marketAddress,
-      programAddress,
-      protocol: typeof protocolRaw === 'string' ? protocolRaw : undefined,
-      tradeCount: 0,
-    buyCount: 0,
-    sellCount: 0,
-    };
+    return enrichTradeCandidateFromBody(
+      {
+        marketAddress,
+        programAddress,
+        tradeCount: 0,
+        buyCount: 0,
+        sellCount: 0,
+      },
+      body,
+    );
   }
   return tradeCandidateFromRoutePlan(body) ?? tradeCandidateFromRouterOnly(body);
 }
@@ -5049,13 +5102,14 @@ function mergePinnedRouteCandidateForRefetch(
   prev: EnumeratedRoutesUiState['routes'][0]['candidate'] | undefined,
   next: EnumeratedRoutesUiState['routes'][0]['candidate'] | null,
   liquidityFromBody: number | undefined,
+  body?: Record<string, unknown>,
 ): EnumeratedRoutesUiState['routes'][0]['candidate'] | undefined {
   if (!prev && !next) return undefined;
   const liquidity =
     liquidityFromBody != null && Number.isFinite(liquidityFromBody) && liquidityFromBody > 0
       ? liquidityFromBody
       : prev?.liquidity ?? next?.liquidity;
-  return {
+  const merged = {
     ...(prev ?? {}),
     ...(next ?? {}),
     marketAddress: prev?.marketAddress?.trim() || next?.marketAddress || '',
@@ -5067,6 +5121,8 @@ function mergePinnedRouteCandidateForRefetch(
     sellCount: prev?.sellCount ?? next?.sellCount ?? 0,
     ...(liquidity != null ? { liquidity } : {}),
   };
+  if (!body) return merged;
+  return enrichTradeCandidateFromBody(merged, body);
 }
 
 /** Keep discovery liquidity/impact on market cards; refresh output amounts from the refetch. */
@@ -5109,6 +5165,7 @@ function mergePinnedRouteQuoteIntoEnumeratedRoutes(body: Record<string, unknown>
     prevRoute.candidate,
     newCandidate,
     liquidityFromBody,
+    body,
   );
   const updatedQuote = mergePinnedRouteCardQuoteForRefetch(prevRoute.quote ?? {}, newQuote);
 
@@ -7267,7 +7324,7 @@ swapProtocolSelect?.addEventListener('change', () => {
   syncSwapQuoteButtonState();
 });
 swapMarketFetchModeSelect?.addEventListener('change', onSwapBuildOptionChanged);
-swapEnumerateRoutesCheckbox?.addEventListener('change', onSwapBuildOptionChanged);
+swapEnumerateRoutesCheckbox?.addEventListener('change', onEnumerateRoutesChanged);
 syncSwapRoutePinMode();
 
 function syncServiceFeePartnerGate(walletValid = hasValidSwapWallet()): void {

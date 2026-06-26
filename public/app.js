@@ -26038,11 +26038,25 @@ function isMultipleMarketsRoute(route) {
   const programLabel = normalizeProtocolLookupKey(route.candidate?.programLabel ?? "");
   return programLabel === "SHARED_QUOTE_BRIDGE";
 }
+function primaryRoutePlanProgramLabel(quote) {
+  if (!quote) return "";
+  const plan = quote.routePlan;
+  if (!Array.isArray(plan)) return "";
+  for (const step of plan) {
+    const label = step.swapInfo?.label?.trim();
+    if (label) return label;
+  }
+  return "";
+}
 function routeProgramDisplayLabel(route) {
   if (isMultipleMarketsRoute(route)) return MULTIPLE_MARKETS_LABEL;
   const fromLabel = route.candidate?.programLabel?.trim();
   if (fromLabel) return resolveDexProtocolDisplayLabel(fromLabel);
-  return resolveDexProtocolDisplayLabel(route.candidate?.protocol ?? "") || "\u2014";
+  const fromProtocol = route.candidate?.protocol?.trim();
+  if (fromProtocol) return resolveDexProtocolDisplayLabel(fromProtocol);
+  const fromQuotePlan = primaryRoutePlanProgramLabel(route.quote);
+  if (fromQuotePlan) return resolveDexProtocolDisplayLabel(fromQuotePlan);
+  return "\u2014";
 }
 function routePlanHopMetas(quote) {
   if (!quote) return [];
@@ -28623,8 +28637,14 @@ function markSwapQuoteBuildOptsStale() {
   lastRawSwapResponse = null;
   syncBuildButtonState();
 }
+function canUseCachedRouteBuildWithoutRefetch() {
+  if (isBuildBtnQuoteExpired()) return false;
+  if (swapQuoteBuildOptsStale) return false;
+  return tryCachedVybeBuildTxForSelectedRoute() != null;
+}
 function needsQuoteRefetchBeforeBuild() {
   if (!lastSwapQuoteOk) return false;
+  if (canUseCachedRouteBuildWithoutRefetch()) return false;
   if (swapQuoteBuildOptsStale) return true;
   const key = currentSwapQuoteTrackingKey();
   if (!key || !lastSwapQuoteBuildOptsKey) return false;
@@ -28656,6 +28676,18 @@ async function refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount
 }
 function onSwapBuildOptionChanged() {
   markSwapQuoteBuildOptsStale();
+  syncSwapQuoteButtonState();
+}
+function onEnumerateRoutesChanged() {
+  if (swapEnumerateRoutesCheckbox?.checked === false) {
+    if (!swapQuoteBuildOptsStale && tryCachedVybeBuildTxForSelectedRoute()) {
+      rememberSwapQuoteBuildOptsKey();
+    } else {
+      markSwapQuoteBuildOptsStale();
+    }
+  } else {
+    markSwapQuoteBuildOptsStale();
+  }
   syncSwapQuoteButtonState();
 }
 function invalidateSwapQuoteUi() {
@@ -30948,6 +30980,21 @@ function programAddressFromQuoteBody(body) {
   const build = body._build;
   return String(body.programAddress ?? build?.programAddress ?? "").trim();
 }
+function enrichTradeCandidateFromBody(base, body) {
+  const fromPlan = tradeCandidateFromRoutePlan(body);
+  const build = body._build;
+  const protocolRaw = body.protocol ?? build?.protocol;
+  const programAddress = base.programAddress?.trim() || programAddressFromQuoteBody(body) || fromPlan?.programAddress?.trim() || "";
+  const protocol = base.protocol?.trim() || (typeof protocolRaw === "string" ? protocolRaw.trim() : "") || (programAddress ? PIN_ROUTE_PROGRAM_TO_PROTOCOL[programAddress] : "") || void 0;
+  const programLabel = base.programLabel?.trim() || fromPlan?.programLabel?.trim() || void 0;
+  return {
+    ...base,
+    marketAddress: base.marketAddress?.trim() || poolAddressFromQuoteBody(body) || fromPlan?.marketAddress || "",
+    programAddress,
+    protocol,
+    programLabel
+  };
+}
 function tradeCandidateFromRoutePlan(body) {
   const plan = body.routePlan;
   if (!Array.isArray(plan)) return null;
@@ -30996,31 +31043,34 @@ function tradeCandidateFromActiveQuote(body) {
     const marketAddress2 = String(selected.marketAddress ?? "").trim();
     const programAddress2 = String(selected.programAddress ?? "").trim();
     if (marketAddress2 || programAddress2) {
-      return {
-        marketAddress: marketAddress2 || poolAddressFromQuoteBody(body),
-        programAddress: programAddress2 || programAddressFromQuoteBody(body),
-        protocol: typeof selected.protocol === "string" ? selected.protocol : void 0,
-        tradeCount: Number(selected.tradeCount ?? 0),
-        buyCount: Number(selected.buyCount ?? 0),
-        sellCount: Number(selected.sellCount ?? 0),
-        programLabel: typeof selected.programLabel === "string" ? selected.programLabel.trim() || void 0 : void 0,
-        liquidity: selected.liquidity != null && Number.isFinite(Number(selected.liquidity)) && Number(selected.liquidity) > 0 && Number(selected.liquidity) <= 1e10 ? Number(selected.liquidity) : void 0
-      };
+      return enrichTradeCandidateFromBody(
+        {
+          marketAddress: marketAddress2 || poolAddressFromQuoteBody(body),
+          programAddress: programAddress2 || programAddressFromQuoteBody(body),
+          protocol: typeof selected.protocol === "string" ? selected.protocol : void 0,
+          tradeCount: Number(selected.tradeCount ?? 0),
+          buyCount: Number(selected.buyCount ?? 0),
+          sellCount: Number(selected.sellCount ?? 0),
+          programLabel: typeof selected.programLabel === "string" ? selected.programLabel.trim() || void 0 : void 0,
+          liquidity: selected.liquidity != null && Number.isFinite(Number(selected.liquidity)) && Number(selected.liquidity) > 0 && Number(selected.liquidity) <= 1e10 ? Number(selected.liquidity) : void 0
+        },
+        body
+      );
     }
   }
   const marketAddress = poolAddressFromQuoteBody(body);
   const programAddress = programAddressFromQuoteBody(body);
   if (marketAddress || programAddress) {
-    const build = body._build;
-    const protocolRaw = body.protocol ?? build?.protocol;
-    return {
-      marketAddress,
-      programAddress,
-      protocol: typeof protocolRaw === "string" ? protocolRaw : void 0,
-      tradeCount: 0,
-      buyCount: 0,
-      sellCount: 0
-    };
+    return enrichTradeCandidateFromBody(
+      {
+        marketAddress,
+        programAddress,
+        tradeCount: 0,
+        buyCount: 0,
+        sellCount: 0
+      },
+      body
+    );
   }
   return tradeCandidateFromRoutePlan(body) ?? tradeCandidateFromRouterOnly(body);
 }
@@ -31046,10 +31096,10 @@ function shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts) {
   const selectedPool = String(candidate?.marketAddress ?? "").trim();
   return selectedPool === pool;
 }
-function mergePinnedRouteCandidateForRefetch(prev, next, liquidityFromBody) {
+function mergePinnedRouteCandidateForRefetch(prev, next, liquidityFromBody, body) {
   if (!prev && !next) return void 0;
   const liquidity = liquidityFromBody != null && Number.isFinite(liquidityFromBody) && liquidityFromBody > 0 ? liquidityFromBody : prev?.liquidity ?? next?.liquidity;
-  return {
+  const merged = {
     ...prev ?? {},
     ...next ?? {},
     marketAddress: prev?.marketAddress?.trim() || next?.marketAddress || "",
@@ -31061,6 +31111,8 @@ function mergePinnedRouteCandidateForRefetch(prev, next, liquidityFromBody) {
     sellCount: prev?.sellCount ?? next?.sellCount ?? 0,
     ...liquidity != null ? { liquidity } : {}
   };
+  if (!body) return merged;
+  return enrichTradeCandidateFromBody(merged, body);
 }
 function mergePinnedRouteCardQuoteForRefetch(prev, next) {
   const merged = { ...next };
@@ -31088,7 +31140,8 @@ function mergePinnedRouteQuoteIntoEnumeratedRoutes(body) {
   const updatedCandidate = mergePinnedRouteCandidateForRefetch(
     prevRoute.candidate,
     newCandidate,
-    liquidityFromBody
+    liquidityFromBody,
+    body
   );
   const updatedQuote = mergePinnedRouteCardQuoteForRefetch(prevRoute.quote ?? {}, newQuote);
   const routes = enumeratedRoutesUiState.routes.map(
@@ -32773,7 +32826,7 @@ swapProtocolSelect?.addEventListener("change", () => {
   syncSwapQuoteButtonState();
 });
 swapMarketFetchModeSelect?.addEventListener("change", onSwapBuildOptionChanged);
-swapEnumerateRoutesCheckbox?.addEventListener("change", onSwapBuildOptionChanged);
+swapEnumerateRoutesCheckbox?.addEventListener("change", onEnumerateRoutesChanged);
 syncSwapRoutePinMode();
 function syncServiceFeePartnerGate(walletValid = hasValidSwapWallet()) {
   const partnerOn = swapEnablePartnerCheckbox?.checked === true;

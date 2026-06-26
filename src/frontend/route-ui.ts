@@ -5892,11 +5892,28 @@ function isMultipleMarketsRoute(
   return programLabel === 'SHARED_QUOTE_BRIDGE';
 }
 
-function routeProgramDisplayLabel(route: Pick<EnumeratedRouteUiEntry, 'source' | 'candidate'>): string {
+function primaryRoutePlanProgramLabel(quote: Record<string, unknown> | undefined): string {
+  if (!quote) return '';
+  const plan = quote.routePlan;
+  if (!Array.isArray(plan)) return '';
+  for (const step of plan) {
+    const label = (step as VybeRoutePlanStepLite).swapInfo?.label?.trim();
+    if (label) return label;
+  }
+  return '';
+}
+
+function routeProgramDisplayLabel(
+  route: Pick<EnumeratedRouteUiEntry, 'source' | 'candidate' | 'quote'>,
+): string {
   if (isMultipleMarketsRoute(route)) return MULTIPLE_MARKETS_LABEL;
   const fromLabel = route.candidate?.programLabel?.trim();
   if (fromLabel) return resolveDexProtocolDisplayLabel(fromLabel);
-  return resolveDexProtocolDisplayLabel(route.candidate?.protocol ?? '') || '—';
+  const fromProtocol = route.candidate?.protocol?.trim();
+  if (fromProtocol) return resolveDexProtocolDisplayLabel(fromProtocol);
+  const fromQuotePlan = primaryRoutePlanProgramLabel(route.quote);
+  if (fromQuotePlan) return resolveDexProtocolDisplayLabel(fromQuotePlan);
+  return '—';
 }
 
 function routePlanHopMetas(quote: Record<string, unknown> | undefined): RouteHopMeta[] {
