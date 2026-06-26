@@ -27152,15 +27152,13 @@ function renderSignConfirmSummaryHtml(quote, buildPayload) {
       )
     );
   }
-  const txSizeDisplay = formatSignConfirmTxSizeDisplay(quote, buildPayload);
-  if (txSizeDisplay) {
-    detailRows.push(
-      renderSignConfirmDetailRowHtml(
-        SIGN_CONFIRM_TX_SIZE_LABEL,
-        deps.escapeHtml(txSizeDisplay)
-      )
-    );
-  }
+  const txSizeDisplay = formatSignConfirmTxSizeDisplay(quote, buildPayload) ?? "\u2014 bytes";
+  detailRows.push(
+    renderSignConfirmDetailRowHtml(
+      SIGN_CONFIRM_TX_SIZE_LABEL,
+      deps.escapeHtml(txSizeDisplay)
+    )
+  );
   if (!isMultiHop) {
     for (const routeRow of renderSignConfirmRouteDetailRows(quote, buildPayload)) {
       detailRows.push(renderSignConfirmDetailRowHtml(routeRow.label, routeRow.valueHtml));
