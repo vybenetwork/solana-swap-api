@@ -33,7 +33,7 @@ export function getDataApiKey(): string {
   const tradingKey = getTradingApiKey();
   if (tradingKey) return tradingKey;
   throw new Error(
-    'VYBE_DATA_API_KEY is required (or set VYBE_API_KEY as fallback). Get a key at https://vybenetwork.com/pricing'
+    'VYBE_DATA_API_KEY is required (or set VYBE_API_KEY as fallback). Get a key at https://vybe.fyi/api-pricing'
   );
 }
 
