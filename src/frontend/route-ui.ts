@@ -7400,7 +7400,7 @@ export function renderSignConfirmSummaryHtml(
         SIGN_CONFIRM_NETWORK_FEE_LABEL,
         priorityFeeUi != null && priorityFeeUi > 0
           ? deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`)
-          : '—',
+          : '— SOL',
       ),
     );
   }

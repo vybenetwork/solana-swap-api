@@ -249,6 +249,15 @@ const swapEnableServiceFeeCheckbox = document.getElementById('swapEnableServiceF
 const swapServiceFeeFieldEl = document.getElementById('swapServiceFeeField') as HTMLElement | null;
 const swapServiceFeeInput = document.getElementById('swapServiceFee') as HTMLInputElement | null;
 const swapMarketFetchModeSelect = document.getElementById('swapMarketFetchMode') as HTMLSelectElement | null;
+const MARKET_FETCH_MODE = 'full' as const;
+const MARKET_FETCH_MODE_LOCKED_TITLE = 'Market fetch is locked to Full';
+
+function syncMarketFetchModeSelectLocked(): void {
+  if (!swapMarketFetchModeSelect) return;
+  swapMarketFetchModeSelect.value = MARKET_FETCH_MODE;
+  swapMarketFetchModeSelect.disabled = true;
+  swapMarketFetchModeSelect.title = MARKET_FETCH_MODE_LOCKED_TITLE;
+}
 const swapEnumerateRoutesCheckbox = document.getElementById('swapEnumerateRoutes') as HTMLInputElement | null;
 const swapPinRouteCheckbox = document.getElementById('swapPinRoute') as HTMLInputElement | null;
 const swapRouteDiscoveryRowEl = document.getElementById('swapRouteDiscoveryRow') as HTMLElement | null;
@@ -1895,7 +1904,7 @@ function currentSwapQuoteRestoreContextKey(): string | null {
       partner:
         swapEnablePartnerCheckbox?.checked === true ? swapPartnerInput?.value.trim() || undefined : undefined,
       swapFee: resolveSwapServiceFeePct(),
-      marketFetchMode: swapMarketFetchModeSelect?.value.trim() || 'full',
+      marketFetchMode: MARKET_FETCH_MODE,
       enumerateRoutes: swapEnumerateRoutesCheckbox?.checked !== false,
     },
   });
@@ -4978,12 +4987,7 @@ function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
       if (leavingPin) swapEnumerateRoutesCheckbox.checked = true;
       setWalletGatedDisabled(swapEnumerateRoutesCheckbox, discoveryDisabled, vybeLockedTitle);
     }
-    if (swapMarketFetchModeSelect) {
-      swapMarketFetchModeSelect.disabled = discoveryDisabled;
-      if (leavingPin) swapMarketFetchModeSelect.value = 'full';
-      if (discoveryDisabled) swapMarketFetchModeSelect.title = vybeLockedTitle;
-      else swapMarketFetchModeSelect.removeAttribute('title');
-    }
+    syncMarketFetchModeSelectLocked();
   }
 
   setWalletGatedDisabled(swapPinRouteCheckbox, discoveryDisabled, vybeLockedTitle);
@@ -5039,9 +5043,7 @@ function collectSwapBuildOptions(): Record<string, unknown> {
     protocol: isSwapRoutePinMode()
         ? swapProtocolSelect?.value.trim() || undefined
         : undefined,
-    marketFetchMode: vybeMarketDiscoveryActive()
-      ? (swapMarketFetchModeSelect?.value.trim() as 'full' | 'trades' | 'markets' | 'rpc' | undefined) || 'full'
-      : undefined,
+    marketFetchMode: vybeMarketDiscoveryActive() ? MARKET_FETCH_MODE : undefined,
     enumerateRoutes: vybeMarketDiscoveryActive()
       ? swapEnumerateRoutesCheckbox?.checked !== false
       : false,
@@ -7723,8 +7725,8 @@ swapProtocolSelect?.addEventListener('change', () => {
   invalidateSwapQuoteAfterInputChange();
   syncSwapQuoteButtonState();
 });
-swapMarketFetchModeSelect?.addEventListener('change', onSwapBuildOptionChanged);
 swapEnumerateRoutesCheckbox?.addEventListener('change', onEnumerateRoutesChanged);
+syncMarketFetchModeSelectLocked();
 syncSwapRoutePinMode();
 
 function syncServiceFeePartnerGate(walletValid = hasValidSwapWallet()): void {

@@ -27195,7 +27195,7 @@ function renderSignConfirmSummaryHtml(quote, buildPayload) {
     detailRows.push(
       renderSignConfirmDetailRowHtml(
         SIGN_CONFIRM_NETWORK_FEE_LABEL,
-        priorityFeeUi != null && priorityFeeUi > 0 ? deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`) : "\u2014"
+        priorityFeeUi != null && priorityFeeUi > 0 ? deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`) : "\u2014 SOL"
       )
     );
   }
@@ -27435,6 +27435,14 @@ var swapEnableServiceFeeCheckbox = document.getElementById("swapEnableServiceFee
 var swapServiceFeeFieldEl = document.getElementById("swapServiceFeeField");
 var swapServiceFeeInput = document.getElementById("swapServiceFee");
 var swapMarketFetchModeSelect = document.getElementById("swapMarketFetchMode");
+var MARKET_FETCH_MODE = "full";
+var MARKET_FETCH_MODE_LOCKED_TITLE = "Market fetch is locked to Full";
+function syncMarketFetchModeSelectLocked() {
+  if (!swapMarketFetchModeSelect) return;
+  swapMarketFetchModeSelect.value = MARKET_FETCH_MODE;
+  swapMarketFetchModeSelect.disabled = true;
+  swapMarketFetchModeSelect.title = MARKET_FETCH_MODE_LOCKED_TITLE;
+}
 var swapEnumerateRoutesCheckbox = document.getElementById("swapEnumerateRoutes");
 var swapPinRouteCheckbox = document.getElementById("swapPinRoute");
 var swapRouteDiscoveryRowEl = document.getElementById("swapRouteDiscoveryRow");
@@ -28764,7 +28772,7 @@ function currentSwapQuoteRestoreContextKey() {
       autoCalculateSlippage: swapAutoSlippageCheckbox?.checked === true,
       partner: swapEnablePartnerCheckbox?.checked === true ? swapPartnerInput?.value.trim() || void 0 : void 0,
       swapFee: resolveSwapServiceFeePct(),
-      marketFetchMode: swapMarketFetchModeSelect?.value.trim() || "full",
+      marketFetchMode: MARKET_FETCH_MODE,
       enumerateRoutes: swapEnumerateRoutesCheckbox?.checked !== false
     }
   });
@@ -31158,12 +31166,7 @@ function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()) {
       if (leavingPin) swapEnumerateRoutesCheckbox.checked = true;
       setWalletGatedDisabled(swapEnumerateRoutesCheckbox, discoveryDisabled, vybeLockedTitle);
     }
-    if (swapMarketFetchModeSelect) {
-      swapMarketFetchModeSelect.disabled = discoveryDisabled;
-      if (leavingPin) swapMarketFetchModeSelect.value = "full";
-      if (discoveryDisabled) swapMarketFetchModeSelect.title = vybeLockedTitle;
-      else swapMarketFetchModeSelect.removeAttribute("title");
-    }
+    syncMarketFetchModeSelectLocked();
   }
   setWalletGatedDisabled(swapPinRouteCheckbox, discoveryDisabled, vybeLockedTitle);
 }
@@ -31201,7 +31204,7 @@ function collectSwapBuildOptions() {
     partner: swapEnablePartnerCheckbox?.checked === true ? swapPartnerInput?.value.trim() || void 0 : void 0,
     poolAddress: isSwapRoutePinMode() ? swapPoolAddressInput?.value.trim() || void 0 : void 0,
     protocol: isSwapRoutePinMode() ? swapProtocolSelect?.value.trim() || void 0 : void 0,
-    marketFetchMode: vybeMarketDiscoveryActive() ? swapMarketFetchModeSelect?.value.trim() || "full" : void 0,
+    marketFetchMode: vybeMarketDiscoveryActive() ? MARKET_FETCH_MODE : void 0,
     enumerateRoutes: vybeMarketDiscoveryActive() ? swapEnumerateRoutesCheckbox?.checked !== false : false,
     swapFee: resolveSwapServiceFeePct(),
     ...ataFromCache ? {
@@ -33233,8 +33236,8 @@ swapProtocolSelect?.addEventListener("change", () => {
   invalidateSwapQuoteAfterInputChange();
   syncSwapQuoteButtonState();
 });
-swapMarketFetchModeSelect?.addEventListener("change", onSwapBuildOptionChanged);
 swapEnumerateRoutesCheckbox?.addEventListener("change", onEnumerateRoutesChanged);
+syncMarketFetchModeSelectLocked();
 syncSwapRoutePinMode();
 function syncServiceFeePartnerGate(walletValid = hasValidSwapWallet()) {
   const partnerOn = swapEnablePartnerCheckbox?.checked === true;
