@@ -23,7 +23,12 @@ Try the live demo: https://solana-swap-api.vybenetwork.com
 
 - **[Try the LIVE demo →](https://solana-swap-api.vybenetwork.com)**
 - **[Get your free Vybe API key →](https://vybenetwork.com/pricing)**
-- **[Vybe swap overview →](https://docs.vybenetwork.com/docs/swap-overview)** · **[Swap quote endpoint →](https://docs.vybenetwork.com/reference/get_swap_quote_proxy)** · **[Build swap endpoint →](https://docs.vybenetwork.com/reference/do_swap_proxy)** · **[GitHub repo →](https://github.com/vybenetwork/solana-swap-api)** · **[Telegram →](https://t.me/VybeNetwork_Official)** · **[X →](https://x.com/Vybe_Network)**
+- **[Vybe swap overview →](https://docs.vybenetwork.com/docs/swap-overview)**
+- **[Swap quote endpoint →](https://docs.vybenetwork.com/reference/get_swap_quote_proxy)**
+- **[Build swap endpoint →](https://docs.vybenetwork.com/reference/do_swap_proxy)**
+- **[GitHub repo →](https://github.com/vybenetwork/solana-swap-api)**
+- **[Telegram →](https://t.me/VybeNetwork_Official)**
+- **[X →](https://x.com/Vybe_Network)**
 
 ---
 
