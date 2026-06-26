@@ -6060,17 +6060,23 @@ function resolveDexBrand(label: string, protocolHint?: string): DexBrand | null 
 function renderDexProtocolIcon(label: string, protocolHint?: string): string {
   const text = resolveDexProtocolDisplayLabel(protocolHint?.trim() || label.trim() || '—');
   const brand = resolveDexBrand(label, protocolHint);
-  if (!brand) return '';
+  const iconSrc = brand ? dexIconSrc(brand) : TOKEN_ICON_PLACEHOLDER_PATH;
+  const iconClass = brand
+    ? `dex-program-label__icon dex-program-label__icon--${brand} route-hop-extra__icon`
+    : 'dex-program-label__icon dex-program-label__icon--placeholder route-hop-extra__icon';
   const title = text !== '—' ? ` title="${deps.escapeHtml(text)}"` : '';
-  return `<img class="dex-program-label__icon dex-program-label__icon--${brand} route-hop-extra__icon"${title} src="${dexIconSrc(brand)}" alt="" width="16" height="16" decoding="async" />`;
+  return `<img class="${iconClass}"${title} src="${iconSrc}" alt="" width="16" height="16" decoding="async" />`;
 }
 
 function renderDexProgramLabel(label: string, protocolHint?: string): string {
   const text = resolveDexProtocolDisplayLabel(protocolHint?.trim() || label.trim() || '—');
   if (text === '—') return deps.escapeHtml(text);
   const brand = resolveDexBrand(label, protocolHint);
-  if (!brand) return deps.escapeHtml(text);
-  return `<span class="dex-program-label"><img class="dex-program-label__icon dex-program-label__icon--${brand}" src="${dexIconSrc(brand)}" alt="" width="16" height="16" decoding="async" /><span class="dex-program-label__text">${deps.escapeHtml(text)}</span></span>`;
+  const iconSrc = brand ? dexIconSrc(brand) : TOKEN_ICON_PLACEHOLDER_PATH;
+  const iconClass = brand
+    ? `dex-program-label__icon dex-program-label__icon--${brand}`
+    : 'dex-program-label__icon dex-program-label__icon--placeholder';
+  return `<span class="dex-program-label"><img class="${iconClass}" src="${iconSrc}" alt="" width="16" height="16" decoding="async" /><span class="dex-program-label__text">${deps.escapeHtml(text)}</span></span>`;
 }
 
 function detectAggregatorBrand(text: string): 'vybe' | 'jupiter' | 'titan' | null {

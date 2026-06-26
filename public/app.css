@@ -1947,6 +1947,11 @@ tr:hover td {
   border-radius: 2px;
 }
 
+.dex-program-label__icon--placeholder {
+  border-radius: 50%;
+  opacity: 0.9;
+}
+
 .dex-program-label__text {
   overflow: hidden;
   text-overflow: ellipsis;

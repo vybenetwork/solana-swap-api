@@ -26165,16 +26165,18 @@ function resolveDexBrand(label, protocolHint) {
 function renderDexProtocolIcon(label, protocolHint) {
   const text = resolveDexProtocolDisplayLabel(protocolHint?.trim() || label.trim() || "\u2014");
   const brand = resolveDexBrand(label, protocolHint);
-  if (!brand) return "";
+  const iconSrc = brand ? dexIconSrc(brand) : TOKEN_ICON_PLACEHOLDER_PATH;
+  const iconClass = brand ? `dex-program-label__icon dex-program-label__icon--${brand} route-hop-extra__icon` : "dex-program-label__icon dex-program-label__icon--placeholder route-hop-extra__icon";
   const title = text !== "\u2014" ? ` title="${deps.escapeHtml(text)}"` : "";
-  return `<img class="dex-program-label__icon dex-program-label__icon--${brand} route-hop-extra__icon"${title} src="${dexIconSrc(brand)}" alt="" width="16" height="16" decoding="async" />`;
+  return `<img class="${iconClass}"${title} src="${iconSrc}" alt="" width="16" height="16" decoding="async" />`;
 }
 function renderDexProgramLabel(label, protocolHint) {
   const text = resolveDexProtocolDisplayLabel(protocolHint?.trim() || label.trim() || "\u2014");
   if (text === "\u2014") return deps.escapeHtml(text);
   const brand = resolveDexBrand(label, protocolHint);
-  if (!brand) return deps.escapeHtml(text);
-  return `<span class="dex-program-label"><img class="dex-program-label__icon dex-program-label__icon--${brand}" src="${dexIconSrc(brand)}" alt="" width="16" height="16" decoding="async" /><span class="dex-program-label__text">${deps.escapeHtml(text)}</span></span>`;
+  const iconSrc = brand ? dexIconSrc(brand) : TOKEN_ICON_PLACEHOLDER_PATH;
+  const iconClass = brand ? `dex-program-label__icon dex-program-label__icon--${brand}` : "dex-program-label__icon dex-program-label__icon--placeholder";
+  return `<span class="dex-program-label"><img class="${iconClass}" src="${iconSrc}" alt="" width="16" height="16" decoding="async" /><span class="dex-program-label__text">${deps.escapeHtml(text)}</span></span>`;
 }
 function detectAggregatorBrand(text) {
   const trimmed = text.trim();
@@ -28734,7 +28736,19 @@ function markSwapQuoteBuildOptsStale() {
 function canUseCachedRouteBuildWithoutRefetch() {
   if (isBuildBtnQuoteExpired()) return false;
   if (swapQuoteBuildOptsStale) return false;
-  return tryCachedVybeBuildTxForSelectedRoute() != null;
+  if (tryCachedVybeBuildTxForSelectedRoute() != null) return true;
+  if (!lastSwapQuoteOk || !lastVybeBuild?.tx?.trim()) return false;
+  const key = currentSwapQuoteTrackingKey();
+  if (!key || !lastSwapQuoteBuildOptsKey || lastSwapQuoteBuildOptsKey !== key) return false;
+  const wallet = swapQuoteWalletSnapshot ?? swapWalletAddressInput?.value.trim() ?? "";
+  const inputMint = swapInputMintInput?.value.trim() ?? "";
+  const outputMint = swapOutputMintInput?.value.trim() ?? "";
+  const amountUi = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
+  if (!wallet || !inputMint || !outputMint || !Number.isFinite(amountUi)) return false;
+  const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+  const amount = typeof buildOpts.amount === "number" && Number.isFinite(buildOpts.amount) ? buildOpts.amount : amountUi;
+  const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, vybeCacheBuildOpts(buildOpts));
+  return isQuoteBuildTxWithinTtl(paramsKey);
 }
 function needsQuoteRefetchBeforeBuild() {
   if (!lastSwapQuoteOk) return false;
@@ -31026,14 +31040,31 @@ function vybeCacheBuildOpts(buildOpts) {
 }
 function tryReuseLastVybeBuildFromQuote() {
   if (!lastVybeBuild || !lastSwapQuoteOk) return null;
-  if (Date.now() - lastVybeBuild.builtAt >= VYBE_QUOTE_TX_REUSE_MS) return null;
+  if (!isQuoteBuildTxWithinTtl()) return null;
   const buildPayload = lastVybeBuild.buildPayload;
   const tx = lastVybeBuild.tx?.trim();
   if (!tx) return null;
   return { tx, buildPayload: projectSwapBuildForBrowser(buildPayload) };
 }
+function isQuoteBuildTxWithinTtl(paramsKey) {
+  if (!lastVybeBuild?.tx?.trim()) return false;
+  if (paramsKey != null && lastVybeBuild.paramsKey !== paramsKey) return false;
+  if (buildBtnQuoteValidUntil > 0) return !isBuildBtnQuoteExpired();
+  return Date.now() - lastVybeBuild.builtAt < VYBE_QUOTE_TX_REUSE_MS;
+}
+function tryReuseCachedBuildTx(wallet, inputMint, outputMint, amount, buildOpts) {
+  const cachedRoute = tryCachedVybeBuildTxForSelectedRoute();
+  if (cachedRoute) return cachedRoute;
+  const cacheOpts = vybeCacheBuildOpts(buildOpts);
+  const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, cacheOpts);
+  if (!isQuoteBuildTxWithinTtl(paramsKey)) return null;
+  return {
+    tx: lastVybeBuild.tx,
+    buildPayload: projectSwapBuildForBrowser(lastVybeBuild.buildPayload)
+  };
+}
 function isVybeQuoteTxFresh(paramsKey) {
-  return lastVybeBuild != null && lastVybeBuild.paramsKey === paramsKey && Date.now() - lastVybeBuild.builtAt < VYBE_QUOTE_TX_REUSE_MS;
+  return lastVybeBuild != null && lastVybeBuild.paramsKey === paramsKey && isQuoteBuildTxWithinTtl(paramsKey);
 }
 function cacheVybeQuoteBuild(body, wallet, inputMint, outputMint, amount, buildOpts) {
   const buildTx = extractSwapBuildTransaction(body._build);
@@ -32542,9 +32573,17 @@ async function postBuildSwap(options) {
         buildPayload = projectSwapBuildForBrowser(resolved.buildPayload);
       }
     } else {
-      const resolved = await resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
-      buildTx = resolved.tx;
-      buildPayload = projectSwapBuildForBrowser(resolved.buildPayload);
+      const cached = tryReuseCachedBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
+      if (cached) {
+        buildTx = cached.tx;
+        buildPayload = cached.buildPayload;
+        lastRawSwapResponse = buildPayload;
+        renderRawResponsePanels();
+      } else {
+        const resolved = await resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
+        buildTx = resolved.tx;
+        buildPayload = projectSwapBuildForBrowser(resolved.buildPayload);
+      }
     }
     if (swapBuildMode === "build-sign") {
       const legTxs = extractSwapBuildTransactions(buildPayload);

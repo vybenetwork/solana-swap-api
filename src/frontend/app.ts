@@ -1952,7 +1952,22 @@ function markSwapQuoteBuildOptsStale(): void {
 function canUseCachedRouteBuildWithoutRefetch(): boolean {
   if (isBuildBtnQuoteExpired()) return false;
   if (swapQuoteBuildOptsStale) return false;
-  return tryCachedVybeBuildTxForSelectedRoute() != null;
+  if (tryCachedVybeBuildTxForSelectedRoute() != null) return true;
+  if (!lastSwapQuoteOk || !lastVybeBuild?.tx?.trim()) return false;
+  const key = currentSwapQuoteTrackingKey();
+  if (!key || !lastSwapQuoteBuildOptsKey || lastSwapQuoteBuildOptsKey !== key) return false;
+  const wallet = swapQuoteWalletSnapshot ?? swapWalletAddressInput?.value.trim() ?? '';
+  const inputMint = swapInputMintInput?.value.trim() ?? '';
+  const outputMint = swapOutputMintInput?.value.trim() ?? '';
+  const amountUi = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
+  if (!wallet || !inputMint || !outputMint || !Number.isFinite(amountUi)) return false;
+  const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+  const amount =
+    typeof buildOpts.amount === 'number' && Number.isFinite(buildOpts.amount)
+      ? buildOpts.amount
+      : amountUi;
+  const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, vybeCacheBuildOpts(buildOpts));
+  return isQuoteBuildTxWithinTtl(paramsKey);
 }
 
 function needsQuoteRefetchBeforeBuild(): boolean {
@@ -4931,11 +4946,36 @@ function vybeCacheBuildOpts(buildOpts: Record<string, unknown>): Record<string, 
 
 function tryReuseLastVybeBuildFromQuote(): { tx: string; buildPayload: Record<string, unknown> } | null {
   if (!lastVybeBuild || !lastSwapQuoteOk) return null;
-  if (Date.now() - lastVybeBuild.builtAt >= VYBE_QUOTE_TX_REUSE_MS) return null;
+  if (!isQuoteBuildTxWithinTtl()) return null;
   const buildPayload = lastVybeBuild.buildPayload as Record<string, unknown>;
   const tx = lastVybeBuild.tx?.trim();
   if (!tx) return null;
   return { tx, buildPayload: projectSwapBuildForBrowser(buildPayload) };
+}
+
+function isQuoteBuildTxWithinTtl(paramsKey?: string): boolean {
+  if (!lastVybeBuild?.tx?.trim()) return false;
+  if (paramsKey != null && lastVybeBuild.paramsKey !== paramsKey) return false;
+  if (buildBtnQuoteValidUntil > 0) return !isBuildBtnQuoteExpired();
+  return Date.now() - lastVybeBuild.builtAt < VYBE_QUOTE_TX_REUSE_MS;
+}
+
+function tryReuseCachedBuildTx(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): { tx: string; buildPayload: Record<string, unknown> } | null {
+  const cachedRoute = tryCachedVybeBuildTxForSelectedRoute();
+  if (cachedRoute) return cachedRoute;
+  const cacheOpts = vybeCacheBuildOpts(buildOpts);
+  const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, cacheOpts);
+  if (!isQuoteBuildTxWithinTtl(paramsKey)) return null;
+  return {
+    tx: lastVybeBuild!.tx,
+    buildPayload: projectSwapBuildForBrowser(lastVybeBuild!.buildPayload as Record<string, unknown>),
+  };
 }
 
 type VybeQuoteApiBody = Record<string, unknown> & {
@@ -4947,11 +4987,7 @@ type VybeQuoteApiBody = Record<string, unknown> & {
 };
 
 function isVybeQuoteTxFresh(paramsKey: string): boolean {
-  return (
-    lastVybeBuild != null &&
-    lastVybeBuild.paramsKey === paramsKey &&
-    Date.now() - lastVybeBuild.builtAt < VYBE_QUOTE_TX_REUSE_MS
-  );
+  return lastVybeBuild != null && lastVybeBuild.paramsKey === paramsKey && isQuoteBuildTxWithinTtl(paramsKey);
 }
 
 function cacheVybeQuoteBuild(
@@ -6903,9 +6939,17 @@ async function postBuildSwap(options?: {
         buildPayload = projectSwapBuildForBrowser(resolved.buildPayload);
       }
     } else {
-      const resolved = await resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
-      buildTx = resolved.tx;
-      buildPayload = projectSwapBuildForBrowser(resolved.buildPayload);
+      const cached = tryReuseCachedBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
+      if (cached) {
+        buildTx = cached.tx;
+        buildPayload = cached.buildPayload;
+        lastRawSwapResponse = buildPayload;
+        renderRawResponsePanels();
+      } else {
+        const resolved = await resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, buildOpts);
+        buildTx = resolved.tx;
+        buildPayload = projectSwapBuildForBrowser(resolved.buildPayload);
+      }
     }
     if (swapBuildMode === 'build-sign') {
       const legTxs = extractSwapBuildTransactions(buildPayload);
