@@ -6237,14 +6237,52 @@ export function updateRouteDiagramTitle(quote: Record<string, unknown>): void {
   applyTitle(deps.dom.swapQuoteRouteSubtitleEl);
   applyTitle(deps.dom.routingDialogTitleEl);
 }
-export function renderRoutePanels(quote: Record<string, unknown>): void {
-  if (!deps.swapRouteOptionsPanelActive()) return;
+
+export function quoteHasRoutePlan(quote: Record<string, unknown>): boolean {
+  const plan = quote.routePlan;
+  return Array.isArray(plan) && plan.length > 0;
+}
+
+export function renderQuoteRouteDiagramAndSteps(quote: Record<string, unknown>): void {
   updateRouteDiagramTitle(quote);
-  renderRouteOptionsPanel();
   mountRoutingDiagram(deps.dom.swapQuoteDetailsRoutingEl, renderRoutingDiagram(quote));
-  if (deps.dom.swapQuoteDetailsRouteStepsEl) deps.dom.swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanSteps(quote);
+  if (deps.dom.swapQuoteDetailsRouteStepsEl) {
+    deps.dom.swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanSteps(quote);
+  }
   deps.syncRoutePlanStepsUi();
-  mountRoutingDiagram(deps.dom.routingDialogBodyEl, renderRoutingDiagram(quote));
+}
+
+export function clearQuoteRouteDiagramAndSteps(loading = false): void {
+  clearRoutingDiagram(deps.dom.swapQuoteDetailsRoutingEl);
+  mountRoutingDiagram(deps.dom.swapQuoteDetailsRoutingEl, renderRoutingDiagramPlaceholder(loading));
+  if (deps.dom.swapQuoteDetailsRouteStepsEl) {
+    deps.dom.swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(loading);
+  }
+  clearRoutingDiagram(deps.dom.routingDialogBodyEl);
+  deps.syncRoutePlanStepsUi();
+}
+
+export function renderRoutePanels(quote: Record<string, unknown>): void {
+  if (deps.swapRouteOptionsPanelActive()) {
+    updateRouteDiagramTitle(quote);
+    renderRouteOptionsPanel();
+  } else if (deps.dom.swapRouteOptionsEl) {
+    deps.dom.swapRouteOptionsEl.hidden = true;
+    deps.dom.swapRouteOptionsEl.innerHTML = '';
+  }
+
+  if (!quoteHasRoutePlan(quote)) {
+    clearQuoteRouteDiagramAndSteps(false);
+    return;
+  }
+
+  if (!deps.swapRouteOptionsPanelActive()) {
+    updateRouteDiagramTitle(quote);
+  }
+  renderQuoteRouteDiagramAndSteps(quote);
+  if (deps.swapRouteOptionsPanelActive()) {
+    mountRoutingDiagram(deps.dom.routingDialogBodyEl, renderRoutingDiagram(quote));
+  }
 }
 
 const ROUTING_DIAGRAM_ZOOM_STEP = 0.125;

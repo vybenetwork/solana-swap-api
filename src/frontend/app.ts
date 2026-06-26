@@ -106,6 +106,9 @@ import {
   renderRoutingDiagram,
   renderRoutingDiagramPlaceholder,
   renderQuoteRoutePlanStepsPlaceholder,
+  quoteHasRoutePlan,
+  renderQuoteRouteDiagramAndSteps,
+  clearQuoteRouteDiagramAndSteps,
   renderRoutePanels,
   renderRouteOptionsPanel,
   bindRoutingDiagramZoomListeners,
@@ -388,19 +391,39 @@ function clientPriceResolveSuppressed(): boolean {
 let swapQuoteBuildOptsStale = false;
 let lastSwapQuoteBuildOptsKey: string | null = null;
 
-/** Vybe quote + route cards cached when switching to Jupiter/Titan without refetching. */
-type VybeRouterQuoteCache = {
+/** Per-router quote + route UI cached when switching routers without refetching. */
+type SwapRouterId = 'vybe' | 'jupiter' | 'titan';
+
+type RouterQuoteCache = {
   contextKey: string;
   enumeratedRoutesUiState: EnumeratedRoutesUiState | null;
   lastVybeQuoteBodyForRoutes: Record<string, unknown> | null;
   lastSwapQuoteOk: Record<string, unknown>;
   lastRawQuoteResponse: unknown;
+  lastRawSwapResponse: unknown;
   lastVybeBuild: { tx: string; builtAt: number; paramsKey: string; buildPayload: unknown } | null;
   lastSwapQuoteBuildOptsKey: string | null;
   swapQuoteBuildOptsStale: boolean;
   swapQuoteWalletSnapshot: string;
+  quoteBtnCooldownEndsAt: number;
+  buildBtnQuoteValidUntil: number;
 };
-let vybeRouterQuoteCache: VybeRouterQuoteCache | null = null;
+
+const routerQuoteCaches: Partial<Record<SwapRouterId, RouterQuoteCache>> = {};
+
+function isSwapRouterId(router: string): router is SwapRouterId {
+  return router === 'vybe' || router === 'jupiter' || router === 'titan';
+}
+
+function clearAllRouterQuoteCaches(): void {
+  for (const key of Object.keys(routerQuoteCaches) as SwapRouterId[]) {
+    delete routerQuoteCaches[key];
+  }
+}
+
+function clearRouterQuoteCache(router: SwapRouterId): void {
+  delete routerQuoteCaches[router];
+}
 
 function renderLoadingSpinner(size: 'sm' | 'md' | 'lg' = 'sm'): string {
   return `<span class="inline-loading-spinner inline-loading-spinner--${size}" aria-hidden="true"></span>`;
@@ -1007,6 +1030,22 @@ function applyQuoteLoadingUi(): void {
   refreshPendingQuoteUi(true);
   updateSwapPairCards(undefined, true);
   syncSwapSellAmountUi();
+  syncSwapRouterSwitchState();
+}
+
+/** Disable Vybe/Jupiter/Titan tabs while a quote fetch is in flight. */
+function syncSwapRouterSwitchState(): void {
+  const fetching = swapQuoteFetching;
+  const lockTitle = 'Wait for the quote to finish before switching routers';
+  for (const btn of swapRouterSwitchEl?.querySelectorAll<HTMLButtonElement>('[data-router]') ?? []) {
+    btn.disabled = fetching;
+    if (fetching) btn.title = lockTitle;
+    else btn.removeAttribute('title');
+  }
+  if (swapRouterSwitchEl) {
+    swapRouterSwitchEl.classList.toggle('swap-router-switch--locked', fetching);
+    swapRouterSwitchEl.setAttribute('aria-busy', fetching ? 'true' : 'false');
+  }
 }
 
 /** Mint → symbol cache for route hop labels (filled after quote). */
@@ -1637,7 +1676,7 @@ function syncSwapSellAmountUi(): void {
   syncSwapQuoteButtonState();
 }
 
-function resetSwapQuoteToMock(): void {
+function resetSwapQuoteToMock(options?: { preserveRouterCaches?: boolean }): void {
   clearSwapActionCooldowns();
   swapQuoteFetching = false;
   setSwapQuoteButtonLoading(false);
@@ -1651,7 +1690,7 @@ function resetSwapQuoteToMock(): void {
   lastRawSwapResponse = null;
   enumeratedRoutesUiState = null;
   lastVybeQuoteBodyForRoutes = null;
-  vybeRouterQuoteCache = null;
+  if (!options?.preserveRouterCaches) clearAllRouterQuoteCaches();
   clearSwapQuoteBuildOptsTracking();
   swapQuoteWalletSnapshot = '';
   if (swapBuildBtn) syncBuildButtonState();
@@ -1681,6 +1720,7 @@ function resetSwapQuoteToMock(): void {
   resetSwapQuoteDetailsPanel();
   renderRawResponsePanels();
   syncSwapSellAmountUi();
+  syncSwapRouterSwitchState();
 }
 
 function hasStaleSwapQuoteState(): boolean {
@@ -1695,13 +1735,18 @@ function hasStaleSwapQuoteState(): boolean {
 function invalidateSwapQuoteAfterInputChange(): void {
   // Programmatic sell updates during an in-flight quote must not abort the fetch/retry loop.
   if (swapQuoteFetching) return;
-  vybeRouterQuoteCache = null;
+  clearAllRouterQuoteCaches();
   if (!hasStaleSwapQuoteState()) return;
   resetSwapQuoteToMock();
 }
 
 function vybeRouteDiscoveryUiVisible(): boolean {
   return normalizeRouterId(getSwapRouter()) === 'vybe';
+}
+
+function isAggregatorRouter(): boolean {
+  const router = normalizeRouterId(getSwapRouter());
+  return router === 'jupiter' || router === 'titan';
 }
 
 function currentSwapQuoteRestoreContextKey(): string | null {
@@ -1737,59 +1782,106 @@ function hideVybeRouteDiscoveryPanels(): void {
     swapRouteOptionsEl.hidden = true;
     swapRouteOptionsEl.innerHTML = '';
   }
-  clearRoutingDiagram(swapQuoteDetailsRoutingEl);
-  mountRoutingDiagram(swapQuoteDetailsRoutingEl, renderRoutingDiagramPlaceholder(false));
-  if (swapQuoteDetailsRouteStepsEl) {
-    swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(false);
-  }
-  clearRoutingDiagram(routingDialogBodyEl);
-  syncRoutePlanStepsUi();
+  clearQuoteRouteDiagramAndSteps(false);
 }
 
-function snapshotVybeRouterQuoteForRouterSwitch(): void {
+function restoreSwapActionTimersFromCache(cache: RouterQuoteCache): void {
+  const now = performance.now();
+
+  if (cache.quoteBtnCooldownEndsAt > now) {
+    const remainSec = Math.max(1, Math.ceil((cache.quoteBtnCooldownEndsAt - now) / 1000));
+    quoteBtnCooldownEndsAt = cache.quoteBtnCooldownEndsAt;
+    const label = swapQuoteBtnTimerEl?.querySelector('.swap-action-btn__timer-label');
+    if (label) label.textContent = String(remainSec);
+    setActionBtnTimerVisible(swapQuoteBtn, swapQuoteBtnTimerEl, true, remainSec);
+    if (swapQuoteBtn) swapQuoteBtn.disabled = true;
+    cancelAnimationFrame(quoteBtnCooldownRaf);
+    quoteBtnCooldownRaf = requestAnimationFrame(() => tickQuoteBtnCooldown(performance.now()));
+  } else {
+    clearQuoteBtnCooldown();
+  }
+
+  cancelAnimationFrame(buildBtnQuoteRaf);
+  buildBtnQuoteRaf = 0;
+
+  if (cache.buildBtnQuoteValidUntil > now) {
+    const remainSec = Math.max(1, Math.ceil((cache.buildBtnQuoteValidUntil - now) / 1000));
+    buildBtnQuoteValidUntil = cache.buildBtnQuoteValidUntil;
+    const label = swapBuildBtnTimerEl?.querySelector('.swap-action-btn__timer-label');
+    if (label) label.textContent = String(remainSec);
+    setActionBtnTimerVisible(swapBuildBtn, swapBuildBtnTimerEl, true, remainSec);
+    buildBtnQuoteRaf = requestAnimationFrame(() => tickBuildBtnQuoteWindow(performance.now()));
+  } else if (cache.buildBtnQuoteValidUntil > 0) {
+    // Quote TTL started but elapsed while on another router — keep expired state (do not zero:
+    // buildBtnQuoteValidUntil <= 0 reads as "not started", not expired).
+    buildBtnQuoteValidUntil = cache.buildBtnQuoteValidUntil;
+    setActionBtnTimerVisible(swapBuildBtn, swapBuildBtnTimerEl, false);
+  } else {
+    clearBuildBtnQuoteWindow();
+  }
+
+  syncBuildButtonLabel();
+}
+
+function snapshotRouterQuoteForRouterSwitch(router: SwapRouterId): void {
   if (!lastSwapQuoteOk) {
-    vybeRouterQuoteCache = null;
+    clearRouterQuoteCache(router);
     return;
   }
   const contextKey = currentSwapQuoteRestoreContextKey();
   if (!contextKey) return;
-  vybeRouterQuoteCache = {
+  routerQuoteCaches[router] = {
     contextKey,
     enumeratedRoutesUiState,
     lastVybeQuoteBodyForRoutes,
     lastSwapQuoteOk,
     lastRawQuoteResponse,
+    lastRawSwapResponse,
     lastVybeBuild,
     lastSwapQuoteBuildOptsKey,
     swapQuoteBuildOptsStale,
     swapQuoteWalletSnapshot,
+    quoteBtnCooldownEndsAt,
+    buildBtnQuoteValidUntil,
   };
 }
 
-function restoreVybeRouterQuoteFromCache(): boolean {
-  if (!vybeRouterQuoteCache) return false;
+function restoreRouterQuoteFromCache(router: SwapRouterId): boolean {
+  const cache = routerQuoteCaches[router];
+  if (!cache) return false;
   const contextKey = currentSwapQuoteRestoreContextKey();
-  if (!contextKey || contextKey !== vybeRouterQuoteCache.contextKey) return false;
+  if (!contextKey || contextKey !== cache.contextKey) return false;
 
-  enumeratedRoutesUiState = vybeRouterQuoteCache.enumeratedRoutesUiState;
-  lastVybeQuoteBodyForRoutes = vybeRouterQuoteCache.lastVybeQuoteBodyForRoutes;
-  lastSwapQuoteOk = vybeRouterQuoteCache.lastSwapQuoteOk;
-  lastRawQuoteResponse = vybeRouterQuoteCache.lastRawQuoteResponse;
-  lastVybeBuild = vybeRouterQuoteCache.lastVybeBuild;
-  lastSwapQuoteBuildOptsKey = vybeRouterQuoteCache.lastSwapQuoteBuildOptsKey;
-  swapQuoteBuildOptsStale = vybeRouterQuoteCache.swapQuoteBuildOptsStale;
-  swapQuoteWalletSnapshot = vybeRouterQuoteCache.swapQuoteWalletSnapshot;
+  enumeratedRoutesUiState = cache.enumeratedRoutesUiState;
+  lastVybeQuoteBodyForRoutes = cache.lastVybeQuoteBodyForRoutes;
+  lastSwapQuoteOk = cache.lastSwapQuoteOk;
+  lastRawQuoteResponse = cache.lastRawQuoteResponse;
+  lastRawSwapResponse = cache.lastRawSwapResponse;
+  lastVybeBuild = cache.lastVybeBuild;
+  lastSwapQuoteBuildOptsKey = cache.lastSwapQuoteBuildOptsKey;
+  swapQuoteBuildOptsStale = cache.swapQuoteBuildOptsStale;
+  swapQuoteWalletSnapshot = cache.swapQuoteWalletSnapshot;
 
   if ((!enumeratedRoutesUiState || !enumeratedRoutesUiState.routes.length) && lastVybeQuoteBodyForRoutes) {
     syncEnumeratedRoutesFromBody(lastVybeQuoteBodyForRoutes);
   }
 
+  restoreSwapActionTimersFromCache(cache);
   renderSwapQuoteUI(lastSwapQuoteOk);
   renderRouteOptionsPanel();
   renderRawResponsePanels();
+  if (router !== 'vybe') openRoutePlanPanelIfClosed();
+  if (lastSwapQuoteOk) void enrichRouteLabels(lastSwapQuoteOk, { skipPricePrefetch: true });
+  scheduleRoutingDiagramZoom();
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
+  syncSwapQuoteButtonState();
   return true;
+}
+
+function clearActiveRouterQuoteUiIfNoCache(router: SwapRouterId): void {
+  if (restoreRouterQuoteFromCache(router)) return;
+  resetSwapQuoteToMock({ preserveRouterCaches: true });
 }
 
 function quoteAffectingBuildOptsSnapshot(buildOpts: Record<string, unknown>): Record<string, unknown> {
@@ -1904,6 +1996,7 @@ async function refetchSwapQuoteBeforeBuild(
   } finally {
     swapQuoteFetching = false;
     popSuppressClientPriceResolve();
+    syncSwapRouterSwitchState();
   }
 }
 
@@ -2039,7 +2132,7 @@ function syncSellTokenPickerState(): void {
 
   setWalletGatedDisabled(swapAutoSlippageCheckbox, !valid);
   setWalletGatedDisabled(swapGaslessCheckbox, !valid);
-  setWalletGatedDisabled(swapVybeFallbackCheckbox, !valid);
+  syncRouterFallbackToggleUi();
   setWalletGatedDisabled(swapPinRouteCheckbox, !valid);
   syncSwapRoutePinMode(valid);
   setWalletGatedDisabled(swapEnablePartnerCheckbox, !valid);
@@ -3533,6 +3626,9 @@ function getWalletSellableForUi(mint: string): number | null {
 function setSwapRouter(router: string, options?: { invalidateQuote?: boolean }): void {
   const normalized = normalizeRouterId(router);
   const prev = normalizeRouterId(getSwapRouter());
+  if (normalized !== prev && swapQuoteFetching && options?.invalidateQuote !== false) {
+    return;
+  }
   if (swapRouterInput) swapRouterInput.value = normalized;
   for (const btn of swapRouterSwitchEl?.querySelectorAll<HTMLButtonElement>('[data-router]') ?? []) {
     const active = btn.dataset.router === normalized;
@@ -3540,32 +3636,24 @@ function setSwapRouter(router: string, options?: { invalidateQuote?: boolean }):
     btn.setAttribute('aria-selected', active ? 'true' : 'false');
   }
   if (normalized !== prev && options?.invalidateQuote !== false) {
-    const leavingVybe = prev === 'vybe' && (normalized === 'jupiter' || normalized === 'titan');
-    const returningToVybe = normalized === 'vybe' && (prev === 'jupiter' || prev === 'titan');
-    const aggregatorSwitch =
-      (prev === 'jupiter' || prev === 'titan') && (normalized === 'jupiter' || normalized === 'titan');
+    if (isSwapRouterId(prev)) {
+      snapshotRouterQuoteForRouterSwitch(prev);
+    }
 
-    if (leavingVybe) {
-      // Hide Vybe markets/diagrams only — no Jupiter/Titan quote fetch on router toggle.
-      snapshotVybeRouterQuoteForRouterSwitch();
-      enumeratedRoutesUiState = null;
-      lastVybeQuoteBodyForRoutes = null;
-      hideVybeRouteDiscoveryPanels();
-      if (lastSwapQuoteOk) renderSwapQuoteUI(lastSwapQuoteOk);
-    } else if (returningToVybe) {
-      if (!restoreVybeRouterQuoteFromCache() && hasStaleSwapQuoteState()) {
-        invalidateSwapQuoteAfterInputChange();
-      }
-    } else if (aggregatorSwitch) {
-      hideVybeRouteDiscoveryPanels();
+    if (normalized === 'vybe') {
+      clearActiveRouterQuoteUiIfNoCache('vybe');
+    } else if (normalized === 'jupiter' || normalized === 'titan') {
+      clearActiveRouterQuoteUiIfNoCache(normalized);
     } else {
-      vybeRouterQuoteCache = null;
+      clearAllRouterQuoteCaches();
       invalidateSwapQuoteAfterInputChange();
     }
   }
   syncRouterFallbackToggleUi();
   syncSwapAmountMaxFromBalance();
+  syncSwapRoutePinMode(hasValidSwapWallet());
   syncSwapQuoteButtonState();
+  syncSwapRouterSwitchState();
 }
 
 function isRouterFallbackEnabled(): boolean {
@@ -3575,24 +3663,37 @@ function isRouterFallbackEnabled(): boolean {
 function getRouterFallbackLabel(): string {
   const router = normalizeRouterId(getSwapRouter());
   if (router === 'jupiter') return 'Fallback to Titan if Jupiter cannot find routes';
+  if (router === 'titan') return 'Fallback to Jupiter if Titan cannot find routes';
   return 'Fallback to Jupiter or Titan if Vybe cannot find routes';
 }
 
 function getRouterFallbackSwitchTitle(): string {
   const router = normalizeRouterId(getSwapRouter());
   if (router === 'jupiter') return 'Switch to Titan and refetch when Jupiter has no route';
+  if (router === 'titan') {
+    return 'Titan automatically falls back to Jupiter when it cannot find a route (display only)';
+  }
   return 'Switch to Jupiter or Titan and refetch when Vybe has no route';
 }
 
 function syncRouterFallbackToggleUi(): void {
   if (!swapVybeFallbackRowEl) return;
   const router = normalizeRouterId(getSwapRouter());
-  swapVybeFallbackRowEl.hidden = router === 'titan';
+  swapVybeFallbackRowEl.hidden = false;
   if (swapRouterFallbackLabelEl) {
     swapRouterFallbackLabelEl.textContent = getRouterFallbackLabel();
   }
   if (swapRouterFallbackSwitchEl) {
     swapRouterFallbackSwitchEl.title = getRouterFallbackSwitchTitle();
+  }
+  if (!swapVybeFallbackCheckbox) return;
+  if (router === 'titan') {
+    swapVybeFallbackCheckbox.checked = true;
+    swapVybeFallbackCheckbox.disabled = true;
+    swapVybeFallbackRowEl.classList.add('swap-router-fallback-row--locked');
+  } else {
+    swapVybeFallbackRowEl.classList.remove('swap-router-fallback-row--locked');
+    setWalletGatedDisabled(swapVybeFallbackCheckbox, !hasValidSwapWallet());
   }
 }
 
@@ -4242,10 +4343,18 @@ function renderSwapQuoteDetailsPanel(quote: Record<string, unknown>): void {
     swapQuoteSummaryEl.innerHTML = renderQuoteSummary(quote);
     swapQuoteSummaryEl.hidden = false;
   }
-  if (vybeRouteDiscoveryUiVisible()) {
+  if (vybeRouteDiscoveryUiVisible() || isAggregatorRouter()) {
     renderRoutePanels(quote);
   } else {
-    hideVybeRouteDiscoveryPanels();
+    if (swapRouteOptionsEl) {
+      swapRouteOptionsEl.hidden = true;
+      swapRouteOptionsEl.innerHTML = '';
+    }
+    if (quoteHasRoutePlan(quote)) {
+      renderQuoteRouteDiagramAndSteps(quote);
+    } else {
+      clearQuoteRouteDiagramAndSteps(false);
+    }
   }
   if (swapQuoteDetailsFieldsEl) swapQuoteDetailsFieldsEl.innerHTML = renderQuoteFieldsTable(quote);
   renderRawResponsePanels();
@@ -4653,13 +4762,24 @@ function isVybeMaxSellSelected(mint: string): boolean {
 }
 
 function isSwapRoutePinMode(): boolean {
+  if (isAggregatorRouter()) return false;
   return swapPinRouteCheckbox?.checked === true;
 }
 
 let swapRoutePinModeWasOn: boolean | null = null;
 
 function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
-  const pinOn = isSwapRoutePinMode();
+  const aggregator = isAggregatorRouter();
+  const vybeLockedTitle = aggregator
+    ? 'Route discovery options are only available with Vybe'
+    : SWAP_WALLET_LOCKED_TITLE;
+
+  if (aggregator && swapPinRouteCheckbox?.checked) {
+    swapPinRouteCheckbox.checked = false;
+    swapRoutePinModeWasOn = false;
+  }
+
+  const pinOn = !aggregator && isSwapRoutePinMode();
   const enteringPin = swapRoutePinModeWasOn !== true && pinOn;
   const leavingPin = swapRoutePinModeWasOn === true && !pinOn;
   swapRoutePinModeWasOn = pinOn;
@@ -4667,6 +4787,9 @@ function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
   if (swapRouteDiscoveryRowEl) swapRouteDiscoveryRowEl.hidden = pinOn;
   if (swapRoutePinRowEl) swapRoutePinRowEl.hidden = !pinOn;
   swapQuoteRouteOptionsEl?.classList.toggle('swap-quote-route-options--pin', pinOn);
+  swapQuoteRouteOptionsEl?.classList.toggle('swap-quote-route-options--aggregator', aggregator);
+
+  const discoveryDisabled = aggregator || !walletValid;
 
   if (pinOn) {
     if (swapEnablePoolAddressCheckbox) {
@@ -4698,15 +4821,17 @@ function syncSwapRoutePinMode(walletValid = hasValidSwapWallet()): void {
     swapProtocolPicker?.syncFromSelect();
     if (swapEnumerateRoutesCheckbox) {
       if (leavingPin) swapEnumerateRoutesCheckbox.checked = true;
-      setWalletGatedDisabled(swapEnumerateRoutesCheckbox, !walletValid);
+      setWalletGatedDisabled(swapEnumerateRoutesCheckbox, discoveryDisabled, vybeLockedTitle);
     }
     if (swapMarketFetchModeSelect) {
-      swapMarketFetchModeSelect.disabled = !walletValid;
+      swapMarketFetchModeSelect.disabled = discoveryDisabled;
       if (leavingPin) swapMarketFetchModeSelect.value = 'full';
+      if (discoveryDisabled) swapMarketFetchModeSelect.title = vybeLockedTitle;
+      else swapMarketFetchModeSelect.removeAttribute('title');
     }
   }
 
-  setWalletGatedDisabled(swapPinRouteCheckbox, !walletValid);
+  setWalletGatedDisabled(swapPinRouteCheckbox, discoveryDisabled, vybeLockedTitle);
 }
 
 function vybeMarketDiscoveryActive(): boolean {
@@ -4714,6 +4839,7 @@ function vybeMarketDiscoveryActive(): boolean {
 }
 
 function swapRouteOptionsPanelActive(): boolean {
+  if (isAggregatorRouter()) return true;
   if (!vybeRouteDiscoveryUiVisible()) return false;
   if (isSwapRoutePinMode()) {
     return Boolean(enumeratedRoutesUiState?.routes.length);
@@ -5338,7 +5464,8 @@ function applyVybeQuoteBodyToUi(
   buildOpts: Record<string, unknown>,
 ): void {
   if (!swapQuoteFetching) return;
-  vybeRouterQuoteCache = null;
+  const quoteRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  if (isSwapRouterId(quoteRouter)) clearRouterQuoteCache(quoteRouter);
   if (body._tokenStats) {
     for (const [mint, s] of Object.entries(body._tokenStats)) {
       saveTokenPriceStats(mint, s);
@@ -5665,6 +5792,8 @@ function applyAggregatorBuildToUi(
   buildOpts: Record<string, unknown>,
 ): void {
   if (!swapQuoteFetching) return;
+  const quoteRouter = normalizeRouterId(router);
+  if (isSwapRouterId(quoteRouter)) clearRouterQuoteCache(quoteRouter);
   quotedMintSession.add(inputMint);
   quotedMintSession.add(outputMint);
   lastRawQuoteResponse = quoteBody;
@@ -6115,6 +6244,7 @@ async function fetchSwapQuote(): Promise<void> {
       setFooterStatsLoading(false);
     }
     syncSwapQuoteButtonState();
+    syncSwapRouterSwitchState();
     syncBuildButtonState();
     if (swapQuoteLoading) {
       swapQuoteLoading.hidden = true;
@@ -6161,8 +6291,8 @@ function setSwapSignCancelButtonLabel(mode: 'cancel' | 'close'): void {
   }
 }
 
-function resetSwapSignDialogUi(): void {
-  if (swapSignConfirmLogsEl) swapSignConfirmLogsEl.innerHTML = '';
+function resetSwapSignDialogUi(clearLogs = true): void {
+  if (clearLogs && swapSignConfirmLogsEl) swapSignConfirmLogsEl.innerHTML = '';
   swapSignPendingLogEl = null;
   swapSignDialogSuccess = false;
   swapSignSuccessContext = null;
@@ -6264,12 +6394,31 @@ function setSwapSignDialogSummary(
   }
 }
 
-function openSwapSignDialog(quote: Record<string, unknown>, buildPayload?: Record<string, unknown>): void {
-  resetSwapSignDialogUi();
+function openSwapSignDialog(
+  quote: Record<string, unknown>,
+  buildPayload?: Record<string, unknown>,
+  options?: { preserveLogs?: boolean },
+): void {
+  if (options?.preserveLogs) {
+    swapSignPendingLogEl = null;
+    swapSignDialogSuccess = false;
+    swapSignSuccessContext = null;
+    setSwapSignTxidButtonsState('hidden');
+    syncSignDialogRetryButtons(false);
+    if (swapSignConfirmCancelEl) {
+      swapSignConfirmCancelEl.hidden = false;
+      swapSignConfirmCancelEl.disabled = false;
+      setSwapSignCancelButtonLabel('cancel');
+    }
+  } else {
+    resetSwapSignDialogUi(true);
+  }
   setSwapSignDialogSummary(quote, buildPayload);
   setSwapSignDialogActions('running');
-  swapSignConfirmDialogEl?.showModal();
-  lockPageScroll();
+  if (!swapSignConfirmDialogEl?.open) {
+    swapSignConfirmDialogEl?.showModal();
+    lockPageScroll();
+  }
 }
 
 function closeSwapSignDialog(): void {
@@ -6474,6 +6623,7 @@ async function runSwapSignDialogFlow(
   quote: Record<string, unknown>,
   buildPayload: Record<string, unknown>,
   txStrings: string[],
+  options?: { preserveLogs?: boolean },
 ): Promise<void> {
   const generation = ++swapSignFlowGeneration;
   let confirmQuote = quote;
@@ -6499,9 +6649,12 @@ async function runSwapSignDialogFlow(
     confirmBuild = { ...confirmBuild, _txSizeBytes: txSizeBytes };
     confirmQuote = { ...confirmQuote, _txSizeBytes: txSizeBytes };
   }
-  openSwapSignDialog(confirmQuote, confirmBuild);
+  openSwapSignDialog(confirmQuote, confirmBuild, { preserveLogs: options?.preserveLogs });
   swapSignRetryContext = { quote: confirmQuote, buildPayload: confirmBuild, txStrings };
-  appendSwapSignLog('Preparing transaction…', 'neutral');
+  appendSwapSignLog(
+    options?.preserveLogs ? 'Retrying with rebuilt transaction…' : 'Preparing transaction…',
+    'neutral',
+  );
 
   try {
     await completeSwapSignFlow(generation, txStrings);
@@ -6544,18 +6697,18 @@ async function handleSwapSignDialogRefetchRebuild(): Promise<void> {
     await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
     if (!lastSwapQuoteOk) {
       appendSwapSignLog('Quote failed — fix inputs and try again.', 'error');
-      setSignDialogRetryButtonsDisabled(false);
-      syncSignDialogRetryButtons(true);
+      setSwapSignDialogActions('failed');
       return;
     }
     appendSwapSignLog('Quote received — rebuilding swap…', 'neutral');
-    await postBuildSwap({ skipQuoteRefetch: true });
+    await postBuildSwap({ skipQuoteRefetch: true, preserveSignDialogLogs: true });
   } catch (err) {
     appendSwapSignLog(err instanceof Error ? err.message : String(err), 'error');
-    setSignDialogRetryButtonsDisabled(false);
-    syncSignDialogRetryButtons(true);
+    setSwapSignDialogActions('failed');
   } finally {
     popSuppressClientPriceResolve();
+    setSignDialogRetryButtonsDisabled(false);
+    syncSignDialogRetryButtons(true);
   }
 }
 
@@ -6683,7 +6836,10 @@ function tryCachedVybeBuildTxForSelectedRoute(): {
   return { tx, buildPayload: projectSwapBuildForBrowser(buildPayload) };
 }
 
-async function postBuildSwap(options?: { skipQuoteRefetch?: boolean }): Promise<void> {
+async function postBuildSwap(options?: {
+  skipQuoteRefetch?: boolean;
+  preserveSignDialogLogs?: boolean;
+}): Promise<void> {
   if (swapBuildMode === 'paste-sign') {
     return postPasteSignSwap();
   }
@@ -6774,7 +6930,9 @@ async function postBuildSwap(options?: { skipQuoteRefetch?: boolean }): Promise<
       }
       lastSwapQuoteOk = confirmQuote;
       renderSwapQuoteUI(confirmQuote);
-      await runSwapSignDialogFlow(confirmQuote, buildPayload, toSign);
+      await runSwapSignDialogFlow(confirmQuote, buildPayload, toSign, {
+        preserveLogs: options?.preserveSignDialogLogs,
+      });
     } else {
       const legTxs = extractSwapBuildTransactions(buildPayload);
       const ok = await applyBuiltSwapTx(
@@ -7389,6 +7547,7 @@ swapModeBuildBtn?.addEventListener('click', () => setSwapBuildMode('build'));
 swapModeBuildSignBtn?.addEventListener('click', () => setSwapBuildMode('build-sign'));
 swapModePasteSignBtn?.addEventListener('click', () => setSwapBuildMode('paste-sign'));
 swapRouterSwitchEl?.addEventListener('click', (e) => {
+  if (swapQuoteFetching) return;
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-router]');
   if (!btn?.dataset.router) return;
   setSwapRouter(btn.dataset.router);
@@ -7398,6 +7557,7 @@ swapVybeFallbackCheckbox?.addEventListener('change', () => {
   syncSwapQuoteButtonState();
 });
 syncRouterFallbackToggleUi();
+syncSwapRouterSwitchState();
 swapConnectWalletBtn?.addEventListener('click', () => {
   if (walletConnectLoading || swapConnectWalletBtn.disabled) return;
   walletConnectLoading = true;
