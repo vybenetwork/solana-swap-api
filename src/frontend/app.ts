@@ -52,6 +52,7 @@ import {
   setWalletBalanceStreamListener,
   initTokenPicker,
   openTokenPicker,
+  closeTokenPicker,
   prefetchTokenMetas,
   prefetchWalletBalances,
   refreshWalletBalancesPanel,
@@ -103,6 +104,8 @@ import {
   pairCardEffectiveStats,
   collectRoutePriceMints,
   formatRouteChipLabel,
+  renderRouteSubtitleHtml,
+  routerBrandFromId,
   renderRoutingDiagram,
   renderRoutingDiagramPlaceholder,
   renderQuoteRoutePlanStepsPlaceholder,
@@ -272,6 +275,7 @@ const swapCopyTxBtn = document.getElementById('swapCopyTxBtn') as HTMLButtonElem
 const swapModeBuildBtn = document.getElementById('swapModeBuild') as HTMLButtonElement | null;
 const swapModeBuildSignBtn = document.getElementById('swapModeBuildSign') as HTMLButtonElement | null;
 const swapModePasteSignBtn = document.getElementById('swapModePasteSign') as HTMLButtonElement | null;
+const swapModeSwitchEl = swapModeBuildSignBtn?.closest('.swap-mode-switch') as HTMLElement | null;
 const swapPasteSignPanelEl = document.getElementById('swapPasteSignPanel') as HTMLElement | null;
 const swapPasteTxInputEl = document.getElementById('swapPasteTxInput') as HTMLTextAreaElement | null;
 const swapStandardFlowEl = document.getElementById('swapStandardFlow') as HTMLElement | null;
@@ -287,6 +291,7 @@ const swapBuildResultTitleEl = document.getElementById('swapBuildResultTitle') a
 const swapBuildResultMetaEl = document.getElementById('swapBuildResultMeta') as HTMLElement | null;
 const swapAdvancedBuildHintEl = document.getElementById('swapAdvancedBuildHint') as HTMLElement | null;
 const swapAdvancedBuildDetailsEl = document.getElementById('swapAdvancedBuild') as HTMLDetailsElement | null;
+const swapQuoteSlippageRowEl = document.querySelector('.swap-quote-slippage-row') as HTMLElement | null;
 
 interface SolanaWalletProvider {
   isPhantom?: boolean;
@@ -1033,19 +1038,137 @@ function applyQuoteLoadingUi(): void {
   syncSwapRouterSwitchState();
 }
 
-/** Disable Vybe/Jupiter/Titan tabs while a quote fetch is in flight. */
+function clearSwapQuoteFetchLockClasses(): void {
+  swapAmountInput?.closest('.swap-amount-field')?.classList.remove('swap-amount-field--locked');
+  swapQuoteSlippageRowEl?.classList.remove('swap-quote-inputs--fetch-locked');
+  swapQuoteRouteOptionsEl?.classList.remove('swap-quote-inputs--fetch-locked');
+  swapAdvancedBuildDetailsEl?.classList.remove('swap-quote-inputs--fetch-locked');
+  swapVybeFallbackRowEl?.classList.remove('swap-quote-inputs--fetch-locked');
+}
+
+function syncSwapAmountInputLockState(): void {
+  if (!swapAmountInput || swapQuoteFetching) return;
+  swapAmountInput.disabled = false;
+  swapAmountInput.readOnly = false;
+  swapAmountInput.title = 'Amount to sell';
+}
+
+function syncSwapBuildModeButtonsLockState(): void {
+  const fetching = swapQuoteFetching;
+  const title = SWAP_QUOTE_FETCH_LOCKED_TITLE;
+  for (const btn of [swapModeBuildBtn, swapModeBuildSignBtn, swapModePasteSignBtn]) {
+    if (!btn) continue;
+    btn.disabled = fetching;
+    if (fetching) btn.title = title;
+    else btn.removeAttribute('title');
+  }
+  swapModeSwitchEl?.classList.toggle('swap-mode-switch--fetch-locked', fetching);
+}
+
+function syncSwapWalletTrayLockState(): void {
+  const fetching = swapQuoteFetching;
+  const title = SWAP_QUOTE_FETCH_LOCKED_TITLE;
+  if (swapWalletTotalUsdEl && !swapWalletTotalUsdEl.hidden) {
+    swapWalletTotalUsdEl.disabled = fetching;
+    if (fetching) swapWalletTotalUsdEl.title = title;
+    else swapWalletTotalUsdEl.removeAttribute('title');
+  }
+  if (swapDisconnectWalletBtn && !swapDisconnectWalletBtn.hidden) {
+    swapDisconnectWalletBtn.disabled = fetching;
+    if (fetching) swapDisconnectWalletBtn.title = title;
+    else swapDisconnectWalletBtn.removeAttribute('title');
+  }
+}
+
+/** Lock swap inputs and build options while a quote fetch is in flight. */
+function applySwapQuoteFetchLocks(): void {
+  closeTokenPicker();
+  const title = SWAP_QUOTE_FETCH_LOCKED_TITLE;
+
+  lockTokenChipButton(swapInputTokenBtn, true, title);
+  lockTokenChipButton(swapOutputTokenBtn, true, title);
+
+  if (swapAmountInput) {
+    swapAmountInput.disabled = true;
+    swapAmountInput.readOnly = true;
+    swapAmountInput.title = title;
+  }
+  swapAmountInput?.closest('.swap-amount-field')?.classList.add('swap-amount-field--locked');
+
+  const pctContainer = document.getElementById('swapSellPctBtns');
+  for (const btn of pctContainer?.querySelectorAll<HTMLButtonElement>('.swap-sell-pct-btn') ?? []) {
+    btn.disabled = true;
+    btn.title = title;
+  }
+
+  if (swapFlipBtnEl) {
+    swapFlipBtnEl.classList.add('swap-flip-fab--blocked');
+    swapFlipBtnEl.setAttribute('aria-disabled', 'true');
+    swapFlipBtnEl.title = title;
+  }
+
+  if (swapPasteOutputBtnEl) {
+    swapPasteOutputBtnEl.disabled = true;
+    swapPasteOutputBtnEl.title = title;
+  }
+
+  setWalletGatedDisabled(swapSlippageInput, true, title);
+  setWalletGatedDisabled(swapAutoSlippageCheckbox, true, title);
+  setWalletGatedDisabled(swapGaslessCheckbox, true, title);
+
+  setWalletGatedDisabled(swapPinRouteCheckbox, true, title);
+  setWalletGatedDisabled(swapEnumerateRoutesCheckbox, true, title);
+  if (swapMarketFetchModeSelect) {
+    swapMarketFetchModeSelect.disabled = true;
+    swapMarketFetchModeSelect.title = title;
+  }
+  setWalletGatedDisabled(swapEnablePoolAddressCheckbox, true, title);
+  setWalletGatedDisabled(swapEnableProtocolCheckbox, true, title);
+  setWalletGatedDisabled(swapPoolAddressInput, true, title);
+  setWalletGatedDisabled(swapProtocolSelect, true, title);
+  swapProtocolPicker?.setDisabled(true, title);
+
+  if (swapVybeFallbackCheckbox) {
+    swapVybeFallbackCheckbox.disabled = true;
+    swapVybeFallbackCheckbox.title = title;
+  }
+  swapVybeFallbackRowEl?.classList.add('swap-router-fallback-row--locked');
+
+  setWalletGatedDisabled(swapEnablePartnerCheckbox, true, title);
+  setWalletGatedDisabled(swapPartnerInput, true, title);
+  setWalletGatedDisabled(swapEnableServiceFeeCheckbox, true, title);
+  setWalletGatedDisabled(swapServiceFeeInput, true, title);
+
+  swapQuoteSlippageRowEl?.classList.add('swap-quote-inputs--fetch-locked');
+  swapQuoteRouteOptionsEl?.classList.add('swap-quote-inputs--fetch-locked');
+  swapAdvancedBuildDetailsEl?.classList.add('swap-quote-inputs--fetch-locked');
+  swapVybeFallbackRowEl?.classList.add('swap-quote-inputs--fetch-locked');
+}
+
+/** Disable router tabs and swap inputs while a quote fetch is in flight. */
 function syncSwapRouterSwitchState(): void {
   const fetching = swapQuoteFetching;
-  const lockTitle = 'Wait for the quote to finish before switching routers';
+  const routerLockTitle = 'Wait for the quote to finish before switching routers';
   for (const btn of swapRouterSwitchEl?.querySelectorAll<HTMLButtonElement>('[data-router]') ?? []) {
     btn.disabled = fetching;
-    if (fetching) btn.title = lockTitle;
+    if (fetching) btn.title = routerLockTitle;
     else btn.removeAttribute('title');
   }
   if (swapRouterSwitchEl) {
     swapRouterSwitchEl.classList.toggle('swap-router-switch--locked', fetching);
     swapRouterSwitchEl.setAttribute('aria-busy', fetching ? 'true' : 'false');
   }
+
+  if (fetching) {
+    applySwapQuoteFetchLocks();
+  } else {
+    clearSwapQuoteFetchLockClasses();
+    syncSellTokenPickerState();
+    syncSwapAmountInputLockState();
+  }
+
+  syncSwapBuildModeButtonsLockState();
+  syncSwapWalletTrayLockState();
 }
 
 /** Mint → symbol cache for route hop labels (filled after quote). */
@@ -2055,6 +2178,7 @@ function hasValidSwapWallet(): boolean {
 }
 
 const SWAP_WALLET_LOCKED_TITLE = 'Enter or connect a valid Solana wallet first';
+const SWAP_QUOTE_FETCH_LOCKED_TITLE = 'Wait for the quote to finish before changing this';
 const SWAP_SERVICE_FEE_PARTNER_LOCKED_TITLE = 'Enable Partner first';
 
 function lockTokenChipButton(
@@ -2115,6 +2239,7 @@ function clearFlipInlineErrorIfShown(): void {
 
 function syncFlipButtonState(): void {
   if (!swapFlipBtnEl) return;
+  if (swapQuoteFetching) return;
   const reason = getFlipBlockedReason();
   const blocked = reason !== null;
   swapFlipBtnEl.disabled = false;
@@ -2223,6 +2348,7 @@ function resolveActiveSellPercent(currentUi: number, mint: string): number | nul
 function syncSellPctButtonsState(): void {
   const container = document.getElementById('swapSellPctBtns');
   if (!container) return;
+  if (swapQuoteFetching) return;
   const mint = swapInputMintInput?.value.trim() ?? '';
   const walletReady =
     hasValidSwapWallet() && mint.length > 0 && (getWalletSellableForUi(mint) ?? 0) > 0;
@@ -2254,6 +2380,7 @@ function syncSellPctButtonsState(): void {
 }
 
 function applySellAmountPercent(percent: number): void {
+  if (swapQuoteFetching) return;
   if (!swapInputMintInput || !swapAmountInput) return;
   const mint = swapInputMintInput.value.trim();
   if (!mint) return;
@@ -2631,6 +2758,7 @@ async function waitForTxConfirmThenRefreshWallet(signature: string): Promise<voi
 }
 
 function tryOpenBuyTokenPicker(): void {
+  if (swapQuoteFetching) return;
   if (!hasValidSwapWallet()) {
     if (swapQuoteError) {
       showInlineError(
@@ -2644,6 +2772,7 @@ function tryOpenBuyTokenPicker(): void {
 }
 
 function tryOpenSellTokenPicker(): void {
+  if (swapQuoteFetching) return;
   if (!hasValidSwapWallet()) {
     if (swapQuoteError) {
       showInlineError(
@@ -3638,6 +3767,15 @@ function getWalletSellableForUi(mint: string): number | null {
   return getWalletSellableAmountUi(mint, getSwapSellRouterOptions());
 }
 
+function syncDefaultRouteSubtitle(): void {
+  if (!swapQuoteRouteSubtitleEl || lastSwapQuoteOk) return;
+  const router = getSwapRouter();
+  swapQuoteRouteSubtitleEl.innerHTML = renderRouteSubtitleHtml(
+    `Route · ${routerDisplayLabel(router)}`,
+    routerBrandFromId(router),
+  );
+}
+
 function setSwapRouter(router: string, options?: { invalidateQuote?: boolean }): void {
   const normalized = normalizeRouterId(router);
   const prev = normalizeRouterId(getSwapRouter());
@@ -3669,6 +3807,7 @@ function setSwapRouter(router: string, options?: { invalidateQuote?: boolean }):
   syncSwapRoutePinMode(hasValidSwapWallet());
   syncSwapQuoteButtonState();
   syncSwapRouterSwitchState();
+  syncDefaultRouteSubtitle();
 }
 
 function isRouterFallbackEnabled(): boolean {
@@ -4496,7 +4635,7 @@ function resetSwapQuoteDetailsPanel(): void {
       ? `<p class="routing-empty routing-empty--loading">${renderLoadingSpinner('sm')}</p>`
       : '<p class="routing-empty">—</p>';
   }
-  if (swapQuoteRouteSubtitleEl) swapQuoteRouteSubtitleEl.textContent = 'Route';
+  if (swapQuoteRouteSubtitleEl) syncDefaultRouteSubtitle();
   if (routingDialogTitleEl) routingDialogTitleEl.textContent = 'Routing';
   renderRawResponsePanels();
 }
@@ -7238,22 +7377,19 @@ function updateConnectWalletButtonUi(address: string, hasWallet: boolean): void 
     if (iconEl) iconEl.className = 'swap-wallet-field-connect__icon swap-wallet-field-connect__icon--spinner';
     textEl.textContent = 'Connecting…';
     updateWalletTotalUsdUi();
-      return;
-    }
-
-  if (hasWallet) {
+  } else if (hasWallet) {
     btn.disabled = true;
     btn.classList.add('swap-wallet-field-connect--connected', 'swap-btn-3d--static');
     if (iconEl) iconEl.className = 'swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet';
     textEl.textContent = truncate(address, 4, 4);
     updateWalletTotalUsdUi();
-    return;
+  } else {
+    btn.disabled = false;
+    if (iconEl) iconEl.className = 'swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet';
+    textEl.textContent = 'Connect wallet';
+    updateWalletTotalUsdUi();
   }
-
-  btn.disabled = false;
-  if (iconEl) iconEl.className = 'swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet';
-  textEl.textContent = 'Connect wallet';
-  updateWalletTotalUsdUi();
+  syncSwapWalletTrayLockState();
 }
 
 async function disconnectBrowserWallet(): Promise<void> {
@@ -7356,6 +7492,7 @@ function syncSwapBuildModeUi(): void {
 }
 
 function setSwapBuildMode(mode: SwapBuildMode): void {
+  if (swapQuoteFetching) return;
   swapBuildMode = mode;
   syncSwapBuildModeUi();
 }
@@ -7587,9 +7724,18 @@ function wireServiceFeeToggle(): void {
 wireServiceFeeToggle();
 syncServiceFeePartnerGate(hasValidSwapWallet());
 
-swapModeBuildBtn?.addEventListener('click', () => setSwapBuildMode('build'));
-swapModeBuildSignBtn?.addEventListener('click', () => setSwapBuildMode('build-sign'));
-swapModePasteSignBtn?.addEventListener('click', () => setSwapBuildMode('paste-sign'));
+swapModeBuildBtn?.addEventListener('click', () => {
+  if (swapQuoteFetching) return;
+  setSwapBuildMode('build');
+});
+swapModeBuildSignBtn?.addEventListener('click', () => {
+  if (swapQuoteFetching) return;
+  setSwapBuildMode('build-sign');
+});
+swapModePasteSignBtn?.addEventListener('click', () => {
+  if (swapQuoteFetching) return;
+  setSwapBuildMode('paste-sign');
+});
 swapRouterSwitchEl?.addEventListener('click', (e) => {
   if (swapQuoteFetching) return;
   const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('[data-router]');
@@ -7616,9 +7762,11 @@ swapConnectWalletBtn?.addEventListener('click', () => {
     });
 });
 swapDisconnectWalletBtn?.addEventListener('click', () => {
+  if (swapQuoteFetching) return;
   void disconnectBrowserWallet();
 });
 swapWalletTotalUsdEl?.addEventListener('click', () => {
+  if (swapQuoteFetching) return;
   tryOpenSellTokenPicker();
 });
 swapWalletAddressInput?.addEventListener('input', () => onWalletAddressReady(false));
@@ -7646,8 +7794,8 @@ initTokenPicker({
   getWalletAddress: () => swapWalletAddressInput?.value.trim() ?? '',
   getSwapInputMint: () => swapInputMintInput?.value.trim() ?? '',
   getSwapInputSymbol: () => swapInputSymbolEl?.textContent?.trim() ?? '',
-  canOpenSellPicker: hasValidSwapWallet,
-  canOpenBuyPicker: hasValidSwapWallet,
+  canOpenSellPicker: () => hasValidSwapWallet() && !swapQuoteFetching,
+  canOpenBuyPicker: () => hasValidSwapWallet() && !swapQuoteFetching,
   onRefetchHoldings: async () => {
     const wallet = swapWalletAddressInput?.value.trim() ?? '';
     if (!isValidSolanaWalletAddress(wallet)) return;
@@ -7671,6 +7819,7 @@ if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
   swapFlipBtnEl.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (swapQuoteFetching) return;
     const blockedReason = getFlipBlockedReason();
     if (blockedReason) {
       if (swapQuoteError) showInlineError(swapQuoteError, blockedReason);
@@ -7685,7 +7834,7 @@ if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
 
 if (swapPasteOutputBtnEl && swapOutputMintInput) {
   swapPasteOutputBtnEl.addEventListener('click', async () => {
-    if (!hasValidSwapWallet()) return;
+    if (swapQuoteFetching || !hasValidSwapWallet()) return;
     try {
       const t = (await navigator.clipboard.readText()).trim();
       if (!t) return;

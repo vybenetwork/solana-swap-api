@@ -26239,6 +26239,28 @@ function formatRouteDiagramTitle(quote) {
   }
   return `Route \xB7 ${routerDisplayLabel(selected)}`;
 }
+function routerBrandFromId(routerId) {
+  const id = normalizeRouterId(routerId);
+  if (id === "jupiter" || id === "titan") return id;
+  return "vybe";
+}
+function routeDiagramTitleRouterBrand(quote) {
+  const selected = normalizeRouterId(
+    quote._selectedRouter ?? quote.router ?? deps.getSwapRouter()
+  );
+  const effective = normalizeRouterId(
+    quote._effectiveRouter ?? quote._buildRouter ?? selected
+  );
+  return routerBrandFromId(effective);
+}
+function renderRouteSubtitleHtml(text, routerBrand) {
+  if (!routerBrand) {
+    return deps.escapeHtml(text);
+  }
+  const iconClass = `swap-quote-route-title__icon swap-quote-route-title__icon--${routerBrand}`;
+  const size = routerBrand === "vybe" ? 14 : 13;
+  return `<span class="swap-quote-route-title"><span class="swap-quote-route-title__icon-wrap" aria-hidden="true"><img class="${iconClass}" src="${routerIconSrc(routerBrand)}" alt="" width="${size}" height="${size}" decoding="async" /></span><span class="swap-quote-route-title-text">${deps.escapeHtml(text)}</span></span>`;
+}
 function simulationOutputWarningFromQuote(quote) {
   const w = quote._simulationOutputWarning;
   if (!w || typeof w !== "object") return null;
@@ -26299,10 +26321,11 @@ function updateRouteDiagramTitle(quote) {
   const warnClass = warnLevel === "red" ? "swap-quote-route-warning swap-quote-route-warning--severe" : warnLevel === "orange" ? "swap-quote-route-warning swap-quote-route-warning--caution" : "swap-quote-route-warning";
   const applyTitle = (el) => {
     if (!el) return;
+    const titleHtml = renderRouteSubtitleHtml(base, routeDiagramTitleRouterBrand(quote));
     if (warnLevel !== "none") {
-      el.innerHTML = `<span class="swap-quote-route-title-text">${deps.escapeHtml(base)}</span><span class="${warnClass}" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">\u26A0</span>`;
+      el.innerHTML = `${titleHtml}<span class="${warnClass}" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">\u26A0</span>`;
     } else {
-      el.textContent = base;
+      el.innerHTML = titleHtml;
     }
   };
   applyTitle(deps.dom.swapQuoteRouteSubtitleEl);
@@ -27391,6 +27414,7 @@ var swapCopyTxBtn = document.getElementById("swapCopyTxBtn");
 var swapModeBuildBtn = document.getElementById("swapModeBuild");
 var swapModeBuildSignBtn = document.getElementById("swapModeBuildSign");
 var swapModePasteSignBtn = document.getElementById("swapModePasteSign");
+var swapModeSwitchEl = swapModeBuildSignBtn?.closest(".swap-mode-switch");
 var swapPasteSignPanelEl = document.getElementById("swapPasteSignPanel");
 var swapPasteTxInputEl = document.getElementById("swapPasteTxInput");
 var swapStandardFlowEl = document.getElementById("swapStandardFlow");
@@ -27406,6 +27430,7 @@ var swapBuildResultTitleEl = document.getElementById("swapBuildResultTitle");
 var swapBuildResultMetaEl = document.getElementById("swapBuildResultMeta");
 var swapAdvancedBuildHintEl = document.getElementById("swapAdvancedBuildHint");
 var swapAdvancedBuildDetailsEl = document.getElementById("swapAdvancedBuild");
+var swapQuoteSlippageRowEl = document.querySelector(".swap-quote-slippage-row");
 function getSolanaWindow() {
   return window;
 }
@@ -27986,18 +28011,118 @@ function applyQuoteLoadingUi() {
   syncSwapSellAmountUi();
   syncSwapRouterSwitchState();
 }
+function clearSwapQuoteFetchLockClasses() {
+  swapAmountInput?.closest(".swap-amount-field")?.classList.remove("swap-amount-field--locked");
+  swapQuoteSlippageRowEl?.classList.remove("swap-quote-inputs--fetch-locked");
+  swapQuoteRouteOptionsEl?.classList.remove("swap-quote-inputs--fetch-locked");
+  swapAdvancedBuildDetailsEl?.classList.remove("swap-quote-inputs--fetch-locked");
+  swapVybeFallbackRowEl?.classList.remove("swap-quote-inputs--fetch-locked");
+}
+function syncSwapAmountInputLockState() {
+  if (!swapAmountInput || swapQuoteFetching) return;
+  swapAmountInput.disabled = false;
+  swapAmountInput.readOnly = false;
+  swapAmountInput.title = "Amount to sell";
+}
+function syncSwapBuildModeButtonsLockState() {
+  const fetching = swapQuoteFetching;
+  const title = SWAP_QUOTE_FETCH_LOCKED_TITLE;
+  for (const btn of [swapModeBuildBtn, swapModeBuildSignBtn, swapModePasteSignBtn]) {
+    if (!btn) continue;
+    btn.disabled = fetching;
+    if (fetching) btn.title = title;
+    else btn.removeAttribute("title");
+  }
+  swapModeSwitchEl?.classList.toggle("swap-mode-switch--fetch-locked", fetching);
+}
+function syncSwapWalletTrayLockState() {
+  const fetching = swapQuoteFetching;
+  const title = SWAP_QUOTE_FETCH_LOCKED_TITLE;
+  if (swapWalletTotalUsdEl && !swapWalletTotalUsdEl.hidden) {
+    swapWalletTotalUsdEl.disabled = fetching;
+    if (fetching) swapWalletTotalUsdEl.title = title;
+    else swapWalletTotalUsdEl.removeAttribute("title");
+  }
+  if (swapDisconnectWalletBtn && !swapDisconnectWalletBtn.hidden) {
+    swapDisconnectWalletBtn.disabled = fetching;
+    if (fetching) swapDisconnectWalletBtn.title = title;
+    else swapDisconnectWalletBtn.removeAttribute("title");
+  }
+}
+function applySwapQuoteFetchLocks() {
+  closeTokenPicker();
+  const title = SWAP_QUOTE_FETCH_LOCKED_TITLE;
+  lockTokenChipButton(swapInputTokenBtn, true, title);
+  lockTokenChipButton(swapOutputTokenBtn, true, title);
+  if (swapAmountInput) {
+    swapAmountInput.disabled = true;
+    swapAmountInput.readOnly = true;
+    swapAmountInput.title = title;
+  }
+  swapAmountInput?.closest(".swap-amount-field")?.classList.add("swap-amount-field--locked");
+  const pctContainer = document.getElementById("swapSellPctBtns");
+  for (const btn of pctContainer?.querySelectorAll(".swap-sell-pct-btn") ?? []) {
+    btn.disabled = true;
+    btn.title = title;
+  }
+  if (swapFlipBtnEl) {
+    swapFlipBtnEl.classList.add("swap-flip-fab--blocked");
+    swapFlipBtnEl.setAttribute("aria-disabled", "true");
+    swapFlipBtnEl.title = title;
+  }
+  if (swapPasteOutputBtnEl) {
+    swapPasteOutputBtnEl.disabled = true;
+    swapPasteOutputBtnEl.title = title;
+  }
+  setWalletGatedDisabled(swapSlippageInput, true, title);
+  setWalletGatedDisabled(swapAutoSlippageCheckbox, true, title);
+  setWalletGatedDisabled(swapGaslessCheckbox, true, title);
+  setWalletGatedDisabled(swapPinRouteCheckbox, true, title);
+  setWalletGatedDisabled(swapEnumerateRoutesCheckbox, true, title);
+  if (swapMarketFetchModeSelect) {
+    swapMarketFetchModeSelect.disabled = true;
+    swapMarketFetchModeSelect.title = title;
+  }
+  setWalletGatedDisabled(swapEnablePoolAddressCheckbox, true, title);
+  setWalletGatedDisabled(swapEnableProtocolCheckbox, true, title);
+  setWalletGatedDisabled(swapPoolAddressInput, true, title);
+  setWalletGatedDisabled(swapProtocolSelect, true, title);
+  swapProtocolPicker?.setDisabled(true, title);
+  if (swapVybeFallbackCheckbox) {
+    swapVybeFallbackCheckbox.disabled = true;
+    swapVybeFallbackCheckbox.title = title;
+  }
+  swapVybeFallbackRowEl?.classList.add("swap-router-fallback-row--locked");
+  setWalletGatedDisabled(swapEnablePartnerCheckbox, true, title);
+  setWalletGatedDisabled(swapPartnerInput, true, title);
+  setWalletGatedDisabled(swapEnableServiceFeeCheckbox, true, title);
+  setWalletGatedDisabled(swapServiceFeeInput, true, title);
+  swapQuoteSlippageRowEl?.classList.add("swap-quote-inputs--fetch-locked");
+  swapQuoteRouteOptionsEl?.classList.add("swap-quote-inputs--fetch-locked");
+  swapAdvancedBuildDetailsEl?.classList.add("swap-quote-inputs--fetch-locked");
+  swapVybeFallbackRowEl?.classList.add("swap-quote-inputs--fetch-locked");
+}
 function syncSwapRouterSwitchState() {
   const fetching = swapQuoteFetching;
-  const lockTitle = "Wait for the quote to finish before switching routers";
+  const routerLockTitle = "Wait for the quote to finish before switching routers";
   for (const btn of swapRouterSwitchEl?.querySelectorAll("[data-router]") ?? []) {
     btn.disabled = fetching;
-    if (fetching) btn.title = lockTitle;
+    if (fetching) btn.title = routerLockTitle;
     else btn.removeAttribute("title");
   }
   if (swapRouterSwitchEl) {
     swapRouterSwitchEl.classList.toggle("swap-router-switch--locked", fetching);
     swapRouterSwitchEl.setAttribute("aria-busy", fetching ? "true" : "false");
   }
+  if (fetching) {
+    applySwapQuoteFetchLocks();
+  } else {
+    clearSwapQuoteFetchLockClasses();
+    syncSellTokenPickerState();
+    syncSwapAmountInputLockState();
+  }
+  syncSwapBuildModeButtonsLockState();
+  syncSwapWalletTrayLockState();
 }
 function showInlineError(el, msg) {
   el.textContent = msg;
@@ -28817,6 +28942,7 @@ function hasValidSwapWallet() {
   return isValidSolanaWalletAddress(swapWalletAddressInput?.value.trim() ?? "");
 }
 var SWAP_WALLET_LOCKED_TITLE = "Enter or connect a valid Solana wallet first";
+var SWAP_QUOTE_FETCH_LOCKED_TITLE = "Wait for the quote to finish before changing this";
 var SWAP_SERVICE_FEE_PARTNER_LOCKED_TITLE = "Enable Partner first";
 function lockTokenChipButton(btn, locked, lockedTitle) {
   if (!btn) return;
@@ -28853,6 +28979,7 @@ function clearFlipInlineErrorIfShown() {
 }
 function syncFlipButtonState() {
   if (!swapFlipBtnEl) return;
+  if (swapQuoteFetching) return;
   const reason = getFlipBlockedReason();
   const blocked = reason !== null;
   swapFlipBtnEl.disabled = false;
@@ -28945,6 +29072,7 @@ function resolveActiveSellPercent(currentUi, mint) {
 function syncSellPctButtonsState() {
   const container = document.getElementById("swapSellPctBtns");
   if (!container) return;
+  if (swapQuoteFetching) return;
   const mint = swapInputMintInput?.value.trim() ?? "";
   const walletReady = hasValidSwapWallet() && mint.length > 0 && (getWalletSellableForUi(mint) ?? 0) > 0;
   const currentUi = parseSwapAmountInputValue(swapAmountInput?.value ?? "");
@@ -28967,6 +29095,7 @@ function syncSellPctButtonsState() {
   }
 }
 function applySellAmountPercent(percent) {
+  if (swapQuoteFetching) return;
   if (!swapInputMintInput || !swapAmountInput) return;
   const mint = swapInputMintInput.value.trim();
   if (!mint) return;
@@ -29273,6 +29402,7 @@ async function waitForTxConfirmThenRefreshWallet(signature2) {
   if (confirmed.ok) scheduleWalletRefreshAfterTxConfirm();
 }
 function tryOpenBuyTokenPicker() {
+  if (swapQuoteFetching) return;
   if (!hasValidSwapWallet()) {
     if (swapQuoteError) {
       showInlineError(
@@ -29285,6 +29415,7 @@ function tryOpenBuyTokenPicker() {
   openTokenPicker("output");
 }
 function tryOpenSellTokenPicker() {
+  if (swapQuoteFetching) return;
   if (!hasValidSwapWallet()) {
     if (swapQuoteError) {
       showInlineError(
@@ -30051,6 +30182,14 @@ function getSwapSellRouterOptions() {
 function getWalletSellableForUi(mint) {
   return getWalletSellableAmountUi(mint, getSwapSellRouterOptions());
 }
+function syncDefaultRouteSubtitle() {
+  if (!swapQuoteRouteSubtitleEl || lastSwapQuoteOk) return;
+  const router = getSwapRouter();
+  swapQuoteRouteSubtitleEl.innerHTML = renderRouteSubtitleHtml(
+    `Route \xB7 ${routerDisplayLabel(router)}`,
+    routerBrandFromId(router)
+  );
+}
 function setSwapRouter(router, options) {
   const normalized = normalizeRouterId(router);
   const prev = normalizeRouterId(getSwapRouter());
@@ -30081,6 +30220,7 @@ function setSwapRouter(router, options) {
   syncSwapRoutePinMode(hasValidSwapWallet());
   syncSwapQuoteButtonState();
   syncSwapRouterSwitchState();
+  syncDefaultRouteSubtitle();
 }
 function isRouterFallbackEnabled() {
   return swapVybeFallbackCheckbox?.checked === true;
@@ -30699,7 +30839,7 @@ function resetSwapQuoteDetailsPanel() {
   if (swapQuoteDetailsFieldsEl) {
     swapQuoteDetailsFieldsEl.innerHTML = swapQuoteFetching ? `<p class="routing-empty routing-empty--loading">${renderLoadingSpinner("sm")}</p>` : '<p class="routing-empty">\u2014</p>';
   }
-  if (swapQuoteRouteSubtitleEl) swapQuoteRouteSubtitleEl.textContent = "Route";
+  if (swapQuoteRouteSubtitleEl) syncDefaultRouteSubtitle();
   if (routingDialogTitleEl) routingDialogTitleEl.textContent = "Routing";
   renderRawResponsePanels();
 }
@@ -32793,20 +32933,19 @@ function updateConnectWalletButtonUi(address, hasWallet) {
     if (iconEl) iconEl.className = "swap-wallet-field-connect__icon swap-wallet-field-connect__icon--spinner";
     textEl.textContent = "Connecting\u2026";
     updateWalletTotalUsdUi();
-    return;
-  }
-  if (hasWallet) {
+  } else if (hasWallet) {
     btn.disabled = true;
     btn.classList.add("swap-wallet-field-connect--connected", "swap-btn-3d--static");
     if (iconEl) iconEl.className = "swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet";
     textEl.textContent = truncate(address, 4, 4);
     updateWalletTotalUsdUi();
-    return;
+  } else {
+    btn.disabled = false;
+    if (iconEl) iconEl.className = "swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet";
+    textEl.textContent = "Connect wallet";
+    updateWalletTotalUsdUi();
   }
-  btn.disabled = false;
-  if (iconEl) iconEl.className = "swap-wallet-field-connect__icon swap-wallet-field-connect__icon--wallet";
-  textEl.textContent = "Connect wallet";
-  updateWalletTotalUsdUi();
+  syncSwapWalletTrayLockState();
 }
 async function disconnectBrowserWallet() {
   const provider = getSolanaWalletProvider();
@@ -32885,6 +33024,7 @@ function syncSwapBuildModeUi() {
   syncSwapBuildResultPanel();
 }
 function setSwapBuildMode(mode) {
+  if (swapQuoteFetching) return;
   swapBuildMode = mode;
   syncSwapBuildModeUi();
 }
@@ -33066,9 +33206,18 @@ function wireServiceFeeToggle() {
 }
 wireServiceFeeToggle();
 syncServiceFeePartnerGate(hasValidSwapWallet());
-swapModeBuildBtn?.addEventListener("click", () => setSwapBuildMode("build"));
-swapModeBuildSignBtn?.addEventListener("click", () => setSwapBuildMode("build-sign"));
-swapModePasteSignBtn?.addEventListener("click", () => setSwapBuildMode("paste-sign"));
+swapModeBuildBtn?.addEventListener("click", () => {
+  if (swapQuoteFetching) return;
+  setSwapBuildMode("build");
+});
+swapModeBuildSignBtn?.addEventListener("click", () => {
+  if (swapQuoteFetching) return;
+  setSwapBuildMode("build-sign");
+});
+swapModePasteSignBtn?.addEventListener("click", () => {
+  if (swapQuoteFetching) return;
+  setSwapBuildMode("paste-sign");
+});
 swapRouterSwitchEl?.addEventListener("click", (e) => {
   if (swapQuoteFetching) return;
   const btn = e.target.closest("[data-router]");
@@ -33092,9 +33241,11 @@ swapConnectWalletBtn?.addEventListener("click", () => {
   });
 });
 swapDisconnectWalletBtn?.addEventListener("click", () => {
+  if (swapQuoteFetching) return;
   void disconnectBrowserWallet();
 });
 swapWalletTotalUsdEl?.addEventListener("click", () => {
+  if (swapQuoteFetching) return;
   tryOpenSellTokenPicker();
 });
 swapWalletAddressInput?.addEventListener("input", () => onWalletAddressReady(false));
@@ -33120,8 +33271,8 @@ initTokenPicker({
   getWalletAddress: () => swapWalletAddressInput?.value.trim() ?? "",
   getSwapInputMint: () => swapInputMintInput?.value.trim() ?? "",
   getSwapInputSymbol: () => swapInputSymbolEl?.textContent?.trim() ?? "",
-  canOpenSellPicker: hasValidSwapWallet,
-  canOpenBuyPicker: hasValidSwapWallet,
+  canOpenSellPicker: () => hasValidSwapWallet() && !swapQuoteFetching,
+  canOpenBuyPicker: () => hasValidSwapWallet() && !swapQuoteFetching,
   onRefetchHoldings: async () => {
     const wallet = swapWalletAddressInput?.value.trim() ?? "";
     if (!isValidSolanaWalletAddress(wallet)) return;
@@ -33144,6 +33295,7 @@ if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
   swapFlipBtnEl.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (swapQuoteFetching) return;
     const blockedReason = getFlipBlockedReason();
     if (blockedReason) {
       if (swapQuoteError) showInlineError(swapQuoteError, blockedReason);
@@ -33157,7 +33309,7 @@ if (swapFlipBtnEl && swapInputMintInput && swapOutputMintInput) {
 }
 if (swapPasteOutputBtnEl && swapOutputMintInput) {
   swapPasteOutputBtnEl.addEventListener("click", async () => {
-    if (!hasValidSwapWallet()) return;
+    if (swapQuoteFetching || !hasValidSwapWallet()) return;
     try {
       const t = (await navigator.clipboard.readText()).trim();
       if (!t) return;

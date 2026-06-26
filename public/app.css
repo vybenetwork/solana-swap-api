@@ -2357,6 +2357,39 @@ tr:hover td {
   vertical-align: middle;
 }
 
+.swap-quote-route-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.swap-quote-route-title__icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.swap-quote-route-title__icon {
+  width: 0.85rem;
+  height: 0.85rem;
+  object-fit: cover;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.swap-quote-route-title__icon--vybe {
+  width: 0.95rem;
+  height: 0.95rem;
+  border-radius: 0;
+  object-fit: contain;
+}
+
+.swap-quote-route-title__icon--jupiter,
+.swap-quote-route-title__icon--titan {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
 .swap-quote-route-warning {
   display: inline-flex;
   align-items: center;
@@ -5843,6 +5876,15 @@ tr:hover td {
   outline-offset: 1px;
 }
 
+.swap-mode-switch--fetch-locked .swap-mode-switch__btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.swap-mode-switch--fetch-locked .swap-mode-switch__btn--active:disabled {
+  opacity: 0.65;
+}
+
 .swap-mode-switch--triple {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
@@ -6190,6 +6232,13 @@ tr:hover td {
   filter: brightness(1.1);
 }
 
+.swap-wallet-field-total-usd:disabled,
+.swap-wallet-field-disconnect:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
 .swap-wallet-field-connect:focus-visible,
 .swap-wallet-field-disconnect:focus-visible,
 .swap-wallet-field-total-usd:focus-visible {
@@ -6434,6 +6483,27 @@ tr:hover td {
 .swap-token-chip--locked:hover {
   background: #1a1a22;
   border-color: #2e2e36;
+}
+
+.swap-amount-field--locked {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.swap-amount-field--locked .swap-amount-input {
+  cursor: not-allowed;
+}
+
+.swap-quote-inputs--fetch-locked {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.swap-quote-inputs--fetch-locked .swap-pill-switch__input:disabled + .swap-pill-switch__track,
+.swap-quote-inputs--fetch-locked input:disabled,
+.swap-quote-inputs--fetch-locked select:disabled,
+.swap-quote-inputs--fetch-locked button:disabled {
+  cursor: not-allowed;
 }
 
 .swap-token-chip-icon {

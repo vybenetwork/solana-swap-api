@@ -6154,6 +6154,34 @@ export function formatRouteDiagramTitle(quote: Record<string, unknown>): string 
   return `Route · ${routerDisplayLabel(selected)}`;
 }
 
+export function routerBrandFromId(routerId: string): 'vybe' | 'jupiter' | 'titan' {
+  const id = normalizeRouterId(routerId);
+  if (id === 'jupiter' || id === 'titan') return id;
+  return 'vybe';
+}
+
+function routeDiagramTitleRouterBrand(quote: Record<string, unknown>): 'vybe' | 'jupiter' | 'titan' {
+  const selected = normalizeRouterId(
+    quote._selectedRouter ?? quote.router ?? deps.getSwapRouter(),
+  );
+  const effective = normalizeRouterId(
+    quote._effectiveRouter ?? quote._buildRouter ?? selected,
+  );
+  return routerBrandFromId(effective);
+}
+
+export function renderRouteSubtitleHtml(
+  text: string,
+  routerBrand?: 'vybe' | 'jupiter' | 'titan',
+): string {
+  if (!routerBrand) {
+    return deps.escapeHtml(text);
+  }
+  const iconClass = `swap-quote-route-title__icon swap-quote-route-title__icon--${routerBrand}`;
+  const size = routerBrand === 'vybe' ? 14 : 13;
+  return `<span class="swap-quote-route-title"><span class="swap-quote-route-title__icon-wrap" aria-hidden="true"><img class="${iconClass}" src="${routerIconSrc(routerBrand)}" alt="" width="${size}" height="${size}" decoding="async" /></span><span class="swap-quote-route-title-text">${deps.escapeHtml(text)}</span></span>`;
+}
+
 function simulationOutputWarningFromQuote(quote: Record<string, unknown>): Record<string, unknown> | null {
   const w = quote._simulationOutputWarning;
   if (!w || typeof w !== 'object') return null;
@@ -6233,10 +6261,11 @@ export function updateRouteDiagramTitle(quote: Record<string, unknown>): void {
 
   const applyTitle = (el: HTMLElement | null) => {
     if (!el) return;
+    const titleHtml = renderRouteSubtitleHtml(base, routeDiagramTitleRouterBrand(quote));
     if (warnLevel !== 'none') {
-      el.innerHTML = `<span class="swap-quote-route-title-text">${deps.escapeHtml(base)}</span><span class="${warnClass}" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`;
+      el.innerHTML = `${titleHtml}<span class="${warnClass}" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`;
     } else {
-      el.textContent = base;
+      el.innerHTML = titleHtml;
     }
   };
 
