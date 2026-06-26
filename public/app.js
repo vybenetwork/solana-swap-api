@@ -32472,8 +32472,26 @@ async function completeSwapSignFlow(generation, txStrings) {
   });
   setSwapSignDialogActions("success");
 }
-async function runSwapSignDialogFlow(quote, buildPayload, txStrings, options) {
+function beginSwapSignBuildFlow(needsQuoteRefetch) {
   const generation = ++swapSignFlowGeneration;
+  const previewBuild = lastVybeBuild?.buildPayload ? projectSwapBuildForBrowser(lastVybeBuild.buildPayload) : void 0;
+  openSwapSignDialog(lastSwapQuoteOk, previewBuild);
+  appendSwapSignLog(
+    needsQuoteRefetch ? "Fetching a fresh quote\u2026" : "Preparing transaction\u2026",
+    "pending"
+  );
+  return generation;
+}
+function reportSwapSignPrepError(message, generation) {
+  if (swapBuildMode === "build-sign" && generation != null && generation === swapSignFlowGeneration && swapSignConfirmDialogEl?.open) {
+    appendSwapSignLog(message, "error");
+    setSwapSignDialogActions("failed");
+    return;
+  }
+  if (swapQuoteError) showInlineError(swapQuoteError, message);
+}
+async function runSwapSignDialogFlow(quote, buildPayload, txStrings, options) {
+  const generation = options?.generation ?? ++swapSignFlowGeneration;
   let confirmQuote = quote;
   let confirmBuild = buildPayload;
   try {
@@ -32497,12 +32515,21 @@ async function runSwapSignDialogFlow(quote, buildPayload, txStrings, options) {
     confirmBuild = { ...confirmBuild, _txSizeBytes: txSizeBytes };
     confirmQuote = { ...confirmQuote, _txSizeBytes: txSizeBytes };
   }
-  openSwapSignDialog(confirmQuote, confirmBuild, { preserveLogs: options?.preserveLogs });
   swapSignRetryContext = { quote: confirmQuote, buildPayload: confirmBuild, txStrings };
-  appendSwapSignLog(
-    options?.preserveLogs ? "Retrying with rebuilt transaction\u2026" : "Preparing transaction\u2026",
-    "neutral"
-  );
+  if (options?.skipOpen) {
+    setSwapSignDialogSummary(confirmQuote, confirmBuild);
+    if (!options?.preserveLogs) {
+      appendSwapSignLog("Transaction ready \u2014 waiting for wallet\u2026", "neutral");
+    } else {
+      appendSwapSignLog("Retrying with rebuilt transaction\u2026", "neutral");
+    }
+  } else {
+    openSwapSignDialog(confirmQuote, confirmBuild, { preserveLogs: options?.preserveLogs });
+    appendSwapSignLog(
+      options?.preserveLogs ? "Retrying with rebuilt transaction\u2026" : "Preparing transaction\u2026",
+      "neutral"
+    );
+  }
   try {
     await completeSwapSignFlow(generation, txStrings);
   } catch (err) {
@@ -32664,16 +32691,25 @@ async function postBuildSwap(options) {
     if (swapQuoteError) showInlineError(swapQuoteError, "Get a quote first.");
     return;
   }
+  if (!swapBuildResultEl || !swapTxBase64El) return;
+  const needsQuoteRefetch = !options?.skipQuoteRefetch && (isBuildBtnQuoteExpired() || needsQuoteRefetchBeforeBuild());
+  let signFlowGeneration = null;
   pushSuppressClientPriceResolve();
   try {
+    if (swapBuildMode === "build-sign") {
+      if (swapBuildBtn) swapBuildBtn.disabled = true;
+      if (!options?.preserveSignDialogLogs) {
+        signFlowGeneration = beginSwapSignBuildFlow(needsQuoteRefetch);
+      } else {
+        signFlowGeneration = swapSignFlowGeneration;
+      }
+    }
     let wallet = swapWalletAddressInput?.value.trim() ?? "";
     if (swapBuildMode === "build-sign") {
       try {
         wallet = await ensureBrowserWalletConnected(wallet);
       } catch (err) {
-        if (swapQuoteError) {
-          showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
-        }
+        reportSwapSignPrepError(err instanceof Error ? err.message : String(err), signFlowGeneration);
         return;
       }
     } else if (!wallet) {
@@ -32685,12 +32721,15 @@ async function postBuildSwap(options) {
     const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
     const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
     const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
-    if (!swapBuildResultEl || !swapTxBase64El) return;
     if (swapQuoteError) clearInlineError(swapQuoteError);
     void refreshLowSolTradeWarning();
-    if (swapBuildBtn) swapBuildBtn.disabled = true;
-    if (!options?.skipQuoteRefetch && (isBuildBtnQuoteExpired() || needsQuoteRefetchBeforeBuild())) {
+    if (swapBuildBtn && swapBuildMode !== "build-sign") swapBuildBtn.disabled = true;
+    if (needsQuoteRefetch) {
+      if (swapBuildMode === "build-sign" && signFlowGeneration != null && signFlowGeneration === swapSignFlowGeneration && options?.preserveSignDialogLogs) {
+        appendSwapSignLog("Fetching a fresh quote\u2026", "pending");
+      }
       await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
+      if (signFlowGeneration != null && signFlowGeneration !== swapSignFlowGeneration) return;
     }
     let buildTx;
     let buildPayload;
@@ -32725,29 +32764,17 @@ async function postBuildSwap(options) {
         buildPayload = projectSwapBuildForBrowser(resolved.buildPayload);
       }
     }
+    if (signFlowGeneration != null && signFlowGeneration !== swapSignFlowGeneration) return;
     if (swapBuildMode === "build-sign") {
       const legTxs = extractSwapBuildTransactions(buildPayload);
       const toSign = legTxs.length > 0 ? legTxs : [buildTx];
-      let confirmQuote = lastSwapQuoteOk ? applyFeeEnrichmentToQuote(lastSwapQuoteOk, null, buildPayload) : {};
-      try {
-        const txNetworkFeeLamports = await estimateNetworkFeeLamportsForSwapTxs(
-          getBrowserConnection(),
-          toSign
-        );
-        if (txNetworkFeeLamports) {
-          confirmQuote = {
-            ...confirmQuote,
-            _txNetworkFeeLamports: txNetworkFeeLamports,
-            _networkFeeLamports: txNetworkFeeLamports
-          };
-        }
-      } catch (err) {
-        console.warn("Could not estimate swap network fee from tx:", err);
-      }
+      const confirmQuote = lastSwapQuoteOk ? applyFeeEnrichmentToQuote(lastSwapQuoteOk, null, buildPayload) : {};
       lastSwapQuoteOk = confirmQuote;
       renderSwapQuoteUI(confirmQuote);
       await runSwapSignDialogFlow(confirmQuote, buildPayload, toSign, {
-        preserveLogs: options?.preserveSignDialogLogs
+        preserveLogs: options?.preserveSignDialogLogs,
+        skipOpen: signFlowGeneration != null,
+        generation: signFlowGeneration ?? void 0
       });
     } else {
       const legTxs = extractSwapBuildTransactions(buildPayload);
@@ -32758,7 +32785,13 @@ async function postBuildSwap(options) {
       if (!ok) return;
     }
   } catch (err) {
-    if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+    const msg = err instanceof Error ? err.message : String(err);
+    if (swapBuildMode === "build-sign" && signFlowGeneration != null && signFlowGeneration === swapSignFlowGeneration && swapSignConfirmDialogEl?.open) {
+      appendSwapSignLog(msg, "error");
+      setSwapSignDialogActions("failed");
+    } else if (swapQuoteError) {
+      showInlineError(swapQuoteError, msg);
+    }
   } finally {
     popSuppressClientPriceResolve();
     syncBuildButtonState();
