@@ -1798,6 +1798,8 @@ tr:hover td {
 
 .swap-quote-details-routing-section .swap-quote-details-subtitle {
   margin-bottom: 0.55rem;
+  min-height: 18px;
+  max-height: 18px;
 }
 
 .swap-route-options {
