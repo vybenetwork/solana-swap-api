@@ -228,6 +228,19 @@ const swapSlippageInput = document.getElementById('swapSlippage') as HTMLInputEl
 const swapRouterInput = document.getElementById('swapRouter') as HTMLInputElement | null;
 const swapRouterSwitchEl = document.getElementById('swapRouterSwitch') as HTMLElement | null;
 const swapVybeFallbackRowEl = document.getElementById('swapVybeFallbackRow') as HTMLElement | null;
+const ROUTER_FALLBACK_LOCKED_TITLE = 'Router fallback is enabled';
+
+function syncRouterFallbackToggleLocked(): void {
+  if (!swapVybeFallbackCheckbox || !swapVybeFallbackRowEl) return;
+  swapVybeFallbackCheckbox.checked = true;
+  swapVybeFallbackCheckbox.disabled = true;
+  swapVybeFallbackCheckbox.title = ROUTER_FALLBACK_LOCKED_TITLE;
+  swapVybeFallbackRowEl.classList.add('swap-router-fallback-row--locked');
+  if (swapRouterFallbackSwitchEl) {
+    swapRouterFallbackSwitchEl.classList.add('swap-router-fallback-row--locked');
+    swapRouterFallbackSwitchEl.title = ROUTER_FALLBACK_LOCKED_TITLE;
+  }
+}
 const swapRouterFallbackLabelEl = document.getElementById('swapRouterFallbackLabel') as HTMLElement | null;
 const swapRouterFallbackSwitchEl = document.getElementById('swapRouterFallbackSwitch') as HTMLLabelElement | null;
 const swapVybeFallbackCheckbox = document.getElementById('swapVybeFallback') as HTMLInputElement | null;
@@ -3821,7 +3834,7 @@ function setSwapRouter(router: string, options?: { invalidateQuote?: boolean }):
 }
 
 function isRouterFallbackEnabled(): boolean {
-  return swapVybeFallbackCheckbox?.checked === true;
+  return true;
 }
 
 function getRouterFallbackLabel(): string {
@@ -3842,23 +3855,11 @@ function getRouterFallbackSwitchTitle(): string {
 
 function syncRouterFallbackToggleUi(): void {
   if (!swapVybeFallbackRowEl) return;
-  const router = normalizeRouterId(getSwapRouter());
   swapVybeFallbackRowEl.hidden = false;
   if (swapRouterFallbackLabelEl) {
     swapRouterFallbackLabelEl.textContent = getRouterFallbackLabel();
   }
-  if (swapRouterFallbackSwitchEl) {
-    swapRouterFallbackSwitchEl.title = getRouterFallbackSwitchTitle();
-  }
-  if (!swapVybeFallbackCheckbox) return;
-  if (router === 'titan') {
-    swapVybeFallbackCheckbox.checked = true;
-    swapVybeFallbackCheckbox.disabled = true;
-    swapVybeFallbackRowEl.classList.add('swap-router-fallback-row--locked');
-  } else {
-    swapVybeFallbackRowEl.classList.remove('swap-router-fallback-row--locked');
-    setWalletGatedDisabled(swapVybeFallbackCheckbox, !hasValidSwapWallet());
-  }
+  syncRouterFallbackToggleLocked();
 }
 
 function resolveVybeHandoffAggregatorRouter(body: Record<string, unknown>): 'jupiter' | 'titan' | null {
@@ -7805,10 +7806,7 @@ swapRouterSwitchEl?.addEventListener('click', (e) => {
   if (!btn?.dataset.router) return;
   setSwapRouter(btn.dataset.router);
 });
-swapVybeFallbackCheckbox?.addEventListener('change', () => {
-  // Fallback only affects Vybe handoff on the next quote/build — keep route cards + diagram.
-  syncSwapQuoteButtonState();
-});
+syncRouterFallbackToggleLocked();
 syncRouterFallbackToggleUi();
 syncSwapRouterSwitchState();
 swapConnectWalletBtn?.addEventListener('click', () => {

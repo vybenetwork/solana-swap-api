@@ -27417,6 +27417,18 @@ var swapSlippageInput = document.getElementById("swapSlippage");
 var swapRouterInput = document.getElementById("swapRouter");
 var swapRouterSwitchEl = document.getElementById("swapRouterSwitch");
 var swapVybeFallbackRowEl = document.getElementById("swapVybeFallbackRow");
+var ROUTER_FALLBACK_LOCKED_TITLE = "Router fallback is enabled";
+function syncRouterFallbackToggleLocked() {
+  if (!swapVybeFallbackCheckbox || !swapVybeFallbackRowEl) return;
+  swapVybeFallbackCheckbox.checked = true;
+  swapVybeFallbackCheckbox.disabled = true;
+  swapVybeFallbackCheckbox.title = ROUTER_FALLBACK_LOCKED_TITLE;
+  swapVybeFallbackRowEl.classList.add("swap-router-fallback-row--locked");
+  if (swapRouterFallbackSwitchEl) {
+    swapRouterFallbackSwitchEl.classList.add("swap-router-fallback-row--locked");
+    swapRouterFallbackSwitchEl.title = ROUTER_FALLBACK_LOCKED_TITLE;
+  }
+}
 var swapRouterFallbackLabelEl = document.getElementById("swapRouterFallbackLabel");
 var swapRouterFallbackSwitchEl = document.getElementById("swapRouterFallbackSwitch");
 var swapVybeFallbackCheckbox = document.getElementById("swapVybeFallback");
@@ -30276,7 +30288,7 @@ function setSwapRouter(router, options) {
   syncDefaultRouteSubtitle();
 }
 function isRouterFallbackEnabled() {
-  return swapVybeFallbackCheckbox?.checked === true;
+  return true;
 }
 function getRouterFallbackLabel() {
   const router = normalizeRouterId(getSwapRouter());
@@ -30284,33 +30296,13 @@ function getRouterFallbackLabel() {
   if (router === "titan") return "Fallback to Jupiter if Titan cannot find routes";
   return "Fallback to Jupiter or Titan if Vybe cannot find routes";
 }
-function getRouterFallbackSwitchTitle() {
-  const router = normalizeRouterId(getSwapRouter());
-  if (router === "jupiter") return "Switch to Titan and refetch when Jupiter has no route";
-  if (router === "titan") {
-    return "Titan automatically falls back to Jupiter when it cannot find a route (display only)";
-  }
-  return "Switch to Jupiter or Titan and refetch when Vybe has no route";
-}
 function syncRouterFallbackToggleUi() {
   if (!swapVybeFallbackRowEl) return;
-  const router = normalizeRouterId(getSwapRouter());
   swapVybeFallbackRowEl.hidden = false;
   if (swapRouterFallbackLabelEl) {
     swapRouterFallbackLabelEl.textContent = getRouterFallbackLabel();
   }
-  if (swapRouterFallbackSwitchEl) {
-    swapRouterFallbackSwitchEl.title = getRouterFallbackSwitchTitle();
-  }
-  if (!swapVybeFallbackCheckbox) return;
-  if (router === "titan") {
-    swapVybeFallbackCheckbox.checked = true;
-    swapVybeFallbackCheckbox.disabled = true;
-    swapVybeFallbackRowEl.classList.add("swap-router-fallback-row--locked");
-  } else {
-    swapVybeFallbackRowEl.classList.remove("swap-router-fallback-row--locked");
-    setWalletGatedDisabled(swapVybeFallbackCheckbox, !hasValidSwapWallet());
-  }
+  syncRouterFallbackToggleLocked();
 }
 function resolveVybeHandoffAggregatorRouter(body) {
   const build = body._build;
@@ -33307,9 +33299,7 @@ swapRouterSwitchEl?.addEventListener("click", (e) => {
   if (!btn?.dataset.router) return;
   setSwapRouter(btn.dataset.router);
 });
-swapVybeFallbackCheckbox?.addEventListener("change", () => {
-  syncSwapQuoteButtonState();
-});
+syncRouterFallbackToggleLocked();
 syncRouterFallbackToggleUi();
 syncSwapRouterSwitchState();
 swapConnectWalletBtn?.addEventListener("click", () => {
