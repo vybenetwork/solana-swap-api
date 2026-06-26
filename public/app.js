@@ -26955,10 +26955,10 @@ function signConfirmTokenDisplayName(mint, sym) {
 function signConfirmAmountSymbol(mint, sym) {
   return isSolMint(mint) ? "SOL" : sym;
 }
-function formatSignConfirmSolAmount(ui) {
+function formatSignConfirmSolAmount(ui, decimals = 6) {
   const abs = Math.abs(ui);
-  if (!Number.isFinite(abs)) return "0.000000";
-  return abs.toFixed(6);
+  if (!Number.isFinite(abs)) return 0 .toFixed(decimals);
+  return abs.toFixed(decimals);
 }
 function formatSignConfirmTokenAmount(ui) {
   const abs = Math.abs(ui);
@@ -26980,7 +26980,7 @@ function formatSignConfirmTokenAmount(ui) {
 function formatSignConfirmBalanceAmount(ui, mint, sym) {
   const displaySym = signConfirmAmountSymbol(mint, sym);
   const absUi = Math.abs(ui);
-  const amt = isSolMint(mint) ? formatSignConfirmSolAmount(absUi) : formatSignConfirmTokenAmount(absUi);
+  const amt = isSolMint(mint) ? formatSignConfirmSolAmount(absUi, 5) : formatSignConfirmTokenAmount(absUi);
   const prefix = ui < 0 ? "-" : "+";
   return `${prefix}${amt} ${displaySym}`;
 }

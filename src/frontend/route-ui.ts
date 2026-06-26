@@ -7111,10 +7111,10 @@ function signConfirmAmountSymbol(mint: string, sym: string): string {
   return isSolMint(mint) ? 'SOL' : sym;
 }
 
-function formatSignConfirmSolAmount(ui: number): string {
+function formatSignConfirmSolAmount(ui: number, decimals = 6): string {
   const abs = Math.abs(ui);
-  if (!Number.isFinite(abs)) return '0.000000';
-  return abs.toFixed(6);
+  if (!Number.isFinite(abs)) return (0).toFixed(decimals);
+  return abs.toFixed(decimals);
 }
 
 function formatSignConfirmTokenAmount(ui: number): string {
@@ -7139,7 +7139,7 @@ function formatSignConfirmBalanceAmount(ui: number, mint: string, sym: string): 
   const displaySym = signConfirmAmountSymbol(mint, sym);
   const absUi = Math.abs(ui);
   const amt = isSolMint(mint)
-    ? formatSignConfirmSolAmount(absUi)
+    ? formatSignConfirmSolAmount(absUi, 5)
     : formatSignConfirmTokenAmount(absUi);
   const prefix = ui < 0 ? '-' : '+';
   return `${prefix}${amt} ${displaySym}`;
