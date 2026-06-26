@@ -23,7 +23,7 @@ Try the live demo: https://solana-swap-api.vybenetwork.com
 
 **[Try the LIVE demo →](https://solana-swap-api.vybenetwork.com)**
 
-**[Get your free Vybe API key →](https://vybe.fyi/api-pricing)**
+**[Get your free Vybe API key →](https://vybenetwork.com/pricing)**
 
 **[Vybe swap overview →](https://docs.vybenetwork.com/docs/swap-overview)** · **[Swap quote endpoint →](https://docs.vybenetwork.com/reference/get_swap_quote_proxy)** · **[Build swap endpoint →](https://docs.vybenetwork.com/reference/do_swap_proxy)** · **[GitHub repo →](https://github.com/vybenetwork/solana-swap-api)** · **[Telegram →](https://t.me/VybeNetwork_Official)** · **[X →](https://x.com/Vybe_Network)**
 
@@ -43,11 +43,11 @@ git clone https://github.com/vybenetwork/solana-swap-api.git
 cd solana-swap-api
 npm install
 cp .env.example .env
-# Edit .env and set VYBE_API_KEY=your_api_key_here
+# Edit .env: set VYBE_DATA_API_KEY (required); set VYBE_API_KEY for swap quote/build
 npm start
 ```
 
-Then open **http://localhost:3000**, set sell/buy mints and amount, connect a wallet (or paste an address), and click **Get quote**. Use **Build unsigned transaction** or **Build & sign swap** depending on mode.
+Then open **http://localhost:3000**, pick a router (Vybe, Jupiter, or Titan), set sell/buy mints and amount, connect a wallet (or paste an address), and click **Get quote**. The default mode is **Build & Sign swap**, which builds and opens a confirm dialog for your wallet; switch to **Build only** to copy an unsigned base64 transaction, or **Paste & Sign** to sign an existing one.
 
 ## Environment Variables
 
@@ -59,10 +59,12 @@ Then open **http://localhost:3000**, set sell/buy mints and amount, connect a wa
 | `VYBE_DATA_API_BASE`  | No       | Wallets, tokens, trades (defaults prod when trading local)| `https://api.vybenetwork.xyz`         |
 | `HELIUS_API_KEY`      | No       | Helius RPC key (used when `SOLANA_RPC_URL` unset)        | `your_helius_key`                      |
 | `SOLANA_RPC_URL` | No       | Full RPC URL override (wins over `HELIUS_API_KEY`)       | `https://api.mainnet-beta.solana.com` |
-| `PORT`           | No       | HTTP server port                                         | `3000`                                 |
+| `PORT`           | No       | HTTP server port (default `3000`)                        | `3000`                                 |
+| `ENABLE_SWAP_QUOTE_BTN_DEBUG` | No | Show inline "Get quote blocked" debug meta under the quote button | `true`                  |
+| `DISABLED_QUOTE_BRIDGE_HOP_COMBOS` | No | Skip quote-bridge routes for hop protocol pairs (comma-separated short keys) | `damm2-damm2`     |
 | `TUNNEL`         | No       | Set to `1` to run behind a Cloudflare Tunnel             | `1`                                    |
 
-Get your API keys at `https://vybe.fyi/api-pricing`.
+Get your API keys at `https://vybenetwork.com/pricing`.
 
 \* `VYBE_DATA_API_KEY` is required unless `VYBE_API_KEY` is set (used as fallback for data endpoints).
 
@@ -78,18 +80,30 @@ Get your API keys at `https://vybe.fyi/api-pricing`.
     - Wallet balance and sell-balance checks via Vybe wallet APIs
 - **Vybe quote + build flow**
   - `POST /api/trading/vybe-quote` resolves token prices, builds via Vybe router, and synthesizes a full quote + route plan in one call.
-  - Built transaction cached for **45 seconds** when params unchanged.
+  - Built transaction is reused without rebuilding while the **30s Build & Sign window** is active, with a shorter **10s hot reuse** for unchanged params.
+  - **Per-router quote cache** — switching the Vybe / Jupiter / Titan tab restores that router's last quote, route plan, and timers (separate timers for Get Quote vs Build).
 - **Swap web UI**
   - Single-page GUI (no frameworks) built from `src/frontend/` into `public/app.js`.
   - Lets you quote, compare routes, inspect fees, and build or sign swap transactions for any SPL or Token-2022 pair.
 - **Three execution modes**
-  - **Build & Sign** (default) — quote, build, refresh blockhash, sign in Phantom-compatible wallet.
+  - **Build & Sign** (default) — quote, build, then a confirm dialog that opens immediately and signs in a Phantom-compatible wallet.
   - **Build only** — quote + build; copy base64 unsigned transaction.
   - **Paste & Sign** — paste existing base64 tx, refresh blockhash, sign in wallet.
 - **Three router options**
-  - **Vybe** — native Vybe routing with optional fallback to Jupiter or Titan.
+  - **Vybe** — native Vybe routing with route discovery and optional fallback to Jupiter or Titan.
   - **Jupiter** — quote via `swap-quote`, then immediate swap build.
-  - **Titan** — same aggregator flow as Jupiter through Vybe proxy.
+  - **Titan** — same aggregator flow as Jupiter through the Vybe proxy.
+- **Vybe route discovery** (Vybe router only)
+  - **Market fetch** mode: `full` / `trades` / `markets` / `rpc`.
+  - **Multiple Quotes** — enumerate markets and rank up to 3 route options.
+  - **Pin a specific market & protocol** for an instant quote that skips discovery.
+- **Route options panel**
+  - Up to three ranked market cards for Vybe; Jupiter and Titan show the real route as card #1 with #2/#3 placeholders.
+  - The route header always shows the active router icon and name (e.g. `Route · Jupiter`).
+- **Sign confirm dialog**
+  - Opens immediately on **Build & Sign**, with balance-change cards, network fee, transaction size (shows `— bytes` until built), route, live progress logs, and retry / refetch actions.
+- **Quote-fetch UI lock**
+  - While a quote is fetching, token pickers, amount, slippage, build options, router tabs, mode tabs, and the wallet tray are disabled until it finishes.
 - **Route visualization and fee accounting**
   - Multi-hop route diagram with per-hop fee branches (protocol, pool, acc rent, priority).
   - Route plan steps with IN / pre-fees output / NET tiles and **Paid from wallet** / **Deducted from pool** fee tables.
@@ -127,7 +141,7 @@ Swap quote and transaction build APIs are critical for:
 - **Route transparency**: visualize multi-hop paths and every fee debited from wallet or pool.
 - **Wallet integrations**: return base64 unsigned transactions for Phantom, Solflare, and other signers.
 - **Aggregator choice**: compare Vybe-native routing vs Jupiter or Titan through one proxy.
-- **Production safety**: simulate swaps, enrich route fees from build responses, and refresh blockhash before sign.
+- **Production safety**: enrich route fees from build responses (the server simulates internally for fee/output accuracy) and refresh blockhash before sign.
 
 This repo shows how to build a **practical swap explorer and builder** on top of Vybe’s quote and swap endpoints.
 
@@ -139,43 +153,63 @@ The swap UI is implemented in `src/frontend/` and compiled to `public/app.js` vi
 
 | File | Role |
 |------|------|
-| `app.ts` | Swap widget, quote/build flows, wallet connect, mode switching |
-| `route-ui.ts` | Route diagram, route plan steps, hop % badges, fee accounting |
+| `app.ts` | Swap widget, quote/build flows, router switching, wallet connect, sign dialog |
+| `route-ui.ts` | Route diagram, route plan steps, hop % badges, router header, sign confirm summary |
 | `token-picker.ts` | Token search, wallet balances, icons, sell-amount helpers |
+| `protocol-picker.ts` | Pin-a-market protocol picker for Vybe route discovery |
+| `swap-tx-network-fee.ts` | Network fee estimate for the sign confirm dialog |
+| `price-impact-tier.ts` / `liquidity-tier.ts` | Price-impact and liquidity warning tiers |
+| `format-warn-pct.ts` | Shared percent formatting helpers |
 
 ### Sections
 
 - **Wallet & execution**
   - Signer address input, Phantom-compatible **Connect wallet**, total USD balance chip, disconnect.
-  - Router switch: Vybe / Jupiter / Titan with optional Vybe → Jupiter/Titan fallback.
-  - Slippage, gasless, auto slippage, simulate, partner, pool, protocol, service fee (sent on build).
+  - Router switch: Vybe / Jupiter / Titan, each with its own cached quote restored when you switch tabs.
+  - Router fallback toggles: Vybe → Jupiter or Titan; Jupiter ↔ Titan (Titan's Jupiter fallback is display-only).
+  - Slippage (default **5%**), gasless, auto slippage, partner, service fee sent on build. Simulation runs internally for fee/output enrichment — it is not a user toggle.
+
+- **Vybe route discovery** (Vybe router only)
+  - **Market fetch** mode selector: `full` / `trades` / `markets` / `rpc`.
+  - **Multiple Quotes** — enumerate candidate markets and rank route options.
+  - **Pin a specific market & protocol** (pool address + protocol picker) for a direct quote.
+  - These controls are disabled when the Jupiter or Titan router is active.
 
 - **Sell / Buy sides**
   - Token picker (catalog + wallet holdings), amount input, flip button, 25/50/100% sell shortcuts.
   - Live USD estimates and 24h / 7d pair cards for both mints.
 
 - **Quote response & route panel**
+  - Route header always shows the active router icon and name (e.g. `Route · Jupiter`), even before a quote.
   - Quote summary, route diagram, collapsible **Route plan steps**, **Top-level API fields**, raw quote/swap JSON.
+  - Up to three ranked **route option** cards (Vybe); Jupiter and Titan show the real route as #1 with #2/#3 placeholders.
   - After **Get quote**, **Route plan steps** opens automatically if another panel was expanded.
-  - Quote details accordions: only one panel open at a time.
 
 - **Route diagram**
   - Input/output pills, per-hop DEX nodes, fee branches, hop retention % badges on rail links.
+  - Unknown protocols fall back to a placeholder icon instead of rendering nothing.
 
 - **Route plan steps**
   - Accordion hops with IN / pre-fees output / NET tiles.
   - Fee groups: **Paid from wallet**, **Deducted from pool** with recipient addresses and USD amounts.
   - Single-hop routes stay expanded; multi-hop allows one open hop at a time.
 
+- **Sign confirm dialog** (Build & Sign)
+  - Opens immediately when you click **Build & Sign** (or **Refetch then Build & Sign**), before background work finishes.
+  - Shows balance-change cards, network fee, **Transaction size** (`— bytes` placeholder until built), the route, and live progress logs.
+  - Actions for retry / refetch on failure; calls `POST /api/solana/prepare-swap-tx` to refresh blockhash so the wallet can simulate balance changes.
+
+- **Quote-fetch UI lock**
+  - While a quote is fetching, token pickers, amount, slippage, build options, router tabs, mode tabs, and the wallet tray are locked until the fetch completes.
+
 - **Build result**
   - Base64 unsigned transaction textarea + copy (Build only).
-  - Build & Sign calls `POST /api/solana/prepare-swap-tx` before signing so Phantom can simulate balance changes.
 
 ### Execution modes
 
 | Mode | Quote | Build | Sign | Broadcast |
 |------|-------|-------|------|-----------|
-| **Build & Sign** (default) | Yes | Yes | In-browser wallet | Optional (wallet sends) |
+| **Build & Sign** (default) | Yes | Yes | In-browser wallet (immediate confirm dialog) | Optional (wallet sends) |
 | **Build only** | Yes | Yes | No | No |
 | **Paste & Sign** | No | No (paste base64) | In-browser wallet | Optional (wallet sends) |
 
@@ -184,9 +218,18 @@ The swap UI is implemented in `src/frontend/` and compiled to `public/app.js` vi
 1. **Get quote**
    - **Vybe** — `POST /api/trading/vybe-quote` resolves prices, builds swap, synthesizes quote + enriched route.
    - **Jupiter / Titan** — `GET /api/trading/swap-quote` then `POST /api/trading/swap` with the quote `routePlan`.
-   - Cached tx reused on **Build Swap** when params unchanged (45s window for Vybe).
-2. **Build / sign** — reuses cached tx within cache window; otherwise refetches.
+   - Each router keeps its own cache; switching tabs restores that router's last quote and timers.
+2. **Build / sign** — within the **30s Build & Sign window** the cached transaction is reused without rebuilding (with a **10s hot reuse** for unchanged params); after that the button switches to **Refetch then Build & Sign**. A separate **10s Get Quote cooldown** rate-limits requote.
 3. **Copy base64** (Build only) or sign/send in wallet (Build & Sign / Paste & Sign).
+
+```mermaid
+flowchart LR
+  getQuote[Get Quote] --> cacheVybe[Vybe cache]
+  getQuote --> cacheJup[Jupiter cache]
+  getQuote --> cacheTitan[Titan cache]
+  switchTab[Switch router tab] --> restore[Restore cache if same pair]
+  buildSign[Build and Sign] --> reuseTx[Reuse built tx within 30s]
+```
 
 ---
 
@@ -210,11 +253,17 @@ Defined in `src/config.ts`, `src/api/wallet-balance.ts`, `src/api/trade-sol-warn
 The Express server in `src/server.ts` exposes:
 
 - **`GET /api/trading/swap-quote`**
-  - Proxies to Vybe `GET /v4/trading/swap-quote` with query params: `amount`, `inputMintAddress`, `outputMintAddress`, optional `accountAddress`, `slippage`.
+  - Aggregator quote via Vybe `GET /v4/trading/swap-quote`: `amount` (UI units), `inputMintAddress`, `outputMintAddress`, optional `accountAddress`, `slippage`.
+  - When `router` (`vybe` \| `jupiter` \| `titan`) is set, returns a router-specific quote **and** build in one call (requires `accountAddress`; Vybe also accepts `marketFetchMode`, `enumerateRoutes`).
 - **`POST /api/trading/vybe-quote`**
-  - Resolves token prices + builds via Vybe router. Returns synthesized quote, `_build`, `_builtAt`, `_tokenStats`.
+  - Resolves token prices + builds via the chosen `router` (defaults to `vybe`). Returns the synthesized quote plus `_build`, `_builtAt`, `_tokenStats`, and (when discovered) `_routeDiscovery`.
+  - Body extends the swap build body with route-discovery fields: `marketFetchMode` (`full` \| `trades` \| `markets` \| `rpc`), `enumerateRoutes`, `poolAddress`, `programAddress`, `protocol` (pin a market), and `forceFullDetailsMints`.
 - **`POST /api/trading/swap`**
-  - Proxies to Vybe `POST /v4/trading/swap` with JSON body: `accountAddress`, `amount`, mints, optional `slippage`, `router` (`vybe` \| `jupiter` \| `titan`), `gasless`, `autoCalculateSlippage`, `simulate`, `partner`, `poolAddress`, `protocol`, `swapFee`.
+  - Proxies to Vybe `POST /v4/trading/swap` with JSON body: `accountAddress`, `amount`, mints, optional `slippage`, `router` (`vybe` \| `jupiter` \| `titan`), `gasless`, `autoCalculateSlippage`, `partner`, `poolAddress`, `protocol`, `swapFee`. Response is enriched with simulated output, fees, and display fields.
+- **`GET /api/trades`**
+  - Proxies Vybe `GET /v4/trades` for a market or mint (filters: `marketAddress`, `mintAddress`, `programAddress`, `baseMintAddress`/`quoteMintAddress`, `limit` (max 1000, default 250), `page`, sort). Returns an empty list with a warning if upstream 404s.
+- **`GET /api/route-discovery/top-markets`**
+  - Ranks the top trade markets for a pair from recent trades: `inputMintAddress`, `outputMintAddress`, optional `limit`, `topN`.
 - **`POST /api/tokens/resolve-prices`**
   - Cache-first price stats (`price`, `price1d`, `price7d`) for pair cards.
 - **`GET /api/token/:mint`**
@@ -237,6 +286,8 @@ The Express server in `src/server.ts` exposes:
   - JSON: `{ tx }` base64 — refresh blockhash + resolve ALTs before sign.
 - **`GET /api/health`**
   - Health check `{ ok: true }`.
+- **`GET /api/ui-config`**
+  - Frontend feature flags (e.g. `enableSwapQuoteBtnDebug`).
 - **`GET /cached/token-icons/*`**
   - Cached token icon assets.
 
@@ -278,7 +329,7 @@ npm install
 
 ```bash
 cp .env.example .env
-# Add your VYBE_API_KEY to .env
+# Set VYBE_DATA_API_KEY (required); add VYBE_API_KEY for swap quote/build
 ```
 
 ### 4. Run the server + web app
@@ -287,7 +338,7 @@ cp .env.example .env
 npm start
 ```
 
-Then open **http://localhost:3000**. The UI shows **swap quote and route** data for any SPL or Token-2022 pair: choose router (Vybe, Jupiter, or Titan), enter sell/buy mints and amount, connect a wallet, and click **Get quote**. Inspect the route diagram and fee breakdown, then **Build unsigned transaction** or **Build & sign swap**.
+Then open **http://localhost:3000**. The UI shows **swap quote and route** data for any SPL or Token-2022 pair: choose router (Vybe, Jupiter, or Titan), enter sell/buy mints and amount, connect a wallet, and click **Get quote**. Inspect the route diagram and fee breakdown, then **Build & Sign** (default), **Build only**, or **Paste & Sign**.
 
 ### 5. (Optional) Run with Cloudflare Tunnel
 
@@ -305,46 +356,59 @@ The console will print a **Cloudflare Tunnel URL** if supported.
 
 ```text
 solana-swap-api/
-├── .env.example           # Copy to .env — VYBE_API_KEY, optional HELIUS_API_KEY / SOLANA_RPC_URL
+├── .env.example           # Copy to .env — VYBE_DATA_API_KEY / VYBE_API_KEY, optional HELIUS_API_KEY / SOLANA_RPC_URL
 ├── package.json           # Scripts and pinned dependencies
 ├── README.md
 ├── screenshots/           # Screenshots referenced in this README
-├── data/                  # Disk caches (symbol, token meta)
+├── data/                  # Disk caches (symbol, token meta, program labels, holders)
 ├── public/                # Web GUI (HTML, CSS, built JS)
 │   ├── index.html
 │   ├── app.css
 │   ├── app.js             # Generated by `npm run build:frontend` from src/frontend/
-│   └── images/            # Router logos (Jupiter, Titan)
+│   ├── favicon.svg        # Vybe router icon
+│   ├── data/              # Token catalog (json + tsv) for the picker
+│   └── images/            # Router + DEX logos, token-icon-placeholder.svg
 ├── tools/
-│   ├── bundle-frontend.mjs
+│   ├── bundle-frontend.mjs            # Bundles src/frontend → public/app.js
 │   ├── fetch-jupiter-token-catalog.mjs
-│   └── download-token-icons.mjs
+│   ├── download-token-icons.mjs
+│   └── local-vybe-proxy.mjs           # Optional local Vybe proxy for dev
 └── src/
     ├── server.ts          # Express server; proxies Vybe API and serves public/
-    ├── config.ts          # Env loading, API base URL, timeouts, SOL thresholds
+    ├── config.ts          # Env loading, API base URLs, timeouts, SOL thresholds, default slippage
     ├── cache.ts           # On-disk symbol cache in data/
     ├── token-icon-cache.ts
+    ├── wallet-balance-limit.ts
     ├── types/
     │   ├── api.ts
-    │   └── swap.ts
+    │   ├── swap.ts
+    │   └── enrichment.ts
     ├── api/
-    │   ├── index.ts       # createClient(apiKey) — wires all API methods
-    │   ├── client.ts      # HTTP client, retries, human-readable errors
-    │   ├── swap-quote.ts  # GET /v4/trading/swap-quote
-    │   ├── swap-build.ts  # POST /v4/trading/swap
-    │   ├── vybe-swap-quote.ts
-    │   ├── enrich-route-fees.ts
-    │   ├── simulate-swap-output.ts
+    │   ├── index.ts               # createClient(apiKey) — wires all API methods
+    │   ├── client.ts              # HTTP client, retries, human-readable errors
+    │   ├── swap-quote.ts          # GET /v4/trading/swap-quote (aggregator)
+    │   ├── swap-build.ts          # POST /v4/trading/swap (+ enrichment)
+    │   ├── vybe-swap-quote.ts     # Vybe quote + build orchestration
+    │   ├── route-discovery.ts     # Rank top markets, enumerate route options
+    │   ├── pinned-swap-params.ts  # Pin a specific market / protocol
+    │   ├── quote-bridge-detect.ts # Bridge-hop route detection
     │   ├── resolve-token-prices.ts
-    │   ├── wallet-balance.ts
+    │   ├── trades.ts              # GET /v4/trades
+    │   ├── wallet-balance.ts      # Wallet holdings + sell-balance checks
     │   ├── trade-sol-warning.ts
-    │   ├── solana-prepare-swap-tx.ts
-    │   ├── token-symbol.ts
-    │   └── tokens.ts
+    │   ├── token-symbol.ts        # Symbol resolution (Metaplex / Vybe)
+    │   ├── tokens.ts
+    │   ├── solana-prepare-swap-tx.ts  # Refresh blockhash + ALTs before sign
+    │   └── …                      # fee/ATA helpers, sol-mints, connection utils
     └── frontend/
-        ├── app.ts         # Swap UI (quote, build, wallet, modes) → public/app.js
-        ├── route-ui.ts    # Route diagram + plan steps + fee accounting
-        └── token-picker.ts# Token search + wallet balances
+        ├── app.ts                 # Swap UI (quote, build, routers, sign dialog) → public/app.js
+        ├── route-ui.ts            # Route diagram, plan steps, router header, sign summary
+        ├── token-picker.ts        # Token search + wallet balances
+        ├── protocol-picker.ts     # Pin-a-market protocol picker
+        ├── swap-tx-network-fee.ts # Network fee estimate for the sign dialog
+        ├── price-impact-tier.ts   # Price-impact warning tiers
+        ├── liquidity-tier.ts
+        └── format-warn-pct.ts
 ```
 
 ---
@@ -356,18 +420,18 @@ If you want to bypass the UI and fetch quotes / build swaps through the local pr
 ```typescript
 const base = 'http://localhost:3000';
 
-// Quote (Jupiter / Titan path)
+// Quote (Jupiter / Titan path). slippage is a whole percent (5 = 5%).
 const quoteParams = new URLSearchParams({
   amount: '0.05',
   inputMintAddress: 'So11111111111111111111111111111111111111112',
   outputMintAddress: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
-  slippage: '0.5',
+  slippage: '5',
 });
 const quoteRes = await fetch(`${base}/api/trading/swap-quote?${quoteParams}`);
 const quote = await quoteRes.json();
 console.log('outAmountUi', quote.outAmountUi);
 
-// Build unsigned transaction
+// Build unsigned transaction (server enriches fees/output via internal simulation)
 const buildRes = await fetch(`${base}/api/trading/swap`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
@@ -376,9 +440,8 @@ const buildRes = await fetch(`${base}/api/trading/swap`, {
     amount: 0.05,
     inputMintAddress: 'So11111111111111111111111111111111111111112',
     outputMintAddress: 'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
-    slippage: 0.5,
+    slippage: 5,
     router: 'vybe',
-    simulate: true,
   }),
 });
 const { transaction } = await buildRes.json();
@@ -399,7 +462,7 @@ async function fetchSwapQuote(inputMint: string, outputMint: string, amount: num
       amount,
       inputMintAddress: inputMint,
       outputMintAddress: outputMint,
-      slippage: 0.5,
+      slippage: 5,
     },
     headers,
   });
@@ -420,10 +483,9 @@ async function buildSwapTx(
       amount,
       inputMintAddress: inputMint,
       outputMintAddress: outputMint,
-      slippage: 0.5,
+      slippage: 5,
       router: 'vybe',
       routePlan,
-      simulate: true,
     },
     { headers },
   );
@@ -443,6 +505,7 @@ async function buildSwapTx(
 | **Build fails without wallet** | `accountAddress` is required for swap build routes. Get a quote first so mints and amount match. |
 | **Phantom simulation / balance changes** | Use **Build & Sign** so the UI calls `prepare-swap-tx` before signing. |
 | **Low SOL warning on SPL sell** | Enable **Gasless** or keep ≥ ~0.006 SOL for fees/rent (see thresholds above). |
+| **Build button says "Refetch then Build & Sign"** | The cached quote/build expired (30s Build & Sign window). Click it to requote and rebuild before signing; a 10s Get Quote cooldown may briefly rate-limit requests. |
 
 ---
 
