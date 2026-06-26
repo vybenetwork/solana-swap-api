@@ -2015,6 +2015,8 @@ tr:hover td {
   padding: 0.12rem 0.35rem 0.12rem 0.28rem;
   margin: -0.12rem 0 0 -0.28rem;
   transition: background 0.12s ease, color 0.12s ease;
+  min-height: 17px;
+  max-height: 17px;
 }
 
 .swap-route-option__pool-link:hover {
