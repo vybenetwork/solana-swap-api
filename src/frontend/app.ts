@@ -229,18 +229,6 @@ const swapRouterInput = document.getElementById('swapRouter') as HTMLInputElemen
 const swapRouterSwitchEl = document.getElementById('swapRouterSwitch') as HTMLElement | null;
 const swapVybeFallbackRowEl = document.getElementById('swapVybeFallbackRow') as HTMLElement | null;
 const ROUTER_FALLBACK_LOCKED_TITLE = 'Router fallback is enabled';
-
-function syncRouterFallbackToggleLocked(): void {
-  if (!swapVybeFallbackCheckbox || !swapVybeFallbackRowEl) return;
-  swapVybeFallbackCheckbox.checked = true;
-  swapVybeFallbackCheckbox.disabled = true;
-  swapVybeFallbackCheckbox.title = ROUTER_FALLBACK_LOCKED_TITLE;
-  swapVybeFallbackRowEl.classList.add('swap-router-fallback-row--locked');
-  if (swapRouterFallbackSwitchEl) {
-    swapRouterFallbackSwitchEl.classList.add('swap-router-fallback-row--locked');
-    swapRouterFallbackSwitchEl.title = ROUTER_FALLBACK_LOCKED_TITLE;
-  }
-}
 const swapRouterFallbackLabelEl = document.getElementById('swapRouterFallbackLabel') as HTMLElement | null;
 const swapRouterFallbackSwitchEl = document.getElementById('swapRouterFallbackSwitch') as HTMLLabelElement | null;
 const swapVybeFallbackCheckbox = document.getElementById('swapVybeFallback') as HTMLInputElement | null;
@@ -1122,12 +1110,6 @@ function applySwapQuoteFetchLocks(): void {
   for (const btn of pctContainer?.querySelectorAll<HTMLButtonElement>('.swap-sell-pct-btn') ?? []) {
     btn.disabled = true;
     btn.title = title;
-  }
-
-  if (swapFlipBtnEl) {
-    swapFlipBtnEl.classList.add('swap-flip-fab--blocked');
-    swapFlipBtnEl.setAttribute('aria-disabled', 'true');
-    swapFlipBtnEl.title = title;
   }
 
   if (swapPasteOutputBtnEl) {
@@ -2262,14 +2244,11 @@ function clearFlipInlineErrorIfShown(): void {
 
 function syncFlipButtonState(): void {
   if (!swapFlipBtnEl) return;
-  if (swapQuoteFetching) return;
-  const reason = getFlipBlockedReason();
-  const blocked = reason !== null;
   swapFlipBtnEl.disabled = false;
-  swapFlipBtnEl.classList.toggle('swap-flip-fab--blocked', blocked);
-  swapFlipBtnEl.setAttribute('aria-disabled', blocked ? 'true' : 'false');
-  swapFlipBtnEl.title = blocked ? reason! : 'Flip tokens';
-  if (!blocked) clearFlipInlineErrorIfShown();
+  swapFlipBtnEl.classList.remove('swap-flip-fab--blocked');
+  swapFlipBtnEl.removeAttribute('aria-disabled');
+  swapFlipBtnEl.title = 'Flip tokens';
+  if (getFlipBlockedReason() === null) clearFlipInlineErrorIfShown();
 }
 
 function syncSellTokenPickerState(): void {
@@ -2578,6 +2557,9 @@ function applySellTokenFromBalance(
 ): void {
   if (!swapInputMintInput) return;
   const swapMint = item.mintAddress.trim();
+  if (swapMint !== swapInputMintInput.value.trim()) {
+    resetPinRouteOnMintPairChange();
+  }
   swapInputMintInput.value = swapMint;
   const sym =
     item.symbol ||
@@ -2890,6 +2872,7 @@ function applyOutputMintConstraintForInput(): void {
   const outputMint = swapOutputMintInput.value.trim();
   if (isSolOrStableMint(inputMint, inputSym)) return;
   if (!outputMint || isSolOrStableMint(outputMint)) return;
+  resetPinRouteOnMintPairChange();
   setSwapOutputMintUi(SWAP_DEFAULT_STABLE_OUTPUT_MINT);
   updateSwapTokenIcons();
   updateSwapPairCards();
@@ -2932,6 +2915,7 @@ function applyFlippedOutputAsSellAmount(outputAmountUi: number): void {
 function flipSellBuyTokens(options?: { force?: boolean }): void {
   if (!options?.force && getFlipBlockedReason()) return;
   if (!swapInputMintInput || !swapOutputMintInput) return;
+  resetPinRouteOnMintPairChange();
   const sellMint = swapInputMintInput.value;
   const buyMint = swapOutputMintInput.value;
   swapInputMintInput.value = buyMint;
@@ -2990,10 +2974,16 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
   }
 
   if (otherMint && swapPairMintsMatch(resolvedMint, otherMint)) {
+    resetPinRouteOnMintPairChange();
     const flippedOutputAmountUi = parseFlipOutputAmountUi();
-    flipSellBuyTokens();
+    flipSellBuyTokens({ force: true });
     void refreshSwapSymbols().then(() => afterSellBuyTokensFlipped(flippedOutputAmountUi));
     return;
+  }
+
+  const sideMintBefore = input.value.trim();
+  if (resolvedMint !== sideMintBefore) {
+    resetPinRouteOnMintPairChange();
   }
 
   let autoOutputMint: string | null = null;
@@ -3834,7 +3824,9 @@ function setSwapRouter(router: string, options?: { invalidateQuote?: boolean }):
 }
 
 function isRouterFallbackEnabled(): boolean {
-  return true;
+  const router = normalizeRouterId(getSwapRouter());
+  if (router === 'vybe' || router === 'titan') return true;
+  return swapVybeFallbackCheckbox?.checked === true;
 }
 
 function getRouterFallbackLabel(): string {
@@ -3854,12 +3846,28 @@ function getRouterFallbackSwitchTitle(): string {
 }
 
 function syncRouterFallbackToggleUi(): void {
-  if (!swapVybeFallbackRowEl) return;
+  if (!swapVybeFallbackRowEl || !swapVybeFallbackCheckbox) return;
   swapVybeFallbackRowEl.hidden = false;
   if (swapRouterFallbackLabelEl) {
     swapRouterFallbackLabelEl.textContent = getRouterFallbackLabel();
   }
-  syncRouterFallbackToggleLocked();
+  const router = normalizeRouterId(getSwapRouter());
+  if (swapRouterFallbackSwitchEl) {
+    swapRouterFallbackSwitchEl.title = getRouterFallbackSwitchTitle();
+  }
+  if (router === 'jupiter') {
+    swapVybeFallbackRowEl.classList.remove('swap-router-fallback-row--locked');
+    swapRouterFallbackSwitchEl?.classList.remove('swap-router-fallback-row--locked');
+    swapVybeFallbackCheckbox.removeAttribute('title');
+    setWalletGatedDisabled(swapVybeFallbackCheckbox, !hasValidSwapWallet());
+    return;
+  }
+  swapVybeFallbackCheckbox.checked = true;
+  swapVybeFallbackCheckbox.disabled = true;
+  swapVybeFallbackCheckbox.title =
+    router === 'titan' ? getRouterFallbackSwitchTitle() : ROUTER_FALLBACK_LOCKED_TITLE;
+  swapVybeFallbackRowEl.classList.add('swap-router-fallback-row--locked');
+  swapRouterFallbackSwitchEl?.classList.add('swap-router-fallback-row--locked');
 }
 
 function resolveVybeHandoffAggregatorRouter(body: Record<string, unknown>): 'jupiter' | 'titan' | null {
@@ -4929,6 +4937,16 @@ function isVybeMaxSellSelected(mint: string): boolean {
 function isSwapRoutePinMode(): boolean {
   if (isAggregatorRouter()) return false;
   return swapPinRouteCheckbox?.checked === true;
+}
+
+/** Pin route is pair-specific — clear market/protocol and turn pin off when mints change. */
+function resetPinRouteOnMintPairChange(): void {
+  if (!swapPinRouteCheckbox?.checked) return;
+  swapPinRouteCheckbox.checked = false;
+  if (swapPoolAddressInput) swapPoolAddressInput.value = '';
+  if (swapProtocolSelect) swapProtocolSelect.selectedIndex = 0;
+  swapProtocolPicker?.syncFromSelect();
+  syncSwapRoutePinMode();
 }
 
 let swapRoutePinModeWasOn: boolean | null = null;
@@ -7806,7 +7824,9 @@ swapRouterSwitchEl?.addEventListener('click', (e) => {
   if (!btn?.dataset.router) return;
   setSwapRouter(btn.dataset.router);
 });
-syncRouterFallbackToggleLocked();
+swapVybeFallbackCheckbox?.addEventListener('change', () => {
+  syncSwapQuoteButtonState();
+});
 syncRouterFallbackToggleUi();
 syncSwapRouterSwitchState();
 swapConnectWalletBtn?.addEventListener('click', () => {
