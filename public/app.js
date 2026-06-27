@@ -20887,6 +20887,88 @@ function buildSwapClientParams(inputMint, outputMint) {
   }
   return payload;
 }
+var PAIR_PRICE_RESOLVE_TTL_MS = 2e3;
+var pairPriceResolveCache = null;
+var pairPriceResolveInflight = /* @__PURE__ */ new Map();
+function pairPriceResolveKey(inputMint, outputMint) {
+  return mintsForPricePrefetch([inputMint, outputMint].filter(Boolean)).sort().join("|");
+}
+function pairPricesReadyForQuote(inputMint, outputMint) {
+  const input = inputMint.trim();
+  const output = outputMint.trim();
+  if (!input || !output) return false;
+  if (!hasCachedMintPriceUsd(input) || !hasCachedMintPriceUsd(output)) return false;
+  if (!hasCachedMintDecimals(input) || !hasCachedMintDecimals(output)) return false;
+  const needsSol = !isSolMint(input) && !isSolMint(output);
+  if (needsSol && getCachedSolPriceUsd() == null) return false;
+  return true;
+}
+function applyPairPriceStats(stats) {
+  for (const [mint, s] of Object.entries(stats)) {
+    saveTokenPriceStats(mint, s);
+  }
+}
+function markPairPricesResolved(inputMint, outputMint, stats) {
+  const input = inputMint.trim();
+  const output = outputMint.trim();
+  if (!input || !output || Object.keys(stats).length === 0) return;
+  pairPriceResolveCache = {
+    key: pairPriceResolveKey(input, output),
+    fetchedAt: Date.now(),
+    stats
+  };
+}
+async function fetchPairPricesFromNetwork(inputMint, outputMint, options) {
+  const mints = mintsForPricePrefetch([inputMint, outputMint].filter(Boolean));
+  if (mints.length === 0) return {};
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch("/api/tokens/resolve-prices", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({
+          mints,
+          ...options?.forceFullDetailsMints?.length ? { forceFullDetailsMints: options.forceFullDetailsMints } : {}
+        })
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(body.error || `Price resolve failed (${res.status})`);
+      }
+      const stats = body.stats ?? {};
+      applyPairPriceStats(stats);
+      return stats;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError ?? new Error("Price resolve failed");
+}
+async function ensurePairPricesForQuote(inputMint, outputMint, options) {
+  const input = inputMint.trim();
+  const output = outputMint.trim();
+  if (!input || !output) return {};
+  const key = pairPriceResolveKey(input, output);
+  const now = Date.now();
+  if (!options?.force && pairPriceResolveCache?.key === key && now - pairPriceResolveCache.fetchedAt < PAIR_PRICE_RESOLVE_TTL_MS && pairPricesReadyForQuote(input, output)) {
+    return pairPriceResolveCache.stats;
+  }
+  const inflight = pairPriceResolveInflight.get(key);
+  if (inflight) return inflight;
+  const promise = fetchPairPricesFromNetwork(input, output).then((stats) => {
+    markPairPricesResolved(input, output, stats);
+    return stats;
+  }).finally(() => {
+    pairPriceResolveInflight.delete(key);
+  });
+  pairPriceResolveInflight.set(key, promise);
+  return promise;
+}
 function saveTokenPriceStats(mint, stats) {
   const m = mint.trim();
   if (!m) return;
@@ -31010,6 +31092,7 @@ async function prefetchSwapPairPrices(options) {
     for (const [mint, s] of Object.entries(stats)) {
       saveTokenPriceStats(mint, s);
     }
+    markPairPricesResolved(inputMint, outputMint, stats);
     updateSwapPairCards(stats);
     syncSwapSellAmountUi();
     refreshWalletBalancesPanel();
@@ -31803,7 +31886,8 @@ async function fetchAggregatorSwapQuote(wallet, inputMint, outputMint, amount, s
   return quoteBody;
 }
 async function requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, buildOpts) {
-  await ensureFreshPairPricesForQuote(inputMint, outputMint);
+  const priceStats = await ensurePairPricesForQuote(inputMint, outputMint);
+  if (Object.keys(priceStats).length > 0) updateSwapPairCards(priceStats);
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   try {
     return await executeAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, buildOpts);
@@ -32051,7 +32135,8 @@ async function resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, b
   return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, buildOpts);
 }
 async function requestVybeQuote(wallet, inputMint, outputMint, amount, buildOpts) {
-  await ensureFreshPairPricesForQuote(inputMint, outputMint);
+  const priceStats = await ensurePairPricesForQuote(inputMint, outputMint);
+  if (Object.keys(priceStats).length > 0) updateSwapPairCards(priceStats);
   const originalAmount = amount;
   let attemptAmount = amount;
   let splSimStep = 0;
@@ -32192,33 +32277,6 @@ function extractSwapBuildTransactions(payload) {
   if (main.trim()) txs.push(main.trim());
   if (post.trim()) txs.push(post.trim());
   return txs;
-}
-async function resolvePairTokenPrices(inputMint, outputMint) {
-  const mints = mintsForPricePrefetch([inputMint, outputMint].filter(Boolean));
-  const res = await fetchWithRetry("/api/tokens/resolve-prices", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    cache: "no-store",
-    body: JSON.stringify({ mints })
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(body.error || `Price resolve failed (${res.status})`);
-  }
-  const stats = body.stats ?? {};
-  for (const [mint, s] of Object.entries(stats)) {
-    saveTokenPriceStats(mint, s);
-  }
-  if (Object.keys(stats).length > 0) {
-    updateSwapPairCards(stats);
-  }
-  return stats;
-}
-async function ensureFreshPairPricesForQuote(inputMint, outputMint) {
-  const input = inputMint.trim();
-  const output = outputMint.trim();
-  if (!input || !output) return;
-  await resolvePairTokenPrices(input, output);
 }
 function stripVybeQuoteMetadata(body) {
   const { _build, _builtAt, _tokenStats, _buildUnavailable, ...quote } = body;

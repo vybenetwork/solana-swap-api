@@ -45,6 +45,11 @@ export function appendSwapClientParamsToPayload(
   if (params.outputMintDecimals != null) payload.outputMintDecimals = params.outputMintDecimals;
 }
 
+/** True when the client already resolved both swap leg USD prices (skip server resolve). */
+export function hasClientLegPrices(params: SwapClientParams): boolean {
+  return params.inputMintPrice != null && params.outputMintPrice != null;
+}
+
 /** Ephemeral hints for swap-api server-side price resolve (not forwarded to Vybe). */
 export function clientParamsToPriceResolveHints(
   params: SwapClientParams,

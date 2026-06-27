@@ -437,6 +437,137 @@ export function buildSwapClientParams(inputMint: string, outputMint: string): {
   return payload;
 }
 
+/** Reuse resolve-prices for quote if the same pair was fetched within this window. */
+export const PAIR_PRICE_RESOLVE_TTL_MS = 2000;
+
+type PairPriceResolveCache = {
+  key: string;
+  fetchedAt: number;
+  stats: Record<string, TokenPriceStats>;
+};
+
+let pairPriceResolveCache: PairPriceResolveCache | null = null;
+const pairPriceResolveInflight = new Map<string, Promise<Record<string, TokenPriceStats>>>();
+
+function pairPriceResolveKey(inputMint: string, outputMint: string): string {
+  return mintsForPricePrefetch([inputMint, outputMint].filter(Boolean)).sort().join('|');
+}
+
+function pairPricesReadyForQuote(inputMint: string, outputMint: string): boolean {
+  const input = inputMint.trim();
+  const output = outputMint.trim();
+  if (!input || !output) return false;
+  if (!hasCachedMintPriceUsd(input) || !hasCachedMintPriceUsd(output)) return false;
+  if (!hasCachedMintDecimals(input) || !hasCachedMintDecimals(output)) return false;
+  const needsSol = !isSolMint(input) && !isSolMint(output);
+  if (needsSol && getCachedSolPriceUsd() == null) return false;
+  return true;
+}
+
+function applyPairPriceStats(stats: Record<string, TokenPriceStats>): void {
+  for (const [mint, s] of Object.entries(stats)) {
+    saveTokenPriceStats(mint, s);
+  }
+}
+
+/** Register a recent prefetch so quote can skip resolve-prices within the TTL window. */
+export function markPairPricesResolved(
+  inputMint: string,
+  outputMint: string,
+  stats: Record<string, TokenPriceStats>,
+): void {
+  const input = inputMint.trim();
+  const output = outputMint.trim();
+  if (!input || !output || Object.keys(stats).length === 0) return;
+  pairPriceResolveCache = {
+    key: pairPriceResolveKey(input, output),
+    fetchedAt: Date.now(),
+    stats,
+  };
+}
+
+async function fetchPairPricesFromNetwork(
+  inputMint: string,
+  outputMint: string,
+  options?: { forceFullDetailsMints?: string[] },
+): Promise<Record<string, TokenPriceStats>> {
+  const mints = mintsForPricePrefetch([inputMint, outputMint].filter(Boolean));
+  if (mints.length === 0) return {};
+
+  let lastError: Error | undefined;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch('/api/tokens/resolve-prices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        cache: 'no-store',
+        body: JSON.stringify({
+          mints,
+          ...(options?.forceFullDetailsMints?.length
+            ? { forceFullDetailsMints: options.forceFullDetailsMints }
+            : {}),
+        }),
+      });
+      const body = (await res.json().catch(() => ({}))) as {
+        stats?: Record<string, TokenPriceStats>;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(body.error || `Price resolve failed (${res.status})`);
+      }
+      const stats = body.stats ?? {};
+      applyPairPriceStats(stats);
+      return stats;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < 2) {
+        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+      }
+    }
+  }
+  throw lastError ?? new Error('Price resolve failed');
+}
+
+/**
+ * Resolve pair prices before quote: always waits for fresh stats unless the same pair
+ * was resolved within PAIR_PRICE_RESOLVE_TTL_MS (e.g. prefetch just ran).
+ */
+export async function ensurePairPricesForQuote(
+  inputMint: string,
+  outputMint: string,
+  options?: { force?: boolean },
+): Promise<Record<string, TokenPriceStats>> {
+  const input = inputMint.trim();
+  const output = outputMint.trim();
+  if (!input || !output) return {};
+
+  const key = pairPriceResolveKey(input, output);
+  const now = Date.now();
+
+  if (
+    !options?.force &&
+    pairPriceResolveCache?.key === key &&
+    now - pairPriceResolveCache.fetchedAt < PAIR_PRICE_RESOLVE_TTL_MS &&
+    pairPricesReadyForQuote(input, output)
+  ) {
+    return pairPriceResolveCache.stats;
+  }
+
+  const inflight = pairPriceResolveInflight.get(key);
+  if (inflight) return inflight;
+
+  const promise = fetchPairPricesFromNetwork(input, output)
+    .then((stats) => {
+      markPairPricesResolved(input, output, stats);
+      return stats;
+    })
+    .finally(() => {
+      pairPriceResolveInflight.delete(key);
+    });
+  pairPriceResolveInflight.set(key, promise);
+  return promise;
+}
+
 export function saveTokenPriceStats(mint: string, stats: TokenPriceStats): void {
   const m = mint.trim();
   if (!m) return;
