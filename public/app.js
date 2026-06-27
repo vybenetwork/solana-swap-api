@@ -20888,13 +20888,26 @@ function saveTokenPriceStats(mint, stats) {
   const m = mint.trim();
   if (!m) return;
   setSessionTokenPriceStats(m, stats);
+  if (isSolMint(m)) {
+    const alt = m === NATIVE_SOL_MINT ? WSOL_MINT : NATIVE_SOL_MINT;
+    setSessionTokenPriceStats(alt, stats);
+  }
   const existing = getCachedTokenMeta(m);
+  const logoUrl = stats.logoUrl?.trim() || existing?.logoUrl || "";
+  if (logoUrl) clearTokenIconUrlFailure(logoUrl);
+  const symbol = stats.symbol?.trim() || existing?.symbol || truncateMint(m);
+  const name = stats.name?.trim() || existing?.name || symbol;
   const meta = {
     mint: m,
-    symbol: existing?.symbol ?? truncateMint(m),
-    name: existing?.name ?? truncateMint(m),
-    logoUrl: existing?.logoUrl ?? "",
+    symbol,
+    name,
+    logoUrl: resolveLogoUrl(logoUrl),
     decimals: stats.decimals ?? existing?.decimals,
+    price: stats.price,
+    price1d: stats.price1d,
+    price7d: stats.price7d,
+    priceFetchedAt: stats.priceFetchedAt,
+    priceUpdateTime: stats.priceUpdateTime,
     tags: existing?.tags,
     organicScore: existing?.organicScore,
     isVerified: existing?.isVerified,
@@ -21022,6 +21035,10 @@ function markTokenIconUrlFailed(url) {
   if (u && u !== TOKEN_ICON_PLACEHOLDER_PATH && !u.endsWith(TOKEN_ICON_PLACEHOLDER_PATH)) {
     failedTokenIconUrls.add(u);
   }
+}
+function clearTokenIconUrlFailure(url) {
+  const u = tokenIconSessionKey(url ?? "");
+  if (u) failedTokenIconUrls.delete(u);
 }
 function isTokenIconUrlFailed(url) {
   return failedTokenIconUrls.has(tokenIconSessionKey(url));
@@ -21283,23 +21300,30 @@ async function fetchTokenByMint(mint) {
     const symbol = String(body.symbol ?? "").trim();
     const name = String(body.name ?? "").trim();
     const logoUrl = resolveLogoUrl(String(body.logoUrl ?? ""));
+    if (logoUrl) clearTokenIconUrlFailure(logoUrl);
     const decimals = typeof body.decimals === "number" ? body.decimals : void 0;
     const price = typeof body.price === "number" ? body.price : void 0;
     const price1d = typeof body.price1d === "number" ? body.price1d : void 0;
     const price7d = typeof body.price7d === "number" ? body.price7d : void 0;
     const priceUpdateTime = typeof body.priceUpdateTime === "number" ? body.priceUpdateTime : void 0;
     const priceFetchedAt = typeof body.priceFetchedAt === "number" ? body.priceFetchedAt : void 0;
+    const sourceRaw = String(body.priceSource ?? body.source ?? "").trim();
+    const source = sourceRaw === "Vybe" || sourceRaw === "Jupiter" || sourceRaw === "Pumpfun-API" ? sourceRaw : void 0;
     const tokenProgram = String(body.tokenProgram ?? body.program ?? "").trim();
     const tags = [];
     if (/2022/i.test(tokenProgram) || body.isToken2022 === true) tags.push("Token2022");
     if (typeof price === "number" && Number.isFinite(price) && price > 0 && typeof decimals === "number" && Number.isFinite(decimals)) {
-      setSessionTokenPriceStats(mint, {
+      saveTokenPriceStats(mint, {
         price,
         price1d,
         price7d,
         decimals,
         priceFetchedAt: priceFetchedAt ?? Date.now(),
-        priceUpdateTime
+        priceUpdateTime,
+        source,
+        logoUrl: logoUrl || void 0,
+        symbol: symbol || void 0,
+        name: name || void 0
       });
     }
     const meta = {
@@ -21308,6 +21332,11 @@ async function fetchTokenByMint(mint) {
       name: name || symbol || truncateMint(mint),
       logoUrl,
       decimals,
+      price,
+      price1d,
+      price7d,
+      priceUpdateTime,
+      priceFetchedAt,
       tags: tags.length ? tags : void 0,
       isVerified: body.isVerified === true,
       organicScore: typeof body.organicScore === "number" ? body.organicScore : void 0,
@@ -21545,6 +21574,30 @@ function isNativeSolMint(mint) {
 }
 function isWsolMint(mint) {
   return mint.trim() === WSOL_MINT;
+}
+function dedupeMintsForPriceResolve(mints) {
+  const out = [];
+  let solSeen = false;
+  for (const raw of mints) {
+    const m = raw.trim();
+    if (!m) continue;
+    if (isSolMint(m)) {
+      if (solSeen) continue;
+      solSeen = true;
+      out.push(WSOL_MINT);
+      continue;
+    }
+    if (!out.includes(m)) out.push(m);
+  }
+  return out;
+}
+function mintsForPricePrefetch(primaryMints) {
+  const deduped = dedupeMintsForPriceResolve(primaryMints);
+  const needsSolSpot = primaryMints.some((m) => isSolMint(m.trim())) || deduped.length > 0 && !deduped.includes(WSOL_MINT);
+  if (needsSolSpot && !deduped.includes(WSOL_MINT)) {
+    return [...deduped, WSOL_MINT];
+  }
+  return deduped;
 }
 function isBlockedPickerMint(mint) {
   return isWsolMint(mint);
@@ -29414,7 +29467,7 @@ function scheduleWalletRefreshAfterTxConfirm(context) {
 async function refreshWalletHoldingsFull(wallet, context) {
   await refreshWalletBalancesForSwap(wallet, false);
   refreshWalletBalancesPanel();
-  const mints = /* @__PURE__ */ new Set([NATIVE_SOL_MINT, WSOL_MINT]);
+  const mints = /* @__PURE__ */ new Set([WSOL_MINT]);
   if (context?.soldMint) mints.add(context.soldMint);
   if (context?.buyMint) mints.add(context.buyMint);
   const inputMint = swapInputMintInput?.value.trim() ?? "";
@@ -30908,11 +30961,7 @@ async function prefetchSwapPairPrices(options) {
   if (clientPriceResolveSuppressed()) return;
   const inputMint = swapInputMintInput?.value.trim() ?? "";
   const outputMint = swapOutputMintInput?.value.trim() ?? "";
-  const mints = [
-    ...new Set(
-      [...options?.mints ?? [inputMint, outputMint], NATIVE_SOL_MINT, WSOL_MINT].filter(Boolean)
-    )
-  ];
+  const mints = mintsForPricePrefetch(options?.mints ?? [inputMint, outputMint]);
   if (mints.length === 0) return;
   try {
     const forceFullDetailsMints = options?.forceFullDetails ? mints : [];

@@ -22,6 +22,8 @@ export interface TokenMeta {
   savedAt: number;
 }
 
+export type PriceResolveSource = 'Vybe' | 'Jupiter' | 'Pumpfun-API';
+
 export interface TokenPriceStats {
   price: number;
   price1d?: number;
@@ -29,6 +31,10 @@ export interface TokenPriceStats {
   decimals: number;
   priceFetchedAt: number;
   priceUpdateTime?: number;
+  source?: PriceResolveSource;
+  logoUrl?: string;
+  symbol?: string;
+  name?: string;
 }
 
 export type TokenPickerSide = 'input' | 'output';
@@ -432,13 +438,26 @@ export function saveTokenPriceStats(mint: string, stats: TokenPriceStats): void 
   const m = mint.trim();
   if (!m) return;
   setSessionTokenPriceStats(m, stats);
+  if (isSolMint(m)) {
+    const alt = m === NATIVE_SOL_MINT ? WSOL_MINT : NATIVE_SOL_MINT;
+    setSessionTokenPriceStats(alt, stats);
+  }
   const existing = getCachedTokenMeta(m);
+  const logoUrl = stats.logoUrl?.trim() || existing?.logoUrl || '';
+  if (logoUrl) clearTokenIconUrlFailure(logoUrl);
+  const symbol = stats.symbol?.trim() || existing?.symbol || truncateMint(m);
+  const name = stats.name?.trim() || existing?.name || symbol;
   const meta: TokenMeta = {
     mint: m,
-    symbol: existing?.symbol ?? truncateMint(m),
-    name: existing?.name ?? truncateMint(m),
-    logoUrl: existing?.logoUrl ?? '',
+    symbol,
+    name,
+    logoUrl: resolveLogoUrl(logoUrl),
     decimals: stats.decimals ?? existing?.decimals,
+    price: stats.price,
+    price1d: stats.price1d,
+    price7d: stats.price7d,
+    priceFetchedAt: stats.priceFetchedAt,
+    priceUpdateTime: stats.priceUpdateTime,
     tags: existing?.tags,
     organicScore: existing?.organicScore,
     isVerified: existing?.isVerified,
@@ -586,6 +605,11 @@ export function markTokenIconUrlFailed(url: string): void {
   if (u && u !== TOKEN_ICON_PLACEHOLDER_PATH && !u.endsWith(TOKEN_ICON_PLACEHOLDER_PATH)) {
     failedTokenIconUrls.add(u);
   }
+}
+
+export function clearTokenIconUrlFailure(url: string | undefined): void {
+  const u = tokenIconSessionKey(url ?? '');
+  if (u) failedTokenIconUrls.delete(u);
 }
 
 function isTokenIconUrlFailed(url: string): boolean {
@@ -914,12 +938,18 @@ async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
     const symbol = String(body.symbol ?? '').trim();
     const name = String(body.name ?? '').trim();
     const logoUrl = resolveLogoUrl(String(body.logoUrl ?? ''));
+    if (logoUrl) clearTokenIconUrlFailure(logoUrl);
     const decimals = typeof body.decimals === 'number' ? body.decimals : undefined;
     const price = typeof body.price === 'number' ? body.price : undefined;
     const price1d = typeof body.price1d === 'number' ? body.price1d : undefined;
     const price7d = typeof body.price7d === 'number' ? body.price7d : undefined;
     const priceUpdateTime = typeof body.priceUpdateTime === 'number' ? body.priceUpdateTime : undefined;
     const priceFetchedAt = typeof body.priceFetchedAt === 'number' ? body.priceFetchedAt : undefined;
+    const sourceRaw = String(body.priceSource ?? body.source ?? '').trim();
+    const source =
+      sourceRaw === 'Vybe' || sourceRaw === 'Jupiter' || sourceRaw === 'Pumpfun-API'
+        ? sourceRaw
+        : undefined;
     const tokenProgram = String(body.tokenProgram ?? body.program ?? '').trim();
     const tags: string[] = [];
     if (/2022/i.test(tokenProgram) || body.isToken2022 === true) tags.push('Token2022');
@@ -930,13 +960,17 @@ async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
       typeof decimals === 'number' &&
       Number.isFinite(decimals)
     ) {
-      setSessionTokenPriceStats(mint, {
+      saveTokenPriceStats(mint, {
         price,
         price1d,
         price7d,
         decimals,
         priceFetchedAt: priceFetchedAt ?? Date.now(),
         priceUpdateTime,
+        source,
+        logoUrl: logoUrl || undefined,
+        symbol: symbol || undefined,
+        name: name || undefined,
       });
     }
     const meta: TokenMeta = {
@@ -945,6 +979,11 @@ async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
       name: name || symbol || truncateMint(mint),
       logoUrl,
       decimals,
+      price,
+      price1d,
+      price7d,
+      priceUpdateTime,
+      priceFetchedAt,
       tags: tags.length ? tags : undefined,
       isVerified: body.isVerified === true,
       organicScore: typeof body.organicScore === 'number' ? body.organicScore : undefined,
@@ -1293,6 +1332,36 @@ export function isNativeSolMint(mint: string): boolean {
 
 export function isWsolMint(mint: string): boolean {
   return mint.trim() === WSOL_MINT;
+}
+
+/** Collapse native SOL + WSOL to WSOL for resolve-prices requests. */
+export function dedupeMintsForPriceResolve(mints: string[]): string[] {
+  const out: string[] = [];
+  let solSeen = false;
+  for (const raw of mints) {
+    const m = raw.trim();
+    if (!m) continue;
+    if (isSolMint(m)) {
+      if (solSeen) continue;
+      solSeen = true;
+      out.push(WSOL_MINT);
+      continue;
+    }
+    if (!out.includes(m)) out.push(m);
+  }
+  return out;
+}
+
+/** Pair + wallet mints for resolve-prices: one WSOL fetch, SOL spot when pair is all-SPL. */
+export function mintsForPricePrefetch(primaryMints: string[]): string[] {
+  const deduped = dedupeMintsForPriceResolve(primaryMints);
+  const needsSolSpot =
+    primaryMints.some((m) => isSolMint(m.trim())) ||
+    (deduped.length > 0 && !deduped.includes(WSOL_MINT));
+  if (needsSolSpot && !deduped.includes(WSOL_MINT)) {
+    return [...deduped, WSOL_MINT];
+  }
+  return deduped;
 }
 
 /** WSOL is shown in balances but not selectable — users trade native SOL instead. */

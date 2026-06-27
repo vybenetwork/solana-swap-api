@@ -28,10 +28,10 @@ import {
 import { getTokenSymbol } from './api/token-symbol.js';
 import { readSymbolCacheFromDisk, writeSymbolCacheToDisk } from './cache.js';
 import {
-  cacheTokenMetaFromVybe,
   getCachedTokenMetaFromDisk,
   getRuntimeIconDir,
 } from './token-icon-cache.js';
+import { resolveTokenMeta } from './api/resolve-token-meta.js';
 import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
 import { quoteFromBuild } from './api/map-enrichment.js';
 import { createDataHttpClient } from './api/client.js';
@@ -101,15 +101,10 @@ app.get('/api/token/:mint', async (req: Request, res: Response) => {
     const mint = (Array.isArray(rawMint) ? rawMint[0] : rawMint ?? '').trim();
     if (!mint) return res.status(400).json({ error: 'Mint address required' });
 
-    const cached = getCachedTokenMetaFromDisk(mint);
-    if (cached) {
-      return res.json(tokenMetaToApiResponse(cached));
-    }
-
-    const token = await client.getToken(mint);
-    const { priceUsd: _priceUsd, marketCapUsd: _mc, volume24hUsd: _vol, ...rest } = token;
-    const meta = await cacheTokenMetaFromVybe(mint, rest as Record<string, unknown>);
-    res.json(tokenMetaToApiResponse(meta));
+    const dataHttp = createDataHttpClient(dataApiKey);
+    const meta = await resolveTokenMeta(dataHttp, mint);
+    if (!meta) return res.status(404).json({ error: 'Token not found' });
+    return res.json(tokenMetaToApiResponse(meta));
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
     res.status(status).json({ error: toHumanReadableError(err) });

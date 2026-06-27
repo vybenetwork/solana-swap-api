@@ -114,6 +114,53 @@ export function isSwapQuoteBtnDebugEnabled(): boolean {
   return parseEnvBool(process.env.ENABLE_SWAP_QUOTE_BTN_DEBUG, false);
 }
 
+/** Optional JWT for pump.fun API (`Authorization: Bearer …`). */
+export function getPumpfunAuthToken(): string | undefined {
+  const token = (process.env.PUMPFUN_AUTH_TOKEN ?? '').trim();
+  return token || undefined;
+}
+
+/** Optional path to JSON file with extra pump.fun request headers (Cookie, etc.). */
+export function getPumpfunHeadersPath(): string | undefined {
+  const raw = (process.env.PUMPFUN_HEADERS_PATH ?? '').trim();
+  return raw || undefined;
+}
+
+/** Axios proxy config when both PROXY_HOST and PROXY_AUTH are set; otherwise direct. */
+export function getHttpProxyConfig():
+  | { host: string; port: number; auth: { username: string; password: string }; protocol: 'http' }
+  | undefined {
+  const hostRaw = (process.env.PROXY_HOST ?? '').trim();
+  const authRaw = (process.env.PROXY_AUTH ?? '').trim();
+  if (!hostRaw || !authRaw) return undefined;
+
+  const colonIdx = authRaw.indexOf(':');
+  if (colonIdx <= 0) return undefined;
+
+  const [hostname, portStr] = hostRaw.includes(':')
+    ? hostRaw.split(':', 2)
+    : [hostRaw, '80'];
+  const port = Number(portStr) || 80;
+
+  return {
+    host: hostname,
+    port,
+    auth: {
+      username: authRaw.slice(0, colonIdx),
+      password: authRaw.slice(colonIdx + 1),
+    },
+    protocol: 'http',
+  };
+}
+
+/** Full proxy URL for undici ProxyAgent (`http://user:pass@host:port`). */
+export function getHttpProxyUrl(): string | undefined {
+  const cfg = getHttpProxyConfig();
+  if (!cfg) return undefined;
+  const { username, password } = cfg.auth;
+  return `http://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${cfg.host}:${cfg.port}`;
+}
+
 /**
  * Quote-bridge hop pairs to skip during route discovery (comma-separated).
  * Keys use short protocol slugs joined by `-`, e.g. `damm2-damm2`, `ammv4-ammv4`.

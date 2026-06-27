@@ -67,6 +67,7 @@ import {
   routingTokenDotClass,
   saveTokenPriceStats,
   walletItemValueUsd,
+  mintsForPricePrefetch,
   persistWalletBalanceMetadata,
   getSessionWalletBalanceItems,
   clearSessionWalletBalances,
@@ -2718,7 +2719,7 @@ async function refreshWalletHoldingsFull(
   await refreshWalletBalancesForSwap(wallet, false);
   refreshWalletBalancesPanel();
 
-  const mints = new Set<string>([NATIVE_SOL_MINT, WSOL_MINT]);
+  const mints = new Set<string>([WSOL_MINT]);
   if (context?.soldMint) mints.add(context.soldMint);
   if (context?.buyMint) mints.add(context.buyMint);
   const inputMint = swapInputMintInput?.value.trim() ?? '';
@@ -4666,11 +4667,7 @@ async function prefetchSwapPairPrices(options?: {
   if (clientPriceResolveSuppressed()) return;
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
-  const mints = [
-    ...new Set(
-      [...(options?.mints ?? [inputMint, outputMint]), NATIVE_SOL_MINT, WSOL_MINT].filter(Boolean),
-    ),
-  ];
+  const mints = mintsForPricePrefetch(options?.mints ?? [inputMint, outputMint]);
   if (mints.length === 0) return;
   try {
     const forceFullDetailsMints = options?.forceFullDetails ? mints : [];

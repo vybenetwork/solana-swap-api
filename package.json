@@ -17,22 +17,27 @@
     "prod-like-local": "bash tools/run-prod-like-local.sh",
     "prestart": "npm run build:frontend"
   },
-  "keywords": ["solana", "swap", "vybe", "api"],
+  "keywords": [
+    "solana",
+    "swap",
+    "vybe",
+    "api"
+  ],
   "license": "MIT",
   "dependencies": {
     "@solana/web3.js": "1.98.4",
     "axios": "1.7.9",
     "dotenv": "16.4.5",
-    "express": "4.21.1"
+    "express": "4.21.1",
+    "undici": "^6.21.0"
   },
   "devDependencies": {
     "@types/express": "5.0.0",
     "@types/node": "22.10.1",
-    "typescript": "5.6.3",
-    "tsx": "4.19.2"
+    "tsx": "4.19.2",
+    "typescript": "5.6.3"
   },
   "engines": {
     "node": ">=20"
   }
 }
-

@@ -24,6 +24,14 @@ export interface JupiterAssetInfo {
   verified: boolean;
 }
 
+export interface JupiterTokenDetails {
+  mint: string;
+  priceUsd: number;
+  decimals: number;
+  /** Vybe-shaped token record for disk cache / API responses. */
+  token: Record<string, unknown>;
+}
+
 export type JupiterQuotePrice =
   | { denom: 'usd'; priceUsd: number }
   | { denom: 'sol'; priceSol: number };
@@ -107,6 +115,63 @@ export async function fetchJupiterAsset(mint: string): Promise<JupiterAssetInfo 
     decimals,
     verified: row.isVerified === true,
   };
+}
+
+/** Full token details from Jupiter datapi + swap quote (mirrors pump.fun helper shape). */
+export async function fetchJupiterTokenDetails(
+  mint: string,
+  options: { solPriceUsd?: number; decimalsHint?: number } = {},
+): Promise<JupiterTokenDetails | null> {
+  const m = mint.trim();
+  if (!m) return null;
+
+  let decimals = options.decimalsHint;
+  let asset: JupiterAssetInfo | null = null;
+  try {
+    asset = await fetchJupiterAsset(m);
+    if (asset?.decimals != null && (typeof decimals !== 'number' || !Number.isFinite(decimals))) {
+      decimals = asset.decimals;
+    }
+  } catch {
+    if (typeof decimals !== 'number' || !Number.isFinite(decimals)) return null;
+  }
+  if (typeof decimals !== 'number' || !Number.isFinite(decimals)) return null;
+
+  let quote: JupiterQuotePrice | null;
+  try {
+    quote = await fetchJupiterQuotePrice(m, decimals);
+  } catch {
+    return null;
+  }
+  if (!quote) return null;
+
+  let priceUsd: number;
+  if (quote.denom === 'usd') {
+    priceUsd = quote.priceUsd;
+  } else {
+    const solPriceUsd = options.solPriceUsd;
+    if (!(typeof solPriceUsd === 'number' && Number.isFinite(solPriceUsd) && solPriceUsd > 0)) {
+      return null;
+    }
+    priceUsd = quote.priceSol * solPriceUsd;
+  }
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
+
+  const symbol = asset?.symbol?.trim() || m.slice(0, 6);
+  const name = asset?.name?.trim() || symbol;
+  const token: Record<string, unknown> = {
+    mintAddress: m,
+    symbol,
+    name,
+    decimals,
+    decimal: decimals,
+    logoUrl: asset?.logoUrl?.trim() || undefined,
+    price: priceUsd,
+    verified: asset?.verified === true,
+    isVerified: asset?.verified === true,
+  };
+
+  return { mint: m, priceUsd, decimals, token };
 }
 
 /**

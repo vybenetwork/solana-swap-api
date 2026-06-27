@@ -1,16 +1,26 @@
 /**
  * Resolve token spot prices for swap quotes and pair-card stats.
- * Prices are always fetched from Vybe (never served from disk/TTL cache).
+ * Primary source: Vybe. Fallback chain: hints/stablecoins → pump.fun → Jupiter.
  * Metadata may be cached on disk; `full` fetches all fields, `refresh-price` updates price only.
  */
 
 import type { AxiosInstance } from 'axios';
 import { getToken } from './tokens.js';
-import { NATIVE_SOL_MINT, toVybeSwapMint } from './sol-mints.js';
+import { fetchJupiterTokenDetails } from './jupiter-token-fallback.js';
+import { fetchPumpfunTokenDetails } from './pumpfun-price-fallback.js';
+import { repairTokenIcon } from './resolve-token-meta.js';
+import {
+  NATIVE_SOL_MINT,
+  WSOL_MINT,
+  aliasSolPriceStats,
+  dedupeMintsForPriceResolve,
+  toVybeSwapMint,
+} from './sol-mints.js';
 import type { VybeToken } from '../types/api.js';
 import {
   cacheTokenMetaFromVybe,
   getCachedTokenMetaFromDisk,
+  hasCachedTokenIcon,
   mergePriceFieldsOnly,
   type CachedTokenMeta,
 } from '../token-icon-cache.js';
@@ -26,6 +36,8 @@ export interface TokenPriceHint {
   name?: string;
 }
 
+export type PriceResolveSource = 'Vybe' | 'Jupiter' | 'Pumpfun-API';
+
 export interface TokenPriceStats {
   price: number;
   price1d?: number;
@@ -33,6 +45,10 @@ export interface TokenPriceStats {
   decimals: number;
   priceFetchedAt: number;
   priceUpdateTime?: number;
+  source?: PriceResolveSource;
+  logoUrl?: string;
+  symbol?: string;
+  name?: string;
 }
 
 export interface ResolveTokenPricesOptions {
@@ -74,6 +90,10 @@ function statsFromEntry(
     decimals: number;
     priceFetchedAt?: number;
     priceUpdateTime?: number;
+    source?: PriceResolveSource;
+    logoUrl?: string;
+    symbol?: string;
+    name?: string;
   },
 ): TokenPriceStats {
   const stats: TokenPriceStats = {
@@ -88,7 +108,21 @@ function statsFromEntry(
   if (typeof entry.price7d === 'number' && Number.isFinite(entry.price7d) && entry.price7d > 0) {
     stats.price7d = entry.price7d;
   }
+  if (entry.source) stats.source = entry.source;
+  if (entry.logoUrl?.trim()) stats.logoUrl = entry.logoUrl.trim();
+  if (entry.symbol?.trim()) stats.symbol = entry.symbol.trim();
+  if (entry.name?.trim()) stats.name = entry.name.trim();
   return stats;
+}
+
+function metaFieldsFromDisk(mint: string): Pick<TokenPriceStats, 'logoUrl' | 'symbol' | 'name'> {
+  const disk = getCachedTokenMetaFromDisk(mint);
+  if (!disk) return {};
+  return {
+    logoUrl: disk.logoUrl,
+    symbol: disk.symbol,
+    name: disk.name,
+  };
 }
 
 
@@ -136,6 +170,118 @@ function stablecoinFallbackStats(
   });
 }
 
+function solPriceUsdFromContext(
+  hints: Record<string, TokenPriceHint>,
+  stats: Record<string, TokenPriceStats>,
+): number | undefined {
+  for (const mint of [WSOL_MINT, NATIVE_SOL_MINT]) {
+    const fromStats = stats[mint]?.price;
+    if (typeof fromStats === 'number' && Number.isFinite(fromStats) && fromStats > 0) {
+      return fromStats;
+    }
+    const hint = hints[mint];
+    if (
+      hint &&
+      typeof hint.price === 'number' &&
+      Number.isFinite(hint.price) &&
+      hint.price > 0
+    ) {
+      return hint.price;
+    }
+  }
+  return undefined;
+}
+
+async function jupiterFallbackStats(
+  mint: string,
+  hint: TokenPriceHint | undefined,
+  disk: CachedTokenMeta | null,
+  solPriceUsd: number | undefined,
+): Promise<TokenPriceStats | null> {
+  const decimalsHint = hint?.decimals ?? disk?.decimals;
+  let details;
+  try {
+    details = await fetchJupiterTokenDetails(mint, {
+      solPriceUsd,
+      decimalsHint: typeof decimalsHint === 'number' ? decimalsHint : undefined,
+    });
+  } catch {
+    return null;
+  }
+  if (!details) return null;
+
+  const fetchedAt = Date.now();
+  await cacheTokenMetaFromVybe(mint, {
+    ...details.token,
+    priceFetchedAt: fetchedAt,
+  });
+  if (!hasCachedTokenIcon(mint)) {
+    await repairTokenIcon(mint);
+  }
+
+  return statsFromEntry({
+    price: details.priceUsd,
+    price1d: hint?.price1d ?? disk?.price1d,
+    price7d: hint?.price7d ?? disk?.price7d,
+    decimals: details.decimals,
+    priceFetchedAt: fetchedAt,
+    priceUpdateTime: hint?.priceUpdateTime ?? disk?.priceUpdateTime,
+    source: 'Jupiter',
+    ...metaFieldsFromDisk(mint),
+  });
+}
+
+async function pumpfunFallbackStats(
+  mint: string,
+  hint: TokenPriceHint | undefined,
+  disk: CachedTokenMeta | null,
+  solPriceUsd: number | undefined,
+): Promise<TokenPriceStats | null> {
+  const decimalsHint = hint?.decimals ?? disk?.decimals;
+  let details;
+  try {
+    details = await fetchPumpfunTokenDetails(mint, {
+      solPriceUsd,
+      decimalsHint: typeof decimalsHint === 'number' ? decimalsHint : undefined,
+    });
+  } catch {
+    return null;
+  }
+  if (!details) return null;
+
+  const fetchedAt = Date.now();
+  await cacheTokenMetaFromVybe(mint, {
+    ...details.token,
+    priceFetchedAt: fetchedAt,
+  });
+  if (!hasCachedTokenIcon(mint)) {
+    await repairTokenIcon(mint);
+  }
+
+  return statsFromEntry({
+    price: details.priceUsd,
+    price1d: hint?.price1d ?? disk?.price1d,
+    price7d: hint?.price7d ?? disk?.price7d,
+    decimals: details.decimals,
+    priceFetchedAt: fetchedAt,
+    priceUpdateTime:
+      typeof details.token.updateTime === 'number' ? details.token.updateTime : hint?.priceUpdateTime ?? disk?.priceUpdateTime,
+    source: 'Pumpfun-API',
+    ...metaFieldsFromDisk(mint),
+  });
+}
+
+async function resolveExternalPriceFallback(
+  mint: string,
+  hint: TokenPriceHint | undefined,
+  disk: CachedTokenMeta | null,
+  solPriceUsd: number | undefined,
+): Promise<TokenPriceStats | null> {
+  const pumpfun = await pumpfunFallbackStats(mint, hint, disk, solPriceUsd);
+  if (pumpfun) return pumpfun;
+  return jupiterFallbackStats(mint, hint, disk, solPriceUsd);
+}
+
 function vybeToStats(token: VybeToken, fetchedAt: number): TokenPriceStats | null {
   const decimals = vybeDecimals(token);
   const price = typeof token.price === 'number' ? token.price : undefined;
@@ -157,10 +303,13 @@ export async function resolveTokenPrices(
   mints: string[],
   options: ResolveTokenPricesOptions = {},
 ): Promise<ResolveTokenPricesResult> {
-  const originalMints = [...new Set(mints.map((m) => m.trim()).filter(Boolean))];
-  const vybeMints = [...new Set(originalMints.map((m) => toVybeSwapMint(m)))];
+  const requestedMints = [...new Set(mints.map((m) => m.trim()).filter(Boolean))];
+  const fetchMints = dedupeMintsForPriceResolve(requestedMints);
+  const vybeMints = [...new Set(fetchMints.map((m) => toVybeSwapMint(m)))];
   const forceSet = new Set(
-    (options.forceFullDetailsMints ?? []).map((m) => toVybeSwapMint(m.trim())).filter(Boolean),
+    dedupeMintsForPriceResolve(
+      (options.forceFullDetailsMints ?? []).map((m) => m.trim()).filter(Boolean),
+    ).map((m) => toVybeSwapMint(m)),
   );
   const hints = options.tokenHints ?? {};
   const stats: Record<string, TokenPriceStats> = {};
@@ -204,7 +353,11 @@ export async function resolveTokenPrices(
 
         const resolved = vybeToStats(token, fetchedAt);
         if (resolved) {
-          stats[mint] = resolved;
+          stats[mint] = statsFromEntry({
+            ...resolved,
+            source: 'Vybe',
+            ...metaFieldsFromDisk(mint),
+          });
         } else {
           const fallback =
             hintToStats(hint ?? {}) ?? stablecoinFallbackStats(mint, hint, disk);
@@ -218,7 +371,17 @@ export async function resolveTokenPrices(
     }),
   );
 
-  for (const originalMint of originalMints) {
+  let solPriceUsd = solPriceUsdFromContext(hints, stats);
+  for (const mint of vybeMints) {
+    if (stats[mint]) continue;
+    const hint = hints[mint] ?? (mint !== NATIVE_SOL_MINT ? hints[NATIVE_SOL_MINT] : undefined);
+    const disk = getCachedTokenMetaFromDisk(mint);
+    if (!solPriceUsd) solPriceUsd = solPriceUsdFromContext(hints, stats);
+    const external = await resolveExternalPriceFallback(mint, hint, disk, solPriceUsd);
+    if (external) stats[mint] = external;
+  }
+
+  for (const originalMint of requestedMints) {
     const vybeMint = toVybeSwapMint(originalMint);
     if (stats[vybeMint] && !stats[originalMint]) {
       stats[originalMint] = stats[vybeMint]!;
@@ -231,5 +394,5 @@ export async function resolveTokenPrices(
     }
   }
 
-  return { stats };
+  return { stats: aliasSolPriceStats(stats) };
 }

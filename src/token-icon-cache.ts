@@ -32,6 +32,19 @@ export interface CachedTokenMeta {
   priceUpdateTime?: number;
   /** Epoch ms when price fields were last fetched for quote TTL */
   priceFetchedAt?: number;
+  marketCapUsd?: number;
+  liquidityUsd?: number;
+  poolAddress?: string;
+  bondingCurveAddress?: string;
+  programAddress?: string;
+  quoteMintAddress?: string;
+  complete?: boolean;
+  description?: string;
+  twitter?: string;
+  website?: string;
+  isBanned?: boolean;
+  pumpfunStatus?: string;
+  creatorAddress?: string;
   fetchedAt: string;
 }
 
@@ -80,6 +93,49 @@ function isLocalIconUrl(url: string | undefined): boolean {
   return url.startsWith(PUBLIC_ICON_WEB_PREFIX) || url.startsWith(RUNTIME_ICON_WEB_PREFIX);
 }
 
+function isImageBuffer(buf: Buffer): boolean {
+  if (buf.length < 12) return false;
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return true;
+  if (buf[0] === 0xff && buf[1] === 0xd8) return true;
+  if (buf.slice(0, 3).toString('ascii') === 'GIF') return true;
+  if (buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP') {
+    return true;
+  }
+  const start = buf.slice(0, Math.min(buf.length, 256)).toString('utf8').trimStart();
+  return start.startsWith('<svg') || start.startsWith('<?xml');
+}
+
+function imageUrlFromMetadataJson(buf: Buffer): string | null {
+  try {
+    const text = buf.toString('utf8').trim();
+    if (!text.startsWith('{')) return null;
+    const data = JSON.parse(text) as { image?: unknown };
+    const image = String(data.image ?? '').trim();
+    return image || null;
+  } catch {
+    return null;
+  }
+}
+
+function isValidIconFile(filePath: string): boolean {
+  try {
+    const buf = fs.readFileSync(filePath);
+    return isImageBuffer(buf);
+  } catch {
+    return false;
+  }
+}
+
+function removeInvalidIconFile(filePath: string): void {
+  try {
+    if (fs.existsSync(filePath) && !isValidIconFile(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
 function findExistingIcon(mint: string): { webPath: string; filePath: string } | null {
   for (const [dir, prefix] of [
     [PUBLIC_ICON_DIR, PUBLIC_ICON_WEB_PREFIX],
@@ -88,7 +144,13 @@ function findExistingIcon(mint: string): { webPath: string; filePath: string } |
     if (!fs.existsSync(dir)) continue;
     const files = fs.readdirSync(dir);
     const hit = files.find((f) => f === mint || f.startsWith(`${mint}.`));
-    if (hit) return { webPath: `${prefix}/${hit}`, filePath: path.join(dir, hit) };
+    if (!hit) continue;
+    const filePath = path.join(dir, hit);
+    if (!isValidIconFile(filePath)) {
+      removeInvalidIconFile(filePath);
+      continue;
+    }
+    return { webPath: `${prefix}/${hit}`, filePath };
   }
   return null;
 }
@@ -101,6 +163,10 @@ export function writeTokenMetaCache(data: Record<string, CachedTokenMeta>): void
   writeJsonFile(META_CACHE_PATH, data);
 }
 
+export function hasCachedTokenIcon(mint: string): boolean {
+  return findExistingIcon(mint.trim()) != null;
+}
+
 export function getCachedTokenMetaFromDisk(mint: string): CachedTokenMeta | null {
   const m = mint.trim();
   if (!m) return null;
@@ -111,6 +177,84 @@ export function getCachedTokenMetaFromDisk(mint: string): CachedTokenMeta | null
     if (!existing) return { ...hit, logoUrl: undefined };
   }
   return hit;
+}
+
+function iconFetchUrls(remoteUrl: string): string[] {
+  const url = remoteUrl.trim();
+  if (!url) return [];
+  const urls = [url];
+  const cidMatch = url.match(/\/ipfs\/([^/?#]+)/i);
+  if (cidMatch?.[1]) {
+    const cid = cidMatch[1];
+    for (const gateway of [
+      `https://cloudflare-ipfs.com/ipfs/${cid}`,
+      `https://gateway.pinata.cloud/ipfs/${cid}`,
+      `https://dweb.link/ipfs/${cid}`,
+    ]) {
+      if (!urls.includes(gateway)) urls.push(gateway);
+    }
+  }
+  return urls;
+}
+
+async function fetchIconBytes(url: string): Promise<{ buf: Buffer; contentType: string } | null> {
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Accept: 'image/*,application/json,*/*;q=0.8',
+        'User-Agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      },
+      redirect: 'follow',
+      signal: AbortSignal.timeout(25_000),
+    });
+    if (!res.ok) return null;
+    const contentType = res.headers.get('content-type') ?? '';
+    if (contentType.includes('text/html')) return null;
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < 32) return null;
+    return { buf, contentType };
+  } catch {
+    return null;
+  }
+}
+
+function iconExtension(buf: Buffer, contentType: string, url: string): string {
+  if (buf.slice(0, 4).toString('ascii') === 'RIFF') return '.webp';
+  if (buf[0] === 0xff && buf[1] === 0xd8) return '.jpg';
+  if (buf.slice(0, 3).toString('ascii') === 'GIF') return '.gif';
+  const start = buf.slice(0, Math.min(buf.length, 256)).toString('utf8').trimStart();
+  if (start.startsWith('<svg') || start.startsWith('<?xml')) return '.svg';
+  return extFromContentType(contentType) || extFromUrl(url) || '.png';
+}
+
+async function downloadAndCacheIcon(
+  mint: string,
+  remoteUrl: string,
+  depth = 0,
+): Promise<string | undefined> {
+  if (depth > 2) return undefined;
+
+  for (const tryUrl of iconFetchUrls(remoteUrl)) {
+    const fetched = await fetchIconBytes(tryUrl);
+    if (!fetched) continue;
+    const { buf, contentType } = fetched;
+
+    if (isImageBuffer(buf)) {
+      const ext = iconExtension(buf, contentType, tryUrl);
+      const fileName = `${mint}${ext}`;
+      const filePath = path.join(RUNTIME_ICON_DIR, fileName);
+      fs.writeFileSync(filePath, buf);
+      return `${RUNTIME_ICON_WEB_PREFIX}/${fileName}`;
+    }
+
+    const nestedImageUrl = imageUrlFromMetadataJson(buf);
+    if (nestedImageUrl) {
+      const nested = await downloadAndCacheIcon(mint, nestedImageUrl, depth + 1);
+      if (nested) return nested;
+    }
+  }
+  return undefined;
 }
 
 export async function ensureTokenIconCached(
@@ -128,26 +272,7 @@ export async function ensureTokenIconCached(
   if (isLocalIconUrl(url)) return url;
 
   fs.mkdirSync(RUNTIME_ICON_DIR, { recursive: true });
-
-  try {
-    const res = await fetch(url, {
-      headers: { Accept: 'image/*,*/*;q=0.8', 'User-Agent': 'vybe-swap-demo/1.0' },
-      redirect: 'follow',
-      signal: AbortSignal.timeout(25_000),
-    });
-    if (!res.ok) return undefined;
-    const ct = res.headers.get('content-type') ?? '';
-    if (ct.includes('text/html')) return undefined;
-    const ext = extFromContentType(ct) || extFromUrl(url);
-    const fileName = `${m}${ext}`;
-    const filePath = path.join(RUNTIME_ICON_DIR, fileName);
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < 32) return undefined;
-    fs.writeFileSync(filePath, buf);
-    return `${RUNTIME_ICON_WEB_PREFIX}/${fileName}`;
-  } catch {
-    return undefined;
-  }
+  return downloadAndCacheIcon(m, url);
 }
 
 function vybeDecimals(token: Record<string, unknown>): number | undefined {
@@ -188,6 +313,21 @@ export function mergePriceFieldsOnly(
   return updated;
 }
 
+function pickOptionalString(token: Record<string, unknown>, key: string): string | undefined {
+  const v = String(token[key] ?? '').trim();
+  return v || undefined;
+}
+
+function pickOptionalNumber(token: Record<string, unknown>, key: string): number | undefined {
+  const n = typeof token[key] === 'number' ? token[key] : Number(token[key]);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+function pickOptionalBool(token: Record<string, unknown>, key: string): boolean | undefined {
+  const v = token[key];
+  return typeof v === 'boolean' ? v : undefined;
+}
+
 export async function cacheTokenMetaFromVybe(
   mint: string,
   token: Record<string, unknown>,
@@ -216,6 +356,21 @@ export async function cacheTokenMetaFromVybe(
           : undefined,
     priceFetchedAt:
       typeof token.priceFetchedAt === 'number' ? token.priceFetchedAt : fetchedAt,
+    marketCapUsd:
+      pickOptionalNumber(token, 'marketCapUsdNum') ??
+      (typeof token.marketCapUsd === 'string' ? pickOptionalNumber({ marketCapUsdNum: token.marketCapUsd }, 'marketCapUsdNum') : undefined),
+    liquidityUsd: pickOptionalNumber(token, 'liquidityUsd'),
+    poolAddress: pickOptionalString(token, 'poolAddress'),
+    bondingCurveAddress: pickOptionalString(token, 'bondingCurveAddress'),
+    programAddress: pickOptionalString(token, 'programAddress'),
+    quoteMintAddress: pickOptionalString(token, 'quoteMintAddress'),
+    complete: pickOptionalBool(token, 'complete'),
+    description: pickOptionalString(token, 'description'),
+    twitter: pickOptionalString(token, 'twitter'),
+    website: pickOptionalString(token, 'website'),
+    isBanned: pickOptionalBool(token, 'isBanned'),
+    pumpfunStatus: pickOptionalString(token, 'pumpfunStatus'),
+    creatorAddress: pickOptionalString(token, 'creatorAddress'),
     fetchedAt: new Date(fetchedAt).toISOString(),
   };
   const cache = readTokenMetaCache();
