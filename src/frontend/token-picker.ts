@@ -163,6 +163,9 @@ function mergeWalletBalanceUpdate(token: WalletBalanceListItem): void {
   const items = sessionWalletBalances.items.filter((i) => i.mintAddress !== token.mintAddress);
   items.push(token);
   sessionWalletBalances.items = sortWalletBalancesForDisplay(items);
+  if (!token.enrichmentPending && !isStubWalletLabel(token)) {
+    persistWalletBalanceMetadata([token]);
+  }
 }
 
 function sortWalletBalancesForDisplay(items: WalletBalanceListItem[]): WalletBalanceListItem[] {
@@ -713,9 +716,10 @@ export function ensureTokenIconErrorHandling(): void {
 
 function needsRemoteLogoResolve(meta: TokenMeta | null | undefined): boolean {
   if (!meta) return true;
+  const sym = meta.symbol?.trim();
+  if (isStubTokenLabel(meta.mint, sym, meta.name)) return true;
   // Already fetched from /api/token — do not re-hit on every label/icon refresh.
   if (meta.source === 'search') return false;
-  const sym = meta.symbol?.trim();
   if (!sym || sym === truncateMint(meta.mint)) return true;
   if (meta.decimals == null) return true;
   const u = meta.logoUrl.trim();
@@ -821,6 +825,22 @@ async function loadCatalog(): Promise<void> {
 function truncateMint(mint: string): string {
   if (mint.length <= 13) return mint;
   return `${mint.slice(0, 4)}…${mint.slice(-4)}`;
+}
+
+function isStubTokenLabel(mint: string, symbol: string | undefined, name?: string): boolean {
+  const m = mint.trim();
+  const sym = symbol?.trim() ?? '';
+  if (!sym) return true;
+  if (sym === m.slice(0, 6)) return true;
+  if (sym === truncateMint(m)) return true;
+  const nm = name?.trim() ?? '';
+  if (nm && nm === sym && sym === m.slice(0, 6)) return true;
+  return false;
+}
+
+function isStubWalletLabel(item: WalletBalanceListItem): boolean {
+  if (item.enrichmentPending) return true;
+  return isStubTokenLabel(item.mintAddress, item.symbol, item.name);
 }
 
 function escapeHtml(s: string): string {
@@ -1024,23 +1044,30 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
   const catalogHit = catalogTokens.find((t) => t.mint === item.mintAddress);
   const cached = readCache()[item.mintAddress];
   const base = catalogHit ?? cached;
+  const useWalletLabels = !isStubWalletLabel(item);
   const symbol =
     item.mintAddress === NATIVE_SOL_MINT
       ? 'SOL'
       : item.mintAddress === WSOL_MINT
         ? 'WSOL'
-        : item.symbol || base?.symbol || truncateMint(item.mintAddress);
+        : useWalletLabels
+          ? item.symbol || base?.symbol || truncateMint(item.mintAddress)
+          : base?.symbol || item.symbol || truncateMint(item.mintAddress);
   const name =
     item.mintAddress === NATIVE_SOL_MINT
       ? 'Solana'
       : item.mintAddress === WSOL_MINT
         ? 'Wrapped SOL'
-        : item.name || base?.name || symbol;
+        : useWalletLabels
+          ? item.name || base?.name || symbol
+          : base?.name || item.name || symbol;
   return {
     mint: item.mintAddress,
     symbol,
     name,
-    logoUrl: resolveLogoUrl(item.logoUrl ?? base?.logoUrl ?? ''),
+    logoUrl: resolveLogoUrl(
+      (useWalletLabels ? item.logoUrl : null) ?? base?.logoUrl ?? item.logoUrl ?? '',
+    ),
     decimals: item.decimals ?? base?.decimals,
     isVerified: item.verified || base?.isVerified,
     tags: base?.tags,
@@ -1702,8 +1729,16 @@ export function isWalletTokenTradable(mint: string): boolean {
 /** Persist wallet row metadata (symbol/name/logo/decimals) — never amounts or USD values. */
 export function persistWalletBalanceMetadata(items: WalletBalanceListItem[]): void {
   for (const item of items) {
+    if (isStubWalletLabel(item)) continue;
     saveTokenMeta(walletItemToTokenMeta(item));
   }
+}
+
+export function walletItemNeedsMetaFetch(item: WalletBalanceListItem): boolean {
+  if (item.enrichmentPending) return true;
+  const meta = getCachedTokenMeta(item.mintAddress);
+  if (!meta) return true;
+  return needsRemoteLogoResolve(meta);
 }
 
 /** @deprecated Renamed to persistWalletBalanceMetadata */

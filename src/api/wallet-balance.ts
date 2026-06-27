@@ -8,6 +8,7 @@ import type { VybeToken, VybeWalletTokenBalanceResponse } from '../types/api.js'
 import { withRetry } from './client.js';
 import { toVybeSwapMint } from './sol-mints.js';
 import { fetchJupiterAsset, fetchJupiterQuotePrice } from './jupiter-token-fallback.js';
+import { resolveTokenMeta } from './resolve-token-meta.js';
 import { getToken } from './tokens.js';
 import { fetchRpcWalletBalances, RPC_NATIVE_SOL_MINT } from './wallet-rpc-balance.js';
 import type { RpcMintBalance } from './wallet-rpc-balance.js';
@@ -311,6 +312,31 @@ export async function enrichRpcOnlyWalletItem(
   }
 
   if (!tokenDetailsOk) {
+    try {
+      const meta = await resolveTokenMeta(http, displayMint);
+      if (meta) {
+        if (typeof meta.decimals === 'number' && Number.isFinite(meta.decimals)) {
+          decimals = meta.decimals;
+        }
+        if (meta.symbol?.trim()) symbol = meta.symbol.trim();
+        if (meta.name?.trim()) name = meta.name.trim();
+        if (meta.logoUrl?.trim()) logoUrl = meta.logoUrl.trim();
+        verified = meta.isVerified === true;
+        const amountUi = rawToUiAmount(amountExact, decimals);
+        if (typeof meta.price === 'number' && Number.isFinite(meta.price) && meta.price > 0) {
+          valueUsd = holdingValueUsd(meta.price, amountUi);
+        }
+        tokenDetailsOk = Boolean(symbol && symbol !== displayMint.slice(0, 6));
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[wallet-balance] resolveTokenMeta failed for ${displayMint.slice(0, 8)}…: ${msg}`,
+      );
+    }
+  }
+
+  if (!tokenDetailsOk || (valueUsd <= 0 && valueSol == null)) {
     const fallback = { decimals, symbol, name, logoUrl, verified, valueUsd, valueSol };
     await enrichRpcOnlyFromJupiter(displayMint, rpc, fallback);
     decimals = fallback.decimals;
@@ -320,6 +346,7 @@ export async function enrichRpcOnlyWalletItem(
     verified = fallback.verified;
     valueUsd = fallback.valueUsd;
     valueSol = fallback.valueSol;
+    if (symbol && symbol !== displayMint.slice(0, 6)) tokenDetailsOk = true;
   }
 
   const amountUi = rawToUiAmount(amountExact, decimals);

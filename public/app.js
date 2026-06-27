@@ -20676,6 +20676,9 @@ function mergeWalletBalanceUpdate(token) {
   const items = sessionWalletBalances.items.filter((i) => i.mintAddress !== token.mintAddress);
   items.push(token);
   sessionWalletBalances.items = sortWalletBalancesForDisplay(items);
+  if (!token.enrichmentPending && !isStubWalletLabel(token)) {
+    persistWalletBalanceMetadata([token]);
+  }
 }
 function sortWalletBalancesForDisplay(items) {
   return [...items].sort(
@@ -21125,8 +21128,9 @@ function ensureTokenIconErrorHandling() {
 }
 function needsRemoteLogoResolve(meta) {
   if (!meta) return true;
-  if (meta.source === "search") return false;
   const sym = meta.symbol?.trim();
+  if (isStubTokenLabel(meta.mint, sym, meta.name)) return true;
+  if (meta.source === "search") return false;
   if (!sym || sym === truncateMint(meta.mint)) return true;
   if (meta.decimals == null) return true;
   const u = meta.logoUrl.trim();
@@ -21213,6 +21217,20 @@ async function loadCatalog() {
 function truncateMint(mint) {
   if (mint.length <= 13) return mint;
   return `${mint.slice(0, 4)}\u2026${mint.slice(-4)}`;
+}
+function isStubTokenLabel(mint, symbol, name) {
+  const m = mint.trim();
+  const sym = symbol?.trim() ?? "";
+  if (!sym) return true;
+  if (sym === m.slice(0, 6)) return true;
+  if (sym === truncateMint(m)) return true;
+  const nm = name?.trim() ?? "";
+  if (nm && nm === sym && sym === m.slice(0, 6)) return true;
+  return false;
+}
+function isStubWalletLabel(item) {
+  if (item.enrichmentPending) return true;
+  return isStubTokenLabel(item.mintAddress, item.symbol, item.name);
 }
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -21370,13 +21388,16 @@ function walletItemToTokenMeta(item) {
   const catalogHit = catalogTokens.find((t) => t.mint === item.mintAddress);
   const cached = readCache()[item.mintAddress];
   const base = catalogHit ?? cached;
-  const symbol = item.mintAddress === NATIVE_SOL_MINT ? "SOL" : item.mintAddress === WSOL_MINT ? "WSOL" : item.symbol || base?.symbol || truncateMint(item.mintAddress);
-  const name = item.mintAddress === NATIVE_SOL_MINT ? "Solana" : item.mintAddress === WSOL_MINT ? "Wrapped SOL" : item.name || base?.name || symbol;
+  const useWalletLabels = !isStubWalletLabel(item);
+  const symbol = item.mintAddress === NATIVE_SOL_MINT ? "SOL" : item.mintAddress === WSOL_MINT ? "WSOL" : useWalletLabels ? item.symbol || base?.symbol || truncateMint(item.mintAddress) : base?.symbol || item.symbol || truncateMint(item.mintAddress);
+  const name = item.mintAddress === NATIVE_SOL_MINT ? "Solana" : item.mintAddress === WSOL_MINT ? "Wrapped SOL" : useWalletLabels ? item.name || base?.name || symbol : base?.name || item.name || symbol;
   return {
     mint: item.mintAddress,
     symbol,
     name,
-    logoUrl: resolveLogoUrl(item.logoUrl ?? base?.logoUrl ?? ""),
+    logoUrl: resolveLogoUrl(
+      (useWalletLabels ? item.logoUrl : null) ?? base?.logoUrl ?? item.logoUrl ?? ""
+    ),
     decimals: item.decimals ?? base?.decimals,
     isVerified: item.verified || base?.isVerified,
     tags: base?.tags,
@@ -21859,8 +21880,15 @@ function isWalletTokenTradable(mint) {
 }
 function persistWalletBalanceMetadata(items) {
   for (const item of items) {
+    if (isStubWalletLabel(item)) continue;
     saveTokenMeta(walletItemToTokenMeta(item));
   }
+}
+function walletItemNeedsMetaFetch(item) {
+  if (item.enrichmentPending) return true;
+  const meta = getCachedTokenMeta(item.mintAddress);
+  if (!meta) return true;
+  return needsRemoteLogoResolve(meta);
 }
 function getSessionWalletBalanceItems() {
   return sessionWalletBalances?.items ?? [];
@@ -29475,7 +29503,7 @@ async function refreshWalletHoldingsFull(wallet, context) {
   if (inputMint) mints.add(inputMint);
   if (outputMint) mints.add(outputMint);
   for (const item of getSessionWalletBalanceItems()) {
-    if (item.enrichmentPending || !getCachedTokenMeta(item.mintAddress)) {
+    if (walletItemNeedsMetaFetch(item)) {
       mints.add(item.mintAddress);
     }
   }
@@ -33438,6 +33466,12 @@ initTokenPicker({
 setWalletBalanceStreamListener(() => {
   refreshWalletBalancesPanel();
   updateWalletTotalUsdUi();
+  const pending = getSessionWalletBalanceItems().filter((item) => walletItemNeedsMetaFetch(item));
+  if (pending.length > 0) {
+    void prefetchTokenMetas(pending.map((item) => item.mintAddress)).then(() => {
+      refreshWalletBalancesPanel();
+    });
+  }
 });
 wireTokenPickerOpen(swapInputTokenBtn, swapInputMintInput, "input");
 wireTokenPickerOpen(swapOutputTokenBtn, swapOutputMintInput, "output");

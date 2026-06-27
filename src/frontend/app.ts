@@ -70,6 +70,7 @@ import {
   mintsForPricePrefetch,
   dedupeMintsForPriceResolve,
   persistWalletBalanceMetadata,
+  walletItemNeedsMetaFetch,
   getSessionWalletBalanceItems,
   clearSessionWalletBalances,
   type TokenPickerSide,
@@ -2728,7 +2729,7 @@ async function refreshWalletHoldingsFull(
   if (inputMint) mints.add(inputMint);
   if (outputMint) mints.add(outputMint);
   for (const item of getSessionWalletBalanceItems()) {
-    if (item.enrichmentPending || !getCachedTokenMeta(item.mintAddress)) {
+    if (walletItemNeedsMetaFetch(item)) {
       mints.add(item.mintAddress);
     }
   }
@@ -7892,6 +7893,12 @@ initTokenPicker({
 setWalletBalanceStreamListener(() => {
   refreshWalletBalancesPanel();
   updateWalletTotalUsdUi();
+  const pending = getSessionWalletBalanceItems().filter((item) => walletItemNeedsMetaFetch(item));
+  if (pending.length > 0) {
+    void prefetchTokenMetas(pending.map((item) => item.mintAddress)).then(() => {
+      refreshWalletBalancesPanel();
+    });
+  }
 });
 wireTokenPickerOpen(swapInputTokenBtn, swapInputMintInput, 'input');
 wireTokenPickerOpen(swapOutputTokenBtn, swapOutputMintInput, 'output');
