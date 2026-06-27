@@ -37,7 +37,7 @@ import {
 import type { VybeSwapQuote, VybeSwapBuildResponse, VybeRoutePlanStep } from '../types/swap.js';
 import { assertWalletHasSellAmount } from './wallet-balance.js';
 import { quoteFromBuild } from './map-enrichment.js';
-import { NATIVE_SOL_MINT, toVybeSwapMint } from './sol-mints.js';
+import { NATIVE_SOL_MINT, WSOL_MINT, isSolMint, toVybeSwapMint } from './sol-mints.js';
 import {
   isCommonQuotePair,
   rpcScanUnsupportedForCommonQuotesError,
@@ -520,6 +520,10 @@ export async function buildVybeQuoteFromPriceAndSwap(
     uiInputMint,
     uiOutputMint,
   );
+  // Decimals hints only — spot prices always come from resolveTokenPrices, not stale client cache.
+  for (const hint of Object.values(resolveHints)) {
+    delete hint.price;
+  }
 
   const { stats: rawStats } = await resolveTokenPrices(dataHttp, [priceMint, uiOutputMint], {
     tokenHints: Object.keys(resolveHints).length > 0 ? resolveHints : undefined,
@@ -537,11 +541,27 @@ export async function buildVybeQuoteFromPriceAndSwap(
     throw new Error(`Could not resolve price for output mint ${uiOutputMint}`);
   }
 
+  let resolvedSolPrice: number | undefined;
+  for (const mint of [WSOL_MINT, NATIVE_SOL_MINT]) {
+    const p = tokenStats[mint]?.price;
+    if (typeof p === 'number' && Number.isFinite(p) && p > 0) {
+      resolvedSolPrice = p;
+      break;
+    }
+  }
+
   const vybeParams: VybeQuoteParams = {
     ...params,
     ...enriched,
     inputMintAddress: vybeInputMint,
     outputMintAddress: vybeOutputMint,
+    inputMintPrice: inputStats.price,
+    outputMintPrice: outputStats.price,
+    inputMintDecimals: inputStats.decimals ?? params.inputMintDecimals ?? params.inputDecimals,
+    outputMintDecimals: outputStats.decimals ?? params.outputMintDecimals,
+    ...(!isSolMint(uiInputMint) && !isSolMint(uiOutputMint) && resolvedSolPrice != null
+      ? { solPrice: resolvedSolPrice }
+      : {}),
   };
   assertPinnedPoolParams(params);
   const manualPool = params.poolAddress?.trim();

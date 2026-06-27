@@ -31803,6 +31803,7 @@ async function fetchAggregatorSwapQuote(wallet, inputMint, outputMint, amount, s
   return quoteBody;
 }
 async function requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, buildOpts) {
+  await ensureFreshPairPricesForQuote(inputMint, outputMint);
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   try {
     return await executeAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, buildOpts);
@@ -32050,6 +32051,7 @@ async function resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, b
   return requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, buildOpts);
 }
 async function requestVybeQuote(wallet, inputMint, outputMint, amount, buildOpts) {
+  await ensureFreshPairPricesForQuote(inputMint, outputMint);
   const originalAmount = amount;
   let attemptAmount = amount;
   let splSimStep = 0;
@@ -32190,6 +32192,33 @@ function extractSwapBuildTransactions(payload) {
   if (main.trim()) txs.push(main.trim());
   if (post.trim()) txs.push(post.trim());
   return txs;
+}
+async function resolvePairTokenPrices(inputMint, outputMint) {
+  const mints = mintsForPricePrefetch([inputMint, outputMint].filter(Boolean));
+  const res = await fetchWithRetry("/api/tokens/resolve-prices", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
+    body: JSON.stringify({ mints })
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error || `Price resolve failed (${res.status})`);
+  }
+  const stats = body.stats ?? {};
+  for (const [mint, s] of Object.entries(stats)) {
+    saveTokenPriceStats(mint, s);
+  }
+  if (Object.keys(stats).length > 0) {
+    updateSwapPairCards(stats);
+  }
+  return stats;
+}
+async function ensureFreshPairPricesForQuote(inputMint, outputMint) {
+  const input = inputMint.trim();
+  const output = outputMint.trim();
+  if (!input || !output) return;
+  await resolvePairTokenPrices(input, output);
 }
 function stripVybeQuoteMetadata(body) {
   const { _build, _builtAt, _tokenStats, _buildUnavailable, ...quote } = body;

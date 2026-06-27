@@ -5775,6 +5775,7 @@ async function requestAggregatorQuoteAndBuild(
   amount: number,
   buildOpts: Record<string, unknown>,
 ): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
+  await ensureFreshPairPricesForQuote(inputMint, outputMint);
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   try {
     return await executeAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, buildOpts);
@@ -6092,6 +6093,7 @@ async function requestVybeQuote(
   amount: number,
   buildOpts: Record<string, unknown>,
 ): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
+  await ensureFreshPairPricesForQuote(inputMint, outputMint);
   const originalAmount = amount;
   let attemptAmount = amount;
   let splSimStep = 0;
@@ -6282,16 +6284,13 @@ function extractSwapBuildTransactions(payload: Record<string, unknown> | null | 
 async function resolvePairTokenPrices(
   inputMint: string,
   outputMint: string,
-  forceFullDetailsMints: string[],
 ): Promise<Record<string, TokenPriceStats>> {
   const mints = mintsForPricePrefetch([inputMint, outputMint].filter(Boolean));
   const res = await fetchWithRetry('/api/tokens/resolve-prices', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      mints,
-      forceFullDetailsMints,
-    }),
+    cache: 'no-store',
+    body: JSON.stringify({ mints }),
   });
   const body = (await res.json().catch(() => ({}))) as {
     stats?: Record<string, TokenPriceStats>;
@@ -6304,7 +6303,18 @@ async function resolvePairTokenPrices(
   for (const [mint, s] of Object.entries(stats)) {
     saveTokenPriceStats(mint, s);
   }
+  if (Object.keys(stats).length > 0) {
+    updateSwapPairCards(stats);
+  }
   return stats;
+}
+
+/** Fresh resolve-prices before every quote / refetch / retry (updates session + pair cards). */
+async function ensureFreshPairPricesForQuote(inputMint: string, outputMint: string): Promise<void> {
+  const input = inputMint.trim();
+  const output = outputMint.trim();
+  if (!input || !output) return;
+  await resolvePairTokenPrices(input, output);
 }
 
 function stripVybeQuoteMetadata(body: Record<string, unknown>): Record<string, unknown> {
