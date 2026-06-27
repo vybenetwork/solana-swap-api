@@ -24916,7 +24916,7 @@ function formatHopFeeTableAmount(amountRaw, feeMint) {
 }
 function collectRoutePriceMints(quote) {
   const mints = /* @__PURE__ */ new Set();
-  mints.add(NATIVE_SOL_MINT);
+  mints.add(WSOL_MINT);
   const inputMint = quoteInputMint(quote);
   const outputMint = quoteOutputMint(quote);
   if (inputMint) mints.add(inputMint);
@@ -31070,10 +31070,12 @@ async function prefetchRouteTokenMetas(quote) {
 }
 async function prefetchRouteTokenPrices(quote) {
   if (clientPriceResolveSuppressed()) return;
-  const mints = collectRoutePriceMints(quote).filter((m) => {
-    const price = lookupMintPriceUsd(m, quote);
-    return !(Number.isFinite(price) && price > 0);
-  });
+  const mints = dedupeMintsForPriceResolve(
+    collectRoutePriceMints(quote).filter((m) => {
+      const price = lookupMintPriceUsd(m, quote);
+      return !(Number.isFinite(price) && price > 0);
+    })
+  );
   if (mints.length === 0) return;
   try {
     const forceFullDetailsMints = mints.filter((m) => !quotedMintSession.has(m));

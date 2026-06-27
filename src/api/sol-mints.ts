@@ -53,17 +53,17 @@ export function dedupeMintsForPriceResolve(mints: string[]): string[] {
   return out;
 }
 
-/** Mirror WSOL price stats onto native SOL (and vice versa) in resolve responses. */
-export function aliasSolPriceStats<T extends { price: number }>(
+/** Keep a single WSOL entry for SOL price stats in resolve responses. */
+export function canonicalizeSolPriceStats<T extends { price: number }>(
   stats: Record<string, T>,
 ): Record<string, T> {
   const wsol = stats[WSOL_MINT];
   const native = stats[NATIVE_SOL_MINT];
   const canonical = wsol ?? native;
-  if (!canonical) return stats;
-  return {
-    ...stats,
-    [WSOL_MINT]: canonical,
-    [NATIVE_SOL_MINT]: canonical,
-  };
+  if (!canonical) {
+    const { [NATIVE_SOL_MINT]: _drop, ...rest } = stats;
+    return rest;
+  }
+  const { [NATIVE_SOL_MINT]: _drop, ...rest } = stats;
+  return { ...rest, [WSOL_MINT]: canonical };
 }

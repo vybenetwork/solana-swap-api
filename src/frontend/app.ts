@@ -68,6 +68,7 @@ import {
   saveTokenPriceStats,
   walletItemValueUsd,
   mintsForPricePrefetch,
+  dedupeMintsForPriceResolve,
   persistWalletBalanceMetadata,
   getSessionWalletBalanceItems,
   clearSessionWalletBalances,
@@ -4802,10 +4803,12 @@ async function prefetchRouteTokenMetas(quote: Record<string, unknown>): Promise<
 
 async function prefetchRouteTokenPrices(quote: Record<string, unknown>): Promise<void> {
   if (clientPriceResolveSuppressed()) return;
-  const mints = collectRoutePriceMints(quote).filter((m) => {
-    const price = lookupMintPriceUsd(m, quote);
-    return !(Number.isFinite(price) && price > 0);
-  });
+  const mints = dedupeMintsForPriceResolve(
+    collectRoutePriceMints(quote).filter((m) => {
+      const price = lookupMintPriceUsd(m, quote);
+      return !(Number.isFinite(price) && price > 0);
+    }),
+  );
   if (mints.length === 0) return;
 
   try {
@@ -6280,7 +6283,7 @@ async function resolvePairTokenPrices(
   outputMint: string,
   forceFullDetailsMints: string[],
 ): Promise<Record<string, TokenPriceStats>> {
-  const mints = [inputMint, outputMint].filter(Boolean);
+  const mints = mintsForPricePrefetch([inputMint, outputMint].filter(Boolean));
   const res = await fetchWithRetry('/api/tokens/resolve-prices', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

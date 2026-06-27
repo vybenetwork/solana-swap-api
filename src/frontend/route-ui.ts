@@ -4023,7 +4023,7 @@ function formatHopFeeTableAmount(amountRaw: string, feeMint: string): string {
 
 export function collectRoutePriceMints(quote: Record<string, unknown>): string[] {
   const mints = new Set<string>();
-  mints.add(NATIVE_SOL_MINT);
+  mints.add(WSOL_MINT);
   const inputMint = quoteInputMint(quote);
   const outputMint = quoteOutputMint(quote);
   if (inputMint) mints.add(inputMint);

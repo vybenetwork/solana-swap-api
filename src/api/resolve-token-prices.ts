@@ -12,8 +12,9 @@ import { repairTokenIcon } from './resolve-token-meta.js';
 import {
   NATIVE_SOL_MINT,
   WSOL_MINT,
-  aliasSolPriceStats,
+  canonicalizeSolPriceStats,
   dedupeMintsForPriceResolve,
+  isNativeSolMint,
   toVybeSwapMint,
 } from './sol-mints.js';
 import type { VybeToken } from '../types/api.js';
@@ -382,6 +383,7 @@ export async function resolveTokenPrices(
   }
 
   for (const originalMint of requestedMints) {
+    if (isNativeSolMint(originalMint)) continue;
     const vybeMint = toVybeSwapMint(originalMint);
     if (stats[vybeMint] && !stats[originalMint]) {
       stats[originalMint] = stats[vybeMint]!;
@@ -394,5 +396,5 @@ export async function resolveTokenPrices(
     }
   }
 
-  return { stats: aliasSolPriceStats(stats) };
+  return { stats: canonicalizeSolPriceStats(stats) };
 }
