@@ -21304,11 +21304,19 @@ function isStubTokenLabel(mint, symbol, name) {
   const m = mint.trim();
   const sym = symbol?.trim() ?? "";
   if (!sym) return true;
+  if (sym === m) return true;
   if (sym === m.slice(0, 6)) return true;
   if (sym === truncateMint(m)) return true;
+  if (sym.length >= 32 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(sym)) return true;
   const nm = name?.trim() ?? "";
   if (nm && nm === sym && sym === m.slice(0, 6)) return true;
+  if (nm === m) return true;
   return false;
+}
+function normalizeTokenDisplaySymbol(mint, symbol) {
+  const sym = symbol?.trim() ?? "";
+  if (sym && !isStubTokenLabel(mint, sym)) return sym;
+  return truncateMint(mint.trim());
 }
 function isStubWalletLabel(item) {
   if (item.enrichmentPending) return true;
@@ -21471,8 +21479,10 @@ function walletItemToTokenMeta(item) {
   const cached = readCache()[item.mintAddress];
   const base = catalogHit ?? cached;
   const useWalletLabels = !isStubWalletLabel(item);
-  const symbol = item.mintAddress === NATIVE_SOL_MINT ? "SOL" : item.mintAddress === WSOL_MINT ? "WSOL" : useWalletLabels ? item.symbol || base?.symbol || truncateMint(item.mintAddress) : base?.symbol || item.symbol || truncateMint(item.mintAddress);
-  const name = item.mintAddress === NATIVE_SOL_MINT ? "Solana" : item.mintAddress === WSOL_MINT ? "Wrapped SOL" : useWalletLabels ? item.name || base?.name || symbol : base?.name || item.name || symbol;
+  const rawSymbol = item.mintAddress === NATIVE_SOL_MINT ? "SOL" : item.mintAddress === WSOL_MINT ? "WSOL" : useWalletLabels ? item.symbol || base?.symbol || truncateMint(item.mintAddress) : base?.symbol || item.symbol || truncateMint(item.mintAddress);
+  const symbol = normalizeTokenDisplaySymbol(item.mintAddress, rawSymbol);
+  const rawName = item.mintAddress === NATIVE_SOL_MINT ? "Solana" : item.mintAddress === WSOL_MINT ? "Wrapped SOL" : useWalletLabels ? item.name || base?.name || symbol : base?.name || item.name || symbol;
+  const name = isStubTokenLabel(item.mintAddress, rawName) ? base?.name && !isStubTokenLabel(item.mintAddress, base.name) ? base.name : symbol : rawName || symbol;
   return {
     mint: item.mintAddress,
     symbol,
@@ -28572,10 +28582,19 @@ async function fetchSymbol(mint) {
   if (!m) return "\u2014";
   const hard = HARDCODED_MINT_SYMBOLS2[m];
   if (hard) return hard;
+  const cachedMeta = getCachedTokenMeta(m);
+  if (cachedMeta?.symbol) {
+    return displaySymbol(normalizeTokenDisplaySymbol(m, cachedMeta.symbol));
+  }
+  await ensureTokenMetaForMint(m);
+  const meta = getCachedTokenMeta(m);
+  if (meta?.symbol) {
+    return displaySymbol(normalizeTokenDisplaySymbol(m, meta.symbol));
+  }
   const res = await fetchWithRetry(`/api/token-symbol/${encodeURIComponent(m)}`);
   const body = await res.json().catch(() => ({}));
-  const sym = (body.symbol ?? m).replace(/\0/g, "").trim();
-  return displaySymbol(sym || truncate(m, 4, 4));
+  const sym = (body.symbol ?? "").replace(/\0/g, "").trim();
+  return displaySymbol(normalizeTokenDisplaySymbol(m, sym));
 }
 async function fetchMintMeta(mint) {
   const m = mint.trim();
@@ -28589,13 +28608,32 @@ async function fetchMintMeta(mint) {
   const needSymbol = !routeMintSymbolCache[m];
   const needDecimals = routeMintDecimalsCache[m] == null;
   if (!needSymbol && !needDecimals) return;
+  const cachedMeta = getCachedTokenMeta(m);
+  if (needSymbol && cachedMeta?.symbol) {
+    routeMintSymbolCache[m] = displaySymbol(normalizeTokenDisplaySymbol(m, cachedMeta.symbol));
+  }
+  if (needDecimals && typeof cachedMeta?.decimals === "number") {
+    routeMintDecimalsCache[m] = cachedMeta.decimals;
+  }
+  if (!needSymbol || routeMintSymbolCache[m]) {
+    if (!needDecimals || routeMintDecimalsCache[m] != null) return;
+  }
+  await ensureTokenMetaForMint(m);
+  const meta = getCachedTokenMeta(m);
+  if (needSymbol && meta?.symbol) {
+    routeMintSymbolCache[m] = displaySymbol(normalizeTokenDisplaySymbol(m, meta.symbol));
+  }
+  if (needDecimals && typeof meta?.decimals === "number" && routeMintDecimalsCache[m] == null) {
+    routeMintDecimalsCache[m] = meta.decimals;
+  }
+  if (routeMintSymbolCache[m] && (!needDecimals || routeMintDecimalsCache[m] != null)) return;
   const res = await fetchWithRetry(
     `/api/token-symbol/${encodeURIComponent(m)}${needDecimals ? "?decimals=1" : ""}`
   );
   const body = await res.json().catch(() => ({}));
   if (needSymbol) {
-    const sym = (body.symbol ?? m).replace(/\0/g, "").trim();
-    routeMintSymbolCache[m] = displaySymbol(sym || truncate(m, 4, 4));
+    const sym = (body.symbol ?? "").replace(/\0/g, "").trim();
+    routeMintSymbolCache[m] = displaySymbol(normalizeTokenDisplaySymbol(m, sym));
   }
   if (needDecimals && typeof body.decimals === "number" && Number.isFinite(body.decimals)) {
     routeMintDecimalsCache[m] = body.decimals;
@@ -28621,9 +28659,9 @@ async function prefetchRouteMintSymbols(quote) {
 }
 function resolvedSideSymbol(mint, chipSymbol) {
   const chip = chipSymbol?.trim();
-  if (chip && chip !== "\u2014") return displaySymbol(chip);
+  if (chip && chip !== "\u2014") return displaySymbol(normalizeTokenDisplaySymbol(mint, chip));
   const metaSym = getCachedTokenMeta(mint)?.symbol?.trim();
-  if (metaSym) return displaySymbol(metaSym);
+  if (metaSym) return displaySymbol(normalizeTokenDisplaySymbol(mint, metaSym));
   const hard = HARDCODED_MINT_SYMBOLS2[mint.trim()];
   if (hard) return hard;
   return "";
@@ -28639,7 +28677,10 @@ function swapSideTokenName(mint, chipSymbol) {
   if (HARDCODED_MINT_NAMES2[m] || isSolMint(m)) return "Solana";
   const meta = getCachedTokenMeta(m);
   const metaName = meta?.name?.trim();
-  if (metaName && !looksLikeTruncatedAddress(metaName, m)) return metaName;
+  if (metaName && metaName !== m && !looksLikeTruncatedAddress(metaName, m)) {
+    const nameAsSym = normalizeTokenDisplaySymbol(m, metaName);
+    if (nameAsSym === metaName) return metaName;
+  }
   const sym = resolvedSideSymbol(m, chipSymbol);
   if (sym) return sym;
   return truncate(m, 4, 4);
@@ -29453,8 +29494,11 @@ function applySellTokenFromBalance(item, initialSellPercent) {
     resetPinRouteOnMintPairChange();
   }
   swapInputMintInput.value = swapMint;
-  const sym = item.symbol || HARDCODED_MINT_SYMBOLS2[swapMint] || item.mintAddress.slice(0, 6);
-  if (swapInputSymbolEl) swapInputSymbolEl.textContent = sym;
+  const sym = normalizeTokenDisplaySymbol(
+    swapMint,
+    item.symbol || HARDCODED_MINT_SYMBOLS2[swapMint] || item.mintAddress.slice(0, 6)
+  );
+  if (swapInputSymbolEl) swapInputSymbolEl.textContent = displaySymbol(sym);
   if (item.decimals != null) routeMintDecimalsCache[swapMint] = item.decimals;
   syncSwapAmountMaxFromBalance();
   const sellPercent = initialSellPercent ?? getDefaultSellAmountPercentForMint(swapMint, sym);
@@ -29692,7 +29736,9 @@ function setSwapOutputMintUi(mint) {
   swapOutputMintInput.value = resolvedMint;
   const meta = getCachedTokenMeta(resolvedMint);
   if (meta && swapOutputSymbolEl) {
-    swapOutputSymbolEl.textContent = meta.symbol === "wSOL" ? "WSOL" : meta.symbol === "WSOL" ? "WSOL" : meta.symbol;
+    swapOutputSymbolEl.textContent = displaySymbol(
+      normalizeTokenDisplaySymbol(resolvedMint, meta.symbol === "wSOL" ? "WSOL" : meta.symbol)
+    );
   }
   if (meta?.decimals != null) routeMintDecimalsCache[resolvedMint] = meta.decimals;
 }
@@ -29811,7 +29857,9 @@ function applySelectedToken(mint, side) {
   input.value = resolvedMint;
   const meta = getCachedTokenMeta(resolvedMint);
   if (meta && symbolEl) {
-    symbolEl.textContent = meta.symbol === "wSOL" ? "WSOL" : meta.symbol === "WSOL" ? "WSOL" : meta.symbol;
+    symbolEl.textContent = displaySymbol(
+      normalizeTokenDisplaySymbol(resolvedMint, meta.symbol === "wSOL" ? "WSOL" : meta.symbol)
+    );
   }
   if (autoOutputMint && swapOutputMintInput) {
     setSwapOutputMintUi(autoOutputMint);

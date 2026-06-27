@@ -962,11 +962,21 @@ function isStubTokenLabel(mint: string, symbol: string | undefined, name?: strin
   const m = mint.trim();
   const sym = symbol?.trim() ?? '';
   if (!sym) return true;
+  if (sym === m) return true;
   if (sym === m.slice(0, 6)) return true;
   if (sym === truncateMint(m)) return true;
+  if (sym.length >= 32 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(sym)) return true;
   const nm = name?.trim() ?? '';
   if (nm && nm === sym && sym === m.slice(0, 6)) return true;
+  if (nm === m) return true;
   return false;
+}
+
+/** Exported for swap chip / route UI — never show a raw mint as the symbol. */
+export function normalizeTokenDisplaySymbol(mint: string, symbol: string | undefined): string {
+  const sym = symbol?.trim() ?? '';
+  if (sym && !isStubTokenLabel(mint, sym)) return sym;
+  return truncateMint(mint.trim());
 }
 
 function isStubWalletLabel(item: WalletBalanceListItem): boolean {
@@ -1176,7 +1186,7 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
   const cached = readCache()[item.mintAddress];
   const base = catalogHit ?? cached;
   const useWalletLabels = !isStubWalletLabel(item);
-  const symbol =
+  const rawSymbol =
     item.mintAddress === NATIVE_SOL_MINT
       ? 'SOL'
       : item.mintAddress === WSOL_MINT
@@ -1184,7 +1194,8 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
         : useWalletLabels
           ? item.symbol || base?.symbol || truncateMint(item.mintAddress)
           : base?.symbol || item.symbol || truncateMint(item.mintAddress);
-  const name =
+  const symbol = normalizeTokenDisplaySymbol(item.mintAddress, rawSymbol);
+  const rawName =
     item.mintAddress === NATIVE_SOL_MINT
       ? 'Solana'
       : item.mintAddress === WSOL_MINT
@@ -1192,6 +1203,11 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
         : useWalletLabels
           ? item.name || base?.name || symbol
           : base?.name || item.name || symbol;
+  const name = isStubTokenLabel(item.mintAddress, rawName)
+    ? base?.name && !isStubTokenLabel(item.mintAddress, base.name)
+      ? base.name
+      : symbol
+    : rawName || symbol;
   return {
     mint: item.mintAddress,
     symbol,
