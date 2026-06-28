@@ -1,6 +1,7 @@
 /**
  * Resolve full token metadata (price, logo, symbol, …) for /api/token and search.
- * Network order: Jupiter → pump.fun → Vybe token-details.
+ * WSOL/stables: Vybe token-details → Jupiter → pump.fun.
+ * Other mints: Jupiter → pump.fun → Vybe token-details.
  */
 
 import type { AxiosInstance } from 'axios';
@@ -8,7 +9,7 @@ import { getToken } from './tokens.js';
 import { fetchJupiterTokenDetails } from './jupiter-token-fallback.js';
 import { fetchPumpfunTokenDetails } from './pumpfun-price-fallback.js';
 import type { PriceResolveSource } from './token-meta-api.js';
-import { NATIVE_SOL_MINT, WSOL_MINT } from './sol-mints.js';
+import { NATIVE_SOL_MINT, WSOL_MINT, isVybeFirstPriceMint } from './sol-mints.js';
 import type { VybeToken } from '../types/api.js';
 import {
   cacheTokenMetaFromVybe,
@@ -55,12 +56,10 @@ function metaNeedsEnrichment(mint: string, disk: CachedTokenMeta | null): boolea
 
 async function applyJupiterMeta(
   mint: string,
-  solPriceUsd: number | undefined,
   decimalsHint: number | undefined,
 ): Promise<boolean> {
   try {
     const jupiter = await fetchJupiterTokenDetails(mint, {
-      solPriceUsd,
       decimalsHint,
     });
     if (!jupiter) return false;
@@ -95,6 +94,19 @@ async function applyPumpfunMeta(
   }
 }
 
+type MetaSource = 'vybe' | 'jupiter' | 'pumpfun';
+
+const META_SOURCE_ORDER: Record<'vybeFirst' | 'default', MetaSource[]> = {
+  vybeFirst: ['vybe', 'jupiter', 'pumpfun'],
+  default: ['jupiter', 'pumpfun', 'vybe'],
+};
+
+function metaSourceLabel(source: MetaSource): PriceResolveSource {
+  if (source === 'vybe') return 'Vybe';
+  if (source === 'jupiter') return 'Jupiter';
+  return 'Pumpfun-API';
+}
+
 async function applyVybeTokenDetails(http: AxiosInstance, mint: string): Promise<boolean> {
   try {
     const token = await getToken(http, mint);
@@ -113,6 +125,18 @@ async function applyVybeTokenDetails(http: AxiosInstance, mint: string): Promise
   }
 }
 
+async function applyMetaSource(
+  http: AxiosInstance,
+  mint: string,
+  source: MetaSource,
+  solPriceUsd: number | undefined,
+  decimalsHint: number | undefined,
+): Promise<boolean> {
+  if (source === 'vybe') return applyVybeTokenDetails(http, mint);
+  if (source === 'jupiter') return applyJupiterMeta(mint, decimalsHint);
+  return applyPumpfunMeta(mint, solPriceUsd, decimalsHint);
+}
+
 /** Re-download icon when JSON cache points at a missing local file. */
 export async function repairTokenIcon(mint: string): Promise<string | undefined> {
   const m = mint.trim();
@@ -125,7 +149,7 @@ export async function repairTokenIcon(mint: string): Promise<string | undefined>
   let remoteUrl: string | undefined;
 
   try {
-    const jupiter = await fetchJupiterTokenDetails(m, { solPriceUsd });
+    const jupiter = await fetchJupiterTokenDetails(m, {});
     remoteUrl = typeof jupiter?.token.logoUrl === 'string' ? jupiter.token.logoUrl : undefined;
   } catch {
     /* try pump.fun next */
@@ -159,7 +183,7 @@ export interface ResolveTokenMetaResult {
   source?: PriceResolveSource;
 }
 
-/** Resolve token metadata for API/search. Jupiter → pump.fun → Vybe token-details. */
+/** Resolve token metadata for API/search with mint-specific source order. */
 export async function resolveTokenMeta(
   http: AxiosInstance,
   mint: string,
@@ -172,24 +196,13 @@ export async function resolveTokenMeta(
   if (metaIsComplete(disk)) return { meta: disk!, source };
 
   const solPriceUsd = solPriceUsdFromDisk();
+  const orderKey = isVybeFirstPriceMint(m) ? 'vybeFirst' : 'default';
 
-  if (metaNeedsEnrichment(m, disk)) {
-    if (await applyJupiterMeta(m, solPriceUsd, disk?.decimals)) {
-      source = 'Jupiter';
-    }
-  }
-
-  disk = getCachedTokenMetaFromDisk(m);
-  if (metaNeedsEnrichment(m, disk)) {
-    if (await applyPumpfunMeta(m, solPriceUsd, disk?.decimals)) {
-      source = 'Pumpfun-API';
-    }
-  }
-
-  disk = getCachedTokenMetaFromDisk(m);
-  if (metaNeedsEnrichment(m, disk)) {
-    if (await applyVybeTokenDetails(http, m)) {
-      source = 'Vybe';
+  for (const metaSource of META_SOURCE_ORDER[orderKey]) {
+    disk = getCachedTokenMetaFromDisk(m);
+    if (!metaNeedsEnrichment(m, disk)) break;
+    if (await applyMetaSource(http, m, metaSource, solPriceUsd, disk?.decimals)) {
+      source = metaSourceLabel(metaSource);
     }
   }
 

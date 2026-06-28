@@ -1,6 +1,7 @@
 /**
  * Jupiter fallback for RPC-only wallet holdings when Vybe token-details is unavailable.
- * Asset metadata from datapi; price from swap quote (token → SOL, then USDC, then USD1).
+ * Asset metadata from datapi; price from swap quote (token → USDC only).
+ * If USDC quote fails, callers fall through to pump.fun then Vybe.
  */
 
 import { NATIVE_SOL_MINT, WSOL_MINT } from './sol-mints.js';
@@ -8,13 +9,7 @@ import { NATIVE_SOL_MINT, WSOL_MINT } from './sol-mints.js';
 const JUPITER_DATAPI_BASE = 'https://datapi.jup.ag/v1';
 const JUPITER_SWAP_QUOTE_URL = 'https://api.jup.ag/swap/v1/quote';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
-const USD1_MINT = 'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB';
-
-const QUOTE_OUTPUTS = [
-  { mint: WSOL_MINT, decimals: 9, denom: 'sol' as const },
-  { mint: USDC_MINT, decimals: 6, denom: 'usd' as const },
-  { mint: USD1_MINT, decimals: 6, denom: 'usd' as const },
-];
+const USDC_DECIMALS = 6;
 
 export interface JupiterAssetInfo {
   symbol: string;
@@ -32,9 +27,7 @@ export interface JupiterTokenDetails {
   token: Record<string, unknown>;
 }
 
-export type JupiterQuotePrice =
-  | { denom: 'usd'; priceUsd: number }
-  | { denom: 'sol'; priceSol: number };
+export type JupiterQuotePrice = { priceUsd: number };
 
 function jupiterApiMint(mint: string): string {
   const m = mint.trim();
@@ -117,10 +110,10 @@ export async function fetchJupiterAsset(mint: string): Promise<JupiterAssetInfo 
   };
 }
 
-/** Full token details from Jupiter datapi + swap quote (mirrors pump.fun helper shape). */
+/** Full token details from Jupiter datapi + USDC swap quote. */
 export async function fetchJupiterTokenDetails(
   mint: string,
-  options: { solPriceUsd?: number; decimalsHint?: number } = {},
+  options: { decimalsHint?: number } = {},
 ): Promise<JupiterTokenDetails | null> {
   const m = mint.trim();
   if (!m) return null;
@@ -145,16 +138,7 @@ export async function fetchJupiterTokenDetails(
   }
   if (!quote) return null;
 
-  let priceUsd: number;
-  if (quote.denom === 'usd') {
-    priceUsd = quote.priceUsd;
-  } else {
-    const solPriceUsd = options.solPriceUsd;
-    if (!(typeof solPriceUsd === 'number' && Number.isFinite(solPriceUsd) && solPriceUsd > 0)) {
-      return null;
-    }
-    priceUsd = quote.priceSol * solPriceUsd;
-  }
+  const priceUsd = quote.priceUsd;
   if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
 
   const symbol = asset?.symbol?.trim() || m.slice(0, 6);
@@ -174,35 +158,26 @@ export async function fetchJupiterTokenDetails(
   return { mint: m, priceUsd, decimals, token };
 }
 
-/**
- * USD or SOL price per token from Jupiter swap quote.
- * Tries output mints in order: WSOL → USDC → USD1.
- * SOL-denominated quotes are converted to USD on the client using cached SOL price.
- */
+/** USD price per token from Jupiter swap quote (input → USDC only). */
 export async function fetchJupiterQuotePrice(
   mint: string,
   decimals: number,
 ): Promise<JupiterQuotePrice | null> {
   if (!Number.isFinite(decimals) || decimals < 0) return null;
   const apiMint = jupiterApiMint(mint);
-  if (apiMint === USDC_MINT || apiMint === USD1_MINT) {
-    return { denom: 'usd', priceUsd: 1 };
+  if (apiMint === USDC_MINT) {
+    return { priceUsd: 1 };
   }
 
   const inAmountRaw = 10n ** BigInt(decimals);
-  for (const output of QUOTE_OUTPUTS) {
-    if (output.mint === apiMint) continue;
-    const quote = await fetchJupiterSwapQuote(apiMint, output.mint, inAmountRaw);
-    if (!quote) continue;
-    const inUi = Number(quote.inAmount) / 10 ** decimals;
-    const outUi = Number(quote.outAmount) / 10 ** output.decimals;
-    if (!(inUi > 0) || !(outUi > 0)) continue;
-    const price = outUi / inUi;
-    if (!Number.isFinite(price) || price <= 0) continue;
-    if (output.denom === 'sol') return { denom: 'sol', priceSol: price };
-    return { denom: 'usd', priceUsd: price };
-  }
-  return null;
+  const quote = await fetchJupiterSwapQuote(apiMint, USDC_MINT, inAmountRaw);
+  if (!quote) return null;
+  const inUi = Number(quote.inAmount) / 10 ** decimals;
+  const outUi = Number(quote.outAmount) / 10 ** USDC_DECIMALS;
+  if (!(inUi > 0) || !(outUi > 0)) return null;
+  const priceUsd = outUi / inUi;
+  if (!Number.isFinite(priceUsd) || priceUsd <= 0) return null;
+  return { priceUsd };
 }
 
 /** @deprecated Use fetchJupiterQuotePrice */
@@ -211,6 +186,5 @@ export async function fetchJupiterQuotePriceUsd(
   decimals: number,
 ): Promise<number | null> {
   const quote = await fetchJupiterQuotePrice(mint, decimals);
-  if (!quote) return null;
-  return quote.denom === 'usd' ? quote.priceUsd : null;
+  return quote?.priceUsd ?? null;
 }

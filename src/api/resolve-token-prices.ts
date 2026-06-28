@@ -1,6 +1,7 @@
 /**
  * Resolve token spot prices for swap quotes and pair-card stats.
- * Network price order: Jupiter → pump.fun → Vybe token-details.
+ * WSOL/stables: Vybe token-details → Jupiter → pump.fun.
+ * Other mints: Jupiter → pump.fun → Vybe token-details.
  * Metadata may be cached on disk; `full` fetches all fields, `refresh-price` updates price only.
  */
 
@@ -17,9 +18,11 @@ import {
 import {
   NATIVE_SOL_MINT,
   WSOL_MINT,
-  aliasSolPriceStats,
   dedupeMintsForPriceResolve,
   isSolMint,
+  isStablecoinMint,
+  isVybeFirstPriceMint,
+  projectStatsToRequestedMints,
   toVybeSwapMint,
 } from './sol-mints.js';
 import type { VybeToken } from '../types/api.js';
@@ -157,10 +160,6 @@ function tryStatsFromFreshDisk(mint: string): TokenPriceStats | null {
   });
 }
 
-const STABLECOIN_MINTS = new Set([
-  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
-]);
 const STABLECOIN_USD_PRICE = 1;
 
 function stablecoinFallbackStats(
@@ -168,7 +167,7 @@ function stablecoinFallbackStats(
   hint: TokenPriceHint | undefined,
   disk: CachedTokenMeta | null,
 ): TokenPriceStats | null {
-  if (!STABLECOIN_MINTS.has(mint)) return null;
+  if (!isStablecoinMint(mint)) return null;
   const decimals = hint?.decimals ?? disk?.decimals ?? 6;
   if (typeof decimals !== 'number' || !Number.isFinite(decimals)) return null;
   return statsFromEntry(mint, {
@@ -210,13 +209,11 @@ async function jupiterFallbackStats(
   mint: string,
   hint: TokenPriceHint | undefined,
   disk: CachedTokenMeta | null,
-  solPriceUsd: number | undefined,
 ): Promise<TokenPriceStats | null> {
   const decimalsHint = hint?.decimals ?? disk?.decimals;
   let details;
   try {
     details = await fetchJupiterTokenDetails(mint, {
-      solPriceUsd,
       decimalsHint: typeof decimalsHint === 'number' ? decimalsHint : undefined,
     });
   } catch {
@@ -335,17 +332,6 @@ async function vybeTokenDetailsStats(
   }
 }
 
-async function resolveExternalPriceFallback(
-  mint: string,
-  hint: TokenPriceHint | undefined,
-  disk: CachedTokenMeta | null,
-  solPriceUsd: number | undefined,
-): Promise<TokenPriceStats | null> {
-  const jupiter = await jupiterFallbackStats(mint, hint, disk, solPriceUsd);
-  if (jupiter) return jupiter;
-  return pumpfunFallbackStats(mint, hint, disk, solPriceUsd);
-}
-
 async function resolveMintPriceStats(
   http: AxiosInstance,
   mint: string,
@@ -354,19 +340,30 @@ async function resolveMintPriceStats(
 ): Promise<TokenPriceStats | null> {
   const disk = getCachedTokenMetaFromDisk(mint);
   const mode = pickResolveMode(disk, options.forceFull);
+  const vybeFirst = isVybeFirstPriceMint(mint);
 
   if (!options.forceFull) {
     const freshDisk = tryStatsFromFreshDisk(mint);
     if (freshDisk) return freshDisk;
   }
 
-  const local =
-    hintToStats(mint, hint ?? {}) ?? stablecoinFallbackStats(mint, hint, disk);
-  if (local) return local;
+  const fromHint = hintToStats(mint, hint ?? {});
+  if (fromHint) return fromHint;
 
-  const external = await resolveExternalPriceFallback(mint, hint, disk, options.solPriceUsd);
-  if (external) return external;
+  if (vybeFirst) {
+    const vybe = await vybeTokenDetailsStats(http, mint, hint, disk, mode);
+    if (vybe) return vybe;
+    const jupiter = await jupiterFallbackStats(mint, hint, disk);
+    if (jupiter) return jupiter;
+    const pumpfun = await pumpfunFallbackStats(mint, hint, disk, options.solPriceUsd);
+    if (pumpfun) return pumpfun;
+    return stablecoinFallbackStats(mint, hint, disk);
+  }
 
+  const jupiter = await jupiterFallbackStats(mint, hint, disk);
+  if (jupiter) return jupiter;
+  const pumpfun = await pumpfunFallbackStats(mint, hint, disk, options.solPriceUsd);
+  if (pumpfun) return pumpfun;
   return vybeTokenDetailsStats(http, mint, hint, disk, mode);
 }
 
@@ -426,6 +423,7 @@ export async function resolveTokenPrices(
   }
 
   for (const originalMint of requestedMints) {
+    if (isSolMint(originalMint)) continue;
     const vybeMint = toVybeSwapMint(originalMint);
     if (stats[vybeMint] && !stats[originalMint]) {
       stats[originalMint] = stats[vybeMint]!;
@@ -438,5 +436,5 @@ export async function resolveTokenPrices(
     }
   }
 
-  return { stats: aliasSolPriceStats(stats) };
+  return { stats: projectStatsToRequestedMints(requestedMints, stats) };
 }

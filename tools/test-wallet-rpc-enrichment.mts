@@ -28,7 +28,7 @@ async function main(): Promise<void> {
   console.log('✓ Jupiter asset USDC');
 
   const wsolQuote = await fetchJupiterQuotePrice(WSOL_MINT, 9);
-  assert(wsolQuote?.denom === 'usd' && wsolQuote.priceUsd > 1, 'WSOL quote');
+  assert(wsolQuote != null && wsolQuote.priceUsd > 1, 'WSOL quote');
   console.log('✓ Jupiter quote WSOL', wsolQuote);
 
   const obscureAsset = await fetchJupiterAsset(OBSCURE);
@@ -38,7 +38,7 @@ async function main(): Promise<void> {
   }
 
   const usd1Quote = await fetchJupiterQuotePrice(USD1, 6);
-  assert(usd1Quote?.denom === 'usd' && usd1Quote.priceUsd === 1, 'USD1 quote');
+  assert(usd1Quote != null && usd1Quote.priceUsd > 0, 'USD1 quote');
   console.log('✓ Jupiter quote USD1');
 
   const wallet = process.env.TEST_WALLET?.trim() || '7Tar8QZTrRPwoGY5Ke9Vfwf6CmpBfekrNofERxgReza';

@@ -263,13 +263,8 @@ async function enrichRpcOnlyFromJupiter(
     const quote = await fetchJupiterQuotePrice(apiMint, state.decimals);
     if (quote) {
       const amountUi = rawToUiAmount(rpc.amountRaw.toString(), state.decimals);
-      if (quote.denom === 'usd') {
-        state.valueUsd = holdingValueUsd(quote.priceUsd, amountUi);
-        state.valueSol = undefined;
-      } else {
-        state.valueSol = holdingValueSol(quote.priceSol, amountUi);
-        state.valueUsd = 0;
-      }
+      state.valueUsd = holdingValueUsd(quote.priceUsd, amountUi);
+      state.valueSol = undefined;
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
