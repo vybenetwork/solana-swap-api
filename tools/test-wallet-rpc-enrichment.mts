@@ -1,6 +1,6 @@
 #!/usr/bin/env npx tsx
 /**
- * Smoke test: phased wallet balances (RPC+Vybe parallel, then Jupiter enrichment).
+ * Smoke test: wallet balances phase-1 merge (RPC+Vybe); enrichment is client-side.
  */
 import { fetchJupiterAsset, fetchJupiterQuotePrice } from '../src/api/jupiter-token-fallback.js';
 import { createDataHttpClient } from '../src/api/client.js';
@@ -61,13 +61,10 @@ async function main(): Promise<void> {
       console.log(`  stream initial: ${ev.tokens.length} tokens`);
     } else if (ev.event === 'update') {
       updates += 1;
-      const t = ev.token;
-      console.log(
-        `  stream update ${updates}: ${t.symbol} $${t.valueUsd.toFixed(2)}${t.valueSol ? ` / ${t.valueSol.toPrecision(4)} SOL` : ''}`,
-      );
     }
   });
-  console.log(`✓ stream complete (${updates} RPC-only updates)`);
+  assert(updates === 0, 'server stream should not emit enrichment updates');
+  console.log('✓ stream complete (phase-1 only, no server enrichment updates)');
 }
 
 main().catch((err) => {

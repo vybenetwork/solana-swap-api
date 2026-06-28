@@ -9826,6 +9826,10 @@ body.token-picker-scroll-lock {
   letter-spacing: -0.02em;
   color: #f9fafb;
   line-height: 1.15;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .token-picker-row-verified {

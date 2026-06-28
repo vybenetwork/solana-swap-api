@@ -4,12 +4,11 @@
  */
 
 import fs from 'fs';
-import { ProxyAgent, fetch as undiciFetch } from 'undici';
 import {
-  getHttpProxyUrl,
   getPumpfunAuthToken,
   getPumpfunHeadersPath,
 } from '../config.js';
+import { fetchWithHttpProxy } from './http-proxy-fetch.js';
 
 const PUMPFUN_API_BASE = 'https://frontend-api-v3.pump.fun';
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -153,16 +152,13 @@ export function decimalsFromPumpfunData(
 /** Fetch a single mint from pump.fun (retries on network/429). */
 export async function fetchPumpfunCoin(mint: string): Promise<PumpfunCoinRecord> {
   const url = `${PUMPFUN_API_BASE}/coins/${encodeURIComponent(mint.trim())}`;
-  const proxyUrl = getHttpProxyUrl();
   const headers = loadPumpfunHeaders();
-  const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      const res = await undiciFetch(url, {
+      const res = await fetchWithHttpProxy(url, {
         headers,
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        dispatcher,
       });
       const body = await res.text();
 

@@ -109,7 +109,8 @@ app.get('/api/token/:mint', async (req: Request, res: Response) => {
     if (!mint) return res.status(400).json({ error: 'Mint address required' });
 
     const dataHttp = createDataHttpClient(dataApiKey);
-    const resolved = await resolveTokenMeta(dataHttp, mint);
+    const skipVybe = q(req, 'skipVybe') === '1' || q(req, 'skipVybe') === 'true';
+    const resolved = await resolveTokenMeta(dataHttp, mint, { skipVybe });
     if (!resolved) return res.status(404).json({ error: 'Token not found' });
     return res.json(tokenMetaToApiResponse(resolved.meta, resolved.source));
   } catch (err) {

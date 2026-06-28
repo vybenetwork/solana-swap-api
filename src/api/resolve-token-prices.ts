@@ -373,7 +373,9 @@ async function resolveMintPriceStats(
   if (jupiter) return jupiter;
   const pumpfun = await pumpfunFallbackStats(mint, hint, disk, options.solPriceUsd);
   if (pumpfun) return pumpfun;
-  return vybeTokenDetailsStats(http, mint, hint, disk, mode);
+  const vybe = await vybeTokenDetailsStats(http, mint, hint, disk, mode);
+  if (vybe) return vybe;
+  return stablecoinFallbackStats(mint, hint, disk);
 }
 
 function sortMintsSolFirst(mints: string[]): string[] {

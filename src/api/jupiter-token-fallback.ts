@@ -4,6 +4,7 @@
  * If USDC quote fails, callers fall through to pump.fun then Vybe.
  */
 
+import { fetchWithHttpProxy } from './http-proxy-fetch.js';
 import { NATIVE_SOL_MINT, WSOL_MINT } from './sol-mints.js';
 
 const JUPITER_DATAPI_BASE = 'https://datapi.jup.ag/v1';
@@ -63,7 +64,7 @@ async function fetchJupiterSwapQuote(
   url.searchParams.set('amount', inAmountRaw.toString());
   url.searchParams.set('slippageBps', '50');
 
-  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  const res = await fetchWithHttpProxy(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) return null;
   const data = (await res.json()) as { outAmount?: string; inAmount?: string; error?: string };
   if (data.error) return null;
@@ -77,7 +78,7 @@ async function fetchJupiterSwapQuote(
 export async function fetchJupiterAsset(mint: string): Promise<JupiterAssetInfo | null> {
   const apiMint = jupiterApiMint(mint);
   const url = `${JUPITER_DATAPI_BASE}/assets/search?query=${encodeURIComponent(apiMint)}`;
-  const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+  const res = await fetchWithHttpProxy(url, { signal: AbortSignal.timeout(15_000) });
   if (!res.ok) {
     throw new Error(`Jupiter datapi HTTP ${res.status}`);
   }

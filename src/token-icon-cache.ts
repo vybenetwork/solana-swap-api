@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { isMintLikeLabel, truncateMintDisplay } from './api/token-label.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_DIR = path.resolve(__dirname, '..');
@@ -167,6 +168,22 @@ export function writeTokenMetaCache(data: Record<string, CachedTokenMeta>): void
 
 export function hasCachedTokenIcon(mint: string): boolean {
   return findExistingIcon(mint.trim()) != null;
+}
+
+export function clearMintLikeStubFromDisk(mint: string): void {
+  const m = mint.trim();
+  if (!m) return;
+  const cache = readTokenMetaCache();
+  const entry = cache[m];
+  if (!entry) return;
+  if (!isMintLikeLabel(entry.symbol ?? '', m) && !isMintLikeLabel(entry.name ?? '', m)) return;
+  delete cache[m];
+  writeTokenMetaCache(cache);
+}
+
+export function isUnusableTokenMeta(meta: CachedTokenMeta | null, mint: string): boolean {
+  if (!meta) return true;
+  return isMintLikeLabel(meta.symbol ?? '', mint);
 }
 
 export function getCachedTokenMetaFromDisk(mint: string): CachedTokenMeta | null {
@@ -344,10 +361,18 @@ export async function cacheTokenMetaFromVybe(
   const remoteLogo = typeof token.logoUrl === 'string' ? token.logoUrl.trim() : '';
   const localLogo = (await ensureTokenIconCached(m, remoteLogo)) ?? findExistingIcon(m)?.webPath;
   const fetchedAt = Date.now();
+  const rawSymbol = String(token.symbol ?? '').trim();
+  const rawName = String(token.name ?? '').trim();
   const meta: CachedTokenMeta = {
     mint: m,
-    symbol: String(token.symbol ?? '').trim() || m,
-    name: String(token.name ?? '').trim() || String(token.symbol ?? m).trim() || m,
+    symbol:
+      rawSymbol && !isMintLikeLabel(rawSymbol, m) ? rawSymbol : truncateMintDisplay(m),
+    name:
+      rawName && !isMintLikeLabel(rawName, m)
+        ? rawName
+        : rawSymbol && !isMintLikeLabel(rawSymbol, m)
+          ? rawSymbol
+          : truncateMintDisplay(m),
     decimals: vybeDecimals(token),
     logoUrl: localLogo || undefined,
     isVerified: token.isVerified === true || token.verified === true,

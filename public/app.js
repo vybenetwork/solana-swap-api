@@ -20587,6 +20587,10 @@ var WALLET_TOKEN_BALANCE_LIMIT = 500;
 var RESOLVE_PRICES_TTL_MS = 2e3;
 var CACHE_KEY = "vybe-swap-token-cache-v1";
 var RECENT_KEY = "vybe-swap-token-recent-v1";
+var WALLET_ENRICH_GIVEUP_KEY = "vybe-wallet-enrich-giveup-v1";
+var WALLET_ENRICH_GIVEUP_TTL_MS = 183 * 24 * 60 * 60 * 1e3;
+var WALLET_ENRICH_MAX = 10;
+var WALLET_ENRICH_INTERVAL_MS = 1e3;
 var MAX_RECENT = 24;
 var CATALOG_JSON_URL = "/data/token-catalog.json";
 var CATALOG_TSV_URL = "/data/token-catalog.tsv";
@@ -20665,6 +20669,7 @@ function preventBackgroundScroll(event) {
 }
 var sessionWalletBalances = null;
 var walletBalanceStreamAbort = null;
+var walletEnrichAbort = null;
 var walletBalanceStreamListener = null;
 function setWalletBalanceStreamListener(fn) {
   walletBalanceStreamListener = fn;
@@ -20726,6 +20731,7 @@ async function consumeWalletBalanceStream(wallet, res) {
         );
         sessionWalletBalances = { wallet, fetchedAt: Date.now(), items };
         notifyWalletBalanceStream();
+        void enrichWalletItemsOnClient(items);
       } else if (msg.event === "update") {
         mergeWalletBalanceUpdate(msg.token);
         items = sessionWalletBalances?.items ?? items;
@@ -20735,18 +20741,123 @@ async function consumeWalletBalanceStream(wallet, res) {
   }
   return sessionWalletBalances?.items ?? items;
 }
-async function prefetchWalletItemLogos(items) {
-  const mints = [
-    ...new Set(
-      items.filter((i) => !isBlockedPickerMint(i.mintAddress)).filter((i) => {
-        const url = resolveTokenLogoUrl(i.mintAddress) ?? i.logoUrl?.trim();
-        return !url || effectiveTokenIconSrc(url) === TOKEN_ICON_PLACEHOLDER_PATH;
-      }).map((i) => i.mintAddress)
-    )
-  ];
-  if (mints.length === 0) return;
-  for (const mint of mints) {
-    await ensureTokenMetaForMint(mint);
+function walletItemStillIncomplete(item) {
+  if (item.enrichmentPending) return true;
+  const sym = item.symbol?.trim();
+  const mint = item.mintAddress.trim();
+  if (!sym || isMintLikeLabel(sym, mint)) return true;
+  const url = resolveTokenLogoUrl(mint) ?? item.logoUrl?.trim();
+  if (!url || effectiveTokenIconSrc(url) === TOKEN_ICON_PLACEHOLDER_PATH) return true;
+  if (!(walletItemValueUsd(item) > 0)) return true;
+  return false;
+}
+function readWalletEnrichGiveUp() {
+  try {
+    const raw = localStorage.getItem(WALLET_ENRICH_GIVEUP_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const now = Date.now();
+    const out = {};
+    for (const [mint, ts] of Object.entries(parsed)) {
+      if (typeof ts === "number" && now - ts < WALLET_ENRICH_GIVEUP_TTL_MS) out[mint] = ts;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+function writeWalletEnrichGiveUp(map) {
+  localStorage.setItem(WALLET_ENRICH_GIVEUP_KEY, JSON.stringify(map));
+}
+function isWalletEnrichGiveUp(mint) {
+  return Boolean(readWalletEnrichGiveUp()[mint.trim()]);
+}
+function markWalletEnrichGiveUp(mint) {
+  const map = readWalletEnrichGiveUp();
+  map[mint.trim()] = Date.now();
+  writeWalletEnrichGiveUp(map);
+}
+function clearWalletEnrichGiveUp(mints) {
+  if (!mints?.length) {
+    localStorage.removeItem(WALLET_ENRICH_GIVEUP_KEY);
+    return;
+  }
+  const map = readWalletEnrichGiveUp();
+  for (const mint of mints) delete map[mint.trim()];
+  writeWalletEnrichGiveUp(map);
+}
+function walletItemNeedsClientEnrichment(item) {
+  const mint = item.mintAddress.trim();
+  if (isWalletEnrichGiveUp(mint)) return false;
+  return walletItemStillIncomplete(item);
+}
+function applyMetaToWalletItem(item, meta) {
+  const price = typeof meta.price === "number" && meta.price > 0 ? meta.price : void 0;
+  let valueUsd = item.valueUsd;
+  let valueSol = item.valueSol;
+  if (price != null && !(valueUsd > 0)) {
+    valueUsd = price * item.amountUi;
+    valueSol = void 0;
+  }
+  const mint = item.mintAddress.trim();
+  const symbolFallback = truncateMint(mint);
+  return {
+    ...item,
+    symbol: sanitizeTokenLabel(meta.symbol, mint, symbolFallback),
+    name: sanitizeTokenLabel(meta.name, mint, symbolFallback),
+    logoUrl: meta.logoUrl?.trim() || item.logoUrl,
+    decimals: meta.decimals ?? item.decimals,
+    verified: meta.isVerified ?? item.verified,
+    valueUsd,
+    valueSol,
+    enrichmentPending: false
+  };
+}
+function sleepMs(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("Aborted", "AbortError"));
+      return;
+    }
+    const id = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(id);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true }
+    );
+  });
+}
+async function enrichWalletItemsOnClient(items) {
+  walletEnrichAbort?.abort();
+  const ac = new AbortController();
+  walletEnrichAbort = ac;
+  const targets = items.filter((i) => !isBlockedPickerMint(i.mintAddress) && walletItemNeedsClientEnrichment(i)).sort((a, b) => b.amountUi - a.amountUi).slice(0, WALLET_ENRICH_MAX);
+  if (targets.length === 0) return;
+  for (let i = 0; i < targets.length; i++) {
+    if (ac.signal.aborted) return;
+    const item = targets[i];
+    const mint = item.mintAddress.trim();
+    const meta = await fetchTokenByMint(mint, { skipVybe: true });
+    if (ac.signal.aborted) return;
+    const updated = meta ? applyMetaToWalletItem(item, meta) : { ...item, enrichmentPending: false };
+    if (!meta || walletItemStillIncomplete(updated)) {
+      markWalletEnrichGiveUp(mint);
+    } else {
+      clearWalletEnrichGiveUp([mint]);
+    }
+    mergeWalletBalanceUpdate(updated);
+    notifyWalletBalanceStream();
+    if (i < targets.length - 1) {
+      try {
+        await sleepMs(WALLET_ENRICH_INTERVAL_MS, ac.signal);
+      } catch {
+        return;
+      }
+    }
   }
   refreshWalletBalancesPanel();
   if (dialogEl?.open) renderShortcuts();
@@ -20754,6 +20865,8 @@ async function prefetchWalletItemLogos(items) {
 function clearSessionWalletBalances() {
   walletBalanceStreamAbort?.abort();
   walletBalanceStreamAbort = null;
+  walletEnrichAbort?.abort();
+  walletEnrichAbort = null;
   sessionWalletBalances = null;
 }
 async function fetchWalletBalances(wallet) {
@@ -20766,8 +20879,7 @@ async function fetchWalletBalances(wallet) {
     { signal: ac.signal, cache: "no-store" }
   );
   const items = await consumeWalletBalanceStream(w, res);
-  void prefetchWalletItemLogos(items);
-  return items;
+  return sessionWalletBalances?.items ?? items;
 }
 function prefetchWalletBalances(wallet) {
   return fetchWalletBalances(wallet.trim());
@@ -21236,7 +21348,7 @@ function needsRemoteLogoResolve(meta) {
   if (isTokenIconUrlFailed(u)) return true;
   if (meta.source === "search" && u.startsWith("/")) return false;
   const sym = meta.symbol?.trim();
-  if (!sym || sym === truncateMint(meta.mint)) return true;
+  if (!sym || isMintLikeLabel(sym, meta.mint)) return true;
   if (meta.decimals == null) return true;
   if (u.startsWith("/")) return false;
   return false;
@@ -21321,6 +21433,18 @@ function truncateMint(mint) {
   if (mint.length <= 13) return mint;
   return `${mint.slice(0, 4)}\u2026${mint.slice(-4)}`;
 }
+function isMintLikeLabel(label, mint) {
+  const s = label.trim();
+  if (!s) return true;
+  if (s === mint || s === truncateMint(mint)) return true;
+  return BASE58_RE.test(s) && s.length >= 32;
+}
+function sanitizeTokenLabel(raw, mint, fallback) {
+  const fb = fallback ?? truncateMint(mint);
+  const s = raw?.trim() ?? "";
+  if (!s || isMintLikeLabel(s, mint)) return fb;
+  return s;
+}
 function escapeHtml(s) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -21398,15 +21522,20 @@ function getVisibleTokens() {
   }
   return filterTokensForBuyOutputPicker(merged);
 }
-async function fetchTokenByMint(mint) {
+async function fetchTokenByMint(mint, options) {
   try {
-    const res = await fetch(`/api/token/${encodeURIComponent(mint)}`);
+    const qs = options?.skipVybe ? "?skipVybe=1" : "";
+    const res = await fetch(`/api/token/${encodeURIComponent(mint)}${qs}`);
     if (!res.ok) return null;
     const body = await res.json();
     if (body.error) return null;
     applyResolvedTokenFromApi(mint, body);
-    const symbol = String(body.symbol ?? "").trim();
-    const name = String(body.name ?? "").trim();
+    const symbol = sanitizeTokenLabel(String(body.symbol ?? ""), mint, truncateMint(mint));
+    const name = sanitizeTokenLabel(
+      String(body.name ?? ""),
+      mint,
+      symbol !== truncateMint(mint) ? symbol : truncateMint(mint)
+    );
     const logoUrl = resolveLogoUrl(String(body.logoUrl ?? ""));
     const decimals = typeof body.decimals === "number" ? body.decimals : void 0;
     const price = typeof body.price === "number" ? body.price : void 0;
@@ -21462,8 +21591,10 @@ function walletItemToTokenMeta(item) {
   const catalogHit = catalogTokens.find((t) => t.mint === item.mintAddress);
   const cached = readCache()[item.mintAddress];
   const base = catalogHit ?? cached;
-  const symbol = item.mintAddress === NATIVE_SOL_MINT ? "SOL" : item.mintAddress === WSOL_MINT ? "WSOL" : item.symbol || base?.symbol || truncateMint(item.mintAddress);
-  const name = item.mintAddress === NATIVE_SOL_MINT ? "Solana" : item.mintAddress === WSOL_MINT ? "Wrapped SOL" : item.name || base?.name || symbol;
+  const mint = item.mintAddress;
+  const symbolFallback = truncateMint(mint);
+  const symbol = mint === NATIVE_SOL_MINT ? "SOL" : mint === WSOL_MINT ? "WSOL" : sanitizeTokenLabel(item.symbol || base?.symbol, mint, symbolFallback);
+  const name = mint === NATIVE_SOL_MINT ? "Solana" : mint === WSOL_MINT ? "Wrapped SOL" : sanitizeTokenLabel(item.name || base?.name, mint, symbol);
   return {
     mint: item.mintAddress,
     symbol,
@@ -21956,9 +22087,6 @@ function persistWalletBalanceMetadata(items) {
     saveTokenMeta(walletItemToTokenMeta(item));
   }
 }
-function getSessionWalletBalanceItems() {
-  return sessionWalletBalances?.items ?? [];
-}
 function renderWalletBalancesLoading() {
   return `<div class="token-picker-wallet-loading" aria-live="polite">
     <span class="token-picker-wallet-loading-spinner" aria-hidden="true"></span>
@@ -22069,6 +22197,7 @@ async function onRefetchHoldingsClick() {
   if (isRefetchHoldingsInCooldown() || refetchHoldingsInFlight) return;
   const wallet = getWalletAddressCb?.().trim() ?? "";
   if (!wallet) return;
+  clearWalletEnrichGiveUp();
   startRefetchHoldingsCooldown();
   refetchHoldingsInFlight = true;
   syncRefetchHoldingsBtn();
@@ -27599,7 +27728,8 @@ var swapQuoteBtnDebugEl = document.getElementById("swapQuoteBtnDebug");
 var swapBuildBtn = document.getElementById("swapBuildBtn");
 var swapBuildBtnTimerEl = document.getElementById("swapBuildBtnTimer");
 var SWAP_QUOTE_BTN_COOLDOWN_SEC = 10;
-var SWAP_BUILD_BTN_QUOTE_TTL_SEC = 30;
+var SWAP_REFRESH_QUOTE_BTN_COOLDOWN_SEC = 5;
+var SWAP_BUILD_BTN_QUOTE_TTL_SEC = 5;
 var SWAP_UI_EMPTY = "\u2014";
 var swapQuoteBtnDebugEnabled = false;
 var quoteBtnCooldownEndsAt = 0;
@@ -27659,7 +27789,6 @@ var swapSignConfirmLogsEl = document.getElementById("swapSignConfirmLogs");
 var swapSignConfirmCancelEl = document.getElementById("swapSignConfirmCancel");
 var swapSignConfirmDismissEl = document.getElementById("swapSignConfirmDismiss");
 var swapSignConfirmTxidsEl = document.getElementById("swapSignConfirmTxids");
-var swapSignConfirmRetryEl = document.getElementById("swapSignConfirmRetry");
 var swapSignConfirmRefetchRetryEl = document.getElementById("swapSignConfirmRefetchRetry");
 var swapPairCardsEl = document.getElementById("swapPairCards");
 var swapQuoteDetailsEmptyEl = document.getElementById("swapQuoteDetailsEmpty");
@@ -27695,6 +27824,8 @@ function clientPriceResolveSuppressed() {
 }
 var swapQuoteBuildOptsStale = false;
 var lastSwapQuoteBuildOptsKey = null;
+var lastSwapQuoteFormContextKey = null;
+var lastSwapQuoteEnumerateRoutes = null;
 var routerQuoteCaches = {};
 function isSwapRouterId(router) {
   return router === "vybe" || router === "jupiter" || router === "titan";
@@ -27781,6 +27912,9 @@ function getSwapQuoteDisabledReason() {
   if (pinErr) return pinErr;
   const partnerErr = getPartnerQuoteDisabledReason();
   if (partnerErr) return partnerErr;
+  if (isSwapQuoteRefreshMode() && !selectedRoutePinFields()) {
+    return "Select a route market before refreshing the quote.";
+  }
   return null;
 }
 var PIN_ROUTE_MIN_MARKET_ADDRESS_LEN = 40;
@@ -28033,7 +28167,7 @@ function tickBuildBtnQuoteWindow(now) {
     syncBuildButtonState();
     syncBuildButtonLabel();
     if (swapSignConfirmDialogEl?.open && !swapSignDialogSuccess) {
-      syncSignDialogRetryButtons(true);
+      syncSignDialogRefetchButton();
     }
     return;
   }
@@ -28044,6 +28178,17 @@ function tickBuildBtnQuoteWindow(now) {
 function startQuoteBtnCooldown() {
   if (!swapQuoteBtn || !swapQuoteBtnTimerEl) return;
   const durationSec = SWAP_QUOTE_BTN_COOLDOWN_SEC;
+  quoteBtnCooldownEndsAt = performance.now() + durationSec * 1e3;
+  const label = swapQuoteBtnTimerEl.querySelector(".swap-action-btn__timer-label");
+  if (label) label.textContent = String(durationSec);
+  setActionBtnTimerVisible(swapQuoteBtn, swapQuoteBtnTimerEl, true, durationSec);
+  swapQuoteBtn.disabled = true;
+  cancelAnimationFrame(quoteBtnCooldownRaf);
+  quoteBtnCooldownRaf = requestAnimationFrame(() => tickQuoteBtnCooldown(performance.now()));
+}
+function startRefreshQuoteBtnCooldown() {
+  if (!swapQuoteBtn || !swapQuoteBtnTimerEl) return;
+  const durationSec = SWAP_REFRESH_QUOTE_BTN_COOLDOWN_SEC;
   quoteBtnCooldownEndsAt = performance.now() + durationSec * 1e3;
   const label = swapQuoteBtnTimerEl.querySelector(".swap-action-btn__timer-label");
   if (label) label.textContent = String(durationSec);
@@ -28063,9 +28208,67 @@ function startBuildBtnQuoteWindow() {
   cancelAnimationFrame(buildBtnQuoteRaf);
   buildBtnQuoteRaf = requestAnimationFrame(() => tickBuildBtnQuoteWindow(performance.now()));
 }
-function startSwapActionCooldownsAfterQuote() {
-  startQuoteBtnCooldown();
+function startSwapActionCooldownsAfterQuote(opts) {
+  if (!opts?.skipQuoteCooldown) startQuoteBtnCooldown();
   startBuildBtnQuoteWindow();
+}
+function currentSwapQuoteFormContextKey() {
+  const wallet = swapWalletAddressInput?.value.trim() ?? "";
+  const inputMint = swapInputMintInput?.value.trim() ?? "";
+  const outputMint = swapOutputMintInput?.value.trim() ?? "";
+  const amount = parseSwapAmountInputValue(swapAmountInput?.value ?? "");
+  if (!wallet || !inputMint || !outputMint || !Number.isFinite(amount) || amount <= 0) return null;
+  return JSON.stringify({ wallet, inputMint, outputMint, amount });
+}
+function rememberSwapQuoteFormContextKey() {
+  lastSwapQuoteFormContextKey = currentSwapQuoteFormContextKey();
+}
+function clearSwapQuoteFormContextKey() {
+  lastSwapQuoteFormContextKey = null;
+}
+function rememberSwapQuoteEnumerateRoutes(buildOpts) {
+  const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  if (router !== "vybe" || !vybeMarketDiscoveryActive()) {
+    lastSwapQuoteEnumerateRoutes = null;
+    return;
+  }
+  if (buildOpts.enumerateRoutes === false && String(buildOpts.poolAddress ?? "").trim()) return;
+  lastSwapQuoteEnumerateRoutes = buildOpts.enumerateRoutes !== false;
+}
+function clearSwapQuoteEnumerateRoutesTracking() {
+  lastSwapQuoteEnumerateRoutes = null;
+}
+function shouldRefetchMarketsAfterEnablingEnumeration() {
+  if (!vybeMarketDiscoveryActive() || !isSwapEnumerateRoutesEnabled()) return false;
+  if (!lastSwapQuoteOk || lastSwapQuoteEnumerateRoutes !== false) return false;
+  const key = currentSwapQuoteFormContextKey();
+  return key != null && key === lastSwapQuoteFormContextKey;
+}
+function isSwapEnumerateRoutesEnabled() {
+  return vybeMarketDiscoveryActive() && swapEnumerateRoutesCheckbox?.checked !== false;
+}
+function isSwapQuoteRefreshMode() {
+  if (normalizeRouterId(getSwapRouter()) !== "vybe") return false;
+  if (!lastSwapQuoteOk) return false;
+  const key = currentSwapQuoteFormContextKey();
+  return key != null && key === lastSwapQuoteFormContextKey;
+}
+function getSwapQuoteButtonLabel() {
+  if (isSwapQuoteRefreshMode()) return "Refresh quote for selected route";
+  if (isSwapEnumerateRoutesEnabled()) return "Get quotes (up to 3)";
+  return "Get quote";
+}
+function getSwapQuoteButtonHint() {
+  if (isSwapQuoteRefreshMode()) return "Update pricing for the selected market";
+  if (isSwapEnumerateRoutesEnabled()) return "Compare up to 3 routes";
+  return "Fetch route & pricing";
+}
+function updateSwapQuoteButtonLabel() {
+  if (!swapQuoteBtn || swapQuoteBtn.classList.contains("swap-action-btn--loading")) return;
+  const labelEl = swapQuoteBtn.querySelector(".swap-action-btn__label");
+  const hintEl = swapQuoteBtn.querySelector(".swap-action-btn__hint");
+  if (labelEl) labelEl.textContent = getSwapQuoteButtonLabel();
+  if (hintEl) hintEl.textContent = getSwapQuoteButtonHint();
 }
 function syncSwapQuoteButtonState() {
   const diag = collectSwapQuoteBtnDiagnostics();
@@ -28076,6 +28279,7 @@ function syncSwapQuoteButtonState() {
   }
   const hardBlocked = diag.blockReason !== null && !isFlashOnlyQuoteBlockReason(diag.blockReason);
   swapQuoteBtn.disabled = hardBlocked || isQuoteBtnInCooldown();
+  updateSwapQuoteButtonLabel();
   renderSwapQuoteBtnDebug(diag);
   console.debug("[swap-quote-btn]", diag);
   const w = getSolanaWindow();
@@ -28087,8 +28291,8 @@ function setSwapQuoteButtonLoading(loading, opts) {
   swapQuoteBtn.setAttribute("aria-busy", loading ? "true" : "false");
   const labelEl = swapQuoteBtn.querySelector(".swap-action-btn__label");
   const hintEl = swapQuoteBtn.querySelector(".swap-action-btn__hint");
-  if (labelEl) labelEl.textContent = loading ? "Loading\u2026" : "Get quote";
-  if (hintEl) hintEl.textContent = loading ? "Fetching route & pricing" : "Fetch route & pricing";
+  if (labelEl) labelEl.textContent = loading ? "Loading\u2026" : getSwapQuoteButtonLabel();
+  if (hintEl) hintEl.textContent = loading ? "Fetching route & pricing" : getSwapQuoteButtonHint();
   if (loading) {
     swapQuoteBtn.disabled = true;
   } else if (!opts?.skipEnableSync && !isQuoteBtnInCooldown()) {
@@ -28985,6 +29189,8 @@ function snapshotRouterQuoteForRouterSwitch(router) {
     lastVybeBuild,
     lastSwapQuoteBuildOptsKey,
     swapQuoteBuildOptsStale,
+    lastSwapQuoteFormContextKey,
+    lastSwapQuoteEnumerateRoutes,
     swapQuoteWalletSnapshot,
     quoteBtnCooldownEndsAt,
     buildBtnQuoteValidUntil
@@ -29003,6 +29209,8 @@ function restoreRouterQuoteFromCache(router) {
   lastVybeBuild = cache.lastVybeBuild;
   lastSwapQuoteBuildOptsKey = cache.lastSwapQuoteBuildOptsKey;
   swapQuoteBuildOptsStale = cache.swapQuoteBuildOptsStale;
+  lastSwapQuoteFormContextKey = cache.lastSwapQuoteFormContextKey;
+  lastSwapQuoteEnumerateRoutes = cache.lastSwapQuoteEnumerateRoutes;
   swapQuoteWalletSnapshot = cache.swapQuoteWalletSnapshot;
   if ((!enumeratedRoutesUiState || !enumeratedRoutesUiState.routes.length) && lastVybeQuoteBodyForRoutes) {
     syncEnumeratedRoutesFromBody(lastVybeQuoteBodyForRoutes);
@@ -29062,6 +29270,8 @@ function rememberSwapQuoteBuildOptsKey() {
 function clearSwapQuoteBuildOptsTracking() {
   swapQuoteBuildOptsStale = false;
   lastSwapQuoteBuildOptsKey = null;
+  clearSwapQuoteFormContextKey();
+  clearSwapQuoteEnumerateRoutesTracking();
 }
 function markSwapQuoteBuildOptsStale() {
   if (swapQuoteFetching) return;
@@ -29140,6 +29350,10 @@ function onEnumerateRoutesChanged() {
     }
   } else {
     markSwapQuoteBuildOptsStale();
+    if (!swapQuoteFetching && shouldRefetchMarketsAfterEnablingEnumeration() && isSwapQuoteInputReady()) {
+      void fetchSwapQuote();
+      return;
+    }
   }
   syncSwapQuoteButtonState();
 }
@@ -29579,19 +29793,6 @@ function scheduleWalletRefreshAfterTxConfirm(context) {
 async function refreshWalletHoldingsFull(wallet, context) {
   await refreshWalletBalancesForSwap(wallet, false);
   refreshWalletBalancesPanel();
-  const mints = /* @__PURE__ */ new Set([WSOL_MINT]);
-  if (context?.soldMint) mints.add(context.soldMint);
-  if (context?.buyMint) mints.add(context.buyMint);
-  const inputMint = swapInputMintInput?.value.trim() ?? "";
-  const outputMint = swapOutputMintInput?.value.trim() ?? "";
-  if (inputMint) mints.add(inputMint);
-  if (outputMint) mints.add(outputMint);
-  for (const item of getSessionWalletBalanceItems()) {
-    if (item.enrichmentPending || !getCachedTokenMeta(item.mintAddress)) {
-      mints.add(item.mintAddress);
-    }
-  }
-  await prefetchTokenMetas([...mints]);
   resetSwapQuoteToMock();
   updateSwapPairCards();
   updateSwapTokenIcons();
@@ -31497,7 +31698,66 @@ function poolAddressFromQuoteBody(body) {
 }
 function programAddressFromQuoteBody(body) {
   const build = body._build;
-  return String(body.programAddress ?? build?.programAddress ?? "").trim();
+  const top = String(body.programAddress ?? build?.programAddress ?? "").trim();
+  if (top) return top;
+  const details = build?.details;
+  return String(details?.programAddress ?? details?.programId ?? "").trim();
+}
+function protocolFromQuoteBody(body) {
+  const build = body._build;
+  const protocolRaw = body.protocol ?? build?.protocol;
+  if (typeof protocolRaw === "string" && protocolRaw.trim()) return protocolRaw.trim();
+  const programAddress = programAddressFromQuoteBody(body);
+  if (programAddress && PIN_ROUTE_PROGRAM_TO_PROTOCOL[programAddress]) {
+    return PIN_ROUTE_PROGRAM_TO_PROTOCOL[programAddress];
+  }
+  return "";
+}
+function resolvePinProgramFromProtocol(protocol) {
+  const key = normalizePinProtocolKey(protocol);
+  for (const [program, proto] of Object.entries(PIN_ROUTE_PROGRAM_TO_PROTOCOL)) {
+    if (normalizePinProtocolKey(proto) === key) return program;
+  }
+  return null;
+}
+function canonicalPinProtocolValue(protocol, programAddress) {
+  return resolvePinProtocolSelectValue({
+    protocol,
+    programAddress,
+    marketAddress: "",
+    tradeCount: 0,
+    buyCount: 0,
+    sellCount: 0
+  }) ?? protocol;
+}
+function completeRoutePinFields(pin) {
+  let programAddress = pin.programAddress?.trim() ?? "";
+  let protocol = pin.protocol?.trim() ?? "";
+  if (programAddress && !protocol) {
+    protocol = PIN_ROUTE_PROGRAM_TO_PROTOCOL[programAddress] ?? resolvePinProtocolSelectValue({
+      programAddress,
+      marketAddress: pin.poolAddress,
+      tradeCount: 0,
+      buyCount: 0,
+      sellCount: 0
+    }) ?? "";
+  }
+  if (protocol && !programAddress) {
+    programAddress = resolvePinProgramFromProtocol(protocol) ?? "";
+  }
+  if (!programAddress && !protocol) return null;
+  return {
+    poolAddress: pin.poolAddress,
+    ...programAddress ? { programAddress } : {},
+    ...protocol ? { protocol: canonicalPinProtocolValue(protocol, programAddress) } : {}
+  };
+}
+function activeRouteQuoteBodyForPin() {
+  if (lastVybeQuoteBodyForRoutes) {
+    return getQuoteBodyForActiveRoute(lastVybeQuoteBodyForRoutes);
+  }
+  const quote = getActiveEnumeratedRoute()?.quote;
+  return quote && typeof quote === "object" ? quote : void 0;
 }
 function enrichTradeCandidateFromBody(base, body) {
   const fromPlan = tradeCandidateFromRoutePlan(body);
@@ -31798,6 +32058,7 @@ function selectEnumeratedRoute(index) {
     amount,
     buildOpts
   );
+  syncSwapQuoteButtonState();
 }
 function applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, buildOpts) {
   if (!swapQuoteFetching) return;
@@ -31864,8 +32125,11 @@ function applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, bui
   openRoutePlanPanelIfClosed();
   void enrichRouteLabels(quote, { skipPricePrefetch: true });
   rememberSwapQuoteBuildOptsKey();
+  rememberSwapQuoteFormContextKey();
+  rememberSwapQuoteEnumerateRoutes(buildOpts);
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
+  syncSwapQuoteButtonState();
 }
 async function fetchAggregatorSwapQuote(wallet, inputMint, outputMint, amount, slippage, router) {
   const params = new URLSearchParams();
@@ -32112,8 +32376,11 @@ function applyAggregatorBuildToUi(quoteBody, swapBody, router, wallet, inputMint
   openRoutePlanPanelIfClosed();
   void enrichRouteLabels(quote, { skipPricePrefetch: Boolean(tokenStats) });
   rememberSwapQuoteBuildOptsKey();
+  rememberSwapQuoteFormContextKey();
+  rememberSwapQuoteEnumerateRoutes(buildOpts);
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
+  syncSwapQuoteButtonState();
 }
 async function resolveAggregatorBuildTx(wallet, inputMint, outputMint, amount, buildOpts) {
   const cachedFromQuote = tryReuseLastVybeBuildFromQuote();
@@ -32281,6 +32548,26 @@ function extractSwapBuildTransactions(payload) {
   if (post.trim()) txs.push(post.trim());
   return txs;
 }
+async function resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMints) {
+  const mints = [inputMint, outputMint].filter(Boolean);
+  const res = await fetchWithRetry("/api/tokens/resolve-prices", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      mints,
+      forceFullDetailsMints
+    })
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body.error || `Price resolve failed (${res.status})`);
+  }
+  const stats = body.stats ?? {};
+  for (const [mint, s] of Object.entries(stats)) {
+    saveTokenPriceStats(mint, s);
+  }
+  return stats;
+}
 function stripVybeQuoteMetadata(body) {
   const { _build, _builtAt, _tokenStats, _buildUnavailable, ...quote } = body;
   return quote;
@@ -32306,6 +32593,59 @@ function validateVybeQuoteWallet() {
     }
   }
   return null;
+}
+async function refreshSelectedRouteQuote(wallet, inputMint, outputMint, amount) {
+  if (swapQuoteError) clearInlineError(swapQuoteError);
+  if (swapQuoteWarning) clearInlineWarning(swapQuoteWarning);
+  applyQuoteLoadingUi();
+  try {
+    const buildOpts = collectSwapBuildOptions();
+    const pinnedOpts = mergeSelectedRoutePinIntoBuildOpts(buildOpts);
+    if (!String(pinnedOpts.poolAddress ?? "").trim()) {
+      throw new Error("Select a route market before refreshing the quote.");
+    }
+    const quoteAmount = typeof pinnedOpts.amount === "number" && Number.isFinite(pinnedOpts.amount) ? pinnedOpts.amount : amount;
+    void refreshLowSolTradeWarning();
+    const priceStats = await resolvePairTokenPrices(inputMint, outputMint, [inputMint, outputMint]);
+    updateSwapPairCards(priceStats);
+    updateSwapTokenIcons();
+    syncSwapSellAmountUi();
+    pushSuppressClientPriceResolve();
+    try {
+      const walletErr = validateVybeQuoteWallet();
+      if (walletErr) throw new Error(walletErr);
+      await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, pinnedOpts, {
+        skipEnsurePrices: true
+      });
+    } finally {
+      popSuppressClientPriceResolve();
+    }
+    if (!lastSwapQuoteOk) {
+      throw new Error("Quote refresh failed.");
+    }
+  } catch (err) {
+    if (swapQuoteError) {
+      showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
+    }
+  } finally {
+    swapQuoteFetching = false;
+    setSwapQuoteButtonLoading(false, { skipEnableSync: lastSwapQuoteOk != null });
+    if (lastSwapQuoteOk) {
+      startRefreshQuoteBtnCooldown();
+      startBuildBtnQuoteWindow();
+    } else {
+      setBuyReadoutLoading(false);
+      setBuyFiatLoading(false);
+      setFooterStatsLoading(false);
+    }
+    syncSwapQuoteButtonState();
+    syncSwapRouterSwitchState();
+    syncBuildButtonState();
+    if (swapQuoteLoading) {
+      swapQuoteLoading.hidden = true;
+      swapQuoteLoading.setAttribute("aria-hidden", "true");
+    }
+  }
 }
 async function fetchSwapQuote() {
   if (!swapInputMintInput || !swapOutputMintInput || !swapAmountInput) return;
@@ -32359,6 +32699,10 @@ async function fetchSwapQuote() {
     if (swapQuoteError) showInlineError(swapQuoteError, "Enter a valid Solana wallet address.");
     return;
   }
+  if (isSwapQuoteRefreshMode() && !shouldRefetchMarketsAfterEnablingEnumeration()) {
+    await refreshSelectedRouteQuote(wallet, inputMint, outputMint, amount);
+    return;
+  }
   lastSwapQuoteOk = null;
   lastVybeBuild = null;
   clearBuildBtnQuoteWindow();
@@ -32395,6 +32739,7 @@ async function fetchSwapQuote() {
     setSwapQuoteButtonLoading(false, { skipEnableSync: lastSwapQuoteOk != null });
     if (lastSwapQuoteOk) {
       startSwapActionCooldownsAfterQuote();
+      rememberSwapQuoteFormContextKey();
     } else {
       setBuyReadoutLoading(false);
       setBuyFiatLoading(false);
@@ -32414,7 +32759,7 @@ var swapSignPendingLogEl = null;
 var swapSignDialogSuccess = false;
 var swapSignRetryContext = null;
 var swapSignSuccessContext = null;
-function sleepMs(ms) {
+function sleepMs2(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 var SWAP_SIGN_CANCEL_BUTTON_HTML = "Cancel";
@@ -32445,24 +32790,17 @@ function resetSwapSignDialogUi(clearLogs = true) {
     setSwapSignCancelButtonLabel("cancel");
   }
   setSwapSignTxidButtonsState("hidden");
-  syncSignDialogRetryButtons(false);
-  if (swapSignConfirmRetryEl) swapSignConfirmRetryEl.disabled = false;
+  syncSignDialogRefetchButton();
   if (swapSignConfirmRefetchRetryEl) swapSignConfirmRefetchRetryEl.disabled = false;
 }
-function setSignDialogRetryButtonsDisabled(disabled) {
-  if (swapSignConfirmRetryEl) swapSignConfirmRetryEl.disabled = disabled;
+function setSignDialogRefetchButtonDisabled(disabled) {
   if (swapSignConfirmRefetchRetryEl) swapSignConfirmRefetchRetryEl.disabled = disabled;
 }
-function syncSignDialogRetryButtons(visible) {
-  const expired = isBuildBtnQuoteExpired();
-  if (swapSignConfirmRetryEl) {
-    const showTryAgain = visible && !expired;
-    swapSignConfirmRetryEl.hidden = !showTryAgain;
-    swapSignConfirmRetryEl.style.display = showTryAgain ? "" : "none";
-  }
+function syncSignDialogRefetchButton() {
+  const show = Boolean(swapSignConfirmDialogEl?.open && !swapSignDialogSuccess);
   if (swapSignConfirmRefetchRetryEl) {
-    swapSignConfirmRefetchRetryEl.hidden = !visible;
-    swapSignConfirmRefetchRetryEl.style.display = visible ? "" : "none";
+    swapSignConfirmRefetchRetryEl.hidden = !show;
+    swapSignConfirmRefetchRetryEl.style.display = show ? "" : "none";
   }
 }
 function setSwapSignTxidButtonsState(mode) {
@@ -32503,7 +32841,7 @@ function setSwapSignDialogActions(state) {
   } else {
     setSwapSignTxidButtonsState("hidden");
   }
-  syncSignDialogRetryButtons(state === "failed");
+  syncSignDialogRefetchButton();
 }
 function appendSwapSignLog(text, tone = "neutral") {
   if (!swapSignConfirmLogsEl) return null;
@@ -32530,7 +32868,7 @@ function openSwapSignDialog(quote, buildPayload, options) {
     swapSignDialogSuccess = false;
     swapSignSuccessContext = null;
     setSwapSignTxidButtonsState("hidden");
-    syncSignDialogRetryButtons(false);
+    syncSignDialogRefetchButton();
     if (swapSignConfirmCancelEl) {
       swapSignConfirmCancelEl.hidden = false;
       swapSignConfirmCancelEl.disabled = false;
@@ -32586,7 +32924,7 @@ async function pollTransactionConfirmation(signature2, generation) {
     if (generation != null && generation !== swapSignFlowGeneration) {
       return { ok: false, err: "Cancelled" };
     }
-    await sleepMs(SWAP_TX_CONFIRM_POLL_MS);
+    await sleepMs2(SWAP_TX_CONFIRM_POLL_MS);
     if (generation != null && generation !== swapSignFlowGeneration) {
       return { ok: false, err: "Cancelled" };
     }
@@ -32773,24 +33111,8 @@ async function runSwapSignDialogFlow(quote, buildPayload, txStrings, options) {
     setSwapSignDialogActions("failed");
   }
 }
-async function handleSwapSignDialogRetry() {
-  if (!swapSignRetryContext?.txStrings.length) return;
-  setSignDialogRetryButtonsDisabled(true);
-  appendSwapSignLog("Retrying with current quote\u2026", "neutral");
-  const generation = ++swapSignFlowGeneration;
-  try {
-    await completeSwapSignFlow(generation, swapSignRetryContext.txStrings);
-  } catch (err) {
-    if (generation !== swapSignFlowGeneration) return;
-    appendSwapSignLog(err instanceof Error ? err.message : String(err), "error");
-    setSwapSignDialogActions("failed");
-  } finally {
-    setSignDialogRetryButtonsDisabled(false);
-    syncSignDialogRetryButtons(true);
-  }
-}
 async function handleSwapSignDialogRefetchRebuild() {
-  setSignDialogRetryButtonsDisabled(true);
+  setSignDialogRefetchButtonDisabled(true);
   appendSwapSignLog("Fetching a fresh quote\u2026", "pending");
   try {
     let wallet = swapWalletAddressInput?.value.trim() ?? "";
@@ -32811,8 +33133,8 @@ async function handleSwapSignDialogRefetchRebuild() {
     appendSwapSignLog(err instanceof Error ? err.message : String(err), "error");
     setSwapSignDialogActions("failed");
   } finally {
-    setSignDialogRetryButtonsDisabled(false);
-    syncSignDialogRetryButtons(true);
+    setSignDialogRefetchButtonDisabled(false);
+    syncSignDialogRefetchButton();
   }
 }
 async function applyBuiltSwapTx(buildTx, buildPayload) {
@@ -32901,24 +33223,32 @@ function getActiveEnumeratedRoute() {
 }
 function selectedRoutePinFields() {
   const candidate = getSelectedEnumeratedRouteCandidate();
-  let poolAddress = candidate?.marketAddress?.trim() ?? "";
-  let programAddress = candidate?.programAddress?.trim() ?? "";
-  let protocol = candidate?.protocol?.trim() ?? "";
-  const activeRoute = getActiveEnumeratedRoute();
-  if (!poolAddress && activeRoute?.quote) {
-    poolAddress = poolAddressFromQuoteBody(activeRoute.quote);
-    if (!programAddress) programAddress = programAddressFromQuoteBody(activeRoute.quote);
+  const quoteBody = activeRouteQuoteBodyForPin();
+  const baseCandidate = {
+    marketAddress: candidate?.marketAddress?.trim() ?? "",
+    programAddress: candidate?.programAddress?.trim() ?? "",
+    protocol: candidate?.protocol?.trim(),
+    programLabel: candidate?.programLabel,
+    tradeCount: candidate?.tradeCount ?? 0,
+    buyCount: candidate?.buyCount ?? 0,
+    sellCount: candidate?.sellCount ?? 0,
+    ...candidate?.liquidity != null ? { liquidity: candidate.liquidity } : {}
+  };
+  const enriched = quoteBody ? enrichTradeCandidateFromBody(baseCandidate, quoteBody) : baseCandidate;
+  let poolAddress = enriched.marketAddress?.trim() ?? "";
+  let programAddress = enriched.programAddress?.trim() ?? "";
+  let protocol = enriched.protocol?.trim() ?? "";
+  if (quoteBody) {
+    if (!poolAddress) poolAddress = poolAddressFromQuoteBody(quoteBody);
+    if (!programAddress) programAddress = programAddressFromQuoteBody(quoteBody);
+    if (!protocol) protocol = protocolFromQuoteBody(quoteBody);
   }
   if (!poolAddress && isSwapRoutePinMode()) {
     poolAddress = swapPoolAddressInput?.value.trim() ?? "";
     if (!protocol) protocol = swapProtocolSelect?.value.trim() ?? "";
   }
   if (!poolAddress) return null;
-  return {
-    poolAddress,
-    ...programAddress ? { programAddress } : {},
-    ...protocol ? { protocol } : {}
-  };
+  return completeRoutePinFields({ poolAddress, programAddress, protocol });
 }
 function mergeSelectedRoutePinIntoBuildOpts(opts) {
   const pin = selectedRoutePinFields();
@@ -33653,7 +33983,6 @@ swapSignConfirmTxidsEl?.addEventListener("click", (event) => {
   const sig = btn.dataset.signature?.trim();
   if (sig) openSignatureOnSolscan(sig);
 });
-swapSignConfirmRetryEl?.addEventListener("click", () => void handleSwapSignDialogRetry());
 swapSignConfirmRefetchRetryEl?.addEventListener("click", () => void handleSwapSignDialogRefetchRebuild());
 swapSignConfirmDialogEl?.addEventListener("cancel", (event) => {
   event.preventDefault();

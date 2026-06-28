@@ -78,6 +78,13 @@ export interface WalletBalanceListItem {
 
 const CACHE_KEY = 'vybe-swap-token-cache-v1';
 const RECENT_KEY = 'vybe-swap-token-recent-v1';
+/** Mints where wallet phase-2 /api/token enrichment failed — persisted locally. */
+const WALLET_ENRICH_GIVEUP_KEY = 'vybe-wallet-enrich-giveup-v1';
+const WALLET_ENRICH_GIVEUP_TTL_MS = 183 * 24 * 60 * 60 * 1000; // ~6 months
+/** Phase 2: only enrich the top N wallet rows by on-chain token amount. */
+const WALLET_ENRICH_MAX = 10;
+/** Phase 2: stagger /api/token fetches (ms between requests). */
+const WALLET_ENRICH_INTERVAL_MS = 1000;
 const MAX_RECENT = 24;
 const CATALOG_JSON_URL = '/data/token-catalog.json';
 const CATALOG_TSV_URL = '/data/token-catalog.tsv';
@@ -167,6 +174,7 @@ function preventBackgroundScroll(event: Event): void {
 let sessionWalletBalances: { wallet: string; fetchedAt: number; items: WalletBalanceListItem[] } | null =
   null;
 let walletBalanceStreamAbort: AbortController | null = null;
+let walletEnrichAbort: AbortController | null = null;
 let walletBalanceStreamListener: (() => void) | null = null;
 
 /** Called after each streamed wallet balance chunk (initial + per-RPC-only update). */
@@ -247,6 +255,7 @@ async function consumeWalletBalanceStream(
         );
         sessionWalletBalances = { wallet, fetchedAt: Date.now(), items };
         notifyWalletBalanceStream();
+        void enrichWalletItemsOnClient(items);
       } else if (msg.event === 'update') {
         mergeWalletBalanceUpdate(msg.token);
         items = sessionWalletBalances?.items ?? items;
@@ -258,22 +267,147 @@ async function consumeWalletBalanceStream(
   return sessionWalletBalances?.items ?? items;
 }
 
-async function prefetchWalletItemLogos(items: WalletBalanceListItem[]): Promise<void> {
-  const mints = [
-    ...new Set(
-      items
-        .filter((i) => !isBlockedPickerMint(i.mintAddress))
-        .filter((i) => {
-          const url = resolveTokenLogoUrl(i.mintAddress) ?? i.logoUrl?.trim();
-          return !url || effectiveTokenIconSrc(url) === TOKEN_ICON_PLACEHOLDER_PATH;
-        })
-        .map((i) => i.mintAddress),
-    ),
-  ];
-  if (mints.length === 0) return;
-  for (const mint of mints) {
-    await ensureTokenMetaForMint(mint);
+function walletItemStillIncomplete(item: WalletBalanceListItem): boolean {
+  if (item.enrichmentPending) return true;
+  const sym = item.symbol?.trim();
+  const mint = item.mintAddress.trim();
+  if (!sym || isMintLikeLabel(sym, mint)) return true;
+  const url = resolveTokenLogoUrl(mint) ?? item.logoUrl?.trim();
+  if (!url || effectiveTokenIconSrc(url) === TOKEN_ICON_PLACEHOLDER_PATH) return true;
+  if (!(walletItemValueUsd(item) > 0)) return true;
+  return false;
+}
+
+function readWalletEnrichGiveUp(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(WALLET_ENRICH_GIVEUP_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, number>;
+    if (!parsed || typeof parsed !== 'object') return {};
+    const now = Date.now();
+    const out: Record<string, number> = {};
+    for (const [mint, ts] of Object.entries(parsed)) {
+      if (typeof ts === 'number' && now - ts < WALLET_ENRICH_GIVEUP_TTL_MS) out[mint] = ts;
+    }
+    return out;
+  } catch {
+    return {};
   }
+}
+
+function writeWalletEnrichGiveUp(map: Record<string, number>): void {
+  localStorage.setItem(WALLET_ENRICH_GIVEUP_KEY, JSON.stringify(map));
+}
+
+function isWalletEnrichGiveUp(mint: string): boolean {
+  return Boolean(readWalletEnrichGiveUp()[mint.trim()]);
+}
+
+function markWalletEnrichGiveUp(mint: string): void {
+  const map = readWalletEnrichGiveUp();
+  map[mint.trim()] = Date.now();
+  writeWalletEnrichGiveUp(map);
+}
+
+function clearWalletEnrichGiveUp(mints?: string[]): void {
+  if (!mints?.length) {
+    localStorage.removeItem(WALLET_ENRICH_GIVEUP_KEY);
+    return;
+  }
+  const map = readWalletEnrichGiveUp();
+  for (const mint of mints) delete map[mint.trim()];
+  writeWalletEnrichGiveUp(map);
+}
+
+function walletItemNeedsClientEnrichment(item: WalletBalanceListItem): boolean {
+  const mint = item.mintAddress.trim();
+  if (isWalletEnrichGiveUp(mint)) return false;
+  return walletItemStillIncomplete(item);
+}
+
+function applyMetaToWalletItem(
+  item: WalletBalanceListItem,
+  meta: TokenMeta,
+): WalletBalanceListItem {
+  const price = typeof meta.price === 'number' && meta.price > 0 ? meta.price : undefined;
+  let valueUsd = item.valueUsd;
+  let valueSol = item.valueSol;
+  if (price != null && !(valueUsd > 0)) {
+    valueUsd = price * item.amountUi;
+    valueSol = undefined;
+  }
+  const mint = item.mintAddress.trim();
+  const symbolFallback = truncateMint(mint);
+  return {
+    ...item,
+    symbol: sanitizeTokenLabel(meta.symbol, mint, symbolFallback),
+    name: sanitizeTokenLabel(meta.name, mint, symbolFallback),
+    logoUrl: meta.logoUrl?.trim() || item.logoUrl,
+    decimals: meta.decimals ?? item.decimals,
+    verified: meta.isVerified ?? item.verified,
+    valueUsd,
+    valueSol,
+    enrichmentPending: false,
+  };
+}
+
+function sleepMs(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    const id = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(id);
+        reject(new DOMException('Aborted', 'AbortError'));
+      },
+      { once: true },
+    );
+  });
+}
+
+/** Client-side phase 2: logos, symbols, and USD values via GET /api/token. */
+async function enrichWalletItemsOnClient(items: WalletBalanceListItem[]): Promise<void> {
+  walletEnrichAbort?.abort();
+  const ac = new AbortController();
+  walletEnrichAbort = ac;
+
+  const targets = items
+    .filter((i) => !isBlockedPickerMint(i.mintAddress) && walletItemNeedsClientEnrichment(i))
+    .sort((a, b) => b.amountUi - a.amountUi)
+    .slice(0, WALLET_ENRICH_MAX);
+
+  if (targets.length === 0) return;
+
+  for (let i = 0; i < targets.length; i++) {
+    if (ac.signal.aborted) return;
+    const item = targets[i];
+    const mint = item.mintAddress.trim();
+    const meta = await fetchTokenByMint(mint, { skipVybe: true });
+    if (ac.signal.aborted) return;
+    const updated = meta
+      ? applyMetaToWalletItem(item, meta)
+      : { ...item, enrichmentPending: false };
+    if (!meta || walletItemStillIncomplete(updated)) {
+      markWalletEnrichGiveUp(mint);
+    } else {
+      clearWalletEnrichGiveUp([mint]);
+    }
+    mergeWalletBalanceUpdate(updated);
+    notifyWalletBalanceStream();
+
+    if (i < targets.length - 1) {
+      try {
+        await sleepMs(WALLET_ENRICH_INTERVAL_MS, ac.signal);
+      } catch {
+        return;
+      }
+    }
+  }
+
   refreshWalletBalancesPanel();
   if (dialogEl?.open) renderShortcuts();
 }
@@ -281,6 +415,8 @@ async function prefetchWalletItemLogos(items: WalletBalanceListItem[]): Promise<
 export function clearSessionWalletBalances(): void {
   walletBalanceStreamAbort?.abort();
   walletBalanceStreamAbort = null;
+  walletEnrichAbort?.abort();
+  walletEnrichAbort = null;
   sessionWalletBalances = null;
 }
 
@@ -295,8 +431,7 @@ async function fetchWalletBalances(wallet: string): Promise<WalletBalanceListIte
     { signal: ac.signal, cache: 'no-store' },
   );
   const items = await consumeWalletBalanceStream(w, res);
-  void prefetchWalletItemLogos(items);
-  return items;
+  return sessionWalletBalances?.items ?? items;
 }
 
 /** @deprecated Renamed to amountExceedsWalletBalance */
@@ -872,7 +1007,7 @@ function needsRemoteLogoResolve(meta: TokenMeta | null | undefined): boolean {
   // Fully resolved via /api/token with a local icon path — skip refetch.
   if (meta.source === 'search' && u.startsWith('/')) return false;
   const sym = meta.symbol?.trim();
-  if (!sym || sym === truncateMint(meta.mint)) return true;
+  if (!sym || isMintLikeLabel(sym, meta.mint)) return true;
   if (meta.decimals == null) return true;
   if (u.startsWith('/')) return false;
   // Catalog / wallet rows may keep remote icon URLs; browser loads them directly.
@@ -975,6 +1110,20 @@ async function loadCatalog(): Promise<void> {
 function truncateMint(mint: string): string {
   if (mint.length <= 13) return mint;
   return `${mint.slice(0, 4)}…${mint.slice(-4)}`;
+}
+
+function isMintLikeLabel(label: string, mint: string): boolean {
+  const s = label.trim();
+  if (!s) return true;
+  if (s === mint || s === truncateMint(mint)) return true;
+  return BASE58_RE.test(s) && s.length >= 32;
+}
+
+function sanitizeTokenLabel(raw: string | undefined, mint: string, fallback?: string): string {
+  const fb = fallback ?? truncateMint(mint);
+  const s = raw?.trim() ?? '';
+  if (!s || isMintLikeLabel(s, mint)) return fb;
+  return s;
 }
 
 function escapeHtml(s: string): string {
@@ -1083,15 +1232,23 @@ function getVisibleTokens(): TokenMeta[] {
   return filterTokensForBuyOutputPicker(merged);
 }
 
-async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
+async function fetchTokenByMint(
+  mint: string,
+  options?: { skipVybe?: boolean },
+): Promise<TokenMeta | null> {
   try {
-    const res = await fetch(`/api/token/${encodeURIComponent(mint)}`);
+    const qs = options?.skipVybe ? '?skipVybe=1' : '';
+    const res = await fetch(`/api/token/${encodeURIComponent(mint)}${qs}`);
     if (!res.ok) return null;
     const body = (await res.json()) as Record<string, unknown>;
     if (body.error) return null;
     applyResolvedTokenFromApi(mint, body);
-    const symbol = String(body.symbol ?? '').trim();
-    const name = String(body.name ?? '').trim();
+    const symbol = sanitizeTokenLabel(String(body.symbol ?? ''), mint, truncateMint(mint));
+    const name = sanitizeTokenLabel(
+      String(body.name ?? ''),
+      mint,
+      symbol !== truncateMint(mint) ? symbol : truncateMint(mint),
+    );
     const logoUrl = resolveLogoUrl(String(body.logoUrl ?? ''));
     const decimals = typeof body.decimals === 'number' ? body.decimals : undefined;
     const price = typeof body.price === 'number' ? body.price : undefined;
@@ -1154,18 +1311,20 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
   const catalogHit = catalogTokens.find((t) => t.mint === item.mintAddress);
   const cached = readCache()[item.mintAddress];
   const base = catalogHit ?? cached;
+  const mint = item.mintAddress;
+  const symbolFallback = truncateMint(mint);
   const symbol =
-    item.mintAddress === NATIVE_SOL_MINT
+    mint === NATIVE_SOL_MINT
       ? 'SOL'
-      : item.mintAddress === WSOL_MINT
+      : mint === WSOL_MINT
         ? 'WSOL'
-        : item.symbol || base?.symbol || truncateMint(item.mintAddress);
+        : sanitizeTokenLabel(item.symbol || base?.symbol, mint, symbolFallback);
   const name =
-    item.mintAddress === NATIVE_SOL_MINT
+    mint === NATIVE_SOL_MINT
       ? 'Solana'
-      : item.mintAddress === WSOL_MINT
+      : mint === WSOL_MINT
         ? 'Wrapped SOL'
-        : item.name || base?.name || symbol;
+        : sanitizeTokenLabel(item.name || base?.name, mint, symbol);
   return {
     mint: item.mintAddress,
     symbol,
@@ -1980,6 +2139,7 @@ async function onRefetchHoldingsClick(): Promise<void> {
   const wallet = getWalletAddressCb?.().trim() ?? '';
   if (!wallet) return;
 
+  clearWalletEnrichGiveUp();
   startRefetchHoldingsCooldown();
   refetchHoldingsInFlight = true;
   syncRefetchHoldingsBtn();

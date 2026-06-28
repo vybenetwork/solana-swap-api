@@ -13,6 +13,7 @@ import { getToken } from './tokens.js';
 import { fetchRpcWalletBalances, RPC_NATIVE_SOL_MINT } from './wallet-rpc-balance.js';
 import type { RpcMintBalance } from './wallet-rpc-balance.js';
 import { WALLET_TOKEN_BALANCE_LIMIT } from '../wallet-balance-limit.js';
+import { isMintLikeLabel } from '../api/token-label.js';
 
 export { WALLET_TOKEN_BALANCE_LIMIT };
 
@@ -429,8 +430,14 @@ export async function mergeWalletBalancesFromRpcAndVybe(
         rpcOk,
       );
       if (!amounts) return null;
-      const symbol = row.symbol?.trim() || mintAddress.slice(0, 6);
-      const name = row.name?.trim() || symbol;
+      const rawSymbol = row.symbol?.trim() ?? '';
+      const rawName = row.name?.trim() ?? '';
+      const symbol =
+        rawSymbol && !isMintLikeLabel(rawSymbol, mintAddress)
+          ? rawSymbol
+          : mintAddress.slice(0, 6);
+      const name =
+        rawName && !isMintLikeLabel(rawName, mintAddress) ? rawName : symbol;
       let valueUsd = Number(row.valueUsd);
       if (rpcOk) {
         const priceUsd = Number(row.priceUsd);
@@ -511,7 +518,7 @@ function replaceWalletBalanceItem(
   return sortWalletBalanceItems(next);
 }
 
-/** Phase 2+: stream RPC-only enrichment after the initial RPC+Vybe merge. */
+/** Stream phase-1 RPC+Vybe merge only; client enriches logos/prices via GET /api/token. */
 export async function streamWalletTokenBalances(
   http: AxiosInstance,
   ownerAddress: string,
@@ -519,33 +526,9 @@ export async function streamWalletTokenBalances(
   emit: (event: WalletBalanceStreamEvent) => void,
   isCancelled?: () => boolean,
 ): Promise<void> {
-  const { items, rpcOnlyToEnrich } = await mergeWalletBalancesFromRpcAndVybe(
-    http,
-    ownerAddress,
-    limit,
-  );
+  const { items } = await mergeWalletBalancesFromRpcAndVybe(http, ownerAddress, limit);
   if (isCancelled?.()) return;
   emit({ event: 'initial', tokens: items });
-
-  let current = items;
-  for (const target of rpcOnlyToEnrich) {
-    if (isCancelled?.()) return;
-    const enriched = await enrichRpcOnlyWalletItem(http, target);
-    if (!enriched) continue;
-    current = replaceWalletBalanceItem(current, enriched);
-    emit({ event: 'update', token: enriched });
-  }
-
-  for (const item of current) {
-    if (item.logoUrl?.trim()) continue;
-    if (isCancelled?.()) return;
-    const enriched = await enrichWalletItemMeta(http, item);
-    if (enriched.logoUrl?.trim() && enriched.logoUrl !== item.logoUrl) {
-      current = replaceWalletBalanceItem(current, enriched);
-      emit({ event: 'update', token: enriched });
-    }
-  }
-
   if (!isCancelled?.()) emit({ event: 'done' });
 }
 
@@ -554,14 +537,8 @@ export async function listWalletTokenBalances(
   ownerAddress: string,
   limit = WALLET_TOKEN_BALANCE_LIMIT,
 ): Promise<WalletBalanceListItem[]> {
-  let latest: WalletBalanceListItem[] = [];
-  await streamWalletTokenBalances(http, ownerAddress, limit, (ev) => {
-    if (ev.event === 'initial') latest = ev.tokens;
-    else if (ev.event === 'update') {
-      latest = replaceWalletBalanceItem(latest, ev.token);
-    }
-  });
-  return latest.slice(0, limit);
+  const { items } = await mergeWalletBalancesFromRpcAndVybe(http, ownerAddress, limit);
+  return items.slice(0, limit);
 }
 
 export async function getWalletSolBalanceUi(
