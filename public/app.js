@@ -28405,7 +28405,7 @@ function syncSwapQuoteButtonState() {
     return;
   }
   const hardBlocked = diag.blockReason !== null && !isFlashOnlyQuoteBlockReason(diag.blockReason);
-  swapQuoteBtn.disabled = hardBlocked || isQuoteBtnInCooldown();
+  swapQuoteBtn.disabled = isSwapSignConfirmDialogOpen() || hardBlocked || isQuoteBtnInCooldown();
   updateSwapQuoteButtonLabel();
   renderSwapQuoteBtnDebug(diag);
   console.debug("[swap-quote-btn]", diag);
@@ -33003,8 +33003,11 @@ function hideSwapSignRefetchRetry() {
   swapSignRefetchRetryEligible = false;
   syncSignDialogRefetchButton();
 }
+function isSwapSignConfirmDialogOpen() {
+  return Boolean(swapSignConfirmDialogEl?.open);
+}
 function isSwapSignDialogActive() {
-  return swapBuildMode === "build-sign" && Boolean(swapSignConfirmDialogEl?.open);
+  return swapBuildMode === "build-sign" && isSwapSignConfirmDialogOpen();
 }
 function formatSignLogDurationMs(ms) {
   if (!Number.isFinite(ms) || ms < 0) return "\u2014";
@@ -33295,6 +33298,8 @@ function openSwapSignDialog(quote, buildPayload, options) {
     swapSignConfirmDialogEl?.showModal();
     lockPageScroll();
   }
+  syncSwapQuoteButtonState();
+  syncBuildButtonState();
 }
 function restoreSwapActionButtonsAfterSignDialogClose() {
   if (swapQuoteFetching) swapQuoteFetching = false;
@@ -33308,11 +33313,10 @@ function restoreSwapActionButtonsAfterSignDialogClose() {
 }
 function closeSwapSignDialog() {
   swapSignFlowGeneration++;
-  const wasSuccess = swapSignDialogSuccess;
   if (swapSignConfirmDialogEl?.open) swapSignConfirmDialogEl.close();
   unlockPageScroll();
   resetSwapSignDialogUi();
-  if (!wasSuccess) restoreSwapActionButtonsAfterSignDialogClose();
+  restoreSwapActionButtonsAfterSignDialogClose();
 }
 async function closeSwapSignDialogAfterSuccess() {
   if (!swapSignSuccessContext) {
@@ -33621,11 +33625,11 @@ function syncBuildButtonState() {
   if (!swapBuildBtn) return;
   if (swapBuildMode === "paste-sign") {
     swapBuildBtn.classList.remove("swap-action-btn--refetch-stripe");
-    swapBuildBtn.disabled = false;
+    swapBuildBtn.disabled = isSwapSignConfirmDialogOpen();
     syncBuildButtonLabel();
     return;
   }
-  swapBuildBtn.disabled = swapQuoteFetching || lastSwapQuoteOk == null;
+  swapBuildBtn.disabled = isSwapSignConfirmDialogOpen() || swapQuoteFetching || lastSwapQuoteOk == null;
   syncBuildButtonLabel();
   const refetchStripe = !swapBuildBtn.disabled && isBuildBtnQuoteExpired() && lastSwapQuoteOk != null;
   swapBuildBtn.classList.toggle("swap-action-btn--refetch-stripe", refetchStripe);
@@ -33644,9 +33648,9 @@ function syncBuildButtonLabel() {
     return;
   }
   if (isSignMode) {
-    buildLabelEl.textContent = expired ? "Refetch quote for selected route" : "Build & sign swap";
+    buildLabelEl.textContent = expired ? "Refetch quote then build & sign swap" : "Build & sign swap";
     if (buildHintEl) {
-      buildHintEl.textContent = expired ? "Then build & sign swap" : "Connect wallet & sign";
+      buildHintEl.textContent = expired ? "Update pricing, then open wallet to sign" : "Connect wallet & sign";
     }
     return;
   }

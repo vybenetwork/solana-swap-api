@@ -995,7 +995,8 @@ function syncSwapQuoteButtonState(): void {
   }
   const hardBlocked =
     diag.blockReason !== null && !isFlashOnlyQuoteBlockReason(diag.blockReason);
-  swapQuoteBtn.disabled = hardBlocked || isQuoteBtnInCooldown();
+  swapQuoteBtn.disabled =
+    isSwapSignConfirmDialogOpen() || hardBlocked || isQuoteBtnInCooldown();
   updateSwapQuoteButtonLabel();
   renderSwapQuoteBtnDebug(diag);
   console.debug('[swap-quote-btn]', diag);
@@ -6904,8 +6905,12 @@ function hideSwapSignRefetchRetry(): void {
   syncSignDialogRefetchButton();
 }
 
+function isSwapSignConfirmDialogOpen(): boolean {
+  return Boolean(swapSignConfirmDialogEl?.open);
+}
+
 function isSwapSignDialogActive(): boolean {
-  return swapBuildMode === 'build-sign' && Boolean(swapSignConfirmDialogEl?.open);
+  return swapBuildMode === 'build-sign' && isSwapSignConfirmDialogOpen();
 }
 
 function formatSignLogDurationMs(ms: number): string {
@@ -7270,6 +7275,8 @@ function openSwapSignDialog(
     swapSignConfirmDialogEl?.showModal();
     lockPageScroll();
   }
+  syncSwapQuoteButtonState();
+  syncBuildButtonState();
 }
 
 function restoreSwapActionButtonsAfterSignDialogClose(): void {
@@ -7285,11 +7292,10 @@ function restoreSwapActionButtonsAfterSignDialogClose(): void {
 
 function closeSwapSignDialog(): void {
   swapSignFlowGeneration++;
-  const wasSuccess = swapSignDialogSuccess;
   if (swapSignConfirmDialogEl?.open) swapSignConfirmDialogEl.close();
   unlockPageScroll();
   resetSwapSignDialogUi();
-  if (!wasSuccess) restoreSwapActionButtonsAfterSignDialogClose();
+  restoreSwapActionButtonsAfterSignDialogClose();
 }
 
 async function closeSwapSignDialogAfterSuccess(): Promise<void> {
@@ -7661,11 +7667,12 @@ function syncBuildButtonState(): void {
   if (!swapBuildBtn) return;
   if (swapBuildMode === 'paste-sign') {
     swapBuildBtn.classList.remove('swap-action-btn--refetch-stripe');
-    swapBuildBtn.disabled = false;
+    swapBuildBtn.disabled = isSwapSignConfirmDialogOpen();
     syncBuildButtonLabel();
     return;
   }
-  swapBuildBtn.disabled = swapQuoteFetching || lastSwapQuoteOk == null;
+  swapBuildBtn.disabled =
+    isSwapSignConfirmDialogOpen() || swapQuoteFetching || lastSwapQuoteOk == null;
   syncBuildButtonLabel();
   const refetchStripe =
     !swapBuildBtn.disabled &&
@@ -7691,11 +7698,11 @@ function syncBuildButtonLabel(): void {
   }
   if (isSignMode) {
     buildLabelEl.textContent = expired
-      ? 'Refetch quote for selected route'
+      ? 'Refetch quote then build & sign swap'
       : 'Build & sign swap';
     if (buildHintEl) {
       buildHintEl.textContent = expired
-        ? 'Then build & sign swap'
+        ? 'Update pricing, then open wallet to sign'
         : 'Connect wallet & sign';
     }
     return;
