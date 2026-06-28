@@ -23315,11 +23315,39 @@ function getQuoteWalletPayLabelFromQuote(quote) {
   if (fromSwapLeg) return fromSwapLeg;
   return "\u2014";
 }
+function isTruncatedMintSymbol(value, mint) {
+  const v = value.trim();
+  const m = mint.trim();
+  if (!v || !m) return false;
+  if (v === m) return true;
+  if (v === deps.truncate(m, 4, 4)) return true;
+  return /^[1-9A-HJ-NP-Za-km-z]{4}[.…]{1,5}[1-9A-HJ-NP-Za-km-z]{4}$/.test(v);
+}
+function resolvedMintSymbolFromMeta(mint) {
+  const metaSym = getCachedTokenMeta(mint)?.symbol?.replace(/\0/g, "").trim();
+  if (metaSym && !isTruncatedMintSymbol(metaSym, mint)) {
+    return deps.displaySymbol(metaSym);
+  }
+  const sessionSym = getSessionTokenPriceStats(mint)?.symbol?.replace(/\0/g, "").trim();
+  if (sessionSym && !isTruncatedMintSymbol(sessionSym, mint)) {
+    return deps.displaySymbol(sessionSym);
+  }
+  const pairSym = deps.getPairTokenStats()[mint]?.symbol?.replace(/\0/g, "").trim();
+  if (pairSym && !isTruncatedMintSymbol(pairSym, mint)) {
+    return deps.displaySymbol(pairSym);
+  }
+  return null;
+}
 function mintSymbolSync(mint) {
   const m = (mint ?? "").trim();
   if (!m) return "\u2014";
   const hard = HARDCODED_MINT_SYMBOLS[m];
   if (hard) return hard;
+  const fromMeta = resolvedMintSymbolFromMeta(m);
+  if (fromMeta) {
+    routeMintSymbolCache[m] = fromMeta;
+    return fromMeta;
+  }
   const cached = routeMintSymbolCache[m];
   if (cached) return cached;
   return deps.truncate(m, 4, 4);
@@ -27727,7 +27755,7 @@ var swapQuoteBtnTimerEl = document.getElementById("swapQuoteBtnTimer");
 var swapQuoteBtnDebugEl = document.getElementById("swapQuoteBtnDebug");
 var swapBuildBtn = document.getElementById("swapBuildBtn");
 var swapBuildBtnTimerEl = document.getElementById("swapBuildBtnTimer");
-var SWAP_QUOTE_BTN_COOLDOWN_SEC = 10;
+var SWAP_QUOTE_BTN_COOLDOWN_SEC = 5;
 var SWAP_REFRESH_QUOTE_BTN_COOLDOWN_SEC = 5;
 var SWAP_BUILD_BTN_QUOTE_TTL_SEC = 5;
 var SWAP_UI_EMPTY = "\u2014";
@@ -28209,7 +28237,13 @@ function startBuildBtnQuoteWindow() {
   buildBtnQuoteRaf = requestAnimationFrame(() => tickBuildBtnQuoteWindow(performance.now()));
 }
 function startSwapActionCooldownsAfterQuote(opts) {
-  if (!opts?.skipQuoteCooldown) startQuoteBtnCooldown();
+  if (!opts?.skipQuoteCooldown) {
+    if (isSwapQuoteRefreshMode()) {
+      startRefreshQuoteBtnCooldown();
+    } else {
+      startQuoteBtnCooldown();
+    }
+  }
   startBuildBtnQuoteWindow();
 }
 function currentSwapQuoteFormContextKey() {
@@ -28254,7 +28288,7 @@ function isSwapQuoteRefreshMode() {
   return key != null && key === lastSwapQuoteFormContextKey;
 }
 function getSwapQuoteButtonLabel() {
-  if (isSwapQuoteRefreshMode()) return "Refresh quote for selected route";
+  if (isSwapQuoteRefreshMode()) return "Refetch quote for selected route";
   if (isSwapEnumerateRoutesEnabled()) return "Get quotes (up to 3)";
   return "Get quote";
 }
@@ -28412,6 +28446,7 @@ function applyQuoteLoadingUi() {
   updateSwapPairCards(void 0, true);
   syncSwapSellAmountUi();
   syncSwapRouterSwitchState();
+  syncBuildButtonState();
 }
 function clearSwapQuoteFetchLockClasses() {
   swapAmountInput?.closest(".swap-amount-field")?.classList.remove("swap-amount-field--locked");
@@ -28775,13 +28810,14 @@ async function fetchMintMeta(mint) {
   if (HARDCODED_MINT_DECIMALS2[m] != null && routeMintDecimalsCache[m] == null) {
     routeMintDecimalsCache[m] = HARDCODED_MINT_DECIMALS2[m];
   }
-  let needSymbol = !routeMintSymbolCache[m];
+  const cachedRouteSym = routeMintSymbolCache[m];
+  let needSymbol = !cachedRouteSym || looksLikeTruncatedAddress(cachedRouteSym, m);
   let needDecimals = routeMintDecimalsCache[m] == null;
   const cachedMeta = getCachedTokenMeta(m);
   const sessionStats = getSessionTokenPriceStats(m);
   if (needSymbol) {
     const sym = cachedMeta?.symbol?.replace(/\0/g, "").trim() || sessionStats?.symbol?.replace(/\0/g, "").trim();
-    if (sym) {
+    if (sym && !looksLikeTruncatedAddress(sym, m)) {
       routeMintSymbolCache[m] = displaySymbol(sym);
       needSymbol = false;
     }
@@ -28800,7 +28836,10 @@ async function fetchMintMeta(mint) {
   const body = await res.json().catch(() => ({}));
   if (needSymbol) {
     const sym = (body.symbol ?? m).replace(/\0/g, "").trim();
-    routeMintSymbolCache[m] = displaySymbol(sym || truncate(m, 4, 4));
+    const resolved = displaySymbol(sym || truncate(m, 4, 4));
+    if (!looksLikeTruncatedAddress(resolved, m) || !routeMintSymbolCache[m]) {
+      routeMintSymbolCache[m] = resolved;
+    }
   }
   if (needDecimals && typeof body.decimals === "number" && Number.isFinite(body.decimals)) {
     routeMintDecimalsCache[m] = body.decimals;
@@ -28837,6 +28876,16 @@ function looksLikeTruncatedAddress(value, mint) {
   if (!value || value === mint) return false;
   if (value === truncate(mint, 4, 4)) return true;
   return /^[1-9A-HJ-NP-Za-km-z]{4}[.…]{1,5}[1-9A-HJ-NP-Za-km-z]{4}$/.test(value);
+}
+function upgradeRouteMintSymbolCache(mint, symbol) {
+  const m = mint.trim();
+  const sym = symbol?.replace(/\0/g, "").trim();
+  if (!m || !sym || looksLikeTruncatedAddress(sym, m)) return;
+  routeMintSymbolCache[m] = displaySymbol(sym);
+}
+function saveTokenPriceStatsForUi(mint, stats) {
+  saveTokenPriceStats(mint, stats);
+  upgradeRouteMintSymbolCache(mint, stats.symbol);
 }
 function swapSideTokenName(mint, chipSymbol) {
   const m = mint.trim();
@@ -29316,6 +29365,9 @@ async function refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount
   await ensureResolvePricesBeforeQuote(inputMint, outputMint, { force: true });
   swapQuoteFetching = true;
   pushSuppressClientPriceResolve();
+  syncSwapRouterSwitchState();
+  syncSwapQuoteButtonState();
+  syncBuildButtonState();
   try {
     if (router === "vybe") {
       const walletErr = validateVybeQuoteWallet();
@@ -29335,6 +29387,8 @@ async function refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount
     swapQuoteFetching = false;
     popSuppressClientPriceResolve();
     syncSwapRouterSwitchState();
+    syncSwapQuoteButtonState();
+    syncBuildButtonState();
   }
 }
 function onSwapBuildOptionChanged() {
@@ -31288,7 +31342,7 @@ async function prefetchSwapPairPrices(options) {
     }
     const stats = body.stats ?? {};
     for (const [mint, s] of Object.entries(stats)) {
-      saveTokenPriceStats(mint, s);
+      saveTokenPriceStatsForUi(mint, s);
     }
     updateSwapPairCards(stats);
     updateSwapTokenIcons();
@@ -31402,7 +31456,7 @@ async function prefetchRouteTokenPrices(quote) {
     }
     const stats = body.stats ?? {};
     for (const [mint, s] of Object.entries(stats)) {
-      saveTokenPriceStats(mint, s);
+      saveTokenPriceStatsForUi(mint, s);
     }
     if (Object.keys(stats).length > 0) {
       updateSwapPairCards(stats);
@@ -32066,7 +32120,7 @@ function applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, bui
   if (isSwapRouterId(quoteRouter)) clearRouterQuoteCache(quoteRouter);
   if (body._tokenStats) {
     for (const [mint, s] of Object.entries(body._tokenStats)) {
-      saveTokenPriceStats(mint, s);
+      saveTokenPriceStatsForUi(mint, s);
     }
     updateSwapPairCards(body._tokenStats, swapQuoteFetching);
   }
@@ -32328,7 +32382,7 @@ function applyAggregatorBuildToUi(quoteBody, swapBody, router, wallet, inputMint
   const tokenStats = quoteBody._tokenStats;
   if (tokenStats) {
     for (const [mint, s] of Object.entries(tokenStats)) {
-      saveTokenPriceStats(mint, s);
+      saveTokenPriceStatsForUi(mint, s);
     }
     updateSwapPairCards(tokenStats);
   }
@@ -32564,7 +32618,7 @@ async function resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMin
   }
   const stats = body.stats ?? {};
   for (const [mint, s] of Object.entries(stats)) {
-    saveTokenPriceStats(mint, s);
+    saveTokenPriceStatsForUi(mint, s);
   }
   return stats;
 }
@@ -32631,8 +32685,7 @@ async function refreshSelectedRouteQuote(wallet, inputMint, outputMint, amount) 
     swapQuoteFetching = false;
     setSwapQuoteButtonLoading(false, { skipEnableSync: lastSwapQuoteOk != null });
     if (lastSwapQuoteOk) {
-      startRefreshQuoteBtnCooldown();
-      startBuildBtnQuoteWindow();
+      startSwapActionCooldownsAfterQuote();
     } else {
       setBuyReadoutLoading(false);
       setBuyFiatLoading(false);
@@ -32884,11 +32937,23 @@ function openSwapSignDialog(quote, buildPayload, options) {
     lockPageScroll();
   }
 }
+function restoreSwapActionButtonsAfterSignDialogClose() {
+  if (swapQuoteFetching) swapQuoteFetching = false;
+  setSwapQuoteButtonLoading(false);
+  if (quoteBtnCooldownEndsAt > 0 && !isQuoteBtnInCooldown()) {
+    clearQuoteBtnCooldown();
+  }
+  syncSwapRouterSwitchState();
+  syncSwapQuoteButtonState();
+  syncBuildButtonState();
+}
 function closeSwapSignDialog() {
   swapSignFlowGeneration++;
+  const wasSuccess = swapSignDialogSuccess;
   if (swapSignConfirmDialogEl?.open) swapSignConfirmDialogEl.close();
   unlockPageScroll();
   resetSwapSignDialogUi();
+  if (!wasSuccess) restoreSwapActionButtonsAfterSignDialogClose();
 }
 async function closeSwapSignDialogAfterSuccess() {
   if (!swapSignSuccessContext) {
@@ -33180,12 +33245,15 @@ async function postPasteSignSwap() {
 function syncBuildButtonState() {
   if (!swapBuildBtn) return;
   if (swapBuildMode === "paste-sign") {
+    swapBuildBtn.classList.remove("swap-action-btn--refetch-stripe");
     swapBuildBtn.disabled = false;
     syncBuildButtonLabel();
     return;
   }
-  swapBuildBtn.disabled = lastSwapQuoteOk == null;
+  swapBuildBtn.disabled = swapQuoteFetching || lastSwapQuoteOk == null;
   syncBuildButtonLabel();
+  const refetchStripe = !swapBuildBtn.disabled && isBuildBtnQuoteExpired() && lastSwapQuoteOk != null;
+  swapBuildBtn.classList.toggle("swap-action-btn--refetch-stripe", refetchStripe);
 }
 function syncBuildButtonLabel() {
   if (!swapBuildBtn) return;
@@ -33201,15 +33269,15 @@ function syncBuildButtonLabel() {
     return;
   }
   if (isSignMode) {
-    buildLabelEl.textContent = expired ? "Refetch then build & sign swap" : "Build & sign swap";
+    buildLabelEl.textContent = expired ? "Refetch quote for selected route" : "Build & sign swap";
     if (buildHintEl) {
-      buildHintEl.textContent = expired ? "Refresh selected route quote, then sign" : "Connect wallet & sign";
+      buildHintEl.textContent = expired ? "Then build & sign swap" : "Connect wallet & sign";
     }
     return;
   }
-  buildLabelEl.textContent = expired ? "Refetch then build swap" : "Build swap (no signing)";
+  buildLabelEl.textContent = expired ? "Refetch quote for selected route" : "Build swap (no signing)";
   if (buildHintEl) {
-    buildHintEl.textContent = expired ? "Refresh selected route quote, then build" : "Requires quote & wallet";
+    buildHintEl.textContent = expired ? "Then build swap" : "Requires quote & wallet";
   }
 }
 function getSelectedEnumeratedRouteCandidate() {

@@ -1052,11 +1052,44 @@ function routeOutputMintSymbol(mint: string | undefined): string {
   return mintSymbolSync(mint);
 }
 
+/** True when a label is just a truncated mint (e.g. DvR6…MT), not a real ticker. */
+export function isTruncatedMintSymbol(value: string, mint: string): boolean {
+  const v = value.trim();
+  const m = mint.trim();
+  if (!v || !m) return false;
+  if (v === m) return true;
+  if (v === deps.truncate(m, 4, 4)) return true;
+  return /^[1-9A-HJ-NP-Za-km-z]{4}[.…]{1,5}[1-9A-HJ-NP-Za-km-z]{4}$/.test(v);
+}
+
+function resolvedMintSymbolFromMeta(mint: string): string | null {
+  const metaSym = getCachedTokenMeta(mint)?.symbol?.replace(/\0/g, '').trim();
+  if (metaSym && !isTruncatedMintSymbol(metaSym, mint)) {
+    return deps.displaySymbol(metaSym);
+  }
+  const sessionSym = getSessionTokenPriceStats(mint)?.symbol?.replace(/\0/g, '').trim();
+  if (sessionSym && !isTruncatedMintSymbol(sessionSym, mint)) {
+    return deps.displaySymbol(sessionSym);
+  }
+  const pairSym = deps.getPairTokenStats()[mint]?.symbol?.replace(/\0/g, '').trim();
+  if (pairSym && !isTruncatedMintSymbol(pairSym, mint)) {
+    return deps.displaySymbol(pairSym);
+  }
+  return null;
+}
+
 export function mintSymbolSync(mint: string | undefined): string {
   const m = (mint ?? '').trim();
   if (!m) return '—';
   const hard = HARDCODED_MINT_SYMBOLS[m];
   if (hard) return hard;
+
+  const fromMeta = resolvedMintSymbolFromMeta(m);
+  if (fromMeta) {
+    routeMintSymbolCache[m] = fromMeta;
+    return fromMeta;
+  }
+
   const cached = routeMintSymbolCache[m];
   if (cached) return cached;
   return deps.truncate(m, 4, 4);
