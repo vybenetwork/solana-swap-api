@@ -30,6 +30,7 @@ import { poolLiquidityTierClassForValue } from './liquidity-tier.js';
 import {
   getCachedTokenMeta,
   getSessionTokenPriceStats,
+  resolveTokenLogoUrl,
   effectiveTokenIconSrc,
   renderTokenIconImgHtml,
   TOKEN_ICON_PLACEHOLDER_PATH,
@@ -3609,8 +3610,7 @@ export function formatRouteChipLabel(plan: VybeRoutePlanStepLite[]): string {
 }
 function renderRoutingTokenIcon(mint: string, sym: string): string {
   const m = mint.trim();
-  const meta = m ? getCachedTokenMeta(m) : null;
-  const iconSrc = effectiveTokenIconSrc(meta?.logoUrl);
+  const iconSrc = effectiveTokenIconSrc(m ? resolveTokenLogoUrl(m) : undefined);
   if (iconSrc !== TOKEN_ICON_PLACEHOLDER_PATH) {
     return renderTokenIconImgHtml(iconSrc, 'routing-token-img');
   }
@@ -4023,7 +4023,7 @@ function formatHopFeeTableAmount(amountRaw: string, feeMint: string): string {
 
 export function collectRoutePriceMints(quote: Record<string, unknown>): string[] {
   const mints = new Set<string>();
-  mints.add(WSOL_MINT);
+  mints.add(NATIVE_SOL_MINT);
   const inputMint = quoteInputMint(quote);
   const outputMint = quoteOutputMint(quote);
   if (inputMint) mints.add(inputMint);
@@ -7050,9 +7050,7 @@ export function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): strin
 }
 
 function renderSignConfirmTokenIcon(mint: string): string {
-  const m = mint.trim();
-  const meta = m ? getCachedTokenMeta(m) : null;
-  const iconSrc = effectiveTokenIconSrc(meta?.logoUrl);
+  const iconSrc = effectiveTokenIconSrc(resolveTokenLogoUrl(mint));
   return renderTokenIconImgHtml(iconSrc, 'swap-sign-dialog__token-icon');
 }
 

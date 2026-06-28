@@ -7,6 +7,7 @@ import type { AxiosInstance } from 'axios';
 import { getToken } from './tokens.js';
 import { fetchJupiterTokenDetails } from './jupiter-token-fallback.js';
 import { fetchPumpfunTokenDetails } from './pumpfun-price-fallback.js';
+import type { PriceResolveSource } from './token-meta-api.js';
 import { NATIVE_SOL_MINT, WSOL_MINT } from './sol-mints.js';
 import type { VybeToken } from '../types/api.js';
 import {
@@ -83,18 +84,25 @@ export async function repairTokenIcon(mint: string): Promise<string | undefined>
   return local;
 }
 
+export interface ResolveTokenMetaResult {
+  meta: CachedTokenMeta;
+  source?: PriceResolveSource;
+}
+
 /**
  * Resolve token metadata for API/search. Uses pump.fun before Jupiter when enriching.
  */
 export async function resolveTokenMeta(
   http: AxiosInstance,
   mint: string,
-): Promise<CachedTokenMeta | null> {
+): Promise<ResolveTokenMetaResult | null> {
   const m = mint.trim();
   if (!m) return null;
 
+  let source: PriceResolveSource | undefined;
+
   let disk = getCachedTokenMetaFromDisk(m);
-  if (metaIsComplete(disk)) return disk;
+  if (metaIsComplete(disk)) return { meta: disk!, source };
 
   const solPriceUsd = solPriceUsdFromDisk();
 
@@ -109,6 +117,7 @@ export async function resolveTokenMeta(
       priceUpdateTime: token.updateTime,
       priceFetchedAt: Date.now(),
     });
+    source = 'Vybe';
   } catch {
     /* fall through to pump.fun / Jupiter */
   }
@@ -129,6 +138,7 @@ export async function resolveTokenMeta(
           ...pumpfun.token,
           priceFetchedAt: Date.now(),
         });
+        source = 'Pumpfun-API';
         enriched = true;
         if (!hasCachedTokenIcon(m)) {
           await repairTokenIcon(m);
@@ -149,6 +159,7 @@ export async function resolveTokenMeta(
             ...jupiter.token,
             priceFetchedAt: Date.now(),
           });
+          source = 'Jupiter';
           enriched = true;
           if (!hasCachedTokenIcon(m)) {
             await repairTokenIcon(m);
@@ -164,5 +175,7 @@ export async function resolveTokenMeta(
     await repairTokenIcon(m);
   }
 
-  return getCachedTokenMetaFromDisk(m);
+  disk = getCachedTokenMetaFromDisk(m);
+  if (!disk) return null;
+  return { meta: disk, source };
 }

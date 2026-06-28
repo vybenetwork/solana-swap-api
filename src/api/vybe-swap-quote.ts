@@ -11,7 +11,7 @@ import {
 } from './pinned-swap-params.js';
 import { enrichBuildParamsWithAtaHints } from './wallet-ata-hints.js';
 import { buildSwap, type BuildSwapParams, type MarketFetchMode, type SwapProxyRouter, isMarketDiscoveryEnabled, normalizeMarketFetchMode, resolveEnumerateRoutes, resolveMarketFetchMode } from './swap-build.js';
-import { clientParamsToPriceResolveHints, hasClientLegPrices } from './swap-client-params.js';
+import { clientParamsToPriceResolveHints } from './swap-client-params.js';
 import {
   buildSwapForTradeCandidate,
   formatRouteDiscoveryServerLog,
@@ -37,7 +37,7 @@ import {
 import type { VybeSwapQuote, VybeSwapBuildResponse, VybeRoutePlanStep } from '../types/swap.js';
 import { assertWalletHasSellAmount } from './wallet-balance.js';
 import { quoteFromBuild } from './map-enrichment.js';
-import { NATIVE_SOL_MINT, WSOL_MINT, isSolMint, toVybeSwapMint } from './sol-mints.js';
+import { NATIVE_SOL_MINT, toVybeSwapMint } from './sol-mints.js';
 import {
   isCommonQuotePair,
   rpcScanUnsupportedForCommonQuotesError,
@@ -509,52 +509,24 @@ export async function buildVybeQuoteFromPriceAndSwap(
 
   const priceMint = vybeInputMint;
   const forceFull = (params.forceFullDetailsMints ?? []).map((m) => toVybeSwapMint(m.trim()));
-  const clientParams = {
-    inputMintPrice: params.inputMintPrice,
-    outputMintPrice: params.outputMintPrice,
-    solPrice: params.solPrice,
-    inputMintDecimals: params.inputMintDecimals ?? params.inputDecimals,
-    outputMintDecimals: params.outputMintDecimals,
-  };
+  const resolveHints = clientParamsToPriceResolveHints(
+    {
+      inputMintPrice: params.inputMintPrice,
+      outputMintPrice: params.outputMintPrice,
+      solPrice: params.solPrice,
+      inputMintDecimals: params.inputMintDecimals ?? params.inputDecimals,
+      outputMintDecimals: params.outputMintDecimals,
+    },
+    uiInputMint,
+    uiOutputMint,
+  );
 
-  let tokenStats: Record<string, TokenPriceStats>;
-  if (hasClientLegPrices(clientParams)) {
-    const fetchedAt = Date.now();
-    const inputDecimals =
-      clientParams.inputMintDecimals ?? (isSolMint(uiInputMint) ? 9 : 6);
-    const outputDecimals =
-      clientParams.outputMintDecimals ?? (isSolMint(uiOutputMint) ? 9 : 6);
-    const inputStatsEntry: TokenPriceStats = {
-      price: clientParams.inputMintPrice!,
-      decimals: inputDecimals,
-      priceFetchedAt: fetchedAt,
-    };
-    const outputStatsEntry: TokenPriceStats = {
-      price: clientParams.outputMintPrice!,
-      decimals: outputDecimals,
-      priceFetchedAt: fetchedAt,
-    };
-    tokenStats = {
-      [uiInputMint]: inputStatsEntry,
-      [uiOutputMint]: outputStatsEntry,
-    };
-    if (vybeInputMint !== uiInputMint) tokenStats[vybeInputMint] = inputStatsEntry;
-    if (vybeOutputMint !== uiOutputMint) tokenStats[vybeOutputMint] = outputStatsEntry;
-    tokenStats = aliasNativeSolPriceStats(tokenStats, uiInputMint);
-    tokenStats = aliasNativeSolPriceStats(tokenStats, uiOutputMint);
-  } else {
-    const resolveHints = clientParamsToPriceResolveHints(
-      clientParams,
-      uiInputMint,
-      uiOutputMint,
-    );
-    const { stats: rawStats } = await resolveTokenPrices(dataHttp, [priceMint, uiOutputMint], {
-      tokenHints: Object.keys(resolveHints).length > 0 ? resolveHints : undefined,
-      forceFullDetailsMints: forceFull,
-    });
-    tokenStats = aliasNativeSolPriceStats(rawStats, uiInputMint);
-    tokenStats = aliasNativeSolPriceStats(tokenStats, uiOutputMint);
-  }
+  const { stats: rawStats } = await resolveTokenPrices(dataHttp, [priceMint, uiOutputMint], {
+    tokenHints: Object.keys(resolveHints).length > 0 ? resolveHints : undefined,
+    forceFullDetailsMints: forceFull,
+  });
+  let tokenStats = aliasNativeSolPriceStats(rawStats, uiInputMint);
+  tokenStats = aliasNativeSolPriceStats(tokenStats, uiOutputMint);
 
   const inputStats = tokenStats[uiInputMint] ?? tokenStats[vybeInputMint];
   const outputStats = tokenStats[uiOutputMint] ?? tokenStats[vybeOutputMint];
@@ -565,30 +537,11 @@ export async function buildVybeQuoteFromPriceAndSwap(
     throw new Error(`Could not resolve price for output mint ${uiOutputMint}`);
   }
 
-  let resolvedSolPrice = clientParams.solPrice;
-  if (resolvedSolPrice == null) {
-    for (const mint of [WSOL_MINT, NATIVE_SOL_MINT]) {
-      const p = tokenStats[mint]?.price;
-      if (typeof p === 'number' && Number.isFinite(p) && p > 0) {
-        resolvedSolPrice = p;
-        break;
-      }
-    }
-  }
-
   const vybeParams: VybeQuoteParams = {
     ...params,
     ...enriched,
     inputMintAddress: vybeInputMint,
     outputMintAddress: vybeOutputMint,
-    inputMintPrice: clientParams.inputMintPrice ?? inputStats.price,
-    outputMintPrice: clientParams.outputMintPrice ?? outputStats.price,
-    inputMintDecimals:
-      clientParams.inputMintDecimals ?? inputStats.decimals ?? params.inputDecimals,
-    outputMintDecimals: clientParams.outputMintDecimals ?? outputStats.decimals,
-    ...(!isSolMint(uiInputMint) && !isSolMint(uiOutputMint) && resolvedSolPrice != null
-      ? { solPrice: resolvedSolPrice }
-      : {}),
   };
   assertPinnedPoolParams(params);
   const manualPool = params.poolAddress?.trim();

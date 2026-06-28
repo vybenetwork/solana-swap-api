@@ -184,7 +184,7 @@ function holdingValueSol(priceSol: number, amountUi: number): number {
 function walletBalanceSortValue(item: WalletBalanceListItem): number {
   if (item.valueUsd > 0) return item.valueUsd;
   if (item.valueSol != null && item.valueSol > 0) return item.valueSol;
-  return item.amountUi;
+  return 0;
 }
 
 function sortWalletBalanceItems(items: WalletBalanceListItem[]): WalletBalanceListItem[] {
@@ -277,93 +277,56 @@ async function enrichRpcOnlyFromJupiter(
   }
 }
 
+/** Enrich symbol/logo/price via resolveTokenMeta (Vybe → pump.fun → Jupiter). */
+async function enrichWalletItemMeta(
+  http: AxiosInstance,
+  item: WalletBalanceListItem,
+): Promise<WalletBalanceListItem> {
+  const hasLogo = Boolean(item.logoUrl?.trim());
+  const hasUsd =
+    (Number.isFinite(item.valueUsd) && item.valueUsd > 0) ||
+    (item.valueSol != null && item.valueSol > 0);
+  if (hasLogo && hasUsd && !item.enrichmentPending) return item;
+
+  const resolved = await resolveTokenMeta(http, item.mintAddress);
+  if (!resolved) {
+    return { ...item, enrichmentPending: false };
+  }
+
+  const { meta } = resolved;
+  let valueUsd = item.valueUsd;
+  let valueSol = item.valueSol;
+  if (!hasUsd && typeof meta.price === 'number' && meta.price > 0) {
+    valueUsd = holdingValueUsd(meta.price, item.amountUi);
+    valueSol = undefined;
+  }
+
+  return {
+    ...item,
+    symbol: meta.symbol?.trim() || item.symbol,
+    name: meta.name?.trim() || item.name,
+    logoUrl: meta.logoUrl?.trim() || item.logoUrl,
+    decimals: meta.decimals ?? item.decimals,
+    verified: meta.isVerified ?? item.verified,
+    valueUsd,
+    valueSol,
+    enrichmentPending: false,
+  };
+}
+
 /** Enrich a single RPC-only holding (Vybe token-details, then Jupiter). */
 export async function enrichRpcOnlyWalletItem(
   http: AxiosInstance,
   target: RpcOnlyEnrichTarget,
 ): Promise<WalletBalanceListItem | null> {
   const { rpc, displayMint, defaultSymbol, defaultName } = target;
-  if (rpc.amountRaw <= 0n) return null;
-  const amountExact = rpc.amountRaw.toString();
-  let decimals = rpc.decimals;
-  let symbol = defaultSymbol?.trim() || displayMint.slice(0, 6);
-  let name = defaultName?.trim() || symbol;
-  let logoUrl: string | null = null;
-  let verified = false;
-  let valueUsd = 0;
-  let valueSol: number | undefined;
-  let tokenDetailsOk = false;
-
-  try {
-    const token = await getToken(http, toVybeSwapMint(displayMint));
-    decimals = tokenDecimalsFromDetails(token, rpc.decimals);
-    symbol = token.symbol?.trim() || symbol;
-    name = token.name?.trim() || symbol;
-    logoUrl = token.logoUrl?.trim() || null;
-    verified = token.verified === true;
-    const amountUi = rawToUiAmount(amountExact, decimals);
-    valueUsd = holdingValueUsd(tokenPriceUsdFromDetails(token), amountUi);
-    tokenDetailsOk = true;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.warn(
-      `[wallet-balance] token-details failed for ${displayMint.slice(0, 8)}…: ${msg}`,
-    );
-  }
-
-  if (!tokenDetailsOk) {
-    try {
-      const meta = await resolveTokenMeta(http, displayMint);
-      if (meta) {
-        if (typeof meta.decimals === 'number' && Number.isFinite(meta.decimals)) {
-          decimals = meta.decimals;
-        }
-        if (meta.symbol?.trim()) symbol = meta.symbol.trim();
-        if (meta.name?.trim()) name = meta.name.trim();
-        if (meta.logoUrl?.trim()) logoUrl = meta.logoUrl.trim();
-        verified = meta.isVerified === true;
-        const amountUi = rawToUiAmount(amountExact, decimals);
-        if (typeof meta.price === 'number' && Number.isFinite(meta.price) && meta.price > 0) {
-          valueUsd = holdingValueUsd(meta.price, amountUi);
-        }
-        tokenDetailsOk = Boolean(symbol && symbol !== displayMint.slice(0, 6));
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[wallet-balance] resolveTokenMeta failed for ${displayMint.slice(0, 8)}…: ${msg}`,
-      );
-    }
-  }
-
-  if (!tokenDetailsOk || (valueUsd <= 0 && valueSol == null)) {
-    const fallback = { decimals, symbol, name, logoUrl, verified, valueUsd, valueSol };
-    await enrichRpcOnlyFromJupiter(displayMint, rpc, fallback);
-    decimals = fallback.decimals;
-    symbol = fallback.symbol;
-    name = fallback.name;
-    logoUrl = fallback.logoUrl;
-    verified = fallback.verified;
-    valueUsd = fallback.valueUsd;
-    valueSol = fallback.valueSol;
-    if (symbol && symbol !== displayMint.slice(0, 6)) tokenDetailsOk = true;
-  }
-
-  const amountUi = rawToUiAmount(amountExact, decimals);
-  if (!(amountUi > 0)) return null;
-  return {
-    mintAddress: displayMint,
-    symbol,
-    name,
-    logoUrl,
-    decimals,
-    amountUi,
-    amountExact,
-    valueUsd,
-    ...(valueSol != null && valueSol > 0 ? { valueSol } : {}),
-    verified,
-    enrichmentPending: false,
-  };
+  const stub = stubWalletItemFromRpc(rpc, {
+    displayMint,
+    defaultSymbol,
+    defaultName,
+  });
+  if (!stub) return null;
+  return enrichWalletItemMeta(http, stub);
 }
 
 async function fetchRpcWalletBalancesSafe(
@@ -576,6 +539,16 @@ export async function streamWalletTokenBalances(
     if (!enriched) continue;
     current = replaceWalletBalanceItem(current, enriched);
     emit({ event: 'update', token: enriched });
+  }
+
+  for (const item of current) {
+    if (item.logoUrl?.trim()) continue;
+    if (isCancelled?.()) return;
+    const enriched = await enrichWalletItemMeta(http, item);
+    if (enriched.logoUrl?.trim() && enriched.logoUrl !== item.logoUrl) {
+      current = replaceWalletBalanceItem(current, enriched);
+      emit({ event: 'update', token: enriched });
+    }
   }
 
   if (!isCancelled?.()) emit({ event: 'done' });

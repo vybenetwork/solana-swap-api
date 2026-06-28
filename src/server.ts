@@ -25,13 +25,19 @@ import { type TokenPriceHint } from './api/resolve-token-prices.js';
 import {
   parseSwapClientParams,
 } from './api/swap-client-params.js';
-import { resolveTokenSymbol, isStubTokenSymbol, truncateMintForDisplay } from './api/token-symbol.js';
+import { getTokenSymbol } from './api/token-symbol.js';
 import { readSymbolCacheFromDisk, writeSymbolCacheToDisk } from './cache.js';
 import {
   getCachedTokenMetaFromDisk,
   getRuntimeIconDir,
 } from './token-icon-cache.js';
 import { resolveTokenMeta } from './api/resolve-token-meta.js';
+import {
+  cachedMetaToApiResponse,
+  decimalsFromMetaCache,
+  symbolFromMetaCache,
+  type PriceResolveSource,
+} from './api/token-meta-api.js';
 import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
 import { quoteFromBuild } from './api/map-enrichment.js';
 import { createDataHttpClient } from './api/client.js';
@@ -89,10 +95,11 @@ function qNum(req: Request, key: string): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function tokenMetaToApiResponse(meta: ReturnType<typeof getCachedTokenMetaFromDisk>): Record<string, unknown> {
-  if (!meta) return {};
-  const { fetchedAt: _fetchedAt, ...out } = meta;
-  return out;
+function tokenMetaToApiResponse(
+  meta: ReturnType<typeof getCachedTokenMetaFromDisk>,
+  source?: PriceResolveSource,
+): Record<string, unknown> {
+  return cachedMetaToApiResponse(meta, source);
 }
 
 app.get('/api/token/:mint', async (req: Request, res: Response) => {
@@ -102,9 +109,9 @@ app.get('/api/token/:mint', async (req: Request, res: Response) => {
     if (!mint) return res.status(400).json({ error: 'Mint address required' });
 
     const dataHttp = createDataHttpClient(dataApiKey);
-    const meta = await resolveTokenMeta(dataHttp, mint);
-    if (!meta) return res.status(404).json({ error: 'Token not found' });
-    return res.json(tokenMetaToApiResponse(meta));
+    const resolved = await resolveTokenMeta(dataHttp, mint);
+    if (!resolved) return res.status(404).json({ error: 'Token not found' });
+    return res.json(tokenMetaToApiResponse(resolved.meta, resolved.source));
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
     res.status(status).json({ error: toHumanReadableError(err) });
@@ -139,23 +146,54 @@ app.get('/api/token-symbol/:mint', async (req: Request, res: Response) => {
     const rawMint = req.params.mint;
     const mint = (Array.isArray(rawMint) ? rawMint[0] : rawMint ?? '').trim();
     if (!mint) return res.status(400).json({ error: 'Mint address required' });
-    const needDecimals = q(req, 'decimals') === '1';
-    const cache = readSymbolCacheFromDisk();
-    const cached = cache[mint]?.replace(/\0/g, '').trim();
-    if (cached && !needDecimals && !isStubTokenSymbol(mint, cached)) {
-      return res.json({ symbol: cached });
+
+    const wantDecimals = q(req, 'decimals') === '1';
+    const cachedSymbol = symbolFromMetaCache(mint);
+    if (cachedSymbol) {
+      const decimals = wantDecimals ? decimalsFromMetaCache(mint) : undefined;
+      return res.json({
+        symbol: cachedSymbol,
+        ...(decimals !== undefined ? { decimals } : {}),
+      });
     }
-    const dataHttp = createDataHttpClient(dataApiKey);
-    const { symbol, decimals } = await resolveTokenSymbol(dataHttp, mint, { needDecimals });
-    const out = (symbol || truncateMintForDisplay(mint)).replace(/\0/g, '').trim();
-    if (out && !isStubTokenSymbol(mint, out)) {
+
+    const cache = readSymbolCacheFromDisk();
+    if (cache[mint] != null) {
+      const out = (cache[mint] ?? '').replace(/\0/g, '').trim();
+      const decimals = wantDecimals ? decimalsFromMetaCache(mint) : undefined;
+      return res.json({
+        symbol: out,
+        ...(decimals !== undefined ? { decimals } : {}),
+      });
+    }
+
+    let symbol = await getTokenSymbol(mint);
+    if (symbol === mint || symbol.trim() === '') {
+      const dataHttp = createDataHttpClient(dataApiKey);
+      const resolved = await resolveTokenMeta(dataHttp, mint);
+      const fromMeta = resolved?.meta.symbol?.replace(/\0/g, '').trim();
+      symbol = fromMeta || mint;
+    }
+    const out = symbol || mint;
+    if (symbol !== '' && symbol !== mint) {
       cache[mint] = out;
       writeSymbolCacheToDisk(cache);
     }
-    res.json({
-      symbol: out,
-      ...(decimals !== undefined ? { decimals } : {}),
-    });
+    let decimals: number | undefined;
+    if (wantDecimals) {
+      decimals = decimalsFromMetaCache(mint);
+      if (decimals === undefined) {
+        try {
+          const token = await client.getToken(mint);
+          if (typeof token.decimals === 'number' && Number.isFinite(token.decimals)) {
+            decimals = token.decimals;
+          }
+        } catch {
+          /* omit decimals on failure */
+        }
+      }
+    }
+    res.json({ symbol: out, ...(decimals !== undefined ? { decimals } : {}) });
   } catch (err) {
     const status = (err as { response?: { status?: number } })?.response?.status ?? 500;
     res.status(status).json({ error: toHumanReadableError(err), symbol: Array.isArray(req.params.mint) ? req.params.mint[0] : req.params.mint });
@@ -170,9 +208,13 @@ app.post('/api/token-symbols', async (req: Request, res: Response) => {
     const symbols: Record<string, string> = {};
     const cache = readSymbolCacheFromDisk();
     const needFetch = mints.filter((mint) => {
-      const cached = (cache[mint] ?? '').replace(/\0/g, '').trim();
-      if (cached && !isStubTokenSymbol(mint, cached)) {
-        symbols[mint] = cached;
+      const fromMeta = symbolFromMetaCache(mint);
+      if (fromMeta) {
+        symbols[mint] = fromMeta;
+        return false;
+      }
+      if (cache[mint] != null) {
+        symbols[mint] = (cache[mint] ?? '').replace(/\0/g, '').trim();
         return false;
       }
       return true;
@@ -183,15 +225,20 @@ app.post('/api/token-symbols', async (req: Request, res: Response) => {
       const results = await Promise.all(
         needFetch.map(async (mint) => {
           try {
-            const { symbol } = await resolveTokenSymbol(dataHttp, mint);
-            const out = (symbol || truncateMintForDisplay(mint)).replace(/\0/g, '').trim();
-            if (out && !isStubTokenSymbol(mint, out)) {
+            let symbol = await getTokenSymbol(mint);
+            if (symbol === mint || symbol.trim() === '') {
+              const resolved = await resolveTokenMeta(dataHttp, mint);
+              const fromMeta = resolved?.meta.symbol?.replace(/\0/g, '').trim();
+              symbol = fromMeta || mint;
+            }
+            const out = symbol || mint;
+            if (symbol !== '' && symbol !== mint) {
               cache[mint] = out;
               cacheUpdated = true;
             }
-            return { mint, symbol: out || truncateMintForDisplay(mint) };
+            return { mint, symbol: out };
           } catch {
-            return { mint, symbol: truncateMintForDisplay(mint) };
+            return { mint, symbol: mint };
           }
         }),
       );

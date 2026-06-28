@@ -24,7 +24,11 @@ export interface TokenMeta {
 
 export type PriceResolveSource = 'Vybe' | 'Jupiter' | 'Pumpfun-API';
 
+/** Session resolve-prices TTL — skip refetch when stats are this fresh (ms). */
+export const RESOLVE_PRICES_TTL_MS = 2000;
+
 export interface TokenPriceStats {
+  mint?: string;
   price: number;
   price1d?: number;
   price7d?: number;
@@ -35,6 +39,22 @@ export interface TokenPriceStats {
   logoUrl?: string;
   symbol?: string;
   name?: string;
+  isVerified?: boolean;
+  organicScore?: number;
+  tokenProgram?: string;
+  marketCapUsd?: number;
+  liquidityUsd?: number;
+  poolAddress?: string;
+  bondingCurveAddress?: string;
+  programAddress?: string;
+  quoteMintAddress?: string;
+  complete?: boolean;
+  description?: string;
+  twitter?: string;
+  website?: string;
+  isBanned?: boolean;
+  pumpfunStatus?: string;
+  creatorAddress?: string;
 }
 
 export type TokenPickerSide = 'input' | 'output';
@@ -163,15 +183,35 @@ function mergeWalletBalanceUpdate(token: WalletBalanceListItem): void {
   const items = sessionWalletBalances.items.filter((i) => i.mintAddress !== token.mintAddress);
   items.push(token);
   sessionWalletBalances.items = sortWalletBalancesForDisplay(items);
-  if (!token.enrichmentPending && !isStubWalletLabel(token)) {
-    persistWalletBalanceMetadata([token]);
-  }
 }
 
 function sortWalletBalancesForDisplay(items: WalletBalanceListItem[]): WalletBalanceListItem[] {
-  return [...items].sort(
-    (a, b) => walletItemValueUsd(b) - walletItemValueUsd(a) || b.amountUi - a.amountUi,
-  );
+  return sortWalletBalanceList(items, { demoteUntradableSell: false });
+}
+
+function isDustWalletItem(item: WalletBalanceListItem): boolean {
+  if (isNativeSolMint(item.mintAddress)) {
+    return item.amountUi < SOL_MIN_TRADABLE_TOTAL_UI;
+  }
+  if (isWsolMint(item.mintAddress)) return false;
+  return !isSplValueTradable(walletItemValueUsd(item));
+}
+
+function sortWalletBalanceList(
+  items: WalletBalanceListItem[],
+  options: { demoteUntradableSell: boolean },
+): WalletBalanceListItem[] {
+  return [...items].sort((a, b) => {
+    const aDust = isDustWalletItem(a);
+    const bDust = isDustWalletItem(b);
+    if (aDust !== bDust) return aDust ? 1 : -1;
+    if (options.demoteUntradableSell) {
+      const aDemote = shouldDemoteWalletBalanceInSort(a.mintAddress);
+      const bDemote = shouldDemoteWalletBalanceInSort(b.mintAddress);
+      if (aDemote !== bDemote) return aDemote ? 1 : -1;
+    }
+    return walletItemValueUsd(b) - walletItemValueUsd(a) || b.amountUi - a.amountUi;
+  });
 }
 
 async function consumeWalletBalanceStream(
@@ -202,7 +242,9 @@ async function consumeWalletBalanceStream(
         | { event: 'update'; token: WalletBalanceListItem }
         | { event: 'done' };
       if (msg.event === 'initial') {
-        items = Array.isArray(msg.tokens) ? msg.tokens : [];
+        items = sortWalletBalancesForDisplay(
+          Array.isArray(msg.tokens) ? msg.tokens : [],
+        );
         sessionWalletBalances = { wallet, fetchedAt: Date.now(), items };
         notifyWalletBalanceStream();
       } else if (msg.event === 'update') {
@@ -214,6 +256,26 @@ async function consumeWalletBalanceStream(
   }
 
   return sessionWalletBalances?.items ?? items;
+}
+
+async function prefetchWalletItemLogos(items: WalletBalanceListItem[]): Promise<void> {
+  const mints = [
+    ...new Set(
+      items
+        .filter((i) => !isBlockedPickerMint(i.mintAddress))
+        .filter((i) => {
+          const url = resolveTokenLogoUrl(i.mintAddress) ?? i.logoUrl?.trim();
+          return !url || effectiveTokenIconSrc(url) === TOKEN_ICON_PLACEHOLDER_PATH;
+        })
+        .map((i) => i.mintAddress),
+    ),
+  ];
+  if (mints.length === 0) return;
+  for (const mint of mints) {
+    await ensureTokenMetaForMint(mint);
+  }
+  refreshWalletBalancesPanel();
+  if (dialogEl?.open) renderShortcuts();
 }
 
 export function clearSessionWalletBalances(): void {
@@ -232,7 +294,9 @@ async function fetchWalletBalances(wallet: string): Promise<WalletBalanceListIte
     `/api/wallets/${encodeURIComponent(w)}/token-balances?limit=${WALLET_TOKEN_BALANCE_LIMIT}&stream=1&_=${Date.now()}`,
     { signal: ac.signal, cache: 'no-store' },
   );
-  return consumeWalletBalanceStream(w, res);
+  const items = await consumeWalletBalanceStream(w, res);
+  void prefetchWalletItemLogos(items);
+  return items;
 }
 
 /** @deprecated Renamed to amountExceedsWalletBalance */
@@ -309,6 +373,32 @@ export function getSessionTokenPriceStats(mint: string): TokenPriceStats | undef
   return sessionTokenPriceStats.get(mint.trim());
 }
 
+function getSessionTokenPriceStatsWithSolAlias(mint: string): TokenPriceStats | undefined {
+  const m = mint.trim();
+  let stats = getSessionTokenPriceStats(m);
+  if (!stats && isSolMint(m)) {
+    stats = getSessionTokenPriceStats(m === NATIVE_SOL_MINT ? WSOL_MINT : NATIVE_SOL_MINT);
+  }
+  return stats;
+}
+
+/** True when every mint has price+decimals resolved within maxAgeMs (default 2s). */
+export function sessionQuotePricesFreshForMints(
+  mints: string[],
+  maxAgeMs = RESOLVE_PRICES_TTL_MS,
+): boolean {
+  const required = mints.map((m) => m.trim()).filter(Boolean);
+  if (required.length === 0) return false;
+  const now = Date.now();
+  return required.every((m) => {
+    const stats = getSessionTokenPriceStatsWithSolAlias(m);
+    if (!stats?.price || stats.price <= 0) return false;
+    if (typeof stats.decimals !== 'number' || !Number.isFinite(stats.decimals)) return false;
+    const fetchedAt = stats.priceFetchedAt ?? 0;
+    return fetchedAt > 0 && now - fetchedAt < maxAgeMs;
+  });
+}
+
 function setSessionTokenPriceStats(mint: string, stats: TokenPriceStats): void {
   sessionTokenPriceStats.set(mint.trim(), stats);
 }
@@ -374,7 +464,12 @@ export function walletItemValueUsd(item: WalletBalanceListItem): number {
 }
 
 function decimalsFromCachedMeta(mint: string): number | undefined {
-  const dec = getCachedTokenMeta(mint.trim())?.decimals;
+  const m = mint.trim();
+  const sessionDec = getSessionTokenPriceStats(m)?.decimals;
+  if (sessionDec != null && Number.isFinite(sessionDec) && sessionDec >= 0 && sessionDec <= 255) {
+    return Math.trunc(sessionDec);
+  }
+  const dec = getCachedTokenMeta(m)?.decimals;
   return dec != null && Number.isFinite(dec) && dec >= 0 && dec <= 255 ? Math.trunc(dec) : undefined;
 }
 
@@ -391,7 +486,7 @@ export function hasCachedMintDecimals(mint: string): boolean {
 export function isSwapMintQuoteReady(mint: string): boolean {
   const m = mint.trim();
   if (!m) return false;
-  return hasCachedMintPriceUsd(m) && hasCachedMintDecimals(m);
+  return hasCachedMintDecimals(m);
 }
 
 export function getSwapMintQuoteReadinessIssues(mint: string, label: string): string[] {
@@ -399,7 +494,6 @@ export function getSwapMintQuoteReadinessIssues(mint: string, label: string): st
   if (!m) return [`${label}: mint missing`];
   const issues: string[] = [];
   if (!hasCachedMintDecimals(m)) issues.push(`${label} decimals`);
-  if (!hasCachedMintPriceUsd(m)) issues.push(`${label} price`);
   return issues;
 }
 
@@ -437,137 +531,6 @@ export function buildSwapClientParams(inputMint: string, outputMint: string): {
   return payload;
 }
 
-/** Reuse resolve-prices for quote if the same pair was fetched within this window. */
-export const PAIR_PRICE_RESOLVE_TTL_MS = 2000;
-
-type PairPriceResolveCache = {
-  key: string;
-  fetchedAt: number;
-  stats: Record<string, TokenPriceStats>;
-};
-
-let pairPriceResolveCache: PairPriceResolveCache | null = null;
-const pairPriceResolveInflight = new Map<string, Promise<Record<string, TokenPriceStats>>>();
-
-function pairPriceResolveKey(inputMint: string, outputMint: string): string {
-  return mintsForPricePrefetch([inputMint, outputMint].filter(Boolean)).sort().join('|');
-}
-
-function pairPricesReadyForQuote(inputMint: string, outputMint: string): boolean {
-  const input = inputMint.trim();
-  const output = outputMint.trim();
-  if (!input || !output) return false;
-  if (!hasCachedMintPriceUsd(input) || !hasCachedMintPriceUsd(output)) return false;
-  if (!hasCachedMintDecimals(input) || !hasCachedMintDecimals(output)) return false;
-  const needsSol = !isSolMint(input) && !isSolMint(output);
-  if (needsSol && getCachedSolPriceUsd() == null) return false;
-  return true;
-}
-
-function applyPairPriceStats(stats: Record<string, TokenPriceStats>): void {
-  for (const [mint, s] of Object.entries(stats)) {
-    saveTokenPriceStats(mint, s);
-  }
-}
-
-/** Register a recent prefetch so quote can skip resolve-prices within the TTL window. */
-export function markPairPricesResolved(
-  inputMint: string,
-  outputMint: string,
-  stats: Record<string, TokenPriceStats>,
-): void {
-  const input = inputMint.trim();
-  const output = outputMint.trim();
-  if (!input || !output || Object.keys(stats).length === 0) return;
-  pairPriceResolveCache = {
-    key: pairPriceResolveKey(input, output),
-    fetchedAt: Date.now(),
-    stats,
-  };
-}
-
-async function fetchPairPricesFromNetwork(
-  inputMint: string,
-  outputMint: string,
-  options?: { forceFullDetailsMints?: string[] },
-): Promise<Record<string, TokenPriceStats>> {
-  const mints = mintsForPricePrefetch([inputMint, outputMint].filter(Boolean));
-  if (mints.length === 0) return {};
-
-  let lastError: Error | undefined;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const res = await fetch('/api/tokens/resolve-prices', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        cache: 'no-store',
-        body: JSON.stringify({
-          mints,
-          ...(options?.forceFullDetailsMints?.length
-            ? { forceFullDetailsMints: options.forceFullDetailsMints }
-            : {}),
-        }),
-      });
-      const body = (await res.json().catch(() => ({}))) as {
-        stats?: Record<string, TokenPriceStats>;
-        error?: string;
-      };
-      if (!res.ok) {
-        throw new Error(body.error || `Price resolve failed (${res.status})`);
-      }
-      const stats = body.stats ?? {};
-      applyPairPriceStats(stats);
-      return stats;
-    } catch (err) {
-      lastError = err instanceof Error ? err : new Error(String(err));
-      if (attempt < 2) {
-        await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
-      }
-    }
-  }
-  throw lastError ?? new Error('Price resolve failed');
-}
-
-/**
- * Resolve pair prices before quote: always waits for fresh stats unless the same pair
- * was resolved within PAIR_PRICE_RESOLVE_TTL_MS (e.g. prefetch just ran).
- */
-export async function ensurePairPricesForQuote(
-  inputMint: string,
-  outputMint: string,
-  options?: { force?: boolean },
-): Promise<Record<string, TokenPriceStats>> {
-  const input = inputMint.trim();
-  const output = outputMint.trim();
-  if (!input || !output) return {};
-
-  const key = pairPriceResolveKey(input, output);
-  const now = Date.now();
-
-  if (
-    !options?.force &&
-    pairPriceResolveCache?.key === key &&
-    now - pairPriceResolveCache.fetchedAt < PAIR_PRICE_RESOLVE_TTL_MS &&
-    pairPricesReadyForQuote(input, output)
-  ) {
-    return pairPriceResolveCache.stats;
-  }
-
-  const inflight = pairPriceResolveInflight.get(key);
-  if (inflight) return inflight;
-
-  const promise = fetchPairPricesFromNetwork(input, output)
-    .then((stats) => {
-      markPairPricesResolved(input, output, stats);
-      return stats;
-    })
-    .finally(() => {
-      pairPriceResolveInflight.delete(key);
-    });
-  pairPriceResolveInflight.set(key, promise);
-  return promise;
-}
-
 export function saveTokenPriceStats(mint: string, stats: TokenPriceStats): void {
   const m = mint.trim();
   if (!m) return;
@@ -593,13 +556,59 @@ export function saveTokenPriceStats(mint: string, stats: TokenPriceStats): void 
     priceFetchedAt: stats.priceFetchedAt,
     priceUpdateTime: stats.priceUpdateTime,
     tags: existing?.tags,
-    organicScore: existing?.organicScore,
-    isVerified: existing?.isVerified,
+    organicScore: stats.organicScore ?? existing?.organicScore,
+    isVerified: stats.isVerified ?? existing?.isVerified,
     source: existing?.source ?? 'search',
     savedAt: Date.now(),
   };
   saveTokenMeta(meta);
   if (isSolMint(m)) refreshWalletBalancesPanel();
+}
+
+/** Map resolve-prices / GET /api/token body into session stats + disk cache. */
+export function applyResolvedTokenFromApi(mint: string, body: Record<string, unknown>): void {
+  const price = typeof body.price === 'number' ? body.price : undefined;
+  const decimals = typeof body.decimals === 'number' ? body.decimals : undefined;
+  if (
+    !(typeof price === 'number' && Number.isFinite(price) && price > 0) ||
+    !(typeof decimals === 'number' && Number.isFinite(decimals))
+  ) {
+    return;
+  }
+  const sourceRaw = String(body.source ?? body.priceSource ?? '').trim();
+  const source =
+    sourceRaw === 'Vybe' || sourceRaw === 'Jupiter' || sourceRaw === 'Pumpfun-API'
+      ? sourceRaw
+      : undefined;
+  saveTokenPriceStats(mint, {
+    mint: mint.trim(),
+    price,
+    decimals,
+    price1d: typeof body.price1d === 'number' ? body.price1d : undefined,
+    price7d: typeof body.price7d === 'number' ? body.price7d : undefined,
+    priceFetchedAt: typeof body.priceFetchedAt === 'number' ? body.priceFetchedAt : Date.now(),
+    priceUpdateTime: typeof body.priceUpdateTime === 'number' ? body.priceUpdateTime : undefined,
+    source,
+    logoUrl: String(body.logoUrl ?? '').trim() || undefined,
+    symbol: String(body.symbol ?? '').trim() || undefined,
+    name: String(body.name ?? '').trim() || undefined,
+    isVerified: body.isVerified === true || body.verified === true,
+    organicScore: typeof body.organicScore === 'number' ? body.organicScore : undefined,
+    tokenProgram: String(body.tokenProgram ?? '').trim() || undefined,
+    marketCapUsd: typeof body.marketCapUsd === 'number' ? body.marketCapUsd : undefined,
+    liquidityUsd: typeof body.liquidityUsd === 'number' ? body.liquidityUsd : undefined,
+    poolAddress: String(body.poolAddress ?? '').trim() || undefined,
+    bondingCurveAddress: String(body.bondingCurveAddress ?? '').trim() || undefined,
+    programAddress: String(body.programAddress ?? '').trim() || undefined,
+    quoteMintAddress: String(body.quoteMintAddress ?? '').trim() || undefined,
+    complete: typeof body.complete === 'boolean' ? body.complete : undefined,
+    description: String(body.description ?? '').trim() || undefined,
+    twitter: String(body.twitter ?? '').trim() || undefined,
+    website: String(body.website ?? '').trim() || undefined,
+    isBanned: typeof body.isBanned === 'boolean' ? body.isBanned : undefined,
+    pumpfunStatus: String(body.pumpfunStatus ?? '').trim() || undefined,
+    creatorAddress: String(body.creatorAddress ?? '').trim() || undefined,
+  });
 }
 
 /** Prefer locally served icon paths; leave remote URLs for server localization. */
@@ -750,6 +759,16 @@ function isTokenIconUrlFailed(url: string): boolean {
   return failedTokenIconUrls.has(tokenIconSessionKey(url));
 }
 
+/** Best logo URL for a mint: device cache, then in-session resolve-prices stats. */
+export function resolveTokenLogoUrl(mint: string | undefined): string | undefined {
+  const m = mint?.trim() ?? '';
+  if (!m) return undefined;
+  const fromMeta = getCachedTokenMeta(m)?.logoUrl?.trim();
+  if (fromMeta) return fromMeta;
+  const fromSession = getSessionTokenPriceStats(m)?.logoUrl?.trim();
+  return fromSession || undefined;
+}
+
 /** Icon src for display; uses placeholder when URL is missing or already failed this session. */
 export function effectiveTokenIconSrc(logoUrl: string | undefined): string {
   const src = resolveLogoUrl(logoUrl);
@@ -847,14 +866,14 @@ export function ensureTokenIconErrorHandling(): void {
 
 function needsRemoteLogoResolve(meta: TokenMeta | null | undefined): boolean {
   if (!meta) return true;
+  const u = (meta.logoUrl ?? '').trim();
+  if (!u || u === TOKEN_ICON_PLACEHOLDER_PATH) return true;
+  if (isTokenIconUrlFailed(u)) return true;
+  // Fully resolved via /api/token with a local icon path — skip refetch.
+  if (meta.source === 'search' && u.startsWith('/')) return false;
   const sym = meta.symbol?.trim();
-  if (isStubTokenLabel(meta.mint, sym, meta.name)) return true;
-  // Already fetched from /api/token — do not re-hit on every label/icon refresh.
-  if (meta.source === 'search') return false;
   if (!sym || sym === truncateMint(meta.mint)) return true;
   if (meta.decimals == null) return true;
-  const u = meta.logoUrl.trim();
-  if (!u) return true;
   if (u.startsWith('/')) return false;
   // Catalog / wallet rows may keep remote icon URLs; browser loads them directly.
   return false;
@@ -956,32 +975,6 @@ async function loadCatalog(): Promise<void> {
 function truncateMint(mint: string): string {
   if (mint.length <= 13) return mint;
   return `${mint.slice(0, 4)}…${mint.slice(-4)}`;
-}
-
-function isStubTokenLabel(mint: string, symbol: string | undefined, name?: string): boolean {
-  const m = mint.trim();
-  const sym = symbol?.trim() ?? '';
-  if (!sym) return true;
-  if (sym === m) return true;
-  if (sym === m.slice(0, 6)) return true;
-  if (sym === truncateMint(m)) return true;
-  if (sym.length >= 32 && /^[1-9A-HJ-NP-Za-km-z]+$/.test(sym)) return true;
-  const nm = name?.trim() ?? '';
-  if (nm && nm === sym && sym === m.slice(0, 6)) return true;
-  if (nm === m) return true;
-  return false;
-}
-
-/** Exported for swap chip / route UI — never show a raw mint as the symbol. */
-export function normalizeTokenDisplaySymbol(mint: string, symbol: string | undefined): string {
-  const sym = symbol?.trim() ?? '';
-  if (sym && !isStubTokenLabel(mint, sym)) return sym;
-  return truncateMint(mint.trim());
-}
-
-function isStubWalletLabel(item: WalletBalanceListItem): boolean {
-  if (item.enrichmentPending) return true;
-  return isStubTokenLabel(item.mintAddress, item.symbol, item.name);
 }
 
 function escapeHtml(s: string): string {
@@ -1096,44 +1089,19 @@ async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
     if (!res.ok) return null;
     const body = (await res.json()) as Record<string, unknown>;
     if (body.error) return null;
+    applyResolvedTokenFromApi(mint, body);
     const symbol = String(body.symbol ?? '').trim();
     const name = String(body.name ?? '').trim();
     const logoUrl = resolveLogoUrl(String(body.logoUrl ?? ''));
-    if (logoUrl) clearTokenIconUrlFailure(logoUrl);
     const decimals = typeof body.decimals === 'number' ? body.decimals : undefined;
     const price = typeof body.price === 'number' ? body.price : undefined;
     const price1d = typeof body.price1d === 'number' ? body.price1d : undefined;
     const price7d = typeof body.price7d === 'number' ? body.price7d : undefined;
     const priceUpdateTime = typeof body.priceUpdateTime === 'number' ? body.priceUpdateTime : undefined;
     const priceFetchedAt = typeof body.priceFetchedAt === 'number' ? body.priceFetchedAt : undefined;
-    const sourceRaw = String(body.priceSource ?? body.source ?? '').trim();
-    const source =
-      sourceRaw === 'Vybe' || sourceRaw === 'Jupiter' || sourceRaw === 'Pumpfun-API'
-        ? sourceRaw
-        : undefined;
     const tokenProgram = String(body.tokenProgram ?? body.program ?? '').trim();
     const tags: string[] = [];
     if (/2022/i.test(tokenProgram) || body.isToken2022 === true) tags.push('Token2022');
-    if (
-      typeof price === 'number' &&
-      Number.isFinite(price) &&
-      price > 0 &&
-      typeof decimals === 'number' &&
-      Number.isFinite(decimals)
-    ) {
-      saveTokenPriceStats(mint, {
-        price,
-        price1d,
-        price7d,
-        decimals,
-        priceFetchedAt: priceFetchedAt ?? Date.now(),
-        priceUpdateTime,
-        source,
-        logoUrl: logoUrl || undefined,
-        symbol: symbol || undefined,
-        name: name || undefined,
-      });
-    }
     const meta: TokenMeta = {
       mint,
       symbol: symbol || truncateMint(mint),
@@ -1159,7 +1127,8 @@ async function fetchTokenByMint(mint: string): Promise<TokenMeta | null> {
 }
 
 function renderTokenIcon(token: TokenMeta): string {
-  return renderTokenIconImgHtml(effectiveTokenIconSrc(token.logoUrl), 'token-picker-row-logo-img');
+  const logoUrl = resolveTokenLogoUrl(token.mint) ?? token.logoUrl;
+  return renderTokenIconImgHtml(effectiveTokenIconSrc(logoUrl), 'token-picker-row-logo-img');
 }
 
 function formatBalanceAmount(amount: number): string {
@@ -1185,35 +1154,24 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
   const catalogHit = catalogTokens.find((t) => t.mint === item.mintAddress);
   const cached = readCache()[item.mintAddress];
   const base = catalogHit ?? cached;
-  const useWalletLabels = !isStubWalletLabel(item);
-  const rawSymbol =
+  const symbol =
     item.mintAddress === NATIVE_SOL_MINT
       ? 'SOL'
       : item.mintAddress === WSOL_MINT
         ? 'WSOL'
-        : useWalletLabels
-          ? item.symbol || base?.symbol || truncateMint(item.mintAddress)
-          : base?.symbol || item.symbol || truncateMint(item.mintAddress);
-  const symbol = normalizeTokenDisplaySymbol(item.mintAddress, rawSymbol);
-  const rawName =
+        : item.symbol || base?.symbol || truncateMint(item.mintAddress);
+  const name =
     item.mintAddress === NATIVE_SOL_MINT
       ? 'Solana'
       : item.mintAddress === WSOL_MINT
         ? 'Wrapped SOL'
-        : useWalletLabels
-          ? item.name || base?.name || symbol
-          : base?.name || item.name || symbol;
-  const name = isStubTokenLabel(item.mintAddress, rawName)
-    ? base?.name && !isStubTokenLabel(item.mintAddress, base.name)
-      ? base.name
-      : symbol
-    : rawName || symbol;
+        : item.name || base?.name || symbol;
   return {
     mint: item.mintAddress,
     symbol,
     name,
     logoUrl: resolveLogoUrl(
-      (useWalletLabels ? item.logoUrl : null) ?? base?.logoUrl ?? item.logoUrl ?? '',
+      resolveTokenLogoUrl(item.mintAddress) ?? item.logoUrl ?? base?.logoUrl ?? '',
     ),
     decimals: item.decimals ?? base?.decimals,
     isVerified: item.verified || base?.isVerified,
@@ -1876,16 +1834,8 @@ export function isWalletTokenTradable(mint: string): boolean {
 /** Persist wallet row metadata (symbol/name/logo/decimals) — never amounts or USD values. */
 export function persistWalletBalanceMetadata(items: WalletBalanceListItem[]): void {
   for (const item of items) {
-    if (isStubWalletLabel(item)) continue;
     saveTokenMeta(walletItemToTokenMeta(item));
   }
-}
-
-export function walletItemNeedsMetaFetch(item: WalletBalanceListItem): boolean {
-  if (item.enrichmentPending) return true;
-  const meta = getCachedTokenMeta(item.mintAddress);
-  if (!meta) return true;
-  return needsRemoteLogoResolve(meta);
 }
 
 /** @deprecated Renamed to persistWalletBalanceMetadata */
@@ -2055,7 +2005,9 @@ function renderWalletListHtml(items: WalletBalanceListItem[]): void {
     visible = visible.filter((item) => isSolOrStableMint(item.mintAddress, item.symbol));
   }
   const sorted =
-    activeSide === 'input' ? sortWalletBalancesForSellPicker(visible) : visible;
+    activeSide === 'input'
+      ? sortWalletBalancesForSellPicker(visible)
+      : sortWalletBalancesForDisplay(visible);
   if (sorted.length === 0) {
     walletBalancesListEl.innerHTML = q
       ? '<div class="token-picker-wallet-empty">No wallet tokens match your search.</div>'
@@ -2126,12 +2078,7 @@ function shouldDemoteWalletBalanceInSort(mint: string): boolean {
 }
 
 function sortWalletBalancesForSellPicker(items: WalletBalanceListItem[]): WalletBalanceListItem[] {
-  return [...items].sort((a, b) => {
-    const aDemote = shouldDemoteWalletBalanceInSort(a.mintAddress);
-    const bDemote = shouldDemoteWalletBalanceInSort(b.mintAddress);
-    if (aDemote !== bDemote) return aDemote ? 1 : -1;
-    return walletItemValueUsd(b) - walletItemValueUsd(a) || b.amountUi - a.amountUi;
-  });
+  return sortWalletBalanceList(items, { demoteUntradableSell: true });
 }
 
 function renderTokenRow(token: TokenMeta): string {
@@ -2262,7 +2209,7 @@ function renderShortcuts(): void {
       const lead = t.mint === leadMint ? ' token-picker-shortcut--lead' : '';
       const untradableClass = untradable ? ' token-picker-shortcut--untradable' : '';
       const disabled = untradable ? ' disabled aria-disabled="true"' : '';
-      const iconSrc = effectiveTokenIconSrc(t.logoUrl);
+      const iconSrc = effectiveTokenIconSrc(resolveTokenLogoUrl(t.mint) ?? t.logoUrl);
       const iconHtml = renderTokenIconImgHtml(iconSrc, '');
       return `<button type="button" class="token-picker-shortcut${lead}${untradableClass}" data-mint="${escapeHtml(t.mint)}" title="${escapeHtml(t.symbol)}"${disabled}>
           ${iconHtml}
@@ -2524,8 +2471,12 @@ export async function prefetchTokenMetas(mints: string[]): Promise<void> {
 
 export function renderChipTokenIcon(el: HTMLElement | null, mint: string | undefined, fallbackDotClass: string): void {
   if (!el) return;
-  const meta = getCachedTokenMeta(mint?.trim() ?? '');
-  const src = effectiveTokenIconSrc(meta?.logoUrl);
+  const src = effectiveTokenIconSrc(resolveTokenLogoUrl(mint));
+  if (src === TOKEN_ICON_PLACEHOLDER_PATH) {
+    el.className = `swap-token-chip-icon ${fallbackDotClass}`;
+    el.innerHTML = '';
+    return;
+  }
   el.className = 'swap-token-chip-icon swap-token-chip-icon--logo';
   el.innerHTML = renderTokenIconImgHtml(src, '');
   const img = el.querySelector('img');

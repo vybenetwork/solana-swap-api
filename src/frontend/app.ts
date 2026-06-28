@@ -60,20 +60,20 @@ import {
   syncRefetchHoldingsBtn,
   renderChipTokenIcon,
   effectiveTokenIconSrc,
+  resolveTokenLogoUrl,
   renderTokenIconImgHtml,
   tokenBoxColorClass,
   tokenSymColorClass,
   getTokenMintColorKind,
   routingTokenDotClass,
   saveTokenPriceStats,
+  getSessionTokenPriceStats,
+  applyResolvedTokenFromApi,
   walletItemValueUsd,
   mintsForPricePrefetch,
-  dedupeMintsForPriceResolve,
-  ensurePairPricesForQuote,
-  markPairPricesResolved,
-  normalizeTokenDisplaySymbol,
+  sessionQuotePricesFreshForMints,
+  RESOLVE_PRICES_TTL_MS,
   persistWalletBalanceMetadata,
-  walletItemNeedsMetaFetch,
   getSessionWalletBalanceItems,
   clearSessionWalletBalances,
   type TokenPickerSide,
@@ -279,6 +279,8 @@ const swapBuildBtnTimerEl = document.getElementById('swapBuildBtnTimer') as HTML
 
 const SWAP_QUOTE_BTN_COOLDOWN_SEC = 10;
 const SWAP_BUILD_BTN_QUOTE_TTL_SEC = 30;
+/** Empty readout / fiat before quote or when price is unknown. */
+const SWAP_UI_EMPTY = '—';
 
 let swapQuoteBtnDebugEnabled = false;
 
@@ -1016,7 +1018,7 @@ function setBuyReadoutLoading(loading: boolean): void {
   }
   if (swapBuyAmountDisplayEl.dataset.loading === 'true') {
     swapBuyAmountDisplayEl.dataset.loading = 'false';
-    setSwapBuyAmountDisplay('0.00', { empty: true });
+    setSwapBuyAmountDisplay(SWAP_UI_EMPTY, { empty: true });
   }
 }
 
@@ -1026,7 +1028,7 @@ function setBuyFiatLoading(loading: boolean): void {
     swapBuyFiatEl.innerHTML = renderLoadingSpinner('sm');
     return;
   }
-  if (!lastSwapQuoteOk) swapBuyFiatEl.textContent = '~$0.00';
+  if (!lastSwapQuoteOk) swapBuyFiatEl.textContent = SWAP_UI_EMPTY;
 }
 
 function refreshPendingQuoteUi(loading = swapQuoteFetching): void {
@@ -1488,22 +1490,14 @@ async function fetchSymbol(mint: string): Promise<string> {
   if (!m) return '—';
   const hard = HARDCODED_MINT_SYMBOLS[m];
   if (hard) return hard;
-
-  const cachedMeta = getCachedTokenMeta(m);
-  if (cachedMeta?.symbol) {
-    return displaySymbol(normalizeTokenDisplaySymbol(m, cachedMeta.symbol));
-  }
-
-  await ensureTokenMetaForMint(m);
-  const meta = getCachedTokenMeta(m);
-  if (meta?.symbol) {
-    return displaySymbol(normalizeTokenDisplaySymbol(m, meta.symbol));
-  }
-
+  const cachedMeta = getCachedTokenMeta(m)?.symbol?.replace(/\0/g, '').trim();
+  if (cachedMeta) return displaySymbol(cachedMeta);
+  const sessionSym = getSessionTokenPriceStats(m)?.symbol?.replace(/\0/g, '').trim();
+  if (sessionSym) return displaySymbol(sessionSym);
   const res = await fetchWithRetry(`/api/token-symbol/${encodeURIComponent(m)}`);
   const body = (await res.json().catch(() => ({}))) as TokenSymbolResponse;
-  const sym = (body.symbol ?? '').replace(/\0/g, '').trim();
-  return displaySymbol(normalizeTokenDisplaySymbol(m, sym));
+  const sym = (body.symbol ?? m).replace(/\0/g, '').trim();
+  return displaySymbol(sym || truncate(m, 4, 4));
 }
 
 async function fetchMintMeta(mint: string): Promise<void> {
@@ -1515,38 +1509,32 @@ async function fetchMintMeta(mint: string): Promise<void> {
   if (HARDCODED_MINT_DECIMALS[m] != null && routeMintDecimalsCache[m] == null) {
     routeMintDecimalsCache[m] = HARDCODED_MINT_DECIMALS[m];
   }
-  const needSymbol = !routeMintSymbolCache[m];
-  const needDecimals = routeMintDecimalsCache[m] == null;
-  if (!needSymbol && !needDecimals) return;
-
+  let needSymbol = !routeMintSymbolCache[m];
+  let needDecimals = routeMintDecimalsCache[m] == null;
   const cachedMeta = getCachedTokenMeta(m);
-  if (needSymbol && cachedMeta?.symbol) {
-    routeMintSymbolCache[m] = displaySymbol(normalizeTokenDisplaySymbol(m, cachedMeta.symbol));
+  const sessionStats = getSessionTokenPriceStats(m);
+  if (needSymbol) {
+    const sym = cachedMeta?.symbol?.replace(/\0/g, '').trim() || sessionStats?.symbol?.replace(/\0/g, '').trim();
+    if (sym) {
+      routeMintSymbolCache[m] = displaySymbol(sym);
+      needSymbol = false;
+    }
   }
-  if (needDecimals && typeof cachedMeta?.decimals === 'number') {
-    routeMintDecimalsCache[m] = cachedMeta.decimals;
+  if (needDecimals) {
+    const dec = cachedMeta?.decimals ?? sessionStats?.decimals;
+    if (typeof dec === 'number' && Number.isFinite(dec)) {
+      routeMintDecimalsCache[m] = dec;
+      needDecimals = false;
+    }
   }
-  if (!needSymbol || routeMintSymbolCache[m]) {
-    if (!needDecimals || routeMintDecimalsCache[m] != null) return;
-  }
-
-  await ensureTokenMetaForMint(m);
-  const meta = getCachedTokenMeta(m);
-  if (needSymbol && meta?.symbol) {
-    routeMintSymbolCache[m] = displaySymbol(normalizeTokenDisplaySymbol(m, meta.symbol));
-  }
-  if (needDecimals && typeof meta?.decimals === 'number' && routeMintDecimalsCache[m] == null) {
-    routeMintDecimalsCache[m] = meta.decimals;
-  }
-  if (routeMintSymbolCache[m] && (!needDecimals || routeMintDecimalsCache[m] != null)) return;
-
+  if (!needSymbol && !needDecimals) return;
   const res = await fetchWithRetry(
     `/api/token-symbol/${encodeURIComponent(m)}${needDecimals ? '?decimals=1' : ''}`,
   );
   const body = (await res.json().catch(() => ({}))) as TokenSymbolResponse;
   if (needSymbol) {
-    const sym = (body.symbol ?? '').replace(/\0/g, '').trim();
-    routeMintSymbolCache[m] = displaySymbol(normalizeTokenDisplaySymbol(m, sym));
+    const sym = (body.symbol ?? m).replace(/\0/g, '').trim();
+    routeMintSymbolCache[m] = displaySymbol(sym || truncate(m, 4, 4));
   }
   if (needDecimals && typeof body.decimals === 'number' && Number.isFinite(body.decimals)) {
     routeMintDecimalsCache[m] = body.decimals;
@@ -1574,9 +1562,9 @@ async function prefetchRouteMintSymbols(quote: Record<string, unknown>): Promise
 
 function resolvedSideSymbol(mint: string, chipSymbol: string): string {
   const chip = chipSymbol?.trim();
-  if (chip && chip !== '—') return displaySymbol(normalizeTokenDisplaySymbol(mint, chip));
+  if (chip && chip !== '—') return displaySymbol(chip);
   const metaSym = getCachedTokenMeta(mint)?.symbol?.trim();
-  if (metaSym) return displaySymbol(normalizeTokenDisplaySymbol(mint, metaSym));
+  if (metaSym) return displaySymbol(metaSym);
   const hard = HARDCODED_MINT_SYMBOLS[mint.trim()];
   if (hard) return hard;
   return '';
@@ -1596,10 +1584,7 @@ function swapSideTokenName(mint: string, chipSymbol: string): string {
 
   const meta = getCachedTokenMeta(m);
   const metaName = meta?.name?.trim();
-  if (metaName && metaName !== m && !looksLikeTruncatedAddress(metaName, m)) {
-    const nameAsSym = normalizeTokenDisplaySymbol(m, metaName);
-    if (nameAsSym === metaName) return metaName;
-  }
+  if (metaName && !looksLikeTruncatedAddress(metaName, m)) return metaName;
 
   const sym = resolvedSideSymbol(m, chipSymbol);
   if (sym) return sym;
@@ -1713,9 +1698,9 @@ function formatSwapPayUsdAmount(n: number): string {
 }
 
 function formatSwapPayFiatDisplay(v: unknown): string {
-  if (v == null || v === '') return '~$0.00';
+  if (v == null || v === '') return SWAP_UI_EMPTY;
   const n = typeof v === 'number' ? v : Number(String(v));
-  if (!Number.isFinite(n)) return '~$0.00';
+  if (!Number.isFinite(n) || n <= 0) return SWAP_UI_EMPTY;
   return `~$${formatSwapPayUsdAmount(n)}`;
 }
 
@@ -1742,19 +1727,19 @@ function formatSwapLegUsdAmount(n: number): string {
 }
 
 function formatSwapReceiveFiatDisplay(v: unknown): string {
-  if (v == null || v === '') return '~$0.00';
+  if (v == null || v === '') return SWAP_UI_EMPTY;
   const n = typeof v === 'number' ? v : Number(String(v));
-  if (!Number.isFinite(n)) return '~$0.00';
+  if (!Number.isFinite(n) || n <= 0) return SWAP_UI_EMPTY;
   return `~$${formatSwapLegUsdAmount(n)}`;
 }
 
 /** Buy-side fiat under the output token amount — pool output USD from ix-builder. */
 function renderSwapBuyFiatHtml(quote: Record<string, unknown> | null): string {
-  if (!quote) return '~$0.00';
+  if (!quote) return SWAP_UI_EMPTY;
   const ui = quote._swapUiUsd as { buyBoxUsd?: number } | undefined;
   const enriched = quote._youReceive as { outUsd?: number } | undefined;
   const usd = ui?.buyBoxUsd ?? enriched?.outUsd;
-  if (usd == null || !(Number(usd) > 0)) return '~$0.00';
+  if (usd == null || !(Number(usd) > 0)) return SWAP_UI_EMPTY;
   return escapeHtml(formatSwapReceiveFiatDisplay(usd));
 }
 
@@ -1776,10 +1761,10 @@ function syncSwapSellAmountUi(): void {
     lastVybeBuild = null;
     if (swapBuildBtn) syncBuildButtonState();
     if (swapBuyAmountDisplayEl) {
-      setSwapBuyAmountDisplay('0.00', { empty: true });
+      setSwapBuyAmountDisplay(SWAP_UI_EMPTY, { empty: true });
     }
-    if (swapSellFiatEl) swapSellFiatEl.textContent = '~$0.00';
-    if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
+    if (swapSellFiatEl) swapSellFiatEl.textContent = SWAP_UI_EMPTY;
+    if (swapBuyFiatEl) swapBuyFiatEl.textContent = SWAP_UI_EMPTY;
     resetSwapQuoteDetailsPanel();
     if (swapFooterRateEl) swapFooterRateEl.textContent = '—';
     if (swapFooterImpactEl) {
@@ -1833,11 +1818,11 @@ function syncSwapSellAmountUi(): void {
     return;
   }
 
-  if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
+  if (swapBuyFiatEl) swapBuyFiatEl.textContent = SWAP_UI_EMPTY;
   const sellMint = swapInputMintInput?.value.trim() ?? '';
   const price = lookupMintPriceUsd(sellMint, lastSwapQuoteOk ?? {});
   if (!sellMint || !Number.isFinite(price) || price <= 0) {
-    if (swapSellFiatEl) swapSellFiatEl.textContent = '~$0.00';
+    if (swapSellFiatEl) swapSellFiatEl.textContent = SWAP_UI_EMPTY;
     refreshSwapQuoteDetailsPlaceholders();
     syncSwapQuoteButtonState();
     return;
@@ -1869,9 +1854,9 @@ function resetSwapQuoteToMock(options?: { preserveRouterCaches?: boolean }): voi
   setBuyReadoutLoading(false);
   setBuyFiatLoading(false);
   if (swapBuyAmountDisplayEl) {
-    setSwapBuyAmountDisplay('0.00', { empty: true });
+    setSwapBuyAmountDisplay(SWAP_UI_EMPTY, { empty: true });
   }
-  if (swapBuyFiatEl) swapBuyFiatEl.textContent = '~$0.00';
+  if (swapBuyFiatEl) swapBuyFiatEl.textContent = SWAP_UI_EMPTY;
   if (swapFooterRateEl) swapFooterRateEl.textContent = '—';
   if (swapFooterImpactEl) {
     clearPriceImpactTierClass(swapFooterImpactEl);
@@ -2164,13 +2149,17 @@ async function refetchSwapQuoteBeforeBuild(
       ? pinnedOpts.amount
       : amount;
 
+  await ensureResolvePricesBeforeQuote(inputMint, outputMint, { force: true });
+
   swapQuoteFetching = true;
   pushSuppressClientPriceResolve();
   try {
     if (router === 'vybe') {
       const walletErr = validateVybeQuoteWallet();
       if (walletErr) throw new Error(walletErr);
-      await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, pinnedOpts);
+      await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, pinnedOpts, {
+        skipEnsurePrices: true,
+      });
     } else {
       await requestAggregatorQuoteAndBuild(wallet, inputMint, outputMint, quoteAmount, pinnedOpts);
     }
@@ -2604,11 +2593,11 @@ function applySellTokenFromBalance(
     resetPinRouteOnMintPairChange();
   }
   swapInputMintInput.value = swapMint;
-  const sym = normalizeTokenDisplaySymbol(
-    swapMint,
-    item.symbol || HARDCODED_MINT_SYMBOLS[swapMint] || item.mintAddress.slice(0, 6),
-  );
-  if (swapInputSymbolEl) swapInputSymbolEl.textContent = displaySymbol(sym);
+  const sym =
+    item.symbol ||
+    HARDCODED_MINT_SYMBOLS[swapMint] ||
+    item.mintAddress.slice(0, 6);
+  if (swapInputSymbolEl) swapInputSymbolEl.textContent = sym;
   if (item.decimals != null) routeMintDecimalsCache[swapMint] = item.decimals;
   syncSwapAmountMaxFromBalance();
   const sellPercent = initialSellPercent ?? getDefaultSellAmountPercentForMint(swapMint, sym);
@@ -2654,17 +2643,12 @@ async function refreshWalletBalancesForSwap(
       const pick = pickDefaultSellBalance(items);
       if (pick) {
         applySellTokenFromBalance(pick);
-        await prefetchSwapPairPrices({
-          forceFullDetails: true,
-          mints: [pick.mintAddress],
-        });
         markReady = true;
         return;
       }
     }
 
     syncSwapAmountMaxFromBalance();
-    await prefetchSwapPairPrices({ forceFullDetails: true });
     markReady = true;
   } catch {
     if (gen !== walletBalanceFetchGen) return;
@@ -2769,16 +2753,12 @@ async function refreshWalletHoldingsFull(
   if (inputMint) mints.add(inputMint);
   if (outputMint) mints.add(outputMint);
   for (const item of getSessionWalletBalanceItems()) {
-    if (walletItemNeedsMetaFetch(item)) {
+    if (item.enrichmentPending || !getCachedTokenMeta(item.mintAddress)) {
       mints.add(item.mintAddress);
     }
   }
 
   await prefetchTokenMetas([...mints]);
-  await prefetchSwapPairPrices({
-    forceFullDetails: true,
-    mints: [...mints],
-  });
 
   resetSwapQuoteToMock();
   updateSwapPairCards();
@@ -2901,9 +2881,8 @@ function setSwapOutputMintUi(mint: string): void {
   swapOutputMintInput.value = resolvedMint;
   const meta = getCachedTokenMeta(resolvedMint);
   if (meta && swapOutputSymbolEl) {
-    swapOutputSymbolEl.textContent = displaySymbol(
-      normalizeTokenDisplaySymbol(resolvedMint, meta.symbol === 'wSOL' ? 'WSOL' : meta.symbol),
-    );
+    swapOutputSymbolEl.textContent =
+      meta.symbol === 'wSOL' ? 'WSOL' : meta.symbol === 'WSOL' ? 'WSOL' : meta.symbol;
   }
   if (meta?.decimals != null) routeMintDecimalsCache[resolvedMint] = meta.decimals;
 }
@@ -2988,11 +2967,8 @@ function afterSellBuyTokensFlipped(flippedOutputAmountUi: number | null = null):
       );
     }
   }
-  const prefetchMints = [newSellMint, newBuyMint].filter(Boolean);
-  void prefetchSwapPairPrices({ forceFullDetails: true, mints: prefetchMints }).then(() => {
-    updateSwapPairCards();
-    syncSwapSellAmountUi();
-  });
+  updateSwapPairCards();
+  syncSwapSellAmountUi();
   void refreshLowSolTradeWarning();
   syncFlipButtonState();
 }
@@ -3053,9 +3029,8 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
   input.value = resolvedMint;
   const meta = getCachedTokenMeta(resolvedMint);
   if (meta && symbolEl) {
-    symbolEl.textContent = displaySymbol(
-      normalizeTokenDisplaySymbol(resolvedMint, meta.symbol === 'wSOL' ? 'WSOL' : meta.symbol),
-    );
+    symbolEl.textContent =
+      meta.symbol === 'wSOL' ? 'WSOL' : meta.symbol === 'WSOL' ? 'WSOL' : meta.symbol;
   }
   if (autoOutputMint && swapOutputMintInput) {
     setSwapOutputMintUi(autoOutputMint);
@@ -3065,6 +3040,7 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
   if (meta?.decimals != null) routeMintDecimalsCache[resolvedMint] = meta.decimals;
   updateSwapTokenIcons();
   updateSwapPairCards();
+  syncSwapSellAmountUi();
   void refreshSwapSymbols();
   if (side === 'input') {
     syncSwapAmountMaxFromBalance();
@@ -3074,10 +3050,6 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
         getDefaultSellAmountPercentForMint(resolvedMint, meta?.symbol),
       );
     }
-    const prefetchMints = [resolvedMint, ...(autoOutputMint ? [autoOutputMint] : [])];
-    void prefetchSwapPairPrices({ forceFullDetails: true, mints: prefetchMints });
-  } else {
-    void prefetchSwapPairPrices({ forceFullDetails: true });
   }
   syncSwapQuoteButtonState();
   void refreshLowSolTradeWarning();
@@ -3724,8 +3696,7 @@ function renderPairCard(
 }
 
 function renderPairCardIcon(mint: string, _symbol: string): string {
-  const meta = getCachedTokenMeta(mint);
-  return renderTokenIconImgHtml(effectiveTokenIconSrc(meta?.logoUrl), 'swap-pair-icon-img');
+  return renderTokenIconImgHtml(effectiveTokenIconSrc(resolveTokenLogoUrl(mint)), 'swap-pair-icon-img');
 }
 
 function renderSwapSideChangeHtml(stats?: TokenPriceStats, loading = false): string {
@@ -4704,11 +4675,23 @@ function resetSwapQuoteDetailsPanel(): void {
   renderRawResponsePanels();
 }
 
+async function ensureResolvePricesBeforeQuote(
+  inputMint: string,
+  outputMint: string,
+  options?: { force?: boolean },
+): Promise<void> {
+  if (!options?.force && clientPriceResolveSuppressed()) return;
+  const mints = mintsForPricePrefetch([inputMint, outputMint]);
+  if (!options?.force && sessionQuotePricesFreshForMints(mints, RESOLVE_PRICES_TTL_MS)) return;
+  await prefetchSwapPairPrices({ mints, forceFullDetails: options?.force });
+}
+
 async function prefetchSwapPairPrices(options?: {
   forceFullDetails?: boolean;
+  force?: boolean;
   mints?: string[];
 }): Promise<void> {
-  if (clientPriceResolveSuppressed()) return;
+  if (!options?.force && clientPriceResolveSuppressed()) return;
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
   const mints = mintsForPricePrefetch(options?.mints ?? [inputMint, outputMint]);
@@ -4735,8 +4718,8 @@ async function prefetchSwapPairPrices(options?: {
     for (const [mint, s] of Object.entries(stats)) {
       saveTokenPriceStats(mint, s);
     }
-    markPairPricesResolved(inputMint, outputMint, stats);
     updateSwapPairCards(stats);
+    updateSwapTokenIcons();
     syncSwapSellAmountUi();
     refreshWalletBalancesPanel();
     updateWalletTotalUsdUi();
@@ -4749,7 +4732,7 @@ async function prefetchSwapPairPrices(options?: {
 
 function clearSwapQuotePanel(): void {
   clearRouteMintCaches();
-  if (swapSellFiatEl) swapSellFiatEl.textContent = '~$0.00';
+  if (swapSellFiatEl) swapSellFiatEl.textContent = SWAP_UI_EMPTY;
   resetSwapQuoteToMock();
   if (swapPairCardsEl) {
     swapPairCardsEl.hidden = false;
@@ -4826,6 +4809,7 @@ function renderSwapQuoteUI(quote: Record<string, unknown>): void {
   renderSwapQuoteDetailsPanel(quote);
   syncSwapRouteWarnings(quote);
   updateSwapPairCards();
+  updateSwapTokenIcons();
 }
 
 async function prefetchRouteTokenMetas(quote: Record<string, unknown>): Promise<void> {
@@ -4847,12 +4831,10 @@ async function prefetchRouteTokenMetas(quote: Record<string, unknown>): Promise<
 
 async function prefetchRouteTokenPrices(quote: Record<string, unknown>): Promise<void> {
   if (clientPriceResolveSuppressed()) return;
-  const mints = dedupeMintsForPriceResolve(
-    collectRoutePriceMints(quote).filter((m) => {
-      const price = lookupMintPriceUsd(m, quote);
-      return !(Number.isFinite(price) && price > 0);
-    }),
-  );
+  const mints = collectRoutePriceMints(quote).filter((m) => {
+    const price = lookupMintPriceUsd(m, quote);
+    return !(Number.isFinite(price) && price > 0);
+  });
   if (mints.length === 0) return;
 
   try {
@@ -4879,6 +4861,7 @@ async function prefetchRouteTokenPrices(quote: Record<string, unknown>): Promise
     }
     if (Object.keys(stats).length > 0) {
       updateSwapPairCards(stats);
+      updateSwapTokenIcons();
       if (lastSwapQuoteOk) {
         const inputMint = swapInputMintInput?.value.trim() ?? '';
         const outputMint = swapOutputMintInput?.value.trim() ?? '';
@@ -5818,8 +5801,6 @@ async function requestAggregatorQuoteAndBuild(
   amount: number,
   buildOpts: Record<string, unknown>,
 ): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
-  const priceStats = await ensurePairPricesForQuote(inputMint, outputMint);
-  if (Object.keys(priceStats).length > 0) updateSwapPairCards(priceStats);
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   try {
     return await executeAggregatorQuoteAndBuild(wallet, inputMint, outputMint, amount, buildOpts);
@@ -6136,9 +6117,12 @@ async function requestVybeQuote(
   outputMint: string,
   amount: number,
   buildOpts: Record<string, unknown>,
+  options?: { skipEnsurePrices?: boolean },
 ): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
-  const priceStats = await ensurePairPricesForQuote(inputMint, outputMint);
-  if (Object.keys(priceStats).length > 0) updateSwapPairCards(priceStats);
+  if (!options?.skipEnsurePrices) {
+    await ensureResolvePricesBeforeQuote(inputMint, outputMint);
+  }
+
   const originalAmount = amount;
   let attemptAmount = amount;
   let splSimStep = 0;
@@ -6324,6 +6308,34 @@ function extractSwapBuildTransactions(payload: Record<string, unknown> | null | 
   if (main.trim()) txs.push(main.trim());
   if (post.trim()) txs.push(post.trim());
   return txs;
+}
+
+async function resolvePairTokenPrices(
+  inputMint: string,
+  outputMint: string,
+  forceFullDetailsMints: string[],
+): Promise<Record<string, TokenPriceStats>> {
+  const mints = [inputMint, outputMint].filter(Boolean);
+  const res = await fetchWithRetry('/api/tokens/resolve-prices', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      mints,
+      forceFullDetailsMints,
+    }),
+  });
+  const body = (await res.json().catch(() => ({}))) as {
+    stats?: Record<string, TokenPriceStats>;
+    error?: string;
+  };
+  if (!res.ok) {
+    throw new Error(body.error || `Price resolve failed (${res.status})`);
+  }
+  const stats = body.stats ?? {};
+  for (const [mint, s] of Object.entries(stats)) {
+    saveTokenPriceStats(mint, s);
+  }
+  return stats;
 }
 
 function stripVybeQuoteMetadata(body: Record<string, unknown>): Record<string, unknown> {
@@ -6944,7 +6956,6 @@ async function handleSwapSignDialogRetry(): Promise<void> {
 async function handleSwapSignDialogRefetchRebuild(): Promise<void> {
   setSignDialogRetryButtonsDisabled(true);
   appendSwapSignLog('Fetching a fresh quote…', 'pending');
-  pushSuppressClientPriceResolve();
   try {
     let wallet = swapWalletAddressInput?.value.trim() ?? '';
     wallet = await ensureBrowserWalletConnected(wallet);
@@ -6965,7 +6976,6 @@ async function handleSwapSignDialogRefetchRebuild(): Promise<void> {
     appendSwapSignLog(err instanceof Error ? err.message : String(err), 'error');
     setSwapSignDialogActions('failed');
   } finally {
-    popSuppressClientPriceResolve();
     setSignDialogRetryButtonsDisabled(false);
     syncSignDialogRetryButtons(true);
   }
@@ -7912,12 +7922,6 @@ initTokenPicker({
 setWalletBalanceStreamListener(() => {
   refreshWalletBalancesPanel();
   updateWalletTotalUsdUi();
-  const pending = getSessionWalletBalanceItems().filter((item) => walletItemNeedsMetaFetch(item));
-  if (pending.length > 0) {
-    void prefetchTokenMetas(pending.map((item) => item.mintAddress)).then(() => {
-      refreshWalletBalancesPanel();
-    });
-  }
 });
 wireTokenPickerOpen(swapInputTokenBtn, swapInputMintInput, 'input');
 wireTokenPickerOpen(swapOutputTokenBtn, swapOutputMintInput, 'output');
@@ -8040,20 +8044,20 @@ if (swapInputMintInput) {
     invalidateSwapQuoteAfterInputChange();
     applyOutputMintConstraintForInput();
     updateSwapPairCards();
+    syncSwapSellAmountUi();
     void refreshSwapSymbols();
     void refreshLowSolTradeWarning();
     syncSwapAmountMaxFromBalance();
-    void prefetchSwapPairPrices({ forceFullDetails: true });
   });
 }
 if (swapOutputMintInput) {
   swapOutputMintInput.addEventListener('input', () => {
     invalidateSwapQuoteAfterInputChange();
     updateSwapPairCards();
+    syncSwapSellAmountUi();
     void refreshSwapSymbols();
     void refreshLowSolTradeWarning();
     syncFlipButtonState();
-    void prefetchSwapPairPrices({ forceFullDetails: true });
   });
 }
 
@@ -8088,7 +8092,8 @@ void ensureTokenCatalogLoaded().then(async () => {
   const pairMints = [...new Set([inputMint, outputMint].filter(Boolean))];
   if (pairMints.length === 0) return;
   await Promise.all(pairMints.map((m) => ensureTokenMetaForMint(m)));
-  await prefetchSwapPairPrices({ forceFullDetails: true, mints: pairMints });
+  updateSwapPairCards();
+  syncSwapSellAmountUi();
 });
 void refreshSwapSymbols();
 updateSwapPairCards();
