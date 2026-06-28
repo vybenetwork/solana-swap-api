@@ -7,6 +7,7 @@
 import type { AxiosInstance } from 'axios';
 import { getWalletTokenBalance, isSolMint, WSOL_MINT } from './wallet-balance.js';
 import type { BuildSwapParams, SwapProxyRouter } from './swap-build.js';
+import { resolveCloseInputAtaHint, uiAmountToRaw } from '../shared/close-input-ata-hint.js';
 
 export interface SwapWalletAtaHints {
   /** Close input SPL ATA after a full-balance sell (rent reclaim). */
@@ -36,14 +37,6 @@ function balanceAmountToUi(amount: string, decimals: number): number {
   return Number(`${whole}.${fracStr}`);
 }
 
-function uiAmountToRaw(amountUi: number, decimals: number): bigint {
-  const fixed = amountUi.toFixed(Math.min(decimals, 12));
-  const [wholePart, fracPart = ''] = fixed.split('.');
-  const whole = BigInt(wholePart || '0');
-  const frac = BigInt(fracPart.padEnd(decimals, '0').slice(0, decimals) || '0');
-  return whole * 10n ** BigInt(decimals) + frac;
-}
-
 function balanceAmountToRaw(amount: string, decimals: number): bigint {
   return uiAmountToRaw(balanceAmountToUi(amount, decimals), decimals);
 }
@@ -65,6 +58,7 @@ export function appendAtaHintsToPayload(
   hints: SwapWalletAtaHints,
 ): void {
   if (hints.closeInputAta === true) payload.closeInputAta = true;
+  if (hints.closeInputAta === false) payload.closeInputAta = false;
   if (hints.createOutputAta === true) payload.createOutputAta = true;
   if (hints.closeWsolAta === true) payload.closeWsolAta = true;
   if (hints.createOutputAta === false) payload.createOutputAta = false;
@@ -73,6 +67,7 @@ export function appendAtaHintsToPayload(
 
 function clientAtaHintsAreComplete(body: BuildSwapParams): boolean {
   if (typeof body.closeWsolAta !== 'boolean') return false;
+  if (typeof body.closeInputAta !== 'boolean') return false;
   const outputIsSol = isSolMint(body.outputMintAddress.trim());
   if (!outputIsSol && typeof body.createOutputAta !== 'boolean') return false;
   return true;
@@ -84,34 +79,41 @@ export function buildParamsHaveCompleteAtaHints(body: BuildSwapParams): boolean 
 }
 
 function applyClientProvidedAtaHints(body: BuildSwapParams): BuildSwapParams {
+  const inputMint = body.inputMintAddress.trim();
   let amount = body.amount;
-  let closeInputAta = body.closeInputAta === true;
-
-  const inputIsSpl = !isSolMint(body.inputMintAddress.trim());
-  const exact = body.inputBalanceExact?.trim();
   const decimals = body.inputMintDecimals ?? body.inputDecimals;
+  const dec = Number.isFinite(decimals) && (decimals ?? 0) >= 0 ? Number(decimals) : 6;
+  const exact = body.inputBalanceExact?.trim();
 
-  if (inputIsSpl && exact && closeInputAta) {
-    const dec = Number.isFinite(decimals) && (decimals ?? 0) >= 0 ? Number(decimals) : 6;
-    const exactUi = balanceAmountToUi(exact, dec);
-    if (exactUi > 0) amount = exactUi;
-    closeInputAta = true;
-  } else if (inputIsSpl && exact && !closeInputAta) {
-    const dec = Number.isFinite(decimals) && (decimals ?? 0) >= 0 ? Number(decimals) : 6;
-    const exactRaw = balanceAmountToRaw(exact, dec);
-    const amountRaw = uiAmountToRaw(amount, dec);
-    if (exactRaw > 0n && amountRaw >= exactRaw) {
-      amount = balanceAmountToUi(exact, dec);
-      closeInputAta = true;
-    }
-  } else if (!inputIsSpl) {
+  let closeInputAta: boolean;
+  if (typeof body.closeInputAta === 'boolean' && isSolMint(inputMint)) {
     closeInputAta = false;
+  } else if (exact && !isSolMint(inputMint)) {
+    const exactRaw = /^\d+$/.test(exact) ? BigInt(exact) : balanceAmountToRaw(exact, dec);
+    closeInputAta = resolveCloseInputAtaHint({
+      inputMint,
+      amountUi: amount,
+      exactBalanceRaw: exactRaw,
+      decimals: dec,
+    });
+    if (closeInputAta && exactRaw > 0n) {
+      amount = balanceAmountToUi(exact, dec);
+    }
+  } else if (typeof body.closeInputAta === 'boolean') {
+    closeInputAta = body.closeInputAta;
+  } else {
+    closeInputAta = resolveCloseInputAtaHint({
+      inputMint,
+      amountUi: amount,
+      exactBalanceRaw: null,
+      decimals: dec,
+    });
   }
 
   return {
     ...body,
     amount,
-    closeInputAta: closeInputAta ? true : undefined,
+    closeInputAta,
     createOutputAta: body.createOutputAta,
     closeWsolAta: body.closeWsolAta,
   };
@@ -126,6 +128,7 @@ export async function resolveSwapWalletAtaHints(
     amount: number;
     router?: SwapProxyRouter;
     closeInputAta?: boolean;
+    createOutputAta?: boolean;
   },
 ): Promise<{ hints: SwapWalletAtaHints; amount: number }> {
   const router = params.router ?? 'vybe';
@@ -138,9 +141,12 @@ export async function resolveSwapWalletAtaHints(
   const outputIsSol = isSolMint(outputMint);
   const inputIsSpl = !isSolMint(inputMint);
 
+  const outputIsSpl = !outputIsSol && outputMint !== WSOL_MINT;
+  const skipOutputAtaExistenceCheck = typeof params.createOutputAta === 'boolean';
+
   const mintsToFetch = new Set<string>([WSOL_MINT]);
   if (inputIsSpl) mintsToFetch.add(inputMint);
-  if (!outputIsSol && outputMint !== WSOL_MINT) mintsToFetch.add(outputMint);
+  if (outputIsSpl && !skipOutputAtaExistenceCheck) mintsToFetch.add(outputMint);
 
   const mintFilter = [...mintsToFetch];
   const balance = await getWalletTokenBalance(http, {
@@ -157,29 +163,40 @@ export async function resolveSwapWalletAtaHints(
   const hints: SwapWalletAtaHints = {
     closeWsolAta: resolveCloseWsolAtaFromWalletRows(rows),
   };
-  if (!outputIsSol && outputMint !== WSOL_MINT) {
-    hints.createOutputAta = !walletHasMintRow(rows, outputMint);
+  if (outputIsSpl) {
+    if (params.createOutputAta === true) {
+      hints.createOutputAta = true;
+    } else if (params.createOutputAta === false) {
+      hints.createOutputAta = false;
+    } else {
+      hints.createOutputAta = !walletHasMintRow(rows, outputMint);
+    }
   }
 
   let amount = params.amount;
-  let closeInputAta = params.closeInputAta === true;
+  const closeInputAta = inputIsSpl && inputRow
+    ? (() => {
+        const decimals = Number(inputRow.decimals);
+        const exactRaw = balanceAmountToRaw(inputRow.amount, decimals);
+        const resolved = resolveCloseInputAtaHint({
+          inputMint,
+          amountUi: params.amount,
+          exactBalanceRaw: exactRaw,
+          decimals,
+        });
+        if (resolved) {
+          amount = balanceAmountToUi(inputRow.amount, decimals);
+        }
+        return resolved;
+      })()
+    : resolveCloseInputAtaHint({
+        inputMint,
+        amountUi: params.amount,
+        exactBalanceRaw: null,
+        decimals: 9,
+      });
 
-  if (inputIsSpl && inputRow) {
-    const decimals = Number(inputRow.decimals);
-    const exactUi = balanceAmountToUi(inputRow.amount, decimals);
-    const exactRaw = balanceAmountToRaw(inputRow.amount, decimals);
-    const amountRaw = uiAmountToRaw(params.amount, decimals);
-    const isFullSell =
-      closeInputAta || amountRaw === exactRaw || (amountRaw > 0n && amountRaw >= exactRaw);
-    if (isFullSell && exactRaw > 0n) {
-      amount = exactUi;
-      closeInputAta = true;
-    }
-  } else {
-    closeInputAta = false;
-  }
-
-  if (closeInputAta) hints.closeInputAta = true;
+  hints.closeInputAta = closeInputAta;
   return { hints, amount };
 }
 
@@ -201,12 +218,18 @@ export async function enrichBuildParamsWithAtaHints(
     amount: body.amount,
     router,
     closeInputAta: body.closeInputAta,
+    createOutputAta: body.createOutputAta,
   });
 
   return {
     ...body,
     amount,
-    closeInputAta: hints.closeInputAta ?? body.closeInputAta,
+    closeInputAta: hints.closeInputAta ?? resolveCloseInputAtaHint({
+      inputMint: body.inputMintAddress.trim(),
+      amountUi: amount,
+      exactBalanceRaw: null,
+      decimals: body.inputMintDecimals ?? body.inputDecimals ?? 6,
+    }),
     createOutputAta: body.createOutputAta ?? hints.createOutputAta,
     closeWsolAta: body.closeWsolAta ?? hints.closeWsolAta,
   };

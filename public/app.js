@@ -22096,20 +22096,23 @@ function buildSwapAtaHintsFromSessionBalances(params) {
   let closeInputAta;
   let inputBalanceExact;
   let inputDecimals;
-  if (!isSolMint(inputMint)) {
+  if (isSolMint(inputMint)) {
+    closeInputAta = false;
+  } else {
     const inputRow = sessionWalletBalances.items.find((i) => i.mintAddress === inputMint);
     if (inputRow) {
       inputBalanceExact = inputRow.amountExact?.trim().replace(/,/g, "") || void 0;
       inputDecimals = inputRow.decimals;
-      const isFullSell = isVybeFullSplSellAmount(
+      closeInputAta = isVybeFullSplSellAmount(
         params.amountUi,
         inputRow,
         params.maxSellSelected === true
       );
-      if (isFullSell && inputBalanceExact) {
-        closeInputAta = true;
+      if (closeInputAta && inputBalanceExact) {
         amountUi = Number(maxSwapInputStringForWalletItem(inputRow));
       }
+    } else {
+      closeInputAta = false;
     }
   }
   let createOutputAta;
@@ -31561,7 +31564,9 @@ async function prefetchRouteTokenPrices(quote) {
   });
   if (mints.length === 0) return;
   try {
-    const forceFullDetailsMints = mints.filter((m) => !quotedMintSession.has(m));
+    const forceFullDetailsMints = dedupeMintsForPriceResolve(
+      mints.filter((m) => !quotedMintSession.has(m))
+    );
     const res = await fetchWithRetry("/api/tokens/resolve-prices", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -31760,12 +31765,12 @@ function collectSwapBuildOptions() {
     swapFee: resolveSwapServiceFeePct(),
     ...ataFromCache ? {
       ...ataFromCache.closeWsolAta === true ? { closeWsolAta: true } : { closeWsolAta: false },
-      ...typeof ataFromCache.createOutputAta === "boolean" ? { createOutputAta: ataFromCache.createOutputAta } : {}
+      ...typeof ataFromCache.createOutputAta === "boolean" ? { createOutputAta: ataFromCache.createOutputAta } : {},
+      closeInputAta: ataFromCache.closeInputAta === true
     } : {},
-    ...ataFromCache?.closeInputAta ? { closeInputAta: true } : {},
     ...ataFromCache?.inputBalanceExact ? { inputBalanceExact: ataFromCache.inputBalanceExact } : {},
     ...ataFromCache?.inputDecimals != null ? { inputMintDecimals: ataFromCache.inputDecimals } : {},
-    ...ataFromCache?.closeInputAta && ataFromCache.amountUi ? { amount: ataFromCache.amountUi } : ataFromCache && ataFromCache.amountUi !== amountUi ? { amount: ataFromCache.amountUi } : {}
+    ...ataFromCache?.closeInputAta && ataFromCache.amountUi ? { amount: ataFromCache.amountUi } : {}
   };
 }
 function vybeBuildParamsKey(wallet, inputMint, outputMint, amount, opts) {
@@ -32775,12 +32780,13 @@ function extractSwapBuildTransactions(payload) {
 }
 async function resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMints) {
   const mints = mintsForPricePrefetch([inputMint, outputMint].filter(Boolean));
+  const forceFullCanonical = dedupeMintsForPriceResolve(forceFullDetailsMints);
   const res = await fetchWithRetry("/api/tokens/resolve-prices", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       mints,
-      forceFullDetailsMints
+      forceFullDetailsMints: forceFullCanonical
     })
   });
   const body = await res.json().catch(() => ({}));

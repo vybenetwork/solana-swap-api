@@ -188,9 +188,11 @@ function pinnedSwapBody(params, pool) {
   if (pool.preSwapNeeded === true) body.preSwapNeeded = true;
   if (pool.postSwapNeeded === true) body.postSwapNeeded = true;
   if (pool.quoteBridge && typeof pool.quoteBridge === 'object') body.quoteBridge = pool.quoteBridge;
-  if (params.closeInputAta === true) body.closeInputAta = true;
+  if (typeof params.closeInputAta === 'boolean') body.closeInputAta = params.closeInputAta;
   if (params.createOutputAta === true) body.createOutputAta = true;
   if (params.closeWsolAta === true) body.closeWsolAta = true;
+  if (params.createOutputAta === false) body.createOutputAta = false;
+  if (params.closeWsolAta === false) body.closeWsolAta = false;
   if (params.inputBalanceExact) body.inputBalanceExact = params.inputBalanceExact;
   const inputMintDecimals = params.inputMintDecimals ?? params.inputDecimals;
   if (inputMintDecimals != null) body.inputMintDecimals = inputMintDecimals;
@@ -230,9 +232,9 @@ function mapSwapToIxBuilder(body) {
   if (body.poolAddress) mapped.pool = body.poolAddress;
   if (body.programAddress) mapped.programAddress = body.programAddress;
   if (body.marketFetchMode) mapped.marketFetchMode = body.marketFetchMode;
-  if (body.closeInputAta === true) mapped.closeInputAta = true;
+  if (typeof body.closeInputAta === 'boolean') mapped.closeInputAta = body.closeInputAta;
   if (body.createOutputAta === true) mapped.createOutputAta = true;
-  if (body.closeWsolAta === true) mapped.closeWsolAta = true;
+  if (typeof body.closeWsolAta === 'boolean') mapped.closeWsolAta = body.closeWsolAta;
   if (body.inputBalanceExact) mapped.inputBalanceExact = body.inputBalanceExact;
   if (body.inputMintPrice != null && Number.isFinite(Number(body.inputMintPrice))) {
     mapped.inputMintPrice = Number(body.inputMintPrice);

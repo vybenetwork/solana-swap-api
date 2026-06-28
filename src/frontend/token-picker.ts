@@ -1975,8 +1975,8 @@ export function buildSwapAtaHintsFromSessionBalances(params: {
   router?: string;
   maxSellSelected?: boolean;
 }): {
-  closeInputAta?: boolean;
-  createOutputAta?: boolean;
+  closeInputAta: boolean;
+  createOutputAta: boolean | undefined;
   closeWsolAta?: boolean;
   amountUi: number;
   inputBalanceExact?: string;
@@ -1991,24 +1991,27 @@ export function buildSwapAtaHintsFromSessionBalances(params: {
   const closeWsolAta = resolveCloseWsolAtaFromSession();
 
   let amountUi = params.amountUi;
-  let closeInputAta: boolean | undefined;
+  let closeInputAta: boolean;
   let inputBalanceExact: string | undefined;
   let inputDecimals: number | undefined;
 
-  if (!isSolMint(inputMint)) {
+  if (isSolMint(inputMint)) {
+    closeInputAta = false;
+  } else {
     const inputRow = sessionWalletBalances.items.find((i) => i.mintAddress === inputMint);
     if (inputRow) {
       inputBalanceExact = inputRow.amountExact?.trim().replace(/,/g, '') || undefined;
       inputDecimals = inputRow.decimals;
-      const isFullSell = isVybeFullSplSellAmount(
+      closeInputAta = isVybeFullSplSellAmount(
         params.amountUi,
         inputRow,
         params.maxSellSelected === true,
       );
-      if (isFullSell && inputBalanceExact) {
-        closeInputAta = true;
+      if (closeInputAta && inputBalanceExact) {
         amountUi = Number(maxSwapInputStringForWalletItem(inputRow));
       }
+    } else {
+      closeInputAta = false;
     }
   }
 

@@ -71,6 +71,7 @@ import {
   applyResolvedTokenFromApi,
   walletItemValueUsd,
   mintsForPricePrefetch,
+  dedupeMintsForPriceResolve,
   sessionQuotePricesFreshForMints,
   RESOLVE_PRICES_TTL_MS,
   persistWalletBalanceMetadata,
@@ -4991,7 +4992,9 @@ async function prefetchRouteTokenPrices(quote: Record<string, unknown>): Promise
   if (mints.length === 0) return;
 
   try {
-    const forceFullDetailsMints = mints.filter((m) => !quotedMintSession.has(m));
+    const forceFullDetailsMints = dedupeMintsForPriceResolve(
+      mints.filter((m) => !quotedMintSession.has(m)),
+    );
     const res = await fetchWithRetry('/api/tokens/resolve-prices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -5253,18 +5256,16 @@ function collectSwapBuildOptions(): Record<string, unknown> {
           ...(typeof ataFromCache.createOutputAta === 'boolean'
             ? { createOutputAta: ataFromCache.createOutputAta }
             : {}),
+          closeInputAta: ataFromCache.closeInputAta === true,
         }
       : {}),
-    ...(ataFromCache?.closeInputAta ? { closeInputAta: true } : {}),
     ...(ataFromCache?.inputBalanceExact ? { inputBalanceExact: ataFromCache.inputBalanceExact } : {}),
     ...(ataFromCache?.inputDecimals != null
       ? { inputMintDecimals: ataFromCache.inputDecimals }
       : {}),
     ...(ataFromCache?.closeInputAta && ataFromCache.amountUi
       ? { amount: ataFromCache.amountUi }
-      : ataFromCache && ataFromCache.amountUi !== amountUi
-        ? { amount: ataFromCache.amountUi }
-        : {}),
+      : {}),
   };
 }
 
@@ -6609,12 +6610,13 @@ async function resolvePairTokenPrices(
   forceFullDetailsMints: string[],
 ): Promise<Record<string, TokenPriceStats>> {
   const mints = mintsForPricePrefetch([inputMint, outputMint].filter(Boolean));
+  const forceFullCanonical = dedupeMintsForPriceResolve(forceFullDetailsMints);
   const res = await fetchWithRetry('/api/tokens/resolve-prices', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       mints,
-      forceFullDetailsMints,
+      forceFullDetailsMints: forceFullCanonical,
     }),
   });
   const body = (await res.json().catch(() => ({}))) as {
