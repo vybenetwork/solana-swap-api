@@ -1,6 +1,6 @@
 /**
  * Resolve full token metadata (price, logo, symbol, …) for /api/token and search.
- * Vybe first; pump.fun then Jupiter when Vybe fails or metadata is incomplete.
+ * Network order: Jupiter → pump.fun → Vybe token-details.
  */
 
 import type { AxiosInstance } from 'axios';
@@ -45,6 +45,74 @@ function metaIsComplete(meta: CachedTokenMeta | null): boolean {
   );
 }
 
+function metaNeedsEnrichment(mint: string, disk: CachedTokenMeta | null): boolean {
+  if (!disk) return true;
+  const needsPrice = !(typeof disk.price === 'number' && disk.price > 0);
+  const needsLogo = !hasCachedTokenIcon(mint);
+  const needsSymbol = !disk.symbol?.trim();
+  return needsPrice || needsLogo || needsSymbol;
+}
+
+async function applyJupiterMeta(
+  mint: string,
+  solPriceUsd: number | undefined,
+  decimalsHint: number | undefined,
+): Promise<boolean> {
+  try {
+    const jupiter = await fetchJupiterTokenDetails(mint, {
+      solPriceUsd,
+      decimalsHint,
+    });
+    if (!jupiter) return false;
+    await cacheTokenMetaFromVybe(mint, {
+      ...jupiter.token,
+      priceFetchedAt: Date.now(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function applyPumpfunMeta(
+  mint: string,
+  solPriceUsd: number | undefined,
+  decimalsHint: number | undefined,
+): Promise<boolean> {
+  try {
+    const pumpfun = await fetchPumpfunTokenDetails(mint, {
+      solPriceUsd,
+      decimalsHint,
+    });
+    if (!pumpfun) return false;
+    await cacheTokenMetaFromVybe(mint, {
+      ...pumpfun.token,
+      priceFetchedAt: Date.now(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function applyVybeTokenDetails(http: AxiosInstance, mint: string): Promise<boolean> {
+  try {
+    const token = await getToken(http, mint);
+    await cacheTokenMetaFromVybe(mint, {
+      ...token,
+      decimals: vybeDecimals(token),
+      price: token.price,
+      price1d: token.price1d,
+      price7d: token.price7d,
+      priceUpdateTime: token.updateTime,
+      priceFetchedAt: Date.now(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Re-download icon when JSON cache points at a missing local file. */
 export async function repairTokenIcon(mint: string): Promise<string | undefined> {
   const m = mint.trim();
@@ -53,18 +121,20 @@ export async function repairTokenIcon(mint: string): Promise<string | undefined>
     return hit?.logoUrl;
   }
 
+  const solPriceUsd = solPriceUsdFromDisk();
   let remoteUrl: string | undefined;
+
   try {
-    const pumpfun = await fetchPumpfunTokenDetails(m, { solPriceUsd: solPriceUsdFromDisk() });
-    remoteUrl = typeof pumpfun?.token.logoUrl === 'string' ? pumpfun.token.logoUrl : undefined;
+    const jupiter = await fetchJupiterTokenDetails(m, { solPriceUsd });
+    remoteUrl = typeof jupiter?.token.logoUrl === 'string' ? jupiter.token.logoUrl : undefined;
   } catch {
-    /* try Jupiter next */
+    /* try pump.fun next */
   }
 
   if (!remoteUrl) {
     try {
-      const jupiter = await fetchJupiterTokenDetails(m, { solPriceUsd: solPriceUsdFromDisk() });
-      remoteUrl = typeof jupiter?.token.logoUrl === 'string' ? jupiter.token.logoUrl : undefined;
+      const pumpfun = await fetchPumpfunTokenDetails(m, { solPriceUsd });
+      remoteUrl = typeof pumpfun?.token.logoUrl === 'string' ? pumpfun.token.logoUrl : undefined;
     } catch {
       return undefined;
     }
@@ -89,9 +159,7 @@ export interface ResolveTokenMetaResult {
   source?: PriceResolveSource;
 }
 
-/**
- * Resolve token metadata for API/search. Uses pump.fun before Jupiter when enriching.
- */
+/** Resolve token metadata for API/search. Jupiter → pump.fun → Vybe token-details. */
 export async function resolveTokenMeta(
   http: AxiosInstance,
   mint: string,
@@ -100,74 +168,28 @@ export async function resolveTokenMeta(
   if (!m) return null;
 
   let source: PriceResolveSource | undefined;
-
   let disk = getCachedTokenMetaFromDisk(m);
   if (metaIsComplete(disk)) return { meta: disk!, source };
 
   const solPriceUsd = solPriceUsdFromDisk();
 
-  try {
-    const token = await getToken(http, m);
-    await cacheTokenMetaFromVybe(m, {
-      ...token,
-      decimals: vybeDecimals(token),
-      price: token.price,
-      price1d: token.price1d,
-      price7d: token.price7d,
-      priceUpdateTime: token.updateTime,
-      priceFetchedAt: Date.now(),
-    });
-    source = 'Vybe';
-  } catch {
-    /* fall through to pump.fun / Jupiter */
+  if (metaNeedsEnrichment(m, disk)) {
+    if (await applyJupiterMeta(m, solPriceUsd, disk?.decimals)) {
+      source = 'Jupiter';
+    }
   }
 
   disk = getCachedTokenMetaFromDisk(m);
-  const needsPrice = !(typeof disk?.price === 'number' && disk.price > 0);
-  const needsLogo = !hasCachedTokenIcon(m);
-
-  if (needsPrice || needsLogo) {
-    let enriched = false;
-    try {
-      const pumpfun = await fetchPumpfunTokenDetails(m, {
-        solPriceUsd,
-        decimalsHint: disk?.decimals,
-      });
-      if (pumpfun) {
-        await cacheTokenMetaFromVybe(m, {
-          ...pumpfun.token,
-          priceFetchedAt: Date.now(),
-        });
-        source = 'Pumpfun-API';
-        enriched = true;
-        if (!hasCachedTokenIcon(m)) {
-          await repairTokenIcon(m);
-        }
-      }
-    } catch {
-      /* try Jupiter */
+  if (metaNeedsEnrichment(m, disk)) {
+    if (await applyPumpfunMeta(m, solPriceUsd, disk?.decimals)) {
+      source = 'Pumpfun-API';
     }
+  }
 
-    if (!enriched && (needsPrice || needsLogo)) {
-      try {
-        const jupiter = await fetchJupiterTokenDetails(m, {
-          solPriceUsd,
-          decimalsHint: disk?.decimals,
-        });
-        if (jupiter) {
-          await cacheTokenMetaFromVybe(m, {
-            ...jupiter.token,
-            priceFetchedAt: Date.now(),
-          });
-          source = 'Jupiter';
-          enriched = true;
-          if (!hasCachedTokenIcon(m)) {
-            await repairTokenIcon(m);
-          }
-        }
-      } catch {
-        /* best effort */
-      }
+  disk = getCachedTokenMetaFromDisk(m);
+  if (metaNeedsEnrichment(m, disk)) {
+    if (await applyVybeTokenDetails(http, m)) {
+      source = 'Vybe';
     }
   }
 

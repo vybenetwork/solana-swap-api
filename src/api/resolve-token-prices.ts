@@ -1,6 +1,6 @@
 /**
  * Resolve token spot prices for swap quotes and pair-card stats.
- * Primary source: Vybe. Fallback chain: hints/stablecoins → pump.fun → Jupiter.
+ * Network price order: Jupiter → pump.fun → Vybe token-details.
  * Metadata may be cached on disk; `full` fetches all fields, `refresh-price` updates price only.
  */
 
@@ -19,6 +19,7 @@ import {
   WSOL_MINT,
   aliasSolPriceStats,
   dedupeMintsForPriceResolve,
+  isSolMint,
   toVybeSwapMint,
 } from './sol-mints.js';
 import type { VybeToken } from '../types/api.js';
@@ -133,7 +134,6 @@ function hintToStats(mint: string, hint: TokenPriceHint): TokenPriceStats | null
 
 function pickResolveMode(disk: CachedTokenMeta | null, forceFull: boolean): ResolveMode {
   if (forceFull) return 'full';
-  // Metadata on disk is enough to refresh price fields only; price itself always comes from Vybe.
   return disk ? 'refresh-price' : 'full';
 }
 
@@ -285,15 +285,97 @@ async function pumpfunFallbackStats(
   });
 }
 
+async function vybeTokenDetailsStats(
+  http: AxiosInstance,
+  mint: string,
+  hint: TokenPriceHint | undefined,
+  disk: CachedTokenMeta | null,
+  mode: ResolveMode,
+): Promise<TokenPriceStats | null> {
+  try {
+    const token = await getToken(http, mint);
+    const fetchedAt = Date.now();
+
+    if (mode === 'full') {
+      const normalized: Record<string, unknown> = {
+        ...token,
+        decimals: vybeDecimals(token),
+        price: token.price,
+        price1d: token.price1d,
+        price7d: token.price7d,
+        priceUpdateTime: token.updateTime,
+        priceFetchedAt: fetchedAt,
+      };
+      await cacheTokenMetaFromVybe(mint, normalized);
+    } else {
+      const merged = mergePriceFieldsOnly(mint, token as Record<string, unknown>, fetchedAt);
+      if (!merged) {
+        const normalized: Record<string, unknown> = {
+          ...token,
+          decimals: vybeDecimals(token),
+          price: token.price,
+          price1d: token.price1d,
+          price7d: token.price7d,
+          priceUpdateTime: token.updateTime,
+          priceFetchedAt: fetchedAt,
+        };
+        await cacheTokenMetaFromVybe(mint, normalized);
+      }
+    }
+
+    const resolved = vybeToStats(mint, token, fetchedAt);
+    if (!resolved) return null;
+    return statsFromEntry(mint, {
+      ...resolved,
+      source: 'Vybe',
+      ...metaFieldsFromDisk(mint),
+    });
+  } catch {
+    return null;
+  }
+}
+
 async function resolveExternalPriceFallback(
   mint: string,
   hint: TokenPriceHint | undefined,
   disk: CachedTokenMeta | null,
   solPriceUsd: number | undefined,
 ): Promise<TokenPriceStats | null> {
-  const pumpfun = await pumpfunFallbackStats(mint, hint, disk, solPriceUsd);
-  if (pumpfun) return pumpfun;
-  return jupiterFallbackStats(mint, hint, disk, solPriceUsd);
+  const jupiter = await jupiterFallbackStats(mint, hint, disk, solPriceUsd);
+  if (jupiter) return jupiter;
+  return pumpfunFallbackStats(mint, hint, disk, solPriceUsd);
+}
+
+async function resolveMintPriceStats(
+  http: AxiosInstance,
+  mint: string,
+  hint: TokenPriceHint | undefined,
+  options: { forceFull: boolean; solPriceUsd: number | undefined },
+): Promise<TokenPriceStats | null> {
+  const disk = getCachedTokenMetaFromDisk(mint);
+  const mode = pickResolveMode(disk, options.forceFull);
+
+  if (!options.forceFull) {
+    const freshDisk = tryStatsFromFreshDisk(mint);
+    if (freshDisk) return freshDisk;
+  }
+
+  const local =
+    hintToStats(mint, hint ?? {}) ?? stablecoinFallbackStats(mint, hint, disk);
+  if (local) return local;
+
+  const external = await resolveExternalPriceFallback(mint, hint, disk, options.solPriceUsd);
+  if (external) return external;
+
+  return vybeTokenDetailsStats(http, mint, hint, disk, mode);
+}
+
+function sortMintsSolFirst(mints: string[]): string[] {
+  return [...mints].sort((a, b) => {
+    const aSol = isSolMint(a) ? 0 : 1;
+    const bSol = isSolMint(b) ? 0 : 1;
+    return aSol - bSol || a.localeCompare(b);
+  });
 }
 
 function vybeToStats(
@@ -332,79 +414,15 @@ export async function resolveTokenPrices(
   const hints = options.tokenHints ?? {};
   const stats: Record<string, TokenPriceStats> = {};
 
-  await Promise.all(
-    vybeMints.map(async (mint) => {
-      const hint = hints[mint] ?? (mint !== NATIVE_SOL_MINT ? hints[NATIVE_SOL_MINT] : undefined);
-      const disk = getCachedTokenMetaFromDisk(mint);
-      const mode = pickResolveMode(disk, forceSet.has(mint));
-
-      if (!forceSet.has(mint)) {
-        const freshDisk = tryStatsFromFreshDisk(mint);
-        if (freshDisk) {
-          stats[mint] = freshDisk;
-          return;
-        }
-      }
-
-      try {
-        const token = await getToken(http, mint);
-        const fetchedAt = Date.now();
-
-        if (mode === 'full') {
-          const normalized: Record<string, unknown> = {
-            ...token,
-            decimals: vybeDecimals(token),
-            price: token.price,
-            price1d: token.price1d,
-            price7d: token.price7d,
-            priceUpdateTime: token.updateTime,
-            priceFetchedAt: fetchedAt,
-          };
-          await cacheTokenMetaFromVybe(mint, normalized);
-        } else {
-          const merged = mergePriceFieldsOnly(mint, token as Record<string, unknown>, fetchedAt);
-          if (!merged) {
-            const normalized: Record<string, unknown> = {
-              ...token,
-              decimals: vybeDecimals(token),
-              price: token.price,
-              price1d: token.price1d,
-              price7d: token.price7d,
-              priceUpdateTime: token.updateTime,
-              priceFetchedAt: fetchedAt,
-            };
-            await cacheTokenMetaFromVybe(mint, normalized);
-          }
-        }
-
-        const resolved = vybeToStats(mint, token, fetchedAt);
-        if (resolved) {
-          stats[mint] = statsFromEntry(mint, {
-            ...resolved,
-            source: 'Vybe',
-            ...metaFieldsFromDisk(mint),
-          });
-        } else {
-          const fallback =
-            hintToStats(mint, hint ?? {}) ?? stablecoinFallbackStats(mint, hint, disk);
-          if (fallback) stats[mint] = fallback;
-        }
-      } catch {
-        const fallback =
-          hintToStats(mint, hint ?? {}) ?? stablecoinFallbackStats(mint, hint, disk);
-        if (fallback) stats[mint] = fallback;
-      }
-    }),
-  );
-
   let solPriceUsd = solPriceUsdFromContext(hints, stats);
-  for (const mint of vybeMints) {
-    if (stats[mint]) continue;
+  for (const mint of sortMintsSolFirst(vybeMints)) {
     const hint = hints[mint] ?? (mint !== NATIVE_SOL_MINT ? hints[NATIVE_SOL_MINT] : undefined);
-    const disk = getCachedTokenMetaFromDisk(mint);
     if (!solPriceUsd) solPriceUsd = solPriceUsdFromContext(hints, stats);
-    const external = await resolveExternalPriceFallback(mint, hint, disk, solPriceUsd);
-    if (external) stats[mint] = external;
+    const resolved = await resolveMintPriceStats(http, mint, hint, {
+      forceFull: forceSet.has(mint),
+      solPriceUsd,
+    });
+    if (resolved) stats[mint] = resolved;
   }
 
   for (const originalMint of requestedMints) {
