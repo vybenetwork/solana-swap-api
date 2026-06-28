@@ -338,10 +338,11 @@ function applyMetaToWalletItem(
   }
   const mint = item.mintAddress.trim();
   const symbolFallback = truncateMint(mint);
+  const session = getSessionTokenPriceStats(mint);
   return {
     ...item,
-    symbol: sanitizeTokenLabel(meta.symbol, mint, symbolFallback),
-    name: sanitizeTokenLabel(meta.name, mint, symbolFallback),
+    symbol: pickTokenLabel([meta.symbol, session?.symbol, item.symbol], mint, symbolFallback),
+    name: pickTokenLabel([meta.name, session?.name, item.name, meta.symbol], mint, symbolFallback),
     logoUrl: meta.logoUrl?.trim() || item.logoUrl,
     decimals: meta.decimals ?? item.decimals,
     verified: meta.isVerified ?? item.verified,
@@ -472,11 +473,19 @@ function writeRecent(mints: string[]): void {
 }
 
 function mergeCatalogWithDeviceCache(fromCatalog: TokenMeta, cached: TokenMeta): TokenMeta {
+  const mint = fromCatalog.mint;
+  const symbolFallback = truncateMint(mint);
+  const symbol = pickTokenLabel([cached.symbol, fromCatalog.symbol], mint, symbolFallback);
+  const name = pickTokenLabel(
+    [cached.name, fromCatalog.name, symbol],
+    mint,
+    symbol,
+  );
   return {
     ...fromCatalog,
     ...cached,
-    symbol: cached.symbol?.trim() || fromCatalog.symbol,
-    name: cached.name?.trim() || fromCatalog.name,
+    symbol,
+    name,
     logoUrl: cached.logoUrl?.trim() || fromCatalog.logoUrl,
     tags: cached.tags ?? fromCatalog.tags,
     organicScore: cached.organicScore ?? fromCatalog.organicScore,
@@ -677,8 +686,9 @@ export function saveTokenPriceStats(mint: string, stats: TokenPriceStats): void 
   const existing = getCachedTokenMeta(m);
   const logoUrl = stats.logoUrl?.trim() || existing?.logoUrl || '';
   if (logoUrl) clearTokenIconUrlFailure(logoUrl);
-  const symbol = stats.symbol?.trim() || existing?.symbol || truncateMint(m);
-  const name = stats.name?.trim() || existing?.name || symbol;
+  const symbolFallback = truncateMint(m);
+  const symbol = pickTokenLabel([stats.symbol, existing?.symbol], m, symbolFallback);
+  const name = pickTokenLabel([stats.name, existing?.name, symbol], m, symbol);
   const meta: TokenMeta = {
     mint: m,
     symbol,
@@ -1001,22 +1011,52 @@ export function ensureTokenIconErrorHandling(): void {
 
 function needsRemoteLogoResolve(meta: TokenMeta | null | undefined): boolean {
   if (!meta) return true;
+  const mint = meta.mint.trim();
+  const sym = meta.symbol?.trim();
+  const name = meta.name?.trim();
+  if (!sym || isMintLikeLabel(sym, mint)) return true;
+  if (!name || isMintLikeLabel(name, mint)) return true;
+  if (meta.decimals == null) return true;
   const u = (meta.logoUrl ?? '').trim();
   if (!u || u === TOKEN_ICON_PLACEHOLDER_PATH) return true;
   if (isTokenIconUrlFailed(u)) return true;
-  // Fully resolved via /api/token with a local icon path — skip refetch.
+  // Local icon alone is not enough — labels must be resolved first (see checks above).
   if (meta.source === 'search' && u.startsWith('/')) return false;
-  const sym = meta.symbol?.trim();
-  if (!sym || isMintLikeLabel(sym, meta.mint)) return true;
-  if (meta.decimals == null) return true;
   if (u.startsWith('/')) return false;
   // Catalog / wallet rows may keep remote icon URLs; browser loads them directly.
   return false;
 }
 
+function mergeTokenMeta(existing: TokenMeta | undefined, incoming: TokenMeta): TokenMeta {
+  if (!existing) return incoming;
+  const mint = incoming.mint;
+  const symbolFallback = truncateMint(mint);
+  const symbol = pickTokenLabel([incoming.symbol, existing.symbol], mint, symbolFallback);
+  const name = pickTokenLabel([incoming.name, existing.name, symbol], mint, symbol);
+  const logoUrl = resolveLogoUrl(incoming.logoUrl?.trim() || existing.logoUrl?.trim() || '');
+  return {
+    ...existing,
+    ...incoming,
+    symbol,
+    name,
+    logoUrl,
+    decimals: incoming.decimals ?? existing.decimals,
+    price: incoming.price ?? existing.price,
+    price1d: incoming.price1d ?? existing.price1d,
+    price7d: incoming.price7d ?? existing.price7d,
+    priceUpdateTime: incoming.priceUpdateTime ?? existing.priceUpdateTime,
+    priceFetchedAt: incoming.priceFetchedAt ?? existing.priceFetchedAt,
+    tags: incoming.tags ?? existing.tags,
+    organicScore: incoming.organicScore ?? existing.organicScore,
+    isVerified: incoming.isVerified ?? existing.isVerified,
+    source: incoming.source ?? existing.source,
+    savedAt: Math.max(existing.savedAt ?? 0, incoming.savedAt ?? 0),
+  };
+}
+
 function saveTokenMeta(meta: TokenMeta): void {
   const cache = readCache();
-  cache[meta.mint] = meta;
+  cache[meta.mint] = mergeTokenMeta(cache[meta.mint], meta);
   writeCache(cache);
   const recent = readRecent().filter((m) => m !== meta.mint);
   recent.unshift(meta.mint);
@@ -1114,9 +1154,33 @@ function truncateMint(mint: string): string {
 
 function isMintLikeLabel(label: string, mint: string): boolean {
   const s = label.trim();
+  const m = mint.trim();
   if (!s) return true;
-  if (s === mint || s === truncateMint(mint)) return true;
-  return BASE58_RE.test(s) && s.length >= 32;
+  if (!m) return false;
+  if (s === m || s === truncateMint(m)) return true;
+  if (BASE58_RE.test(s) && s.length >= 32) return true;
+  // Wallet/API placeholder — short mint prefix (e.g. 4eR37y).
+  if (/^[1-9A-HJ-NP-Za-km-z]+$/.test(s) && s.length >= 4 && s.length <= 12 && m.startsWith(s)) {
+    return true;
+  }
+  return false;
+}
+
+/** Prefer the first real ticker/name; never keep a mint prefix over a resolved label. */
+function pickTokenLabel(
+  candidates: Array<string | undefined | null>,
+  mint: string,
+  fallback: string,
+): string {
+  for (const raw of candidates) {
+    const s = raw?.trim() ?? '';
+    if (s && !isMintLikeLabel(s, mint)) return s;
+  }
+  for (const raw of candidates) {
+    const s = raw?.trim() ?? '';
+    if (s) return s;
+  }
+  return fallback;
 }
 
 function sanitizeTokenLabel(raw: string | undefined, mint: string, fallback?: string): string {
@@ -1177,6 +1241,44 @@ function filterTokensForBuyOutputPicker(tokens: TokenMeta[]): TokenMeta[] {
   return tokens.filter((t) => isSolOrStableMint(t.mint, t.symbol));
 }
 
+function resolveTokenMetaForPicker(meta: TokenMeta): TokenMeta {
+  const mint = meta.mint;
+  const session = getSessionTokenPriceStats(mint);
+  const symbolFallback = truncateMint(mint);
+  const symbol = pickTokenLabel([session?.symbol, meta.symbol], mint, symbolFallback);
+  const name = pickTokenLabel([session?.name, meta.name, symbol], mint, symbol);
+  const logoUrl = resolveLogoUrl(
+    resolveTokenLogoUrl(mint) ?? session?.logoUrl ?? meta.logoUrl ?? '',
+  );
+  if (symbol === meta.symbol && name === meta.name && logoUrl === meta.logoUrl) return meta;
+  return { ...meta, symbol, name, logoUrl };
+}
+
+async function enrichRecentTokenLabels(): Promise<void> {
+  if (activeTab !== 'recent') return;
+  const cache = readCache();
+  const targets = readRecent()
+    .filter((mint) => {
+      const meta = cache[mint] ?? catalogTokens.find((t) => t.mint === mint);
+      if (!meta) return true;
+      return (
+        isMintLikeLabel(meta.symbol ?? '', mint) || isMintLikeLabel(meta.name ?? '', mint)
+      );
+    })
+    .slice(0, 12);
+  if (targets.length === 0) return;
+  await Promise.all(targets.map((mint) => ensureTokenMetaForMint(mint)));
+  if (dialogEl?.open && activeTab === 'recent') {
+    renderList();
+    renderShortcuts();
+  }
+}
+
+function scheduleRecentMetaRefresh(): void {
+  if (activeTab !== 'recent') return;
+  void enrichRecentTokenLabels();
+}
+
 function getVisibleTokens(): TokenMeta[] {
   if (activeSide === 'input' && isPickerSearchActive()) {
     return [];
@@ -1189,7 +1291,10 @@ function getVisibleTokens(): TokenMeta[] {
       activeTab === 'top'
         ? catalogTokens
         : recentMints
-            .map((mint) => cache[mint] ?? catalogTokens.find((t) => t.mint === mint))
+            .map((mint) => {
+              const hit = cache[mint] ?? catalogTokens.find((t) => t.mint === mint);
+              return hit ? resolveTokenMetaForPicker(hit) : null;
+            })
             .filter((t): t is TokenMeta => Boolean(t));
 
     if (activeSide === 'input' && activeTab === 'recent') {
@@ -1206,7 +1311,10 @@ function getVisibleTokens(): TokenMeta[] {
       activeTab === 'wallet' &&
       (sessionWalletBalances?.items.some((i) => i.mintAddress === q) ?? false);
     const hit = catalogTokens.find((t) => t.mint === q) ?? cache[q];
-    if (hit) return inWallet ? [] : filterTokensForBuyOutputPicker([hit]);
+    if (hit) {
+      const resolved = resolveTokenMetaForPicker(hit);
+      return inWallet ? [] : filterTokensForBuyOutputPicker([resolved]);
+    }
     if (pendingMintLookup === q) return [];
     return [];
   }
@@ -1312,19 +1420,20 @@ function walletItemToTokenMeta(item: WalletBalanceListItem): TokenMeta {
   const cached = readCache()[item.mintAddress];
   const base = catalogHit ?? cached;
   const mint = item.mintAddress;
+  const session = getSessionTokenPriceStats(mint);
   const symbolFallback = truncateMint(mint);
   const symbol =
     mint === NATIVE_SOL_MINT
       ? 'SOL'
       : mint === WSOL_MINT
         ? 'WSOL'
-        : sanitizeTokenLabel(item.symbol || base?.symbol, mint, symbolFallback);
+        : pickTokenLabel([session?.symbol, item.symbol, base?.symbol, cached?.symbol], mint, symbolFallback);
   const name =
     mint === NATIVE_SOL_MINT
       ? 'Solana'
       : mint === WSOL_MINT
         ? 'Wrapped SOL'
-        : sanitizeTokenLabel(item.name || base?.name, mint, symbol);
+        : pickTokenLabel([session?.name, item.name, base?.name, cached?.name, symbol], mint, symbol);
   return {
     mint: item.mintAddress,
     symbol,
@@ -2405,6 +2514,7 @@ function renderList(): void {
   }
   listEl.innerHTML = tokens.map(renderTokenRow).join('');
   hydrateTokenIconImgs(listEl);
+  scheduleRecentMetaRefresh();
 }
 
 function syncTabs(): void {

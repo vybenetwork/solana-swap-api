@@ -20802,10 +20802,11 @@ function applyMetaToWalletItem(item, meta) {
   }
   const mint = item.mintAddress.trim();
   const symbolFallback = truncateMint(mint);
+  const session = getSessionTokenPriceStats(mint);
   return {
     ...item,
-    symbol: sanitizeTokenLabel(meta.symbol, mint, symbolFallback),
-    name: sanitizeTokenLabel(meta.name, mint, symbolFallback),
+    symbol: pickTokenLabel([meta.symbol, session?.symbol, item.symbol], mint, symbolFallback),
+    name: pickTokenLabel([meta.name, session?.name, item.name, meta.symbol], mint, symbolFallback),
     logoUrl: meta.logoUrl?.trim() || item.logoUrl,
     decimals: meta.decimals ?? item.decimals,
     verified: meta.isVerified ?? item.verified,
@@ -20911,11 +20912,19 @@ function writeRecent(mints) {
   localStorage.setItem(RECENT_KEY, JSON.stringify(mints.slice(0, MAX_RECENT)));
 }
 function mergeCatalogWithDeviceCache(fromCatalog, cached) {
+  const mint = fromCatalog.mint;
+  const symbolFallback = truncateMint(mint);
+  const symbol = pickTokenLabel([cached.symbol, fromCatalog.symbol], mint, symbolFallback);
+  const name = pickTokenLabel(
+    [cached.name, fromCatalog.name, symbol],
+    mint,
+    symbol
+  );
   return {
     ...fromCatalog,
     ...cached,
-    symbol: cached.symbol?.trim() || fromCatalog.symbol,
-    name: cached.name?.trim() || fromCatalog.name,
+    symbol,
+    name,
     logoUrl: cached.logoUrl?.trim() || fromCatalog.logoUrl,
     tags: cached.tags ?? fromCatalog.tags,
     organicScore: cached.organicScore ?? fromCatalog.organicScore,
@@ -21067,8 +21076,9 @@ function saveTokenPriceStats(mint, stats) {
   const existing = getCachedTokenMeta(m);
   const logoUrl = stats.logoUrl?.trim() || existing?.logoUrl || "";
   if (logoUrl) clearTokenIconUrlFailure(logoUrl);
-  const symbol = stats.symbol?.trim() || existing?.symbol || truncateMint(m);
-  const name = stats.name?.trim() || existing?.name || symbol;
+  const symbolFallback = truncateMint(m);
+  const symbol = pickTokenLabel([stats.symbol, existing?.symbol], m, symbolFallback);
+  const name = pickTokenLabel([stats.name, existing?.name, symbol], m, symbol);
   const meta = {
     mint: m,
     symbol,
@@ -21343,19 +21353,48 @@ function ensureTokenIconErrorHandling() {
 }
 function needsRemoteLogoResolve(meta) {
   if (!meta) return true;
+  const mint = meta.mint.trim();
+  const sym = meta.symbol?.trim();
+  const name = meta.name?.trim();
+  if (!sym || isMintLikeLabel(sym, mint)) return true;
+  if (!name || isMintLikeLabel(name, mint)) return true;
+  if (meta.decimals == null) return true;
   const u = (meta.logoUrl ?? "").trim();
   if (!u || u === TOKEN_ICON_PLACEHOLDER_PATH) return true;
   if (isTokenIconUrlFailed(u)) return true;
   if (meta.source === "search" && u.startsWith("/")) return false;
-  const sym = meta.symbol?.trim();
-  if (!sym || isMintLikeLabel(sym, meta.mint)) return true;
-  if (meta.decimals == null) return true;
   if (u.startsWith("/")) return false;
   return false;
 }
+function mergeTokenMeta(existing, incoming) {
+  if (!existing) return incoming;
+  const mint = incoming.mint;
+  const symbolFallback = truncateMint(mint);
+  const symbol = pickTokenLabel([incoming.symbol, existing.symbol], mint, symbolFallback);
+  const name = pickTokenLabel([incoming.name, existing.name, symbol], mint, symbol);
+  const logoUrl = resolveLogoUrl(incoming.logoUrl?.trim() || existing.logoUrl?.trim() || "");
+  return {
+    ...existing,
+    ...incoming,
+    symbol,
+    name,
+    logoUrl,
+    decimals: incoming.decimals ?? existing.decimals,
+    price: incoming.price ?? existing.price,
+    price1d: incoming.price1d ?? existing.price1d,
+    price7d: incoming.price7d ?? existing.price7d,
+    priceUpdateTime: incoming.priceUpdateTime ?? existing.priceUpdateTime,
+    priceFetchedAt: incoming.priceFetchedAt ?? existing.priceFetchedAt,
+    tags: incoming.tags ?? existing.tags,
+    organicScore: incoming.organicScore ?? existing.organicScore,
+    isVerified: incoming.isVerified ?? existing.isVerified,
+    source: incoming.source ?? existing.source,
+    savedAt: Math.max(existing.savedAt ?? 0, incoming.savedAt ?? 0)
+  };
+}
 function saveTokenMeta(meta) {
   const cache = readCache();
-  cache[meta.mint] = meta;
+  cache[meta.mint] = mergeTokenMeta(cache[meta.mint], meta);
   writeCache(cache);
   const recent = readRecent().filter((m) => m !== meta.mint);
   recent.unshift(meta.mint);
@@ -21435,9 +21474,26 @@ function truncateMint(mint) {
 }
 function isMintLikeLabel(label, mint) {
   const s = label.trim();
+  const m = mint.trim();
   if (!s) return true;
-  if (s === mint || s === truncateMint(mint)) return true;
-  return BASE58_RE.test(s) && s.length >= 32;
+  if (!m) return false;
+  if (s === m || s === truncateMint(m)) return true;
+  if (BASE58_RE.test(s) && s.length >= 32) return true;
+  if (/^[1-9A-HJ-NP-Za-km-z]+$/.test(s) && s.length >= 4 && s.length <= 12 && m.startsWith(s)) {
+    return true;
+  }
+  return false;
+}
+function pickTokenLabel(candidates, mint, fallback) {
+  for (const raw of candidates) {
+    const s = raw?.trim() ?? "";
+    if (s && !isMintLikeLabel(s, mint)) return s;
+  }
+  for (const raw of candidates) {
+    const s = raw?.trim() ?? "";
+    if (s) return s;
+  }
+  return fallback;
 }
 function sanitizeTokenLabel(raw, mint, fallback) {
   const fb = fallback ?? truncateMint(mint);
@@ -21483,6 +21539,37 @@ function filterTokensForBuyOutputPicker(tokens) {
   if (!isBuyOutputPickerRestricted()) return tokens;
   return tokens.filter((t) => isSolOrStableMint(t.mint, t.symbol));
 }
+function resolveTokenMetaForPicker(meta) {
+  const mint = meta.mint;
+  const session = getSessionTokenPriceStats(mint);
+  const symbolFallback = truncateMint(mint);
+  const symbol = pickTokenLabel([session?.symbol, meta.symbol], mint, symbolFallback);
+  const name = pickTokenLabel([session?.name, meta.name, symbol], mint, symbol);
+  const logoUrl = resolveLogoUrl(
+    resolveTokenLogoUrl(mint) ?? session?.logoUrl ?? meta.logoUrl ?? ""
+  );
+  if (symbol === meta.symbol && name === meta.name && logoUrl === meta.logoUrl) return meta;
+  return { ...meta, symbol, name, logoUrl };
+}
+async function enrichRecentTokenLabels() {
+  if (activeTab !== "recent") return;
+  const cache = readCache();
+  const targets = readRecent().filter((mint) => {
+    const meta = cache[mint] ?? catalogTokens.find((t) => t.mint === mint);
+    if (!meta) return true;
+    return isMintLikeLabel(meta.symbol ?? "", mint) || isMintLikeLabel(meta.name ?? "", mint);
+  }).slice(0, 12);
+  if (targets.length === 0) return;
+  await Promise.all(targets.map((mint) => ensureTokenMetaForMint(mint)));
+  if (dialogEl?.open && activeTab === "recent") {
+    renderList();
+    renderShortcuts();
+  }
+}
+function scheduleRecentMetaRefresh() {
+  if (activeTab !== "recent") return;
+  void enrichRecentTokenLabels();
+}
 function getVisibleTokens() {
   if (activeSide === "input" && isPickerSearchActive()) {
     return [];
@@ -21491,7 +21578,10 @@ function getVisibleTokens() {
   const recentMints = readRecent();
   const rawQ = searchQuery.trim();
   if (!rawQ) {
-    let base = activeTab === "top" ? catalogTokens : recentMints.map((mint) => cache[mint] ?? catalogTokens.find((t) => t.mint === mint)).filter((t) => Boolean(t));
+    let base = activeTab === "top" ? catalogTokens : recentMints.map((mint) => {
+      const hit = cache[mint] ?? catalogTokens.find((t) => t.mint === mint);
+      return hit ? resolveTokenMetaForPicker(hit) : null;
+    }).filter((t) => Boolean(t));
     if (activeSide === "input" && activeTab === "recent") {
       return sortTokensForSellPicker(base);
     }
@@ -21502,7 +21592,10 @@ function getVisibleTokens() {
   if (BASE58_RE.test(q)) {
     const inWallet = activeTab === "wallet" && (sessionWalletBalances?.items.some((i) => i.mintAddress === q) ?? false);
     const hit = catalogTokens.find((t) => t.mint === q) ?? cache[q];
-    if (hit) return inWallet ? [] : filterTokensForBuyOutputPicker([hit]);
+    if (hit) {
+      const resolved = resolveTokenMetaForPicker(hit);
+      return inWallet ? [] : filterTokensForBuyOutputPicker([resolved]);
+    }
     if (pendingMintLookup === q) return [];
     return [];
   }
@@ -21592,9 +21685,10 @@ function walletItemToTokenMeta(item) {
   const cached = readCache()[item.mintAddress];
   const base = catalogHit ?? cached;
   const mint = item.mintAddress;
+  const session = getSessionTokenPriceStats(mint);
   const symbolFallback = truncateMint(mint);
-  const symbol = mint === NATIVE_SOL_MINT ? "SOL" : mint === WSOL_MINT ? "WSOL" : sanitizeTokenLabel(item.symbol || base?.symbol, mint, symbolFallback);
-  const name = mint === NATIVE_SOL_MINT ? "Solana" : mint === WSOL_MINT ? "Wrapped SOL" : sanitizeTokenLabel(item.name || base?.name, mint, symbol);
+  const symbol = mint === NATIVE_SOL_MINT ? "SOL" : mint === WSOL_MINT ? "WSOL" : pickTokenLabel([session?.symbol, item.symbol, base?.symbol, cached?.symbol], mint, symbolFallback);
+  const name = mint === NATIVE_SOL_MINT ? "Solana" : mint === WSOL_MINT ? "Wrapped SOL" : pickTokenLabel([session?.name, item.name, base?.name, cached?.name, symbol], mint, symbol);
   return {
     mint: item.mintAddress,
     symbol,
@@ -22407,6 +22501,7 @@ function renderList() {
   }
   listEl.innerHTML = tokens.map(renderTokenRow).join("");
   hydrateTokenIconImgs(listEl);
+  scheduleRecentMetaRefresh();
 }
 function syncTabs() {
   document.querySelectorAll(".token-picker-tab").forEach((el) => {
