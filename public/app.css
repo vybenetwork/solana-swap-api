@@ -8718,7 +8718,7 @@ tr:hover td {
 .swap-sign-dialog__logs-shell {
   margin-bottom: 1rem;
   min-height: 150px;
-  max-height: 150px;
+  max-height: 220px;
   background: #050506;
   border: 1px solid #27272a;
   border-radius: 12px;
@@ -8736,7 +8736,7 @@ tr:hover td {
   box-sizing: border-box;
   height: 100%;
   min-height: 150px;
-  max-height: 150px;
+  max-height: 220px;
   overflow: auto;
   padding: 0.65rem 0.55rem 0.65rem 0.75rem;
   background: #050506;
@@ -8775,6 +8775,29 @@ tr:hover td {
   color: #a1a1aa;
   white-space: nowrap;
   min-width: min-content;
+}
+
+.swap-sign-dialog__log--with-detail {
+  flex-direction: column;
+  gap: 0.2rem;
+  white-space: normal;
+}
+
+.swap-sign-dialog__log--with-detail::before {
+  align-self: flex-start;
+}
+
+.swap-sign-dialog__log-text {
+  min-width: 0;
+}
+
+.swap-sign-dialog__log-detail {
+  padding-left: 0.9rem;
+  font-size: 0.68rem;
+  color: #71717a;
+  line-height: 1.35;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .swap-sign-dialog__log::before {

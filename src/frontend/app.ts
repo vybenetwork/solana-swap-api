@@ -4808,7 +4808,17 @@ async function ensureResolvePricesBeforeQuote(
 ): Promise<void> {
   if (!options?.force && clientPriceResolveSuppressed()) return;
   const mints = mintsForPricePrefetch([inputMint, outputMint]);
-  if (!options?.force && sessionQuotePricesFreshForMints(mints, RESOLVE_PRICES_TTL_MS)) return;
+  if (!options?.force && sessionQuotePricesFreshForMints(mints, RESOLVE_PRICES_TTL_MS)) {
+    if (isSwapSignDialogActive()) {
+      recordSwapSignResolvePricesSkipped(mints);
+      appendSwapSignLog(
+        'Prices fresh — skipping resolve-prices',
+        'neutral',
+        `mints: ${formatSignLogMintList(mints)}`,
+      );
+    }
+    return;
+  }
   await prefetchSwapPairPrices({ mints, forceFullDetails: options?.force });
 }
 
@@ -4822,8 +4832,20 @@ async function prefetchSwapPairPrices(options?: {
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
   const mints = mintsForPricePrefetch(options?.mints ?? [inputMint, outputMint]);
   if (mints.length === 0) return;
+  const signActive = isSwapSignDialogActive();
+  const forceFull = Boolean(options?.forceFullDetails);
+  let resolveStarted = 0;
+  if (signActive) {
+    resolveStarted = performance.now();
+    recordSwapSignResolvePricesStart(mints);
+    appendSwapSignLog(
+      'Fetching prices (resolve-prices)…',
+      'pending',
+      `mints: ${formatSignLogMintList(mints)}${forceFull ? ' · forceFull' : ''}`,
+    );
+  }
   try {
-    const forceFullDetailsMints = options?.forceFullDetails ? mints : [];
+    const forceFullDetailsMints = forceFull ? mints : [];
     const res = await fetchWithRetry('/api/tokens/resolve-prices', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -4849,7 +4871,18 @@ async function prefetchSwapPairPrices(options?: {
     syncSwapSellAmountUi();
     refreshWalletBalancesPanel();
     updateWalletTotalUsdUi();
+    if (signActive) {
+      recordSwapSignResolvePricesDone();
+      appendSwapSignLog(
+        `Prices received in ${formatSignLogDurationMs(performance.now() - resolveStarted)}`,
+        'neutral',
+        `mints: ${formatSignLogMintList(mints)}`,
+      );
+    }
   } catch {
+    if (signActive) {
+      appendSwapSignLog('Price resolve failed', 'error');
+    }
     // Prefetch is best-effort; pair cards keep last known stats or em dashes.
   } finally {
     syncSwapQuoteButtonState();
@@ -6126,6 +6159,20 @@ async function executeAggregatorQuoteAndBuild(
   buildOpts: Record<string, unknown>,
 ): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  const signActive = isSwapSignDialogActive();
+  const quoteParamsDetail = formatAggregatorQuoteParamsForSignLog(
+    wallet,
+    inputMint,
+    outputMint,
+    amount,
+    buildOpts,
+  );
+  let quoteStarted = 0;
+  if (signActive) {
+    quoteStarted = performance.now();
+    recordSwapSignQuoteTxStart('swap-quote');
+    appendSwapSignLog('Requesting swap-quote + build…', 'pending', quoteParamsDetail);
+  }
   const originalAmount = amount;
   let attemptAmount = amount;
   let splSimStep = 0;
@@ -6178,6 +6225,13 @@ async function executeAggregatorQuoteAndBuild(
       );
       if (!buildTx) {
         throw new Error('Swap build did not return a transaction.');
+      }
+      if (signActive) {
+        recordSwapSignQuoteTxDone();
+        appendSwapSignLog(
+          `Quote tx received in ${formatSignLogDurationMs(performance.now() - quoteStarted)}`,
+          'neutral',
+        );
       }
       return { tx: buildTx, buildPayload: last.swapBody };
     }
@@ -6342,6 +6396,20 @@ async function requestVybeQuote(
   let splSimStep = 0;
   let lastBody: VybeQuoteApiBody | null = null;
   const selectedRouter = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  const signActive = isSwapSignDialogActive();
+  const quoteParamsDetail = formatVybeQuoteParamsForSignLog(
+    wallet,
+    inputMint,
+    outputMint,
+    amount,
+    buildOpts,
+  );
+  let quoteStarted = 0;
+  if (signActive) {
+    quoteStarted = performance.now();
+    recordSwapSignQuoteTxStart('vybe-quote');
+    appendSwapSignLog('Requesting vybe-quote…', 'pending', quoteParamsDetail);
+  }
 
   while (splSimStep < SPL_SELL_SIM_MAX_ATTEMPTS_PER_ROUTER) {
     const res = await fetchWithRetry('/api/trading/vybe-quote', {
@@ -6396,6 +6464,13 @@ async function requestVybeQuote(
       applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, originalAmount, buildOpts);
       if (!buildTx) {
         throw new Error('Vybe quote did not return a transaction.');
+      }
+      if (signActive) {
+        recordSwapSignQuoteTxDone();
+        appendSwapSignLog(
+          `Quote tx received in ${formatSignLogDurationMs(performance.now() - quoteStarted)}`,
+          'neutral',
+        );
       }
       return { tx: buildTx, buildPayload: projectSwapBuildForBrowser(body._build as Record<string, unknown>) };
     }
@@ -6476,6 +6551,10 @@ async function resolveVybeBuildTx(
 ): Promise<{ tx: string; buildPayload: Record<string, unknown> }> {
   const cachedFromQuote = tryReuseLastVybeBuildFromQuote();
   if (cachedFromQuote) {
+    if (isSwapSignDialogActive()) {
+      recordSwapSignQuoteTxCached('vybe-quote');
+      appendSwapSignLog('Using cached vybe-quote tx', 'neutral');
+    }
     lastRawSwapResponse = cachedFromQuote.buildPayload;
     renderRawResponsePanels();
     return cachedFromQuote;
@@ -6483,6 +6562,10 @@ async function resolveVybeBuildTx(
   const cacheOpts = vybeCacheBuildOpts(buildOpts);
   const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, cacheOpts);
   if (isVybeQuoteTxFresh(paramsKey) && lastVybeBuild) {
+    if (isSwapSignDialogActive()) {
+      recordSwapSignQuoteTxCached('vybe-quote');
+      appendSwapSignLog('Using cached vybe-quote tx', 'neutral');
+    }
     lastRawSwapResponse = lastVybeBuild.buildPayload;
     renderRawResponsePanels();
     return {
@@ -6783,6 +6866,145 @@ let swapSignSuccessContext: {
   signatures: string[];
 } | null = null;
 
+type SwapSignPrepTimings = {
+  pricesStartedAt?: number;
+  pricesFinishedAt?: number;
+  pricesMints?: string[];
+  pricesSkipped?: boolean;
+  quoteStartedAt?: number;
+  quoteFinishedAt?: number;
+  quoteCached?: boolean;
+  quoteLabel?: string;
+};
+
+let swapSignPrepTimings: SwapSignPrepTimings = {};
+
+function resetSwapSignPrepTimings(): void {
+  swapSignPrepTimings = {};
+}
+
+function isSwapSignDialogActive(): boolean {
+  return swapBuildMode === 'build-sign' && Boolean(swapSignConfirmDialogEl?.open);
+}
+
+function formatSignLogDurationMs(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return '—';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(2)}s`;
+}
+
+function formatSignLogMint(mint: string): string {
+  const m = mint.trim();
+  const sym =
+    getCachedTokenMeta(m)?.symbol?.trim() ||
+    HARDCODED_MINT_SYMBOLS[m] ||
+    '';
+  if (sym && sym.length <= 12 && !/^[1-9A-HJ-NP-Za-km-z]{4,8}$/.test(sym)) return sym;
+  if (m.length <= 12) return m;
+  return `${m.slice(0, 4)}…${m.slice(-4)}`;
+}
+
+function formatSignLogMintList(mints: string[]): string {
+  return mints.map(formatSignLogMint).join(', ');
+}
+
+function formatVybeQuoteParamsForSignLog(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): string {
+  const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  const parts = [
+    `wallet=${wallet.length > 12 ? `${wallet.slice(0, 4)}…${wallet.slice(-4)}` : wallet}`,
+    `router=${router}`,
+    `amount=${amount}`,
+    `in=${formatSignLogMint(inputMint)}`,
+    `out=${formatSignLogMint(outputMint)}`,
+  ];
+  const pool = String(buildOpts.poolAddress ?? '').trim();
+  if (pool) parts.push(`pool=${formatSignLogMint(pool)}`);
+  const slip = buildOpts.slippage;
+  if (typeof slip === 'number' && Number.isFinite(slip)) parts.push(`slippage=${slip}`);
+  return parts.join(' · ');
+}
+
+function formatAggregatorQuoteParamsForSignLog(
+  wallet: string,
+  inputMint: string,
+  outputMint: string,
+  amount: number,
+  buildOpts: Record<string, unknown>,
+): string {
+  const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  const parts = [
+    `wallet=${wallet.length > 12 ? `${wallet.slice(0, 4)}…${wallet.slice(-4)}` : wallet}`,
+    `router=${router}`,
+    `amount=${amount}`,
+    `in=${formatSignLogMint(inputMint)}`,
+    `out=${formatSignLogMint(outputMint)}`,
+  ];
+  const slip = buildOpts.slippage;
+  if (typeof slip === 'number' && Number.isFinite(slip)) parts.push(`slippage=${slip}`);
+  return parts.join(' · ');
+}
+
+function recordSwapSignResolvePricesStart(mints: string[]): void {
+  swapSignPrepTimings.pricesStartedAt = performance.now();
+  swapSignPrepTimings.pricesFinishedAt = undefined;
+  swapSignPrepTimings.pricesMints = [...mints];
+  swapSignPrepTimings.pricesSkipped = false;
+}
+
+function recordSwapSignResolvePricesDone(): void {
+  swapSignPrepTimings.pricesFinishedAt = performance.now();
+}
+
+function recordSwapSignResolvePricesSkipped(mints: string[]): void {
+  const now = performance.now();
+  swapSignPrepTimings.pricesStartedAt = now;
+  swapSignPrepTimings.pricesFinishedAt = now;
+  swapSignPrepTimings.pricesMints = [...mints];
+  swapSignPrepTimings.pricesSkipped = true;
+}
+
+function recordSwapSignQuoteTxStart(label: string): void {
+  swapSignPrepTimings.quoteStartedAt = performance.now();
+  swapSignPrepTimings.quoteFinishedAt = undefined;
+  swapSignPrepTimings.quoteCached = false;
+  swapSignPrepTimings.quoteLabel = label;
+}
+
+function recordSwapSignQuoteTxDone(): void {
+  swapSignPrepTimings.quoteFinishedAt = performance.now();
+}
+
+function recordSwapSignQuoteTxCached(label = 'quote tx'): void {
+  const now = performance.now();
+  swapSignPrepTimings.quoteStartedAt = now;
+  swapSignPrepTimings.quoteFinishedAt = now;
+  swapSignPrepTimings.quoteCached = true;
+  swapSignPrepTimings.quoteLabel = label;
+}
+
+function logSwapSignPrepTimingsAfterSign(): void {
+  if (!isSwapSignDialogActive()) return;
+  const t = swapSignPrepTimings;
+  const parts: string[] = [];
+  if (t.pricesStartedAt != null && t.pricesFinishedAt != null) {
+    const label = t.pricesSkipped ? 'prices (cached)' : 'prices';
+    parts.push(`${label}: ${formatSignLogDurationMs(t.pricesFinishedAt - t.pricesStartedAt)}`);
+  }
+  if (t.quoteStartedAt != null && t.quoteFinishedAt != null) {
+    const label = t.quoteCached ? `${t.quoteLabel ?? 'quote tx'} (cached)` : (t.quoteLabel ?? 'quote tx');
+    parts.push(`${label}: ${formatSignLogDurationMs(t.quoteFinishedAt - t.quoteStartedAt)}`);
+  }
+  if (parts.length > 0) {
+    appendSwapSignLog(`Prep timings — ${parts.join(' · ')}`, 'neutral');
+  }
+}
+
 type SwapSignLogTone = 'neutral' | 'pending' | 'success' | 'error';
 
 function sleepMs(ms: number): Promise<void> {
@@ -6813,6 +7035,7 @@ function resetSwapSignDialogUi(clearLogs = true): void {
   swapSignDialogSuccess = false;
   swapSignSuccessContext = null;
   swapSignRetryContext = null;
+  resetSwapSignPrepTimings();
   if (swapSignConfirmCancelEl) {
     swapSignConfirmCancelEl.hidden = false;
     swapSignConfirmCancelEl.disabled = false;
@@ -6879,7 +7102,11 @@ function setSwapSignDialogActions(state: 'running' | 'success' | 'failed'): void
   syncSignDialogRefetchButton();
 }
 
-function appendSwapSignLog(text: string, tone: SwapSignLogTone = 'neutral'): HTMLElement | null {
+function appendSwapSignLog(
+  text: string,
+  tone: SwapSignLogTone = 'neutral',
+  detail?: string,
+): HTMLElement | null {
   if (!swapSignConfirmLogsEl) return null;
   if (swapSignPendingLogEl) {
     swapSignPendingLogEl.classList.remove('swap-sign-dialog__log--pending');
@@ -6887,7 +7114,17 @@ function appendSwapSignLog(text: string, tone: SwapSignLogTone = 'neutral'): HTM
   }
   const row = document.createElement('div');
   row.className = `swap-sign-dialog__log swap-sign-dialog__log--${tone}`;
-  row.textContent = text;
+  if (detail) row.classList.add('swap-sign-dialog__log--with-detail');
+  const label = document.createElement('span');
+  label.className = 'swap-sign-dialog__log-text';
+  label.textContent = text;
+  row.appendChild(label);
+  if (detail) {
+    const detailEl = document.createElement('div');
+    detailEl.className = 'swap-sign-dialog__log-detail';
+    detailEl.textContent = detail;
+    row.appendChild(detailEl);
+  }
   swapSignConfirmLogsEl.appendChild(row);
   swapSignConfirmLogsEl.scrollTop = swapSignConfirmLogsEl.scrollHeight;
   if (tone === 'pending') swapSignPendingLogEl = row;
@@ -6912,6 +7149,7 @@ function openSwapSignDialog(
     swapSignPendingLogEl = null;
     swapSignDialogSuccess = false;
     swapSignSuccessContext = null;
+    resetSwapSignPrepTimings();
     setSwapSignTxidButtonsState('hidden');
     syncSignDialogRefetchButton();
     if (swapSignConfirmCancelEl) {
@@ -7087,6 +7325,7 @@ async function completeSwapSignFlow(generation: number, txStrings: string[]): Pr
   if (generation !== swapSignFlowGeneration) return;
 
   appendSwapSignLog('User signed transaction', 'success');
+  logSwapSignPrepTimingsAfterSign();
   const lastSig = signatures[signatures.length - 1] ?? '';
   if (!lastSig) throw new Error('Wallet did not return a transaction signature.');
 
@@ -7143,14 +7382,14 @@ async function completeSwapSignFlow(generation: number, txStrings: string[]): Pr
 
 function beginSwapSignBuildFlow(needsQuoteRefetch: boolean): number {
   const generation = ++swapSignFlowGeneration;
+  resetSwapSignPrepTimings();
   const previewBuild = lastVybeBuild?.buildPayload
     ? projectSwapBuildForBrowser(lastVybeBuild.buildPayload as Record<string, unknown>)
     : undefined;
   openSwapSignDialog(lastSwapQuoteOk!, previewBuild);
-  appendSwapSignLog(
-    needsQuoteRefetch ? 'Fetching a fresh quote…' : 'Preparing transaction…',
-    'pending',
-  );
+  if (!needsQuoteRefetch) {
+    appendSwapSignLog('Preparing transaction…', 'pending');
+  }
   return generation;
 }
 
@@ -7231,7 +7470,7 @@ async function runSwapSignDialogFlow(
 
 async function handleSwapSignDialogRefetchRebuild(): Promise<void> {
   setSignDialogRefetchButtonDisabled(true);
-  appendSwapSignLog('Fetching a fresh quote…', 'pending');
+  resetSwapSignPrepTimings();
   try {
     let wallet = swapWalletAddressInput?.value.trim() ?? '';
     wallet = await ensureBrowserWalletConnected(wallet);
@@ -7488,14 +7727,6 @@ async function postBuildSwap(options?: {
   if (swapBuildBtn && swapBuildMode !== 'build-sign') swapBuildBtn.disabled = true;
 
   if (needsQuoteRefetch) {
-    if (
-      swapBuildMode === 'build-sign' &&
-      signFlowGeneration != null &&
-      signFlowGeneration === swapSignFlowGeneration &&
-      options?.preserveSignDialogLogs
-    ) {
-      appendSwapSignLog('Fetching a fresh quote…', 'pending');
-    }
     await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
     if (signFlowGeneration != null && signFlowGeneration !== swapSignFlowGeneration) {
       syncBuildButtonState();
@@ -7510,6 +7741,10 @@ async function postBuildSwap(options?: {
     if (router === 'vybe') {
       const cached = tryCachedVybeBuildTxForSelectedRoute();
       if (cached) {
+        if (isSwapSignDialogActive()) {
+          recordSwapSignQuoteTxCached('vybe-quote');
+          appendSwapSignLog('Using cached vybe-quote tx', 'neutral');
+        }
         buildTx = cached.tx;
         buildPayload = projectSwapBuildForBrowser(cached.buildPayload);
         lastRawSwapResponse = buildPayload;
