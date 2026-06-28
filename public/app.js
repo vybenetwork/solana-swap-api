@@ -32698,7 +32698,7 @@ function extractSwapBuildTransactions(payload) {
   return txs;
 }
 async function resolvePairTokenPrices(inputMint, outputMint, forceFullDetailsMints) {
-  const mints = [inputMint, outputMint].filter(Boolean);
+  const mints = mintsForPricePrefetch([inputMint, outputMint].filter(Boolean));
   const res = await fetchWithRetry("/api/tokens/resolve-prices", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

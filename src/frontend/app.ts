@@ -6531,7 +6531,7 @@ async function resolvePairTokenPrices(
   outputMint: string,
   forceFullDetailsMints: string[],
 ): Promise<Record<string, TokenPriceStats>> {
-  const mints = [inputMint, outputMint].filter(Boolean);
+  const mints = mintsForPricePrefetch([inputMint, outputMint].filter(Boolean));
   const res = await fetchWithRetry('/api/tokens/resolve-prices', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

@@ -3,6 +3,7 @@
  * WSOL/stables: Vybe token-details → Jupiter → pump.fun.
  * Other mints: Jupiter → pump.fun → Vybe token-details.
  * Metadata may be cached on disk; `full` fetches all fields, `refresh-price` updates price only.
+ * All mints resolve in parallel; Pump.fun waits on WSOL price only when needed.
  */
 
 import type { AxiosInstance } from 'axios';
@@ -206,6 +207,68 @@ function solPriceUsdFromContext(
   return undefined;
 }
 
+function solPriceUsdFromDisk(): number | undefined {
+  for (const mint of [WSOL_MINT, NATIVE_SOL_MINT]) {
+    const disk = getCachedTokenMetaFromDisk(mint);
+    if (typeof disk?.price === 'number' && Number.isFinite(disk.price) && disk.price > 0) {
+      return disk.price;
+    }
+  }
+  return undefined;
+}
+
+/** Pump.fun USD conversion waits here only when Jupiter failed and WSOL is still in flight. */
+class SolPriceCoordinator {
+  private value: number | undefined;
+  private waiters: Array<(v: number | undefined) => void> = [];
+  private waitingForWsol: boolean;
+  private settled = false;
+
+  constructor(hints: Record<string, TokenPriceHint>, wsolInBatch: boolean) {
+    this.value = solPriceUsdFromContext(hints, {}) ?? solPriceUsdFromDisk();
+    this.waitingForWsol = wsolInBatch && !(this.value != null && this.value > 0);
+    if (!this.waitingForWsol) this.settled = true;
+  }
+
+  onSolMintDone(
+    resolved: TokenPriceStats | null,
+    hints: Record<string, TokenPriceHint>,
+  ): void {
+    if (!this.waitingForWsol || this.settled) return;
+    const price =
+      (resolved?.price != null && resolved.price > 0 ? resolved.price : undefined) ??
+      solPriceUsdFromContext(hints, {}) ??
+      solPriceUsdFromDisk();
+    this.finish(price);
+  }
+
+  onBatchComplete(
+    hints: Record<string, TokenPriceHint>,
+    stats: Record<string, TokenPriceStats>,
+  ): void {
+    if (this.settled) return;
+    this.finish(solPriceUsdFromContext(hints, stats) ?? solPriceUsdFromDisk());
+  }
+
+  private finish(price: number | undefined): void {
+    if (this.settled) return;
+    this.settled = true;
+    this.waitingForWsol = false;
+    if (price != null && price > 0) this.value = price;
+    const v = this.value;
+    for (const w of this.waiters) w(v);
+    this.waiters = [];
+  }
+
+  getSolPriceUsd(): Promise<number | undefined> {
+    if (this.value != null && this.value > 0) return Promise.resolve(this.value);
+    if (this.settled) return Promise.resolve(this.value);
+    return new Promise((resolve) => {
+      this.waiters.push(resolve);
+    });
+  }
+}
+
 async function jupiterFallbackStats(
   mint: string,
   hint: TokenPriceHint | undefined,
@@ -248,9 +311,12 @@ async function pumpfunFallbackStats(
   mint: string,
   hint: TokenPriceHint | undefined,
   disk: CachedTokenMeta | null,
-  solPriceUsd: number | undefined,
+  getSolPriceUsd: () => Promise<number | undefined>,
 ): Promise<TokenPriceStats | null> {
   const decimalsHint = hint?.decimals ?? disk?.decimals;
+  const solPriceUsd = isSolMint(mint)
+    ? solPriceUsdFromDisk()
+    : await getSolPriceUsd();
   let details;
   try {
     details = await fetchPumpfunTokenDetails(mint, {
@@ -345,7 +411,7 @@ async function resolveMintPriceStats(
   http: AxiosInstance,
   mint: string,
   hint: TokenPriceHint | undefined,
-  options: { forceFull: boolean; solPriceUsd: number | undefined },
+  options: { forceFull: boolean; getSolPriceUsd: () => Promise<number | undefined> },
 ): Promise<TokenPriceStats | null> {
   const disk = getCachedTokenMetaFromDisk(mint);
   const mode = pickResolveMode(disk, options.forceFull);
@@ -364,26 +430,18 @@ async function resolveMintPriceStats(
     if (vybe) return vybe;
     const jupiter = await jupiterFallbackStats(mint, hint, disk);
     if (jupiter) return jupiter;
-    const pumpfun = await pumpfunFallbackStats(mint, hint, disk, options.solPriceUsd);
+    const pumpfun = await pumpfunFallbackStats(mint, hint, disk, options.getSolPriceUsd);
     if (pumpfun) return pumpfun;
     return stablecoinFallbackStats(mint, hint, disk);
   }
 
   const jupiter = await jupiterFallbackStats(mint, hint, disk);
   if (jupiter) return jupiter;
-  const pumpfun = await pumpfunFallbackStats(mint, hint, disk, options.solPriceUsd);
+  const pumpfun = await pumpfunFallbackStats(mint, hint, disk, options.getSolPriceUsd);
   if (pumpfun) return pumpfun;
   const vybe = await vybeTokenDetailsStats(http, mint, hint, disk, mode);
   if (vybe) return vybe;
   return stablecoinFallbackStats(mint, hint, disk);
-}
-
-function sortMintsSolFirst(mints: string[]): string[] {
-  return [...mints].sort((a, b) => {
-    const aSol = isSolMint(a) ? 0 : 1;
-    const bSol = isSolMint(b) ? 0 : 1;
-    return aSol - bSol || a.localeCompare(b);
-  });
 }
 
 function vybeToStats(
@@ -406,6 +464,30 @@ function vybeToStats(
   };
 }
 
+function mintResolveHint(
+  mint: string,
+  hints: Record<string, TokenPriceHint>,
+): TokenPriceHint | undefined {
+  return hints[mint] ?? (mint !== NATIVE_SOL_MINT ? hints[NATIVE_SOL_MINT] : undefined);
+}
+
+async function resolveMintIntoStats(
+  http: AxiosInstance,
+  mint: string,
+  hints: Record<string, TokenPriceHint>,
+  forceSet: Set<string>,
+  stats: Record<string, TokenPriceStats>,
+  solPrice: SolPriceCoordinator,
+): Promise<void> {
+  const hint = mintResolveHint(mint, hints);
+  const resolved = await resolveMintPriceStats(http, mint, hint, {
+    forceFull: forceSet.has(mint),
+    getSolPriceUsd: () => solPrice.getSolPriceUsd(),
+  });
+  if (resolved) stats[mint] = resolved;
+  if (isSolMint(mint)) solPrice.onSolMintDone(resolved, hints);
+}
+
 export async function resolveTokenPrices(
   http: AxiosInstance,
   mints: string[],
@@ -421,17 +503,14 @@ export async function resolveTokenPrices(
   );
   const hints = options.tokenHints ?? {};
   const stats: Record<string, TokenPriceStats> = {};
+  const solPrice = new SolPriceCoordinator(hints, vybeMints.some(isSolMint));
 
-  let solPriceUsd = solPriceUsdFromContext(hints, stats);
-  for (const mint of sortMintsSolFirst(vybeMints)) {
-    const hint = hints[mint] ?? (mint !== NATIVE_SOL_MINT ? hints[NATIVE_SOL_MINT] : undefined);
-    if (!solPriceUsd) solPriceUsd = solPriceUsdFromContext(hints, stats);
-    const resolved = await resolveMintPriceStats(http, mint, hint, {
-      forceFull: forceSet.has(mint),
-      solPriceUsd,
-    });
-    if (resolved) stats[mint] = resolved;
-  }
+  await Promise.all(
+    vybeMints.map((mint) =>
+      resolveMintIntoStats(http, mint, hints, forceSet, stats, solPrice),
+    ),
+  );
+  solPrice.onBatchComplete(hints, stats);
 
   for (const originalMint of requestedMints) {
     if (isSolMint(originalMint)) continue;
