@@ -8769,41 +8769,38 @@ tr:hover td {
 }
 
 .swap-sign-dialog__log {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.45rem;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.45rem;
+  row-gap: 0.12rem;
+  align-items: start;
   color: #a1a1aa;
-  white-space: nowrap;
-  min-width: min-content;
-}
-
-.swap-sign-dialog__log--with-detail {
-  flex-direction: column;
-  gap: 0.2rem;
   white-space: normal;
-}
-
-.swap-sign-dialog__log--with-detail::before {
-  align-self: flex-start;
+  min-width: 0;
 }
 
 .swap-sign-dialog__log-text {
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
 }
 
 .swap-sign-dialog__log-detail {
-  padding-left: 0.9rem;
+  grid-column: 2;
+  grid-row: 2;
   font-size: 0.68rem;
   color: #71717a;
   line-height: 1.35;
-  white-space: normal;
+  white-space: pre-line;
   word-break: break-word;
 }
 
 .swap-sign-dialog__log::before {
   content: '·';
   color: #52525b;
-  flex-shrink: 0;
+  grid-column: 1;
+  grid-row: 1;
+  line-height: 1.4;
 }
 
 .swap-sign-dialog__log--pending {

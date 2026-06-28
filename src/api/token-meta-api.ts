@@ -15,6 +15,8 @@ export type ResolvedTokenMeta = Omit<CachedTokenMeta, 'fetchedAt' | 'price' | 'd
   decimals: number;
   priceFetchedAt: number;
   source?: PriceResolveSource;
+  /** Wall time to resolve this mint in resolve-prices (ms). */
+  responseTimeMs?: number;
 };
 
 export function cachedMetaToApiResponse(
@@ -45,6 +47,7 @@ export function mergeResolvedTokenMeta(
       price7d: partial.price7d ?? diskFields.price7d,
       priceUpdateTime: partial.priceUpdateTime ?? diskFields.priceUpdateTime,
       source: partial.source ?? diskFields.priceSource,
+      responseTimeMs: partial.responseTimeMs,
       symbol: diskFields.symbol?.trim() || partial.symbol?.trim() || mint,
       name:
         diskFields.name?.trim() ||
@@ -66,6 +69,7 @@ export function mergeResolvedTokenMeta(
     price7d: partial.price7d,
     priceUpdateTime: partial.priceUpdateTime,
     source: partial.source,
+    responseTimeMs: partial.responseTimeMs,
     logoUrl: partial.logoUrl,
   };
 }

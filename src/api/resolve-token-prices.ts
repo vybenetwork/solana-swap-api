@@ -480,11 +480,13 @@ async function resolveMintIntoStats(
   solPrice: SolPriceCoordinator,
 ): Promise<void> {
   const hint = mintResolveHint(mint, hints);
+  const started = performance.now();
   const resolved = await resolveMintPriceStats(http, mint, hint, {
     forceFull: forceSet.has(mint),
     getSolPriceUsd: () => solPrice.getSolPriceUsd(),
   });
-  if (resolved) stats[mint] = resolved;
+  const responseTimeMs = Math.max(0, Math.round(performance.now() - started));
+  if (resolved) stats[mint] = { ...resolved, responseTimeMs };
   if (isSolMint(mint)) solPrice.onSolMintDone(resolved, hints);
 }
 

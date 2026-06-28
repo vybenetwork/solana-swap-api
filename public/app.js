@@ -21116,6 +21116,7 @@ function applyResolvedTokenFromApi(mint, body) {
     priceFetchedAt: typeof body.priceFetchedAt === "number" ? body.priceFetchedAt : Date.now(),
     priceUpdateTime: typeof body.priceUpdateTime === "number" ? body.priceUpdateTime : void 0,
     source,
+    responseTimeMs: typeof body.responseTimeMs === "number" && Number.isFinite(body.responseTimeMs) ? body.responseTimeMs : void 0,
     logoUrl: String(body.logoUrl ?? "").trim() || void 0,
     symbol: String(body.symbol ?? "").trim() || void 0,
     name: String(body.name ?? "").trim() || void 0,
@@ -28289,9 +28290,6 @@ function tickBuildBtnQuoteWindow(now) {
     setActionBtnTimerVisible(swapBuildBtn, swapBuildBtnTimerEl, false);
     syncBuildButtonState();
     syncBuildButtonLabel();
-    if (swapSignConfirmDialogEl?.open && !swapSignDialogSuccess) {
-      syncSignDialogRefetchButton();
-    }
     return;
   }
   const label = swapBuildBtnTimerEl?.querySelector(".swap-action-btn__timer-label");
@@ -31414,11 +31412,8 @@ async function ensureResolvePricesBeforeQuote(inputMint, outputMint, options) {
   if (!options?.force && sessionQuotePricesFreshForMints(mints, RESOLVE_PRICES_TTL_MS)) {
     if (isSwapSignDialogActive()) {
       recordSwapSignResolvePricesSkipped(mints);
-      appendSwapSignLog(
-        "Prices fresh \u2014 skipping resolve-prices",
-        "neutral",
-        `mints: ${formatSignLogMintList(mints)}`
-      );
+      appendSwapSignLog("Prices fresh \u2014 skipping resolve-prices", "neutral");
+      appendResolvePricesSignLogs(mints, sessionStatsForResolveLogMints(mints));
     }
     return;
   }
@@ -31468,11 +31463,9 @@ async function prefetchSwapPairPrices(options) {
     updateWalletTotalUsdUi();
     if (signActive) {
       recordSwapSignResolvePricesDone();
-      appendSwapSignLog(
-        `Prices received in ${formatSignLogDurationMs(performance.now() - resolveStarted)}`,
-        "neutral",
-        `mints: ${formatSignLogMintList(mints)}`
-      );
+      appendResolvePricesSignLogs(mints, stats, {
+        headline: `Prices received in ${formatSignLogDurationMs(performance.now() - resolveStarted)}`
+      });
     }
   } catch {
     if (signActive) {
@@ -32989,10 +32982,26 @@ var swapSignFlowGeneration = 0;
 var swapSignPendingLogEl = null;
 var swapSignDialogSuccess = false;
 var swapSignRetryContext = null;
+var swapSignRefetchRetryEligible = false;
 var swapSignSuccessContext = null;
 var swapSignPrepTimings = {};
 function resetSwapSignPrepTimings() {
   swapSignPrepTimings = {};
+}
+function isWalletSignRejection(err) {
+  const rec = err && typeof err === "object" ? err : null;
+  const code = rec?.code;
+  if (code === 4001 || code === "4001") return true;
+  const msg = (err instanceof Error ? err.message : String(err ?? "")).toLowerCase();
+  return msg.includes("user rejected") || msg.includes("user denied") || msg.includes("rejected the request") || msg.includes("request rejected") || msg.includes("approval denied") || msg.includes("transaction cancelled") || msg.includes("signing cancelled");
+}
+function showSwapSignRefetchRetry() {
+  swapSignRefetchRetryEligible = true;
+  syncSignDialogRefetchButton();
+}
+function hideSwapSignRefetchRetry() {
+  swapSignRefetchRetryEligible = false;
+  syncSignDialogRefetchButton();
 }
 function isSwapSignDialogActive() {
   return swapBuildMode === "build-sign" && Boolean(swapSignConfirmDialogEl?.open);
@@ -33002,15 +33011,74 @@ function formatSignLogDurationMs(ms) {
   if (ms < 1e3) return `${Math.round(ms)}ms`;
   return `${(ms / 1e3).toFixed(2)}s`;
 }
+function formatSignLogAddress(value) {
+  const v = value.trim();
+  if (v.length <= 12) return v;
+  return `${v.slice(0, 4)}\u2026${v.slice(-4)}`;
+}
+function mintMatchesSwapSide(mint, sideMint) {
+  if (!mint || !sideMint) return false;
+  if (mint === sideMint) return true;
+  return isSolMint(mint) && isSolMint(sideMint);
+}
 function formatSignLogMint(mint) {
   const m = mint.trim();
-  const sym = getCachedTokenMeta(m)?.symbol?.trim() || HARDCODED_MINT_SYMBOLS2[m] || "";
-  if (sym && sym.length <= 12 && !/^[1-9A-HJ-NP-Za-km-z]{4,8}$/.test(sym)) return sym;
-  if (m.length <= 12) return m;
-  return `${m.slice(0, 4)}\u2026${m.slice(-4)}`;
+  if (!m) return "\u2014";
+  const inputMint = swapInputMintInput?.value.trim() ?? "";
+  const outputMint = swapOutputMintInput?.value.trim() ?? "";
+  if (inputMint && mintMatchesSwapSide(m, inputMint)) {
+    const sym = getSwapInSym();
+    if (sym !== "\u2014") return sym;
+  }
+  if (outputMint && mintMatchesSwapSide(m, outputMint)) {
+    const sym = getSwapOutSym();
+    if (sym !== "\u2014") return sym;
+  }
+  return mintSymbolSync(m);
 }
 function formatSignLogMintList(mints) {
   return mints.map(formatSignLogMint).join(", ");
+}
+function lookupResolvePriceStat(mint, stats) {
+  const m = mint.trim();
+  if (stats[m]) return stats[m];
+  if (isSolMint(m)) {
+    const sol = stats[WSOL_MINT] ?? stats[NATIVE_SOL_MINT];
+    if (sol) return sol;
+  }
+  const session = getSessionTokenPriceStats(m);
+  if (session) return session;
+  if (isSolMint(m)) {
+    return getSessionTokenPriceStats(WSOL_MINT) ?? getSessionTokenPriceStats(NATIVE_SOL_MINT);
+  }
+  return void 0;
+}
+function formatPriceResolveSourceLabel(source) {
+  const s = source?.trim() ?? "";
+  if (!s) return "\u2014";
+  if (s === "Pumpfun-API") return "pumpfun-api";
+  return s.toLowerCase();
+}
+function formatResolvePriceTokenLogLine(mint, stats) {
+  const stat = lookupResolvePriceStat(mint, stats);
+  const sym = formatSignLogMint(mint);
+  const source = formatPriceResolveSourceLabel(stat?.source);
+  const ms = typeof stat?.responseTimeMs === "number" && Number.isFinite(stat.responseTimeMs) ? `${Math.round(stat.responseTimeMs)}ms` : "\u2014";
+  return `${sym} \xB7 ${source} \xB7 ${ms}`;
+}
+function appendResolvePricesSignLogs(mints, stats, options) {
+  if (options?.headline) appendSwapSignLog(options.headline, "neutral");
+  for (const mint of mints) {
+    appendSwapSignLog(formatResolvePriceTokenLogLine(mint, stats), "neutral");
+  }
+}
+function sessionStatsForResolveLogMints(mints) {
+  const out = {};
+  for (const mint of mints) {
+    const fromSession = getSessionTokenPriceStats(mint) ?? (isSolMint(mint) ? getSessionTokenPriceStats(WSOL_MINT) ?? getSessionTokenPriceStats(NATIVE_SOL_MINT) : void 0);
+    if (fromSession) out[mint.trim()] = fromSession;
+  }
+  return out;
 }
 function formatVybeQuoteParamsForSignLog(wallet, inputMint, outputMint, amount, buildOpts) {
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
@@ -33022,7 +33090,7 @@ function formatVybeQuoteParamsForSignLog(wallet, inputMint, outputMint, amount, 
     `out=${formatSignLogMint(outputMint)}`
   ];
   const pool = String(buildOpts.poolAddress ?? "").trim();
-  if (pool) parts.push(`pool=${formatSignLogMint(pool)}`);
+  if (pool) parts.push(`pool=${formatSignLogAddress(pool)}`);
   const slip = buildOpts.slippage;
   if (typeof slip === "number" && Number.isFinite(slip)) parts.push(`slippage=${slip}`);
   return parts.join(" \xB7 ");
@@ -33113,6 +33181,7 @@ function resetSwapSignDialogUi(clearLogs = true) {
   swapSignDialogSuccess = false;
   swapSignSuccessContext = null;
   swapSignRetryContext = null;
+  swapSignRefetchRetryEligible = false;
   resetSwapSignPrepTimings();
   if (swapSignConfirmCancelEl) {
     swapSignConfirmCancelEl.hidden = false;
@@ -33127,7 +33196,9 @@ function setSignDialogRefetchButtonDisabled(disabled) {
   if (swapSignConfirmRefetchRetryEl) swapSignConfirmRefetchRetryEl.disabled = disabled;
 }
 function syncSignDialogRefetchButton() {
-  const show = Boolean(swapSignConfirmDialogEl?.open && !swapSignDialogSuccess);
+  const show = Boolean(
+    swapSignConfirmDialogEl?.open && !swapSignDialogSuccess && swapSignRefetchRetryEligible
+  );
   if (swapSignConfirmRefetchRetryEl) {
     swapSignConfirmRefetchRetryEl.hidden = !show;
     swapSignConfirmRefetchRetryEl.style.display = show ? "" : "none";
@@ -33159,6 +33230,7 @@ function setSwapSignTxidButtonsState(mode) {
 }
 function setSwapSignDialogActions(state) {
   swapSignDialogSuccess = state === "success";
+  if (state === "running") hideSwapSignRefetchRetry();
   if (swapSignConfirmCancelEl) {
     swapSignConfirmCancelEl.hidden = false;
     swapSignConfirmCancelEl.disabled = false;
@@ -33181,7 +33253,6 @@ function appendSwapSignLog(text, tone = "neutral", detail) {
   }
   const row = document.createElement("div");
   row.className = `swap-sign-dialog__log swap-sign-dialog__log--${tone}`;
-  if (detail) row.classList.add("swap-sign-dialog__log--with-detail");
   const label = document.createElement("span");
   label.className = "swap-sign-dialog__log-text";
   label.textContent = text;
@@ -33347,7 +33418,19 @@ async function signAndSendSwapLegs(txStrings) {
 }
 async function completeSwapSignFlow(generation, txStrings) {
   appendSwapSignLog("Waiting for user to sign transaction", "pending");
-  const signatures = await signAndSendSwapLegs(txStrings);
+  let signatures;
+  try {
+    signatures = await signAndSendSwapLegs(txStrings);
+  } catch (err) {
+    if (generation !== swapSignFlowGeneration) return;
+    if (isWalletSignRejection(err)) {
+      appendSwapSignLog("User rejected the request.", "error");
+      showSwapSignRefetchRetry();
+      setSwapSignDialogActions("failed");
+      return;
+    }
+    throw err;
+  }
   if (generation !== swapSignFlowGeneration) return;
   appendSwapSignLog("User signed transaction", "success");
   logSwapSignPrepTimingsAfterSign();
@@ -33377,6 +33460,7 @@ async function completeSwapSignFlow(generation, txStrings) {
       confirmed.err === "Cancelled" ? "Confirmation cancelled" : `Transaction failed: ${confirmed.err ?? "unknown error"}`,
       "error"
     );
+    if (confirmed.err !== "Cancelled") showSwapSignRefetchRetry();
     setSwapSignDialogActions("failed");
     return;
   }
@@ -33462,10 +33546,12 @@ async function runSwapSignDialogFlow(quote, buildPayload, txStrings, options) {
   } catch (err) {
     if (generation !== swapSignFlowGeneration) return;
     appendSwapSignLog(err instanceof Error ? err.message : String(err), "error");
+    if (isWalletSignRejection(err)) showSwapSignRefetchRetry();
     setSwapSignDialogActions("failed");
   }
 }
 async function handleSwapSignDialogRefetchRebuild() {
+  hideSwapSignRefetchRetry();
   setSignDialogRefetchButtonDisabled(true);
   resetSwapSignPrepTimings();
   try {

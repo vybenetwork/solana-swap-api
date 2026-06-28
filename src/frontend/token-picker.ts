@@ -36,6 +36,7 @@ export interface TokenPriceStats {
   priceFetchedAt: number;
   priceUpdateTime?: number;
   source?: PriceResolveSource;
+  responseTimeMs?: number;
   logoUrl?: string;
   symbol?: string;
   name?: string;
@@ -734,6 +735,10 @@ export function applyResolvedTokenFromApi(mint: string, body: Record<string, unk
     priceFetchedAt: typeof body.priceFetchedAt === 'number' ? body.priceFetchedAt : Date.now(),
     priceUpdateTime: typeof body.priceUpdateTime === 'number' ? body.priceUpdateTime : undefined,
     source,
+    responseTimeMs:
+      typeof body.responseTimeMs === 'number' && Number.isFinite(body.responseTimeMs)
+        ? body.responseTimeMs
+        : undefined,
     logoUrl: String(body.logoUrl ?? '').trim() || undefined,
     symbol: String(body.symbol ?? '').trim() || undefined,
     name: String(body.name ?? '').trim() || undefined,
