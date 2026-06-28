@@ -157,6 +157,7 @@ function tryStatsFromFreshDisk(mint: string): TokenPriceStats | null {
     price1d: disk.price1d,
     price7d: disk.price7d,
     priceUpdateTime: disk.priceUpdateTime,
+    source: disk.priceSource,
   });
 }
 
@@ -225,6 +226,7 @@ async function jupiterFallbackStats(
   await cacheTokenMetaFromVybe(mint, {
     ...details.token,
     priceFetchedAt: fetchedAt,
+    priceSource: 'Jupiter',
   });
   if (!hasCachedTokenIcon(mint)) {
     await repairTokenIcon(mint);
@@ -264,6 +266,7 @@ async function pumpfunFallbackStats(
   await cacheTokenMetaFromVybe(mint, {
     ...details.token,
     priceFetchedAt: fetchedAt,
+    priceSource: 'Pumpfun-API',
   });
   if (!hasCachedTokenIcon(mint)) {
     await repairTokenIcon(mint);
@@ -302,10 +305,15 @@ async function vybeTokenDetailsStats(
         price7d: token.price7d,
         priceUpdateTime: token.updateTime,
         priceFetchedAt: fetchedAt,
+        priceSource: 'Vybe',
       };
       await cacheTokenMetaFromVybe(mint, normalized);
     } else {
-      const merged = mergePriceFieldsOnly(mint, token as Record<string, unknown>, fetchedAt);
+      const merged = mergePriceFieldsOnly(
+        mint,
+        { ...(token as Record<string, unknown>), priceSource: 'Vybe' },
+        fetchedAt,
+      );
       if (!merged) {
         const normalized: Record<string, unknown> = {
           ...token,
@@ -315,6 +323,7 @@ async function vybeTokenDetailsStats(
           price7d: token.price7d,
           priceUpdateTime: token.updateTime,
           priceFetchedAt: fetchedAt,
+          priceSource: 'Vybe',
         };
         await cacheTokenMetaFromVybe(mint, normalized);
       }

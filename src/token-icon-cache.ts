@@ -32,6 +32,8 @@ export interface CachedTokenMeta {
   priceUpdateTime?: number;
   /** Epoch ms when price fields were last fetched for quote TTL */
   priceFetchedAt?: number;
+  /** Which resolver last fetched the spot price (for TTL cache hits). */
+  priceSource?: 'Vybe' | 'Jupiter' | 'Pumpfun-API';
   marketCapUsd?: number;
   liquidityUsd?: number;
   poolAddress?: string;
@@ -307,6 +309,12 @@ export function mergePriceFieldsOnly(
     priceUpdateTime,
     priceFetchedAt: fetchedAt,
     decimals,
+    priceSource:
+      token.priceSource === 'Vybe' ||
+      token.priceSource === 'Jupiter' ||
+      token.priceSource === 'Pumpfun-API'
+        ? token.priceSource
+        : existing.priceSource,
   };
   cache[m] = updated;
   writeTokenMetaCache(cache);
@@ -356,6 +364,12 @@ export async function cacheTokenMetaFromVybe(
           : undefined,
     priceFetchedAt:
       typeof token.priceFetchedAt === 'number' ? token.priceFetchedAt : fetchedAt,
+    priceSource:
+      token.priceSource === 'Vybe' ||
+      token.priceSource === 'Jupiter' ||
+      token.priceSource === 'Pumpfun-API'
+        ? token.priceSource
+        : undefined,
     marketCapUsd:
       pickOptionalNumber(token, 'marketCapUsdNum') ??
       (typeof token.marketCapUsd === 'string' ? pickOptionalNumber({ marketCapUsdNum: token.marketCapUsd }, 'marketCapUsdNum') : undefined),

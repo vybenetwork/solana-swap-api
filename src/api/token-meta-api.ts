@@ -44,7 +44,7 @@ export function mergeResolvedTokenMeta(
       price1d: partial.price1d ?? diskFields.price1d,
       price7d: partial.price7d ?? diskFields.price7d,
       priceUpdateTime: partial.priceUpdateTime ?? diskFields.priceUpdateTime,
-      source: partial.source,
+      source: partial.source ?? diskFields.priceSource,
       symbol: diskFields.symbol?.trim() || partial.symbol?.trim() || mint,
       name:
         diskFields.name?.trim() ||
