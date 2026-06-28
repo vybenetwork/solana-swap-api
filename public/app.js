@@ -29099,6 +29099,9 @@ function needsQuoteRefetchBeforeBuild() {
 async function refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts) {
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   const pinnedOpts = mergeSelectedRoutePinIntoBuildOpts(buildOpts);
+  if (enumeratedRoutesUiState?.routes.length && !String(pinnedOpts.poolAddress ?? "").trim()) {
+    throw new Error("Select a route market before refetching the quote.");
+  }
   const quoteAmount = typeof pinnedOpts.amount === "number" && Number.isFinite(pinnedOpts.amount) ? pinnedOpts.amount : amount;
   await ensureResolvePricesBeforeQuote(inputMint, outputMint, { force: true });
   swapQuoteFetching = true;
@@ -31604,13 +31607,18 @@ function inferRouteOptionSource(body, rvt) {
   return inferDirectRouteSource(rvt);
 }
 function shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts) {
-  if (!enumeratedRoutesUiState || enumeratedRoutesUiState.routes.length <= 1) return false;
+  if (!enumeratedRoutesUiState?.routes.length) return false;
   if (buildOpts.enumerateRoutes !== false) return false;
   const pool = String(buildOpts.poolAddress ?? "").trim();
   if (!pool) return false;
+  if (enumeratedRoutesUiState.routes.length <= 1) return true;
   const candidate = getSelectedEnumeratedRouteCandidate();
-  const selectedPool = String(candidate?.marketAddress ?? "").trim();
-  return selectedPool === pool;
+  let selectedPool = String(candidate?.marketAddress ?? "").trim();
+  if (!selectedPool) {
+    const activeRoute = getActiveEnumeratedRoute();
+    if (activeRoute?.quote) selectedPool = poolAddressFromQuoteBody(activeRoute.quote);
+  }
+  return !selectedPool || selectedPool === pool;
 }
 function mergePinnedRouteCandidateForRefetch(prev, next, liquidityFromBody, body) {
   if (!prev && !next) return void 0;
@@ -32252,7 +32260,9 @@ async function resolveVybeBuildTx(wallet, inputMint, outputMint, amount, buildOp
       buildPayload: projectSwapBuildForBrowser(lastVybeBuild.buildPayload)
     };
   }
-  return requestVybeQuote(wallet, inputMint, outputMint, amount, buildOpts);
+  return requestVybeQuote(wallet, inputMint, outputMint, amount, buildOpts, {
+    skipEnsurePrices: true
+  });
 }
 function extractSwapBuildTransaction(payload) {
   const txs = extractSwapBuildTransactions(payload);
@@ -32885,17 +32895,42 @@ function getSelectedEnumeratedRouteCandidate() {
   const route = enumeratedRoutesUiState.routes.find((r) => r.index === enumeratedRoutesUiState.selectedIndex) ?? enumeratedRoutesUiState.routes[0];
   return route?.candidate ?? null;
 }
-function mergeSelectedRoutePinIntoBuildOpts(opts) {
+function getActiveEnumeratedRoute() {
+  if (!enumeratedRoutesUiState?.routes.length) return null;
+  return enumeratedRoutesUiState.routes.find((r) => r.index === enumeratedRoutesUiState.selectedIndex) ?? enumeratedRoutesUiState.routes[0] ?? null;
+}
+function selectedRoutePinFields() {
   const candidate = getSelectedEnumeratedRouteCandidate();
-  if (!candidate?.marketAddress?.trim()) return opts;
+  let poolAddress = candidate?.marketAddress?.trim() ?? "";
+  let programAddress = candidate?.programAddress?.trim() ?? "";
+  let protocol = candidate?.protocol?.trim() ?? "";
+  const activeRoute = getActiveEnumeratedRoute();
+  if (!poolAddress && activeRoute?.quote) {
+    poolAddress = poolAddressFromQuoteBody(activeRoute.quote);
+    if (!programAddress) programAddress = programAddressFromQuoteBody(activeRoute.quote);
+  }
+  if (!poolAddress && isSwapRoutePinMode()) {
+    poolAddress = swapPoolAddressInput?.value.trim() ?? "";
+    if (!protocol) protocol = swapProtocolSelect?.value.trim() ?? "";
+  }
+  if (!poolAddress) return null;
+  return {
+    poolAddress,
+    ...programAddress ? { programAddress } : {},
+    ...protocol ? { protocol } : {}
+  };
+}
+function mergeSelectedRoutePinIntoBuildOpts(opts) {
+  const pin = selectedRoutePinFields();
+  if (!pin) return opts;
   const next = {
     ...opts,
-    poolAddress: candidate.marketAddress.trim(),
+    poolAddress: pin.poolAddress,
     marketFetchMode: void 0,
     enumerateRoutes: false
   };
-  if (candidate.programAddress?.trim()) next.programAddress = candidate.programAddress.trim();
-  if (candidate.protocol?.trim()) next.protocol = candidate.protocol.trim();
+  if (pin.programAddress) next.programAddress = pin.programAddress;
+  if (pin.protocol) next.protocol = pin.protocol;
   return next;
 }
 function tryCachedVybeBuildTxForSelectedRoute() {
@@ -32917,43 +32952,47 @@ async function postBuildSwap(options) {
   if (!swapBuildResultEl || !swapTxBase64El) return;
   const needsQuoteRefetch = !options?.skipQuoteRefetch && (isBuildBtnQuoteExpired() || needsQuoteRefetchBeforeBuild());
   let signFlowGeneration = null;
-  pushSuppressClientPriceResolve();
-  try {
-    if (swapBuildMode === "build-sign") {
-      if (swapBuildBtn) swapBuildBtn.disabled = true;
-      if (!options?.preserveSignDialogLogs) {
-        signFlowGeneration = beginSwapSignBuildFlow(needsQuoteRefetch);
-      } else {
-        signFlowGeneration = swapSignFlowGeneration;
-      }
+  if (swapBuildMode === "build-sign") {
+    if (swapBuildBtn) swapBuildBtn.disabled = true;
+    if (!options?.preserveSignDialogLogs) {
+      signFlowGeneration = beginSwapSignBuildFlow(needsQuoteRefetch);
+    } else {
+      signFlowGeneration = swapSignFlowGeneration;
     }
-    let wallet = swapWalletAddressInput?.value.trim() ?? "";
-    if (swapBuildMode === "build-sign") {
-      try {
-        wallet = await ensureBrowserWalletConnected(wallet);
-      } catch (err) {
-        reportSwapSignPrepError(err instanceof Error ? err.message : String(err), signFlowGeneration);
-        return;
-      }
-    } else if (!wallet) {
-      if (swapQuoteError) showInlineError(swapQuoteError, "Wallet (accountAddress) is required to build the transaction.");
+  }
+  let wallet = swapWalletAddressInput?.value.trim() ?? "";
+  if (swapBuildMode === "build-sign") {
+    try {
+      wallet = await ensureBrowserWalletConnected(wallet);
+    } catch (err) {
+      reportSwapSignPrepError(err instanceof Error ? err.message : String(err), signFlowGeneration);
+      syncBuildButtonState();
       return;
     }
-    const inputMint = swapInputMintInput?.value.trim() ?? "";
-    const outputMint = swapOutputMintInput?.value.trim() ?? "";
-    const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
-    const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
-    const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
-    if (swapQuoteError) clearInlineError(swapQuoteError);
-    void refreshLowSolTradeWarning();
-    if (swapBuildBtn && swapBuildMode !== "build-sign") swapBuildBtn.disabled = true;
-    if (needsQuoteRefetch) {
-      if (swapBuildMode === "build-sign" && signFlowGeneration != null && signFlowGeneration === swapSignFlowGeneration && options?.preserveSignDialogLogs) {
-        appendSwapSignLog("Fetching a fresh quote\u2026", "pending");
-      }
-      await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
-      if (signFlowGeneration != null && signFlowGeneration !== swapSignFlowGeneration) return;
+  } else if (!wallet) {
+    if (swapQuoteError) showInlineError(swapQuoteError, "Wallet (accountAddress) is required to build the transaction.");
+    return;
+  }
+  const inputMint = swapInputMintInput?.value.trim() ?? "";
+  const outputMint = swapOutputMintInput?.value.trim() ?? "";
+  const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
+  const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+  const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
+  if (swapQuoteError) clearInlineError(swapQuoteError);
+  void refreshLowSolTradeWarning();
+  if (swapBuildBtn && swapBuildMode !== "build-sign") swapBuildBtn.disabled = true;
+  if (needsQuoteRefetch) {
+    if (swapBuildMode === "build-sign" && signFlowGeneration != null && signFlowGeneration === swapSignFlowGeneration && options?.preserveSignDialogLogs) {
+      appendSwapSignLog("Fetching a fresh quote\u2026", "pending");
     }
+    await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
+    if (signFlowGeneration != null && signFlowGeneration !== swapSignFlowGeneration) {
+      syncBuildButtonState();
+      return;
+    }
+  }
+  pushSuppressClientPriceResolve();
+  try {
     let buildTx;
     let buildPayload;
     if (router === "vybe") {
