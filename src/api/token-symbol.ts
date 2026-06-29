@@ -28,7 +28,7 @@ export async function getTokenSymbol(mintAddress: string): Promise<string> {
   if (!mint) return '';
   if (HARDCODED_SYMBOLS[mint]) return HARDCODED_SYMBOLS[mint]!;
 
-  const connection = createSolanaConnection('token-symbol');
+  const connection = createSolanaConnection('token-symbol', 'processed');
   for (let attempt = 0; attempt <= RPC_MAX_RETRIES; attempt++) {
     try {
       const mintPubkey = new PublicKey(mint);

@@ -11,7 +11,7 @@ let connection: Connection | null = null;
 
 function getConnection(): Connection {
   if (!connection) {
-    connection = createSolanaConnection('solana-token-account');
+    connection = createSolanaConnection('solana-token-account', 'processed');
   }
   return connection;
 }

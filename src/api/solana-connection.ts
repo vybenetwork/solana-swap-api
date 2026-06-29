@@ -42,7 +42,7 @@ function createLoggingRpcFetch(caller: string): typeof fetch {
 /** Server-side Connection — logs which JSON-RPC method hits 429. */
 export function createSolanaConnection(
   caller: string,
-  commitment: ConnectionConfig['commitment'] = 'confirmed',
+  commitment: ConnectionConfig['commitment'] = 'processed',
 ): Connection {
   return new Connection(SOLANA_RPC_URL, {
     commitment,

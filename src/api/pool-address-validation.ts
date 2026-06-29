@@ -40,7 +40,7 @@ export async function findProgramOwnedPoolStateInTx(
     const addr = key.trim();
     if (!addr || programSet.has(addr)) continue;
     try {
-      const info = await connection.getAccountInfo(new PublicKey(addr));
+      const info = await connection.getAccountInfo(new PublicKey(addr), 'processed');
       if (!info) continue;
       const owner = info.owner.toBase58();
       if (!programSet.has(owner)) continue;

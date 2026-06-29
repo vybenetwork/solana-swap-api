@@ -8086,7 +8086,7 @@ async function ensureBrowserWalletConnected(existingWallet: string): Promise<str
 function getBrowserConnection(): Connection {
   const w = getSolanaWindow();
   if (!w.__swapBrowserConnection) {
-    w.__swapBrowserConnection = new Connection(`${window.location.origin}/api/solana/rpc`, 'confirmed');
+    w.__swapBrowserConnection = new Connection(`${window.location.origin}/api/solana/rpc`, 'processed');
   }
   return w.__swapBrowserConnection;
 }
@@ -8132,7 +8132,7 @@ async function prepareSwapTxForSigning(txString: string): Promise<VersionedTrans
 
   const vtx = decodeVersionedTxFromBase64(trimmed);
   const connection = getBrowserConnection();
-  const { blockhash } = await connection.getLatestBlockhash('confirmed');
+  const { blockhash } = await connection.getLatestBlockhash('processed');
   const lookups = vtx.message.addressTableLookups;
 
   if (lookups.length > 0) {
