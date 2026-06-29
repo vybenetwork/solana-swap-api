@@ -9,6 +9,7 @@ import { NATIVE_SOL_MINT, WSOL_MINT } from './sol-mints.js';
 
 const JUPITER_DATAPI_BASE = 'https://datapi.jup.ag/v1';
 const JUPITER_SWAP_QUOTE_URL = 'https://api.jup.ag/swap/v1/quote';
+const PUMPFUN_API_BASE = 'https://frontend-api-v3.pump.fun';
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const USDC_DECIMALS = 6;
 
@@ -33,6 +34,25 @@ export type JupiterQuotePrice = { priceUsd: number };
 function jupiterApiMint(mint: string): string {
   const m = mint.trim();
   return m === NATIVE_SOL_MINT ? WSOL_MINT : m;
+}
+
+/** URLs used to warm Jupiter + pump.fun connections at startup. */
+export function getJupiterWarmupUrls(): {
+  datapi: string;
+  quote: string;
+  pumpfunProbe: string;
+} {
+  const wsol = jupiterApiMint(NATIVE_SOL_MINT);
+  const quoteUrl = new URL(JUPITER_SWAP_QUOTE_URL);
+  quoteUrl.searchParams.set('inputMint', wsol);
+  quoteUrl.searchParams.set('outputMint', USDC_MINT);
+  quoteUrl.searchParams.set('amount', '1000000000');
+  quoteUrl.searchParams.set('slippageBps', '50');
+  return {
+    datapi: `${JUPITER_DATAPI_BASE}/assets/search?query=${encodeURIComponent(wsol)}`,
+    quote: quoteUrl.toString(),
+    pumpfunProbe: `${PUMPFUN_API_BASE}/coins/${encodeURIComponent(wsol)}`,
+  };
 }
 
 function parsePositiveInt(value: unknown): number | null {

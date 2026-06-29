@@ -161,6 +161,20 @@ export function getHttpProxyUrl(): string | undefined {
   return `http://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${cfg.host}:${cfg.port}`;
 }
 
+const HTTP_PROXY_POOL_SIZE_MAX = 5;
+
+/** Concurrent proxy dispatchers to warm (1–5). Default 5 when proxy is configured. */
+export function getHttpProxyPoolSize(): number {
+  const raw = Number(process.env.HTTP_PROXY_POOL_SIZE ?? HTTP_PROXY_POOL_SIZE_MAX);
+  const n = Number.isFinite(raw) ? Math.floor(raw) : HTTP_PROXY_POOL_SIZE_MAX;
+  return Math.min(HTTP_PROXY_POOL_SIZE_MAX, Math.max(1, n));
+}
+
+/** Skip startup Jupiter / pump.fun connection warmup when false. */
+export function isHttpProxyWarmupEnabled(): boolean {
+  return parseEnvBool(process.env.HTTP_PROXY_WARMUP, true);
+}
+
 /**
  * Quote-bridge hop pairs to skip during route discovery (comma-separated).
  * Keys use short protocol slugs joined by `-`, e.g. `damm2-damm2`, `ammv4-ammv4`.

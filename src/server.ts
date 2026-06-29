@@ -41,6 +41,7 @@ import {
 import { prepareSwapTransactionForSigning } from './api/solana-prepare-swap-tx.js';
 import { quoteFromBuild } from './api/map-enrichment.js';
 import { createDataHttpClient } from './api/client.js';
+import { warmupHttpProxyPool } from './api/http-proxy-fetch.js';
 import { getTrades, isVybeApiNotFoundError, type GetTradesParams, type TradesSortField } from './api/trades.js';
 import { fetchRankedTopMarketsFromTrades } from './api/route-discovery.js';
 
@@ -744,6 +745,7 @@ app.get('/api/ui-config', (_req: Request, res: Response) => {
 });
 
 const PORT = Number(process.env.PORT) || 3000;
+void warmupHttpProxyPool();
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
   console.log(`Solana RPC (${getSolanaRpcProviderLabel()}): ${getSolanaRpcHost()}`);
