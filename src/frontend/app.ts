@@ -4312,6 +4312,10 @@ function applyFeeEnrichmentToQuote(
     null;
   if (simulationOutputWarning && typeof simulationOutputWarning === 'object') {
     next._simulationOutputWarning = simulationOutputWarning;
+  } else if (!buildPayloadHasEnrichment(buildPayload)) {
+    if (quote._simulationOutputWarning != null) {
+      next._simulationOutputWarning = quote._simulationOutputWarning;
+    }
   } else {
     next._simulationOutputWarning = null;
   }
@@ -4324,6 +4328,10 @@ function applyFeeEnrichmentToQuote(
     null;
   if (lowLiquidityWarning && typeof lowLiquidityWarning === 'object') {
     next._lowLiquidityWarning = lowLiquidityWarning;
+  } else if (!buildPayloadHasEnrichment(buildPayload)) {
+    if (quote._lowLiquidityWarning != null) {
+      next._lowLiquidityWarning = quote._lowLiquidityWarning;
+    }
   } else {
     next._lowLiquidityWarning = null;
   }
@@ -4368,7 +4376,11 @@ function applyFeeEnrichmentToQuote(
 
 function refreshQuoteUiAfterBuild(buildPayload: Record<string, unknown>): void {
   if (!lastSwapQuoteOk) return;
-  const enriched = applyFeeEnrichmentToQuote(lastSwapQuoteOk, null, buildPayload);
+  const prev = lastSwapQuoteOk;
+  let enriched = applyFeeEnrichmentToQuote(prev, null, buildPayload);
+  if (!buildPayloadHasEnrichment(buildPayload)) {
+    enriched = preserveQuoteEnrichmentDisplay(prev, enriched);
+  }
   lastSwapQuoteOk = enriched;
   renderSwapQuoteUI(enriched);
   void enrichRouteLabels(enriched, { skipPricePrefetch: true });
@@ -5269,6 +5281,65 @@ function collectSwapBuildOptions(): Record<string, unknown> {
   };
 }
 
+/** Fast rebuild path — skip ix-builder enrichment RPC (balance checks + sim). */
+function swapBuildOptsWithoutEnrich(buildOpts: Record<string, unknown>): Record<string, unknown> {
+  return { ...buildOpts, enrich: false };
+}
+
+/** Request quote(s) — always ask ix-builder for print-ready enrichment. */
+function swapBuildOptsWithEnrich(buildOpts: Record<string, unknown>): Record<string, unknown> {
+  return { ...buildOpts, enrich: true };
+}
+
+/** Quote fields that power the route diagram + fee/pay table (ix-builder enrichment). */
+const ENRICHMENT_DISPLAY_QUOTE_KEYS = [
+  'routePlan',
+  'priceImpactPct',
+  '_youPay',
+  '_youReceive',
+  '_swapUiUsd',
+  '_maxSlippagePct',
+  '_tokens',
+  '_inputPriceUsd',
+  '_outputPriceUsd',
+  '_feeEnrichment',
+  '_simulationOutputWarning',
+  '_lowLiquidityWarning',
+  '_otherAmountThresholdRaw',
+  '_otherAmountThresholdUi',
+  '_walletTokenAccountCloses',
+  '_quotedOutAmount',
+  '_simulatedOutAmount',
+  '_outputFromSimulation',
+  '_totalFeeRaw',
+  '_swapFeePct',
+  '_swapFee',
+  '_networkFeeLamports',
+  '_walletPayDebitRaw',
+] as const;
+
+function buildPayloadHasEnrichment(buildPayload?: Record<string, unknown> | null): boolean {
+  if (!buildPayload) return false;
+  const enrichment = buildPayload.enrichment as Record<string, unknown> | undefined;
+  if (enrichment && typeof enrichment === 'object') return true;
+  if (buildPayload._youPay != null || buildPayload._youReceive != null) return true;
+  if (buildPayload._feeEnrichment != null) return true;
+  return false;
+}
+
+/** Keep diagram/fee-table data from a prior enrich:true quote when a fast build omits enrichment. */
+function preserveQuoteEnrichmentDisplay(
+  prev: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged = { ...next };
+  for (const key of ENRICHMENT_DISPLAY_QUOTE_KEYS) {
+    const value = prev[key];
+    if (value != null) merged[key] = value;
+  }
+  return merged;
+}
+
 function vybeBuildParamsKey(
   wallet: string,
   inputMint: string,
@@ -5309,7 +5380,7 @@ function tryReuseCachedBuildTx(
   amount: number,
   buildOpts: Record<string, unknown>,
 ): { tx: string; buildPayload: Record<string, unknown> } | null {
-  const cachedRoute = tryCachedVybeBuildTxForSelectedRoute();
+  const cachedRoute = tryCachedVybeBuildTxForSelectedRoute(buildOpts);
   if (cachedRoute) return cachedRoute;
   const cacheOpts = vybeCacheBuildOpts(buildOpts);
   const paramsKey = vybeBuildParamsKey(wallet, inputMint, outputMint, amount, cacheOpts);
@@ -5715,15 +5786,7 @@ function mergePinnedRouteCardQuoteForRefetch(
   prev: Record<string, unknown>,
   next: Record<string, unknown>,
 ): Record<string, unknown> {
-  const merged = { ...next };
-  const prevImpact = prev.priceImpactPct;
-  if (prevImpact != null && String(prevImpact).length > 0) {
-    merged.priceImpactPct = prevImpact;
-  }
-  if (prev._lowLiquidityWarning !== undefined) {
-    merged._lowLiquidityWarning = prev._lowLiquidityWarning;
-  }
-  return merged;
+  return preserveQuoteEnrichmentDisplay(prev, next);
 }
 
 function mergePinnedRouteQuoteIntoEnumeratedRoutes(body: Record<string, unknown>): void {
@@ -5935,6 +5998,16 @@ function applyVybeQuoteBodyToUi(
   quotedMintSession.add(inputMint);
   quotedMintSession.add(outputMint);
   const preserveEnumeratedRoutes = shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts);
+  const prevEnrichedQuote = (() => {
+    if (preserveEnumeratedRoutes && enumeratedRoutesUiState) {
+      const selectedIndex = enumeratedRoutesUiState.selectedIndex;
+      const route = enumeratedRoutesUiState.routes.find((r) => r.index === selectedIndex);
+      if (route?.quote && typeof route.quote === 'object') {
+        return route.quote as Record<string, unknown>;
+      }
+    }
+    return lastSwapQuoteOk;
+  })();
   if (preserveEnumeratedRoutes) {
     mergePinnedRouteQuoteIntoEnumeratedRoutes(body);
   } else {
@@ -5948,6 +6021,9 @@ function applyVybeQuoteBodyToUi(
   const buildPayload = activeBody._build as Record<string, unknown> | undefined;
   if (buildPayload) {
     quote = applyFeeEnrichmentToQuote(quote, undefined, projectSwapBuildForBrowser(buildPayload));
+  }
+  if (buildOpts.enrich === false && prevEnrichedQuote) {
+    quote = preserveQuoteEnrichmentDisplay(prevEnrichedQuote, quote);
   }
   quote = attachQuoteTokenPriceMeta(quote, inputMint, outputMint);
   quote = mergeQuoteTokenStatsFromBody(quote, body._tokenStats);
@@ -6696,9 +6772,14 @@ async function refreshSelectedRouteQuote(
     try {
       const walletErr = validateVybeQuoteWallet();
       if (walletErr) throw new Error(walletErr);
-      await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, pinnedOpts, {
-        skipEnsurePrices: true,
-      });
+      await requestVybeQuote(
+        wallet,
+        inputMint,
+        outputMint,
+        quoteAmount,
+        swapBuildOptsWithoutEnrich(pinnedOpts),
+        { skipEnsurePrices: true },
+      );
     } finally {
       popSuppressClientPriceResolve();
     }
@@ -6806,7 +6887,7 @@ async function fetchSwapQuote(): Promise<void> {
   applyQuoteLoadingUi();
 
   try {
-    const buildOpts = collectSwapBuildOptions();
+    const buildOpts = swapBuildOptsWithEnrich(collectSwapBuildOptions());
     const quoteAmount =
       typeof buildOpts.amount === 'number' && Number.isFinite(buildOpts.amount)
         ? buildOpts.amount
@@ -7604,7 +7685,9 @@ async function handleSwapSignDialogRefetchRebuild(): Promise<void> {
     const inputMint = swapInputMintInput?.value.trim() ?? '';
     const outputMint = swapOutputMintInput?.value.trim() ?? '';
     const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
-    const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+    const buildOpts = swapBuildOptsWithoutEnrich(
+      mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions()),
+    );
 
     await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
     if (!lastSwapQuoteOk) {
@@ -7613,7 +7696,7 @@ async function handleSwapSignDialogRefetchRebuild(): Promise<void> {
       return;
     }
     appendSwapSignLog('Quote received — rebuilding swap…', 'neutral');
-    await postBuildSwap({ skipQuoteRefetch: true, preserveSignDialogLogs: true });
+    await postBuildSwap({ skipQuoteRefetch: true, preserveSignDialogLogs: true, enrich: false });
   } catch (err) {
     appendSwapSignLog(err instanceof Error ? err.message : String(err), 'error');
     setSwapSignDialogActions('failed');
@@ -7792,10 +7875,13 @@ function mergeSelectedRoutePinIntoBuildOpts(opts: Record<string, unknown>): Reco
   return next;
 }
 
-function tryCachedVybeBuildTxForSelectedRoute(): {
+function tryCachedVybeBuildTxForSelectedRoute(
+  buildOpts?: Record<string, unknown>,
+): {
   tx: string;
   buildPayload: Record<string, unknown>;
 } | null {
+  if (buildOpts?.enrich === false) return null;
   if (!lastVybeQuoteBodyForRoutes) return null;
   const activeBody = getQuoteBodyForActiveRoute(lastVybeQuoteBodyForRoutes);
   const buildPayload = activeBody._build as Record<string, unknown> | undefined;
@@ -7807,6 +7893,8 @@ function tryCachedVybeBuildTxForSelectedRoute(): {
 async function postBuildSwap(options?: {
   skipQuoteRefetch?: boolean;
   preserveSignDialogLogs?: boolean;
+  /** When false, vybe/swap build skips ix-builder enrichment (refetch-retry flows). */
+  enrich?: boolean;
 }): Promise<void> {
   if (swapBuildMode === 'paste-sign') {
     return postPasteSignSwap();
@@ -7817,6 +7905,7 @@ async function postBuildSwap(options?: {
   }
   if (!swapBuildResultEl || !swapTxBase64El) return;
 
+  const refetchForExpiredQuote = !options?.skipQuoteRefetch && isBuildBtnQuoteExpired();
   const needsQuoteRefetch =
     !options?.skipQuoteRefetch &&
     (isBuildBtnQuoteExpired() || needsQuoteRefetchBeforeBuild());
@@ -7847,7 +7936,10 @@ async function postBuildSwap(options?: {
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';
   const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
-  const buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+  let buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
+  if (options?.enrich === false || refetchForExpiredQuote) {
+    buildOpts = swapBuildOptsWithoutEnrich(buildOpts);
+  }
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
 
   if (swapQuoteError) clearInlineError(swapQuoteError);
@@ -7867,7 +7959,7 @@ async function postBuildSwap(options?: {
     let buildTx: string;
     let buildPayload: Record<string, unknown>;
     if (router === 'vybe') {
-      const cached = tryCachedVybeBuildTxForSelectedRoute();
+      const cached = tryCachedVybeBuildTxForSelectedRoute(buildOpts);
       if (cached) {
         if (isSwapSignDialogActive()) {
           recordSwapSignQuoteTxCached('vybe-quote');
@@ -7906,9 +7998,13 @@ async function postBuildSwap(options?: {
     if (swapBuildMode === 'build-sign') {
       const legTxs = extractSwapBuildTransactions(buildPayload);
       const toSign = legTxs.length > 0 ? legTxs : [buildTx];
-      const confirmQuote = lastSwapQuoteOk
+      const confirmQuoteBase = lastSwapQuoteOk
         ? applyFeeEnrichmentToQuote(lastSwapQuoteOk, null, buildPayload)
         : {};
+      const confirmQuote =
+        buildOpts.enrich === false && lastSwapQuoteOk
+          ? preserveQuoteEnrichmentDisplay(lastSwapQuoteOk, confirmQuoteBase)
+          : confirmQuoteBase;
       lastSwapQuoteOk = confirmQuote;
       renderSwapQuoteUI(confirmQuote);
       await runSwapSignDialogFlow(confirmQuote, buildPayload, toSign, {

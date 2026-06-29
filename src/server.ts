@@ -366,6 +366,7 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
   programAddress?: string;
   protocol?: SwapProxyProtocol;
   simulate?: boolean;
+  enrich?: boolean;
   swapFee?: number;
   marketFetchMode?: 'full' | 'trades' | 'markets' | 'rpc';
   enumerateRoutes?: boolean;
@@ -424,6 +425,7 @@ function parseSwapBuildBody(body: Record<string, unknown>): {
     programAddress,
     protocol,
     simulate: typeof body.simulate === 'boolean' ? body.simulate : undefined,
+    enrich: typeof body.enrich === 'boolean' ? body.enrich : undefined,
     swapFee:
       body.swapFee != null && Number.isFinite(Number(body.swapFee))
         ? Number(body.swapFee)

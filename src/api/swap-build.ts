@@ -112,6 +112,11 @@ export interface BuildSwapParams {
   outputMintPrice?: number;
   /** Client USD SOL price when neither leg is SOL/WSOL (fee/rent USD). */
   solPrice?: number;
+  /**
+   * Print-ready enrichment (simulation + fees + USD + %). Default on; only explicit
+   * `false` disables enrichment-only work (incl. end-of-build simulateTransaction).
+   */
+  enrich?: boolean;
 }
 
 export async function buildSwap(http: AxiosInstance, body: BuildSwapParams): Promise<VybeSwapBuildResponse> {
@@ -148,9 +153,8 @@ function buildSwapPayload(body: BuildSwapParams, router?: SwapProxyRouter): Reco
   if (pinned.protocol) payload.protocol = pinned.protocol;
   if (pinned.programAddress?.trim()) payload.programAddress = pinned.programAddress.trim();
   if (pinned.simulate != null) payload.simulate = pinned.simulate;
-  // Request ix-builder's print-ready enrichment (simulation + fees + USD + %).
-  // Aggregator/remote builds that don't support it simply ignore the flag.
-  payload.enrich = true;
+  // Default on; explicit enrich:false skips ix-builder enrichment (sim + fee/USD projection).
+  payload.enrich = pinned.enrich !== false;
   payload.swapFee = swapFeeParamForRouter(pinned.swapFee, router);
   appendAtaHintsToPayload(payload, {
     closeInputAta: pinned.closeInputAta,
