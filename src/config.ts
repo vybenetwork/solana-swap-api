@@ -161,9 +161,9 @@ export function getHttpProxyUrl(): string | undefined {
   return `http://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${cfg.host}:${cfg.port}`;
 }
 
-const HTTP_PROXY_POOL_SIZE_MAX = 5;
+const HTTP_PROXY_POOL_SIZE_MAX = 10;
 
-/** Concurrent proxy dispatchers to warm (1–5). Default 5 when proxy is configured. */
+/** Concurrent proxy dispatchers to warm (1–10). Default 10 when proxy is configured. */
 export function getHttpProxyPoolSize(): number {
   const raw = Number(process.env.HTTP_PROXY_POOL_SIZE ?? HTTP_PROXY_POOL_SIZE_MAX);
   const n = Number.isFinite(raw) ? Math.floor(raw) : HTTP_PROXY_POOL_SIZE_MAX;

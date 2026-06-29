@@ -12,6 +12,26 @@ export interface HttpWarmupTarget {
 }
 
 const WARMUP_TIMEOUT_MS = 12_000;
+const IP_CHECK_TIMEOUT_MS = 4_000;
+const IP_CHECK_URL = 'https://ipwho.is/';
+
+export interface ProxySlotIdentity {
+  ip: string;
+  country?: string;
+  countryCode?: string;
+  region?: string;
+  city?: string;
+  isp?: string;
+  org?: string;
+}
+
+export function formatProxySlotIdentity(identity: ProxySlotIdentity): string {
+  const geo = [identity.city, identity.region, identity.countryCode ?? identity.country]
+    .filter(Boolean)
+    .join(', ');
+  const net = [identity.isp, identity.org].filter(Boolean).join(' / ');
+  return `ip=${identity.ip}${geo ? ` geo=${geo}` : ''}${net ? ` via=${net}` : ''}`;
+}
 
 export function listHttpWarmupTargets(): HttpWarmupTarget[] {
   const jupiter = getJupiterWarmupUrls();
@@ -60,4 +80,41 @@ export async function prefetchHttpWarmupTargets(
     }),
   );
   return { ok, failed };
+}
+
+/** Confirm the proxy tunnel exits on a public IP (and log geo/ISP metadata). */
+export async function verifyProxySlotIdentity(
+  fetchFn: (url: string, init?: RequestInit) => Promise<Response>,
+): Promise<ProxySlotIdentity> {
+  const res = await fetchFn(IP_CHECK_URL, {
+    method: 'GET',
+    signal: AbortSignal.timeout(IP_CHECK_TIMEOUT_MS),
+  });
+  if (!res.ok) {
+    throw new Error(`proxy ip check HTTP ${res.status}`);
+  }
+  const data = (await res.json()) as {
+    success?: boolean;
+    message?: string;
+    ip?: string;
+    country?: string;
+    country_code?: string;
+    region?: string;
+    city?: string;
+    connection?: { isp?: string; org?: string };
+  };
+  if (data.success === false) {
+    throw new Error(data.message?.trim() || 'proxy ip check rejected');
+  }
+  const ip = String(data.ip ?? '').trim();
+  if (!ip) throw new Error('proxy ip check returned empty ip');
+  return {
+    ip,
+    country: data.country?.trim() || undefined,
+    countryCode: data.country_code?.trim() || undefined,
+    region: data.region?.trim() || undefined,
+    city: data.city?.trim() || undefined,
+    isp: data.connection?.isp?.trim() || undefined,
+    org: data.connection?.org?.trim() || undefined,
+  };
 }
