@@ -4515,38 +4515,118 @@ tr:hover td {
   min-height: 1.5rem;
 }
 
-.routing-no-liquidity {
+.routing-canvas--no-liquidity .routing-path {
+  min-height: 6.5rem;
+}
+
+.routing-market-node--no-liquidity {
+  min-width: 13.5rem;
+  max-width: 22rem;
+  gap: 0;
+}
+
+.routing-hop-index-badge--spacer {
+  visibility: hidden;
+}
+
+.routing-no-liquidity-box {
+  background: #12121a;
+  border: 1px solid #3f3f46;
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+  width: 100%;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.03);
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 0.45rem;
-  min-height: 4.5rem;
-  padding: 0.75rem 1rem;
-  text-align: center;
+  gap: 0.4rem;
 }
 
 .routing-no-liquidity__title {
   margin: 0;
-  font-size: 0.88rem;
+  font-size: 0.8125rem;
   font-weight: 600;
+  line-height: 1.35;
   color: #f87171;
+  text-align: center;
 }
 
 .routing-no-liquidity__link {
-  font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  font-size: 0.6875rem;
   color: #60a5fa;
   text-decoration: underline;
   text-underline-offset: 2px;
+  line-height: 1.35;
+  text-align: center;
+  max-width: 100%;
+}
+
+.routing-no-liquidity__link-logo {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  object-fit: contain;
 }
 
 .routing-no-liquidity__link:hover {
   color: #93c5fd;
 }
 
-.routing-rail-row--no-liquidity {
+.routing-no-liquidity-protocols {
+  width: 100%;
+  margin-top: 0.1rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid #27272a;
+}
+
+.routing-no-liquidity-protocols__heading {
+  margin: 0 0 0.4rem;
+  font-size: 0.625rem;
+  font-weight: 600;
+  color: #a1a1aa;
+  text-align: center;
+  letter-spacing: 0.02em;
+}
+
+.routing-no-liquidity-protocols__grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.routing-no-liquidity-protocols__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem 0.45rem;
+}
+
+.routing-no-liquidity-protocol {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 0.3rem;
+  min-width: 0;
+  font-size: 0.625rem;
+  color: #d4d4d8;
+}
+
+.routing-no-liquidity-protocol__icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.routing-no-liquidity-protocol__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .swap-route-option__title--no-liquidity {

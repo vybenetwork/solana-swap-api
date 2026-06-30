@@ -22717,6 +22717,122 @@ function formatWarnPercent(pct) {
   return String(Math.round(abs));
 }
 
+// src/frontend/protocol-picker.ts
+function protocolValueToBrand(value) {
+  const v = value.trim().toUpperCase();
+  if (!v) return null;
+  if (v.startsWith("RAYDIUM")) return "raydium";
+  if (v.startsWith("METEORA")) return "meteora";
+  if (v === "PUMPFUN" || v === "PUMPSWAP") return "pump";
+  if (v === "SANCTUM") return "sanctum";
+  return null;
+}
+function protocolBrandIconSrc(brand) {
+  if (brand === "raydium") return "/images/raydium-logo.png";
+  if (brand === "meteora") return "/images/meteora-logo.png";
+  if (brand === "sanctum") return "/images/sanctum-logo.png";
+  return "/images/pump-logo.png";
+}
+function renderPickerIconMarkup(brand) {
+  if (!brand) return "";
+  const src = protocolBrandIconSrc(brand);
+  return `<img class="swap-protocol-picker__icon" src="${src}" alt="" width="14" height="14" decoding="async" />`;
+}
+function protocolSelectedDisplayLabel(fullLabel, brand) {
+  const label = fullLabel.trim();
+  if (!label || !brand) return label;
+  if (brand === "raydium" && label.toLowerCase().startsWith("raydium ")) {
+    return label.slice("raydium ".length);
+  }
+  if (brand === "meteora" && label.toLowerCase().startsWith("meteora ")) {
+    return label.slice("meteora ".length);
+  }
+  return label;
+}
+function wireSwapProtocolPicker(select, pickerRoot) {
+  const trigger = pickerRoot.querySelector(".swap-protocol-picker__trigger");
+  const menu = pickerRoot.querySelector(".swap-protocol-picker__menu");
+  const valueEl = pickerRoot.querySelector(".swap-protocol-picker__value");
+  const triggerEl = trigger;
+  const menuEl = menu;
+  const valueElNode = valueEl;
+  if (!triggerEl || !menuEl || !valueElNode) {
+    throw new Error("swap protocol picker markup incomplete");
+  }
+  const placeholderLabel = Array.from(select.options).find((o) => !o.value.trim())?.textContent?.trim() || "Select DEX";
+  menuEl.innerHTML = "";
+  for (const option of Array.from(select.options)) {
+    const value = option.value.trim();
+    if (!value) continue;
+    const brand = protocolValueToBrand(value);
+    const item = document.createElement("li");
+    item.className = "swap-protocol-picker__option";
+    item.setAttribute("role", "option");
+    item.dataset.value = value;
+    item.innerHTML = `${brand ? renderPickerIconMarkup(brand) : ""}<span class="swap-protocol-picker__option-label">${option.textContent ?? value}</span>`;
+    item.addEventListener("click", (e) => {
+      e.stopPropagation();
+      select.value = value;
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+      syncFromSelect();
+      closeMenu();
+    });
+    menuEl.appendChild(item);
+  }
+  function syncFromSelect() {
+    const value = select.value.trim();
+    const selectedOption = value ? select.options[select.selectedIndex] : null;
+    const fullLabel = selectedOption?.textContent?.trim() || placeholderLabel;
+    const brand = protocolValueToBrand(value);
+    const displayLabel = value ? protocolSelectedDisplayLabel(fullLabel, brand) : fullLabel;
+    valueElNode.innerHTML = brand ? `${renderPickerIconMarkup(brand)}<span class="swap-protocol-picker__label">${displayLabel}</span>` : `<span class="swap-protocol-picker__label">${displayLabel}</span>`;
+    if (value && displayLabel !== fullLabel) triggerEl.title = fullLabel;
+    else triggerEl.removeAttribute("title");
+    if (value) triggerEl.dataset.protocol = value;
+    else delete triggerEl.dataset.protocol;
+    triggerEl.classList.toggle("swap-protocol-picker__trigger--placeholder", !value);
+    for (const item of menuEl.querySelectorAll(".swap-protocol-picker__option")) {
+      const selected = item.dataset.value === value;
+      item.classList.toggle("swap-protocol-picker__option--selected", selected);
+      item.setAttribute("aria-selected", selected ? "true" : "false");
+    }
+  }
+  function closeMenu() {
+    menuEl.hidden = true;
+    triggerEl.setAttribute("aria-expanded", "false");
+    pickerRoot.classList.remove("swap-protocol-picker--open");
+  }
+  function openMenu() {
+    if (triggerEl.disabled) return;
+    menuEl.hidden = false;
+    triggerEl.setAttribute("aria-expanded", "true");
+    pickerRoot.classList.add("swap-protocol-picker--open");
+  }
+  function toggleMenu() {
+    if (menuEl.hidden) openMenu();
+    else closeMenu();
+  }
+  triggerEl.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleMenu();
+  });
+  select.addEventListener("change", syncFromSelect);
+  document.addEventListener("click", () => {
+    if (!menuEl.hidden) closeMenu();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeMenu();
+  });
+  function setDisabled(disabled, lockedTitle = "") {
+    triggerEl.disabled = disabled;
+    if (disabled && lockedTitle) triggerEl.title = lockedTitle;
+    else triggerEl.removeAttribute("title");
+    if (disabled) closeMenu();
+  }
+  syncFromSelect();
+  return { trigger: triggerEl, syncFromSelect, setDisabled, closeMenu };
+}
+
 // src/frontend/price-impact-tier.ts
 var PRICE_IMPACT_TIER_CLASSES = [
   "price-impact--green",
@@ -25725,6 +25841,36 @@ function renderMockHopPlanFeesSection(walletFeeMint, walletFeeSym, outputFeeMint
     ${groupsHtml}
   </section>`;
 }
+function renderNoLiquiditySupportedProtocolsHtml() {
+  const protocols = SUPPORTED_VYBE_PROTOCOLS;
+  const rows = [];
+  for (let i = 0; i < protocols.length; i += 2) {
+    const pair = protocols.slice(i, i + 2);
+    const cells = pair.map(({ key, label }) => {
+      const brand = protocolValueToBrand(key);
+      const icon = brand ? `<img class="routing-no-liquidity-protocol__icon" src="${protocolBrandIconSrc(brand)}" alt="" width="14" height="14" decoding="async" />` : "";
+      return `<span class="routing-no-liquidity-protocol">${icon}<span class="routing-no-liquidity-protocol__label">${deps.escapeHtml(label)}</span></span>`;
+    }).join("");
+    rows.push(`<div class="routing-no-liquidity-protocols__row">${cells}</div>`);
+  }
+  return `<div class="routing-no-liquidity-protocols">
+    <p class="routing-no-liquidity-protocols__heading">Protocols we support:</p>
+    <div class="routing-no-liquidity-protocols__grid">${rows.join("")}</div>
+  </div>`;
+}
+function renderNoLiquidityRouteMarketNode(marketsUrl) {
+  const railNode = `<div class="routing-market-node routing-market-node--no-liquidity">
+    <span class="routing-hop-index-badge routing-hop-index-badge--spacer" aria-hidden="true">&#8203;</span>
+    <div class="routing-no-liquidity-box">
+      <p class="routing-no-liquidity__title">No Liquidity Available</p>
+      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer"><img class="routing-no-liquidity__link-logo" src="/images/solscan-logo.png" alt="" width="14" height="14" decoding="async" /><span>View markets on Solscan</span></a>
+      ${renderNoLiquiditySupportedProtocolsHtml()}
+    </div>
+  </div>`;
+  return `<div class="routing-hop-column routing-hop-column--no-liquidity">
+    <div class="routing-hop-on-rail">${railNode}</div>
+  </div>`;
+}
 function renderMockRouteMarketNode(meta, leg, loading = false) {
   const si = meta.step.swapInfo;
   const dexHtml = loading ? deps.renderLoadingSpinner("sm") : deps.escapeHtml(si?.label ?? ROUTING_PLACEHOLDER_DASH);
@@ -26404,20 +26550,15 @@ function renderNoLiquidityRoutingDiagram(outputMint) {
   const inputTotalLabel = payUsdLabel != null ? payUsdLabel.replace(/^≈\s*/, "").trim() : null;
   const resolvedOutMint = outputMint.trim() || deps.getFormOutputMint();
   const marketsUrl = deps.escapeHtml(solscanTokenMarketsUrl(resolvedOutMint));
-  const body = `<div class="routing-rail-row routing-rail-row--no-liquidity">
-    <div class="routing-no-liquidity">
-      <p class="routing-no-liquidity__title">No Liquidity Available</p>
-      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer">View markets on Solscan</a>
-    </div>
-    <div class="routing-rail-tail" aria-hidden="true"></div>
-  </div>`;
-  return renderRoutingFrame(
+  const body = renderRoutePctBadge("100%") + renderNoLiquidityRouteMarketNode(marketsUrl) + renderRoutePctBadge(`${ROUTING_PLACEHOLDER_DASH}%`, "out");
+  const trackBody = `<div class="routing-rail-row routing-rail-row--no-liquidity">${body}<div class="routing-rail-tail" aria-hidden="true"></div></div>`;
+  const frame = renderRoutingFrame(
     hasIn ? inChipDisplay : ROUTING_PLACEHOLDER_DASH,
     inSym,
     ROUTING_PLACEHOLDER_DASH,
     outSym,
     void 0,
-    body,
+    trackBody,
     false,
     1,
     true,
@@ -26429,6 +26570,10 @@ function renderNoLiquidityRoutingDiagram(outputMint) {
     null,
     null,
     true
+  );
+  return frame.replace(
+    "routing-canvas--placeholder",
+    "routing-canvas--placeholder routing-canvas--no-liquidity"
   );
 }
 function renderRoutingDiagramPlaceholder(loading = false) {
@@ -26528,6 +26673,18 @@ var PROTOCOL_KEY_LABELS = {
   TITAN: "Titan",
   VYBE: "Vybe"
 };
+var SUPPORTED_VYBE_PROTOCOLS = [
+  { key: "PUMPFUN", label: PROTOCOL_KEY_LABELS.PUMPFUN ?? "Pump.fun" },
+  { key: "PUMPSWAP", label: PROTOCOL_KEY_LABELS.PUMPSWAP ?? "PumpSwap" },
+  { key: "RAYDIUMAMMV4", label: PROTOCOL_KEY_LABELS.RAYDIUMAMMV4 ?? "Raydium AMM v4" },
+  { key: "RAYDIUMCPMM", label: PROTOCOL_KEY_LABELS.RAYDIUMCPMM ?? "Raydium CPMM" },
+  { key: "RAYDIUMCLMM", label: PROTOCOL_KEY_LABELS.RAYDIUMCLMM ?? "Raydium CLMM" },
+  { key: "RAYDIUMLAUNCHLAB", label: PROTOCOL_KEY_LABELS.RAYDIUMLAUNCHLAB ?? "Raydium LaunchLab" },
+  { key: "METEORADBC", label: PROTOCOL_KEY_LABELS.METEORADBC ?? "Meteora DBC" },
+  { key: "METEORADAMM2", label: PROTOCOL_KEY_LABELS.METEORADAMM2 ?? "Meteora DAMM v2" },
+  { key: "METEORADLMM", label: PROTOCOL_KEY_LABELS.METEORADLMM ?? "Meteora DLMM" },
+  { key: "SANCTUM", label: PROTOCOL_KEY_LABELS.SANCTUM ?? "Sanctum" }
+];
 var KNOWN_DEX_DISPLAY_LABELS = /* @__PURE__ */ new Set([
   ...Object.values(PROGRAM_ADDRESS_LABELS),
   ...Object.values(PROTOCOL_KEY_LABELS)
@@ -27702,122 +27859,6 @@ function renderSignConfirmRouteDetailRows(quote, buildPayload) {
   });
 }
 
-// src/frontend/protocol-picker.ts
-function protocolValueToBrand(value) {
-  const v = value.trim().toUpperCase();
-  if (!v) return null;
-  if (v.startsWith("RAYDIUM")) return "raydium";
-  if (v.startsWith("METEORA")) return "meteora";
-  if (v === "PUMPFUN" || v === "PUMPSWAP") return "pump";
-  if (v === "SANCTUM") return "sanctum";
-  return null;
-}
-function protocolBrandIconSrc(brand) {
-  if (brand === "raydium") return "/images/raydium-logo.png";
-  if (brand === "meteora") return "/images/meteora-logo.png";
-  if (brand === "sanctum") return "/images/sanctum-logo.png";
-  return "/images/pump-logo.png";
-}
-function renderPickerIconMarkup(brand) {
-  if (!brand) return "";
-  const src = protocolBrandIconSrc(brand);
-  return `<img class="swap-protocol-picker__icon" src="${src}" alt="" width="14" height="14" decoding="async" />`;
-}
-function protocolSelectedDisplayLabel(fullLabel, brand) {
-  const label = fullLabel.trim();
-  if (!label || !brand) return label;
-  if (brand === "raydium" && label.toLowerCase().startsWith("raydium ")) {
-    return label.slice("raydium ".length);
-  }
-  if (brand === "meteora" && label.toLowerCase().startsWith("meteora ")) {
-    return label.slice("meteora ".length);
-  }
-  return label;
-}
-function wireSwapProtocolPicker(select, pickerRoot) {
-  const trigger = pickerRoot.querySelector(".swap-protocol-picker__trigger");
-  const menu = pickerRoot.querySelector(".swap-protocol-picker__menu");
-  const valueEl = pickerRoot.querySelector(".swap-protocol-picker__value");
-  const triggerEl = trigger;
-  const menuEl = menu;
-  const valueElNode = valueEl;
-  if (!triggerEl || !menuEl || !valueElNode) {
-    throw new Error("swap protocol picker markup incomplete");
-  }
-  const placeholderLabel = Array.from(select.options).find((o) => !o.value.trim())?.textContent?.trim() || "Select DEX";
-  menuEl.innerHTML = "";
-  for (const option of Array.from(select.options)) {
-    const value = option.value.trim();
-    if (!value) continue;
-    const brand = protocolValueToBrand(value);
-    const item = document.createElement("li");
-    item.className = "swap-protocol-picker__option";
-    item.setAttribute("role", "option");
-    item.dataset.value = value;
-    item.innerHTML = `${brand ? renderPickerIconMarkup(brand) : ""}<span class="swap-protocol-picker__option-label">${option.textContent ?? value}</span>`;
-    item.addEventListener("click", (e) => {
-      e.stopPropagation();
-      select.value = value;
-      select.dispatchEvent(new Event("change", { bubbles: true }));
-      syncFromSelect();
-      closeMenu();
-    });
-    menuEl.appendChild(item);
-  }
-  function syncFromSelect() {
-    const value = select.value.trim();
-    const selectedOption = value ? select.options[select.selectedIndex] : null;
-    const fullLabel = selectedOption?.textContent?.trim() || placeholderLabel;
-    const brand = protocolValueToBrand(value);
-    const displayLabel = value ? protocolSelectedDisplayLabel(fullLabel, brand) : fullLabel;
-    valueElNode.innerHTML = brand ? `${renderPickerIconMarkup(brand)}<span class="swap-protocol-picker__label">${displayLabel}</span>` : `<span class="swap-protocol-picker__label">${displayLabel}</span>`;
-    if (value && displayLabel !== fullLabel) triggerEl.title = fullLabel;
-    else triggerEl.removeAttribute("title");
-    if (value) triggerEl.dataset.protocol = value;
-    else delete triggerEl.dataset.protocol;
-    triggerEl.classList.toggle("swap-protocol-picker__trigger--placeholder", !value);
-    for (const item of menuEl.querySelectorAll(".swap-protocol-picker__option")) {
-      const selected = item.dataset.value === value;
-      item.classList.toggle("swap-protocol-picker__option--selected", selected);
-      item.setAttribute("aria-selected", selected ? "true" : "false");
-    }
-  }
-  function closeMenu() {
-    menuEl.hidden = true;
-    triggerEl.setAttribute("aria-expanded", "false");
-    pickerRoot.classList.remove("swap-protocol-picker--open");
-  }
-  function openMenu() {
-    if (triggerEl.disabled) return;
-    menuEl.hidden = false;
-    triggerEl.setAttribute("aria-expanded", "true");
-    pickerRoot.classList.add("swap-protocol-picker--open");
-  }
-  function toggleMenu() {
-    if (menuEl.hidden) openMenu();
-    else closeMenu();
-  }
-  triggerEl.addEventListener("click", (e) => {
-    e.stopPropagation();
-    toggleMenu();
-  });
-  select.addEventListener("change", syncFromSelect);
-  document.addEventListener("click", () => {
-    if (!menuEl.hidden) closeMenu();
-  });
-  document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeMenu();
-  });
-  function setDisabled(disabled, lockedTitle = "") {
-    triggerEl.disabled = disabled;
-    if (disabled && lockedTitle) triggerEl.title = lockedTitle;
-    else triggerEl.removeAttribute("title");
-    if (disabled) closeMenu();
-  }
-  syncFromSelect();
-  return { trigger: triggerEl, syncFromSelect, setDisabled, closeMenu };
-}
-
 // src/frontend/app.ts
 var MAX_FETCH_RETRIES = 5;
 var FETCH_RETRY_DELAY_MS = 2e3;
@@ -28019,6 +28060,7 @@ function clearSwapNoLiquidityStickyOnMintChange() {
   if (!swapNoLiquiditySticky) return;
   swapNoLiquiditySticky = null;
   if (swapQuoteError) clearInlineError(swapQuoteError);
+  syncSwapQuoteButtonState();
 }
 function applySwapNoLiquidityStickyUi(rawError) {
   const { inputMint, outputMint } = currentSwapMintPair();
@@ -28050,6 +28092,7 @@ function reapplySwapNoLiquidityStickyUi() {
   setBuyReadoutLoading(false);
   setBuyFiatLoading(false);
   updateSwapPairCards(void 0, false);
+  syncSwapQuoteButtonState();
 }
 function handleSwapQuoteFetchFailure(err) {
   const msg = err instanceof Error ? err.message : String(err);
@@ -28131,6 +28174,9 @@ function isWalletBalancesGateOpen(wallet) {
 }
 function getSwapQuoteDisabledReason() {
   if (swapQuoteFetching) return "Quote fetch in progress (swapQuoteFetching=true)";
+  if (swapNoLiquidityStickyActiveForForm()) {
+    return "No liquidity in pool for this pair \u2014 change sell or buy token to quote again";
+  }
   if (swapBuildMode === "paste-sign") return "Paste & Sign mode \u2014 use Sign pasted tx instead";
   const wallet = swapWalletAddressInput?.value.trim() ?? "";
   if (!hasValidSwapWallet()) {
@@ -28536,6 +28582,10 @@ function syncSwapQuoteButtonState() {
   }
   const hardBlocked = diag.blockReason !== null && !isFlashOnlyQuoteBlockReason(diag.blockReason);
   swapQuoteBtn.disabled = isSwapSignConfirmDialogOpen() || hardBlocked || isQuoteBtnInCooldown();
+  if (swapQuoteBtn) {
+    if (hardBlocked && diag.blockReason) swapQuoteBtn.title = diag.blockReason;
+    else if (!isQuoteBtnInCooldown()) swapQuoteBtn.removeAttribute("title");
+  }
   updateSwapQuoteButtonLabel();
   renderSwapQuoteBtnDebug(diag);
   console.debug("[swap-quote-btn]", diag);

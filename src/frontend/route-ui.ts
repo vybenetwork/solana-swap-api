@@ -19,6 +19,7 @@
  */
 
 import { formatWarnPercent } from './format-warn-pct.js';
+import { protocolBrandIconSrc, protocolValueToBrand } from './protocol-picker.js';
 import {
   displayPriceImpactPct,
   formatPriceImpactPctMarketBox,
@@ -4699,6 +4700,42 @@ function renderMockHopPlanFeesSection(
   </section>`;
 }
 
+function renderNoLiquiditySupportedProtocolsHtml(): string {
+  const protocols = SUPPORTED_VYBE_PROTOCOLS;
+  const rows: string[] = [];
+  for (let i = 0; i < protocols.length; i += 2) {
+    const pair = protocols.slice(i, i + 2);
+    const cells = pair
+      .map(({ key, label }) => {
+        const brand = protocolValueToBrand(key);
+        const icon = brand
+          ? `<img class="routing-no-liquidity-protocol__icon" src="${protocolBrandIconSrc(brand)}" alt="" width="14" height="14" decoding="async" />`
+          : '';
+        return `<span class="routing-no-liquidity-protocol">${icon}<span class="routing-no-liquidity-protocol__label">${deps.escapeHtml(label)}</span></span>`;
+      })
+      .join('');
+    rows.push(`<div class="routing-no-liquidity-protocols__row">${cells}</div>`);
+  }
+  return `<div class="routing-no-liquidity-protocols">
+    <p class="routing-no-liquidity-protocols__heading">Protocols we support:</p>
+    <div class="routing-no-liquidity-protocols__grid">${rows.join('')}</div>
+  </div>`;
+}
+
+function renderNoLiquidityRouteMarketNode(marketsUrl: string): string {
+  const railNode = `<div class="routing-market-node routing-market-node--no-liquidity">
+    <span class="routing-hop-index-badge routing-hop-index-badge--spacer" aria-hidden="true">&#8203;</span>
+    <div class="routing-no-liquidity-box">
+      <p class="routing-no-liquidity__title">No Liquidity Available</p>
+      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer"><img class="routing-no-liquidity__link-logo" src="/images/solscan-logo.png" alt="" width="14" height="14" decoding="async" /><span>View markets on Solscan</span></a>
+      ${renderNoLiquiditySupportedProtocolsHtml()}
+    </div>
+  </div>`;
+  return `<div class="routing-hop-column routing-hop-column--no-liquidity">
+    <div class="routing-hop-on-rail">${railNode}</div>
+  </div>`;
+}
+
 function renderMockRouteMarketNode(
   meta: RouteHopMeta,
   leg: RouteHopLeg,
@@ -5853,20 +5890,18 @@ export function renderNoLiquidityRoutingDiagram(outputMint: string): string {
     payUsdLabel != null ? payUsdLabel.replace(/^≈\s*/, '').trim() : null;
   const resolvedOutMint = outputMint.trim() || deps.getFormOutputMint();
   const marketsUrl = deps.escapeHtml(solscanTokenMarketsUrl(resolvedOutMint));
-  const body = `<div class="routing-rail-row routing-rail-row--no-liquidity">
-    <div class="routing-no-liquidity">
-      <p class="routing-no-liquidity__title">No Liquidity Available</p>
-      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer">View markets on Solscan</a>
-    </div>
-    <div class="routing-rail-tail" aria-hidden="true"></div>
-  </div>`;
-  return renderRoutingFrame(
+  const body =
+    renderRoutePctBadge('100%') +
+    renderNoLiquidityRouteMarketNode(marketsUrl) +
+    renderRoutePctBadge(`${ROUTING_PLACEHOLDER_DASH}%`, 'out');
+  const trackBody = `<div class="routing-rail-row routing-rail-row--no-liquidity">${body}<div class="routing-rail-tail" aria-hidden="true"></div></div>`;
+  const frame = renderRoutingFrame(
     hasIn ? inChipDisplay : ROUTING_PLACEHOLDER_DASH,
     inSym,
     ROUTING_PLACEHOLDER_DASH,
     outSym,
     undefined,
-    body,
+    trackBody,
     false,
     1,
     true,
@@ -5878,6 +5913,10 @@ export function renderNoLiquidityRoutingDiagram(outputMint: string): string {
     null,
     null,
     true,
+  );
+  return frame.replace(
+    'routing-canvas--placeholder',
+    'routing-canvas--placeholder routing-canvas--no-liquidity',
   );
 }
 
@@ -5996,6 +6035,20 @@ const PROTOCOL_KEY_LABELS: Record<string, string> = {
   TITAN: 'Titan',
   VYBE: 'Vybe',
 };
+
+/** Vybe pin-route / discovery protocols shown in the no-liquidity diagram. */
+const SUPPORTED_VYBE_PROTOCOLS: Array<{ key: string; label: string }> = [
+  { key: 'PUMPFUN', label: PROTOCOL_KEY_LABELS.PUMPFUN ?? 'Pump.fun' },
+  { key: 'PUMPSWAP', label: PROTOCOL_KEY_LABELS.PUMPSWAP ?? 'PumpSwap' },
+  { key: 'RAYDIUMAMMV4', label: PROTOCOL_KEY_LABELS.RAYDIUMAMMV4 ?? 'Raydium AMM v4' },
+  { key: 'RAYDIUMCPMM', label: PROTOCOL_KEY_LABELS.RAYDIUMCPMM ?? 'Raydium CPMM' },
+  { key: 'RAYDIUMCLMM', label: PROTOCOL_KEY_LABELS.RAYDIUMCLMM ?? 'Raydium CLMM' },
+  { key: 'RAYDIUMLAUNCHLAB', label: PROTOCOL_KEY_LABELS.RAYDIUMLAUNCHLAB ?? 'Raydium LaunchLab' },
+  { key: 'METEORADBC', label: PROTOCOL_KEY_LABELS.METEORADBC ?? 'Meteora DBC' },
+  { key: 'METEORADAMM2', label: PROTOCOL_KEY_LABELS.METEORADAMM2 ?? 'Meteora DAMM v2' },
+  { key: 'METEORADLMM', label: PROTOCOL_KEY_LABELS.METEORADLMM ?? 'Meteora DLMM' },
+  { key: 'SANCTUM', label: PROTOCOL_KEY_LABELS.SANCTUM ?? 'Sanctum' },
+];
 
 const KNOWN_DEX_DISPLAY_LABELS = new Set([
   ...Object.values(PROGRAM_ADDRESS_LABELS),

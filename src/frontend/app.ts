@@ -434,6 +434,7 @@ function clearSwapNoLiquidityStickyOnMintChange(): void {
   if (!swapNoLiquiditySticky) return;
   swapNoLiquiditySticky = null;
   if (swapQuoteError) clearInlineError(swapQuoteError);
+  syncSwapQuoteButtonState();
 }
 
 function applySwapNoLiquidityStickyUi(rawError: string): void {
@@ -467,6 +468,7 @@ function reapplySwapNoLiquidityStickyUi(): void {
   setBuyReadoutLoading(false);
   setBuyFiatLoading(false);
   updateSwapPairCards(undefined, false);
+  syncSwapQuoteButtonState();
 }
 
 function handleSwapQuoteFetchFailure(err: unknown): void {
@@ -619,6 +621,9 @@ type SwapQuoteBtnDiagnostics = {
 
 function getSwapQuoteDisabledReason(): string | null {
   if (swapQuoteFetching) return 'Quote fetch in progress (swapQuoteFetching=true)';
+  if (swapNoLiquidityStickyActiveForForm()) {
+    return 'No liquidity in pool for this pair — change sell or buy token to quote again';
+  }
   if (swapBuildMode === 'paste-sign') return 'Paste & Sign mode — use Sign pasted tx instead';
   const wallet = swapWalletAddressInput?.value.trim() ?? '';
   if (!hasValidSwapWallet()) {
@@ -1087,6 +1092,10 @@ function syncSwapQuoteButtonState(): void {
     diag.blockReason !== null && !isFlashOnlyQuoteBlockReason(diag.blockReason);
   swapQuoteBtn.disabled =
     isSwapSignConfirmDialogOpen() || hardBlocked || isQuoteBtnInCooldown();
+  if (swapQuoteBtn) {
+    if (hardBlocked && diag.blockReason) swapQuoteBtn.title = diag.blockReason;
+    else if (!isQuoteBtnInCooldown()) swapQuoteBtn.removeAttribute('title');
+  }
   updateSwapQuoteButtonLabel();
   renderSwapQuoteBtnDebug(diag);
   console.debug('[swap-quote-btn]', diag);
