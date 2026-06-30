@@ -411,6 +411,30 @@ function renderRouteOptionsPlaceholder(loading = false): string {
   return `<div class="swap-route-options__grid">${cards.join('')}</div>`;
 }
 
+function renderRouteOptionNoLiquidityCard(rank: number, active: boolean): string {
+  return `<div class="swap-route-option swap-route-option--no-liquidity swap-route-option--disabled${active ? ' swap-route-option--active' : ''}" aria-disabled="true" aria-pressed="${active ? 'true' : 'false'}">
+      <div class="swap-route-option__head">
+        <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${rank}</span>${renderRouteRankStars(rank)}</span>
+        <span class="swap-route-option__badge swap-route-option__badge--trades">trades</span>
+      </div>
+      <div class="swap-route-option__title swap-route-option__title--no-liquidity">No Liquidity Available</div>
+      <span class="swap-route-option__pool-link swap-route-option__pool-link--empty">—</span>
+      <dl class="swap-route-option__metrics">
+        <div class="swap-route-option__metric"><dt>Liquidity</dt><dd>—</dd></div>
+        <div class="swap-route-option__metric swap-route-option__metric--output"><dt>Output</dt><dd>—</dd></div>
+        <div class="swap-route-option__metric"><dt>Impact</dt><dd>—</dd></div>
+        <div class="swap-route-option__metric swap-route-option__metric--usd"><dt>≈ USD</dt><dd>—</dd></div>
+      </dl>
+    </div>`;
+}
+
+export function renderNoLiquidityRouteOptionsPanel(): string {
+  const cards = Array.from({ length: ROUTE_OPTIONS_UI_INITIAL }, (_, i) =>
+    renderRouteOptionNoLiquidityCard(i + 1, i === 0),
+  );
+  return `<div class="swap-route-options__grid">${cards.join('')}</div>`;
+}
+
 function renderRouteOptionCard(
   route: EnumeratedRouteUiEntry,
   selectedIndex: number,
@@ -4748,6 +4772,10 @@ function solscanTokenUrl(mint: string): string {
   return `https://solscan.io/token/${encodeURIComponent(displayHopMintAddress(mint).trim())}`;
 }
 
+export function solscanTokenMarketsUrl(mint: string): string {
+  return `${solscanTokenUrl(mint)}#markets`;
+}
+
 function renderFeeDestinationAddrLine(addr: string): string {
   const trimmed = addr.trim();
   if (!isLikelySolanaPubkey(trimmed)) return '';
@@ -5812,6 +5840,44 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
     false,
     maxAccRentAbove,
     maxRouteFeeBelow,
+  );
+}
+
+export function renderNoLiquidityRoutingDiagram(outputMint: string): string {
+  const inSym = deps.getSwapInSym();
+  const outSym = deps.getSwapOutSym();
+  const inChipDisplay = deps.getQuoteWalletPayLabel();
+  const hasIn = inChipDisplay !== '—';
+  const payUsdLabel = deps.getQuotePayUsdEstimateLabel();
+  const inputTotalLabel =
+    payUsdLabel != null ? payUsdLabel.replace(/^≈\s*/, '').trim() : null;
+  const resolvedOutMint = outputMint.trim() || deps.getFormOutputMint();
+  const marketsUrl = deps.escapeHtml(solscanTokenMarketsUrl(resolvedOutMint));
+  const body = `<div class="routing-rail-row routing-rail-row--no-liquidity">
+    <div class="routing-no-liquidity">
+      <p class="routing-no-liquidity__title">No Liquidity Available</p>
+      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer">View markets on Solscan</a>
+    </div>
+    <div class="routing-rail-tail" aria-hidden="true"></div>
+  </div>`;
+  return renderRoutingFrame(
+    hasIn ? inChipDisplay : ROUTING_PLACEHOLDER_DASH,
+    inSym,
+    ROUTING_PLACEHOLDER_DASH,
+    outSym,
+    undefined,
+    body,
+    false,
+    1,
+    true,
+    false,
+    false,
+    false,
+    [],
+    inputTotalLabel && inputTotalLabel !== '—' ? inputTotalLabel : null,
+    null,
+    null,
+    true,
   );
 }
 

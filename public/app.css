@@ -4515,6 +4515,45 @@ tr:hover td {
   min-height: 1.5rem;
 }
 
+.routing-no-liquidity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 4.5rem;
+  padding: 0.75rem 1rem;
+  text-align: center;
+}
+
+.routing-no-liquidity__title {
+  margin: 0;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #f87171;
+}
+
+.routing-no-liquidity__link {
+  font-size: 0.78rem;
+  color: #60a5fa;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.routing-no-liquidity__link:hover {
+  color: #93c5fd;
+}
+
+.routing-rail-row--no-liquidity {
+  align-items: center;
+  justify-content: center;
+}
+
+.swap-route-option__title--no-liquidity {
+  color: #f87171;
+  font-weight: 600;
+}
+
 .routing-canvas--placeholder .routing-amt,
 .routing-canvas--placeholder .routing-dex-caption,
 .routing-canvas--placeholder .routing-hop-index-badge,

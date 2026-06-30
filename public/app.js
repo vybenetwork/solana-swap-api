@@ -23022,6 +23022,29 @@ function renderRouteOptionsPlaceholder(loading = false) {
   );
   return `<div class="swap-route-options__grid">${cards.join("")}</div>`;
 }
+function renderRouteOptionNoLiquidityCard(rank, active) {
+  return `<div class="swap-route-option swap-route-option--no-liquidity swap-route-option--disabled${active ? " swap-route-option--active" : ""}" aria-disabled="true" aria-pressed="${active ? "true" : "false"}">
+      <div class="swap-route-option__head">
+        <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${rank}</span>${renderRouteRankStars(rank)}</span>
+        <span class="swap-route-option__badge swap-route-option__badge--trades">trades</span>
+      </div>
+      <div class="swap-route-option__title swap-route-option__title--no-liquidity">No Liquidity Available</div>
+      <span class="swap-route-option__pool-link swap-route-option__pool-link--empty">\u2014</span>
+      <dl class="swap-route-option__metrics">
+        <div class="swap-route-option__metric"><dt>Liquidity</dt><dd>\u2014</dd></div>
+        <div class="swap-route-option__metric swap-route-option__metric--output"><dt>Output</dt><dd>\u2014</dd></div>
+        <div class="swap-route-option__metric"><dt>Impact</dt><dd>\u2014</dd></div>
+        <div class="swap-route-option__metric swap-route-option__metric--usd"><dt>\u2248 USD</dt><dd>\u2014</dd></div>
+      </dl>
+    </div>`;
+}
+function renderNoLiquidityRouteOptionsPanel() {
+  const cards = Array.from(
+    { length: ROUTE_OPTIONS_UI_INITIAL },
+    (_, i) => renderRouteOptionNoLiquidityCard(i + 1, i === 0)
+  );
+  return `<div class="swap-route-options__grid">${cards.join("")}</div>`;
+}
 function renderRouteOptionCard(route, selectedIndex, displayRank, highlight, showTradeActivity) {
   const idx = route.index;
   const active = idx === selectedIndex;
@@ -25751,6 +25774,9 @@ function solscanAccountUrl(address) {
 function solscanTokenUrl(mint) {
   return `https://solscan.io/token/${encodeURIComponent(displayHopMintAddress(mint).trim())}`;
 }
+function solscanTokenMarketsUrl(mint) {
+  return `${solscanTokenUrl(mint)}#markets`;
+}
 function renderFeeDestinationAddrLine(addr) {
   const trimmed = addr.trim();
   if (!isLikelySolanaPubkey(trimmed)) return "";
@@ -26367,6 +26393,42 @@ function renderRoutingDiagram(quote) {
     false,
     maxAccRentAbove,
     maxRouteFeeBelow
+  );
+}
+function renderNoLiquidityRoutingDiagram(outputMint) {
+  const inSym = deps.getSwapInSym();
+  const outSym = deps.getSwapOutSym();
+  const inChipDisplay = deps.getQuoteWalletPayLabel();
+  const hasIn = inChipDisplay !== "\u2014";
+  const payUsdLabel = deps.getQuotePayUsdEstimateLabel();
+  const inputTotalLabel = payUsdLabel != null ? payUsdLabel.replace(/^≈\s*/, "").trim() : null;
+  const resolvedOutMint = outputMint.trim() || deps.getFormOutputMint();
+  const marketsUrl = deps.escapeHtml(solscanTokenMarketsUrl(resolvedOutMint));
+  const body = `<div class="routing-rail-row routing-rail-row--no-liquidity">
+    <div class="routing-no-liquidity">
+      <p class="routing-no-liquidity__title">No Liquidity Available</p>
+      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer">View markets on Solscan</a>
+    </div>
+    <div class="routing-rail-tail" aria-hidden="true"></div>
+  </div>`;
+  return renderRoutingFrame(
+    hasIn ? inChipDisplay : ROUTING_PLACEHOLDER_DASH,
+    inSym,
+    ROUTING_PLACEHOLDER_DASH,
+    outSym,
+    void 0,
+    body,
+    false,
+    1,
+    true,
+    false,
+    false,
+    false,
+    [],
+    inputTotalLabel && inputTotalLabel !== "\u2014" ? inputTotalLabel : null,
+    null,
+    null,
+    true
   );
 }
 function renderRoutingDiagramPlaceholder(loading = false) {
@@ -27933,6 +27995,71 @@ var lastRawSwapResponse = null;
 var lastVybeBuild = null;
 var enumeratedRoutesUiState = null;
 var lastVybeQuoteBodyForRoutes = null;
+var swapNoLiquiditySticky = null;
+function isNoLiquidityPoolQuoteError(message) {
+  const m = message.trim();
+  if (!m) return false;
+  return m.includes("single-hop simulation failed") || m.includes("ProgramFailedToComplete") || m.includes("route simulation gate failed");
+}
+function formatNoLiquidityPoolErrorMessage(rawError) {
+  return `No Liquidity left in pool (error: "${rawError}")`;
+}
+function currentSwapMintPair() {
+  return {
+    inputMint: swapInputMintInput?.value.trim() ?? "",
+    outputMint: swapOutputMintInput?.value.trim() ?? ""
+  };
+}
+function swapNoLiquidityStickyActiveForForm() {
+  if (!swapNoLiquiditySticky) return false;
+  const { inputMint, outputMint } = currentSwapMintPair();
+  return inputMint === swapNoLiquiditySticky.inputMint && outputMint === swapNoLiquiditySticky.outputMint;
+}
+function clearSwapNoLiquidityStickyOnMintChange() {
+  if (!swapNoLiquiditySticky) return;
+  swapNoLiquiditySticky = null;
+  if (swapQuoteError) clearInlineError(swapQuoteError);
+}
+function applySwapNoLiquidityStickyUi(rawError) {
+  const { inputMint, outputMint } = currentSwapMintPair();
+  if (!inputMint || !outputMint) return;
+  swapNoLiquiditySticky = { inputMint, outputMint, rawError };
+  reapplySwapNoLiquidityStickyUi();
+}
+function reapplySwapNoLiquidityStickyUi() {
+  if (!swapNoLiquidityStickyActiveForForm() || !swapNoLiquiditySticky) return;
+  const { rawError, outputMint } = swapNoLiquiditySticky;
+  if (swapQuoteError) {
+    showInlineError(swapQuoteError, formatNoLiquidityPoolErrorMessage(rawError));
+  }
+  if (swapQuoteSummaryEl) {
+    swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder(false);
+    swapQuoteSummaryEl.hidden = false;
+  }
+  mountRoutingDiagram(swapQuoteDetailsRoutingEl, renderNoLiquidityRoutingDiagram(outputMint));
+  if (swapQuoteDetailsRouteStepsEl) {
+    swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(false);
+  }
+  if (swapRouteOptionsEl && swapRouteOptionsPanelActive()) {
+    swapRouteOptionsEl.hidden = false;
+    swapRouteOptionsEl.innerHTML = renderNoLiquidityRouteOptionsPanel();
+  }
+  if (swapQuoteDetailsFieldsEl) {
+    swapQuoteDetailsFieldsEl.innerHTML = '<p class="routing-empty">\u2014</p>';
+  }
+  setBuyReadoutLoading(false);
+  setBuyFiatLoading(false);
+  updateSwapPairCards(void 0, false);
+}
+function handleSwapQuoteFetchFailure(err) {
+  const msg = err instanceof Error ? err.message : String(err);
+  invalidateSwapQuoteUi();
+  if (isNoLiquidityPoolQuoteError(msg)) {
+    applySwapNoLiquidityStickyUi(msg);
+  } else if (swapQuoteError) {
+    showInlineError(swapQuoteError, msg);
+  }
+}
 var quotedMintSession = /* @__PURE__ */ new Set();
 var pairTokenStats = {};
 var swapBuildMode = "build-sign";
@@ -29240,9 +29367,14 @@ function resetSwapQuoteToMock(options) {
   if (swapTxBase64El) swapTxBase64El.value = "";
   syncSwapBuildResultPanel();
   resetSwapQuoteDetailsPanel();
+  renderRouteOptionsPanel();
   renderRawResponsePanels();
   syncSwapSellAmountUi();
   syncSwapRouterSwitchState();
+  updateSwapPairCards(void 0, false);
+  if (swapNoLiquidityStickyActiveForForm()) {
+    reapplySwapNoLiquidityStickyUi();
+  }
 }
 function hasStaleSwapQuoteState() {
   return lastSwapQuoteOk != null || lastVybeBuild != null || lastRawQuoteResponse != null || swapQuoteFetching;
@@ -30091,6 +30223,7 @@ function applyFlippedOutputAsSellAmount(outputAmountUi) {
 function flipSellBuyTokens(options) {
   if (!options?.force && getFlipBlockedReason()) return;
   if (!swapInputMintInput || !swapOutputMintInput) return;
+  clearSwapNoLiquidityStickyOnMintChange();
   resetPinRouteOnMintPairChange();
   const sellMint = swapInputMintInput.value;
   const buyMint = swapOutputMintInput.value;
@@ -30125,6 +30258,7 @@ function afterSellBuyTokensFlipped(flippedOutputAmountUi = null) {
   syncFlipButtonState();
 }
 function applySelectedToken(mint, side) {
+  clearSwapNoLiquidityStickyOnMintChange();
   invalidateSwapQuoteAfterInputChange();
   const input = side === "input" ? swapInputMintInput : swapOutputMintInput;
   const otherInput = side === "input" ? swapOutputMintInput : swapInputMintInput;
@@ -32890,6 +33024,10 @@ function validateVybeQuoteWallet() {
   return null;
 }
 async function refreshSelectedRouteQuote(wallet, inputMint, outputMint, amount) {
+  if (swapNoLiquidityStickyActiveForForm()) {
+    reapplySwapNoLiquidityStickyUi();
+    return;
+  }
   if (swapQuoteError) clearInlineError(swapQuoteError);
   if (swapQuoteWarning) clearInlineWarning(swapQuoteWarning);
   applyQuoteLoadingUi();
@@ -32924,9 +33062,7 @@ async function refreshSelectedRouteQuote(wallet, inputMint, outputMint, amount) 
       throw new Error("Quote refresh failed.");
     }
   } catch (err) {
-    if (swapQuoteError) {
-      showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
-    }
+    handleSwapQuoteFetchFailure(err);
   } finally {
     swapQuoteFetching = false;
     setSwapQuoteButtonLoading(false, { skipEnableSync: lastSwapQuoteOk != null });
@@ -32952,6 +33088,10 @@ async function fetchSwapQuote() {
   if (!isSwapQuoteInputReady()) return;
   const inputMint = swapInputMintInput.value.trim();
   const outputMint = swapOutputMintInput.value.trim();
+  if (swapNoLiquidityStickyActiveForForm()) {
+    reapplySwapNoLiquidityStickyUi();
+    return;
+  }
   const amount = parseSwapAmountInputValue(swapAmountInput.value);
   const wallet = swapWalletAddressInput?.value.trim() ?? "";
   if (!inputMint || !outputMint) {
@@ -33022,17 +33162,10 @@ async function fetchSwapQuote() {
     try {
       await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, buildOpts);
     } catch (quoteErr) {
-      if (swapQuoteError) {
-        showInlineError(
-          swapQuoteError,
-          quoteErr instanceof Error ? quoteErr.message : String(quoteErr)
-        );
-      }
-      invalidateSwapQuoteUi();
+      handleSwapQuoteFetchFailure(quoteErr);
     }
   } catch (err) {
-    if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
-    invalidateSwapQuoteUi();
+    handleSwapQuoteFetchFailure(err);
   } finally {
     swapQuoteFetching = false;
     setSwapQuoteButtonLoading(false, { skipEnableSync: lastSwapQuoteOk != null });
@@ -34552,6 +34685,7 @@ swapSlippageInput?.addEventListener("change", onSwapBuildOptionChanged);
 syncSlippageInputForAutoSlippage();
 if (swapInputMintInput) {
   swapInputMintInput.addEventListener("input", () => {
+    clearSwapNoLiquidityStickyOnMintChange();
     invalidateSwapQuoteAfterInputChange();
     applyOutputMintConstraintForInput();
     updateSwapPairCards();
@@ -34563,6 +34697,7 @@ if (swapInputMintInput) {
 }
 if (swapOutputMintInput) {
   swapOutputMintInput.addEventListener("input", () => {
+    clearSwapNoLiquidityStickyOnMintChange();
     invalidateSwapQuoteAfterInputChange();
     updateSwapPairCards();
     syncSwapSellAmountUi();

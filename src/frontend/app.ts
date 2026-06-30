@@ -115,6 +115,8 @@ import {
   routerBrandFromId,
   renderRoutingDiagram,
   renderRoutingDiagramPlaceholder,
+  renderNoLiquidityRoutingDiagram,
+  renderNoLiquidityRouteOptionsPanel,
   renderQuoteRoutePlanStepsPlaceholder,
   quoteHasRoutePlan,
   renderQuoteRouteDiagramAndSteps,
@@ -390,6 +392,93 @@ let lastRawSwapResponse: unknown = null;
 let lastVybeBuild: { tx: string; builtAt: number; paramsKey: string; buildPayload: unknown } | null = null;
 let enumeratedRoutesUiState: EnumeratedRoutesUiState | null = null;
 let lastVybeQuoteBodyForRoutes: Record<string, unknown> | null = null;
+
+type SwapNoLiquidityStickyState = {
+  inputMint: string;
+  outputMint: string;
+  rawError: string;
+};
+let swapNoLiquiditySticky: SwapNoLiquidityStickyState | null = null;
+
+function isNoLiquidityPoolQuoteError(message: string): boolean {
+  const m = message.trim();
+  if (!m) return false;
+  return (
+    m.includes('single-hop simulation failed') ||
+    m.includes('ProgramFailedToComplete') ||
+    m.includes('route simulation gate failed')
+  );
+}
+
+function formatNoLiquidityPoolErrorMessage(rawError: string): string {
+  return `No Liquidity left in pool (error: "${rawError}")`;
+}
+
+function currentSwapMintPair(): { inputMint: string; outputMint: string } {
+  return {
+    inputMint: swapInputMintInput?.value.trim() ?? '',
+    outputMint: swapOutputMintInput?.value.trim() ?? '',
+  };
+}
+
+function swapNoLiquidityStickyActiveForForm(): boolean {
+  if (!swapNoLiquiditySticky) return false;
+  const { inputMint, outputMint } = currentSwapMintPair();
+  return (
+    inputMint === swapNoLiquiditySticky.inputMint &&
+    outputMint === swapNoLiquiditySticky.outputMint
+  );
+}
+
+function clearSwapNoLiquidityStickyOnMintChange(): void {
+  if (!swapNoLiquiditySticky) return;
+  swapNoLiquiditySticky = null;
+  if (swapQuoteError) clearInlineError(swapQuoteError);
+}
+
+function applySwapNoLiquidityStickyUi(rawError: string): void {
+  const { inputMint, outputMint } = currentSwapMintPair();
+  if (!inputMint || !outputMint) return;
+  swapNoLiquiditySticky = { inputMint, outputMint, rawError };
+  reapplySwapNoLiquidityStickyUi();
+}
+
+function reapplySwapNoLiquidityStickyUi(): void {
+  if (!swapNoLiquidityStickyActiveForForm() || !swapNoLiquiditySticky) return;
+  const { rawError, outputMint } = swapNoLiquiditySticky;
+  if (swapQuoteError) {
+    showInlineError(swapQuoteError, formatNoLiquidityPoolErrorMessage(rawError));
+  }
+  if (swapQuoteSummaryEl) {
+    swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder(false);
+    swapQuoteSummaryEl.hidden = false;
+  }
+  mountRoutingDiagram(swapQuoteDetailsRoutingEl, renderNoLiquidityRoutingDiagram(outputMint));
+  if (swapQuoteDetailsRouteStepsEl) {
+    swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(false);
+  }
+  if (swapRouteOptionsEl && swapRouteOptionsPanelActive()) {
+    swapRouteOptionsEl.hidden = false;
+    swapRouteOptionsEl.innerHTML = renderNoLiquidityRouteOptionsPanel();
+  }
+  if (swapQuoteDetailsFieldsEl) {
+    swapQuoteDetailsFieldsEl.innerHTML = '<p class="routing-empty">—</p>';
+  }
+  setBuyReadoutLoading(false);
+  setBuyFiatLoading(false);
+  updateSwapPairCards(undefined, false);
+}
+
+function handleSwapQuoteFetchFailure(err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  invalidateSwapQuoteUi();
+  if (isNoLiquidityPoolQuoteError(msg)) {
+    applySwapNoLiquidityStickyUi(msg);
+  } else if (swapQuoteError) {
+    showInlineError(swapQuoteError, msg);
+  }
+}
+
 const quotedMintSession = new Set<string>();
 let pairTokenStats: Record<string, TokenPriceStats> = {};
 
@@ -1990,9 +2079,14 @@ function resetSwapQuoteToMock(options?: { preserveRouterCaches?: boolean }): voi
   if (swapTxBase64El) swapTxBase64El.value = '';
   syncSwapBuildResultPanel();
   resetSwapQuoteDetailsPanel();
+  renderRouteOptionsPanel();
   renderRawResponsePanels();
   syncSwapSellAmountUi();
   syncSwapRouterSwitchState();
+  updateSwapPairCards(undefined, false);
+  if (swapNoLiquidityStickyActiveForForm()) {
+    reapplySwapNoLiquidityStickyUi();
+  }
 }
 
 function hasStaleSwapQuoteState(): boolean {
@@ -3064,6 +3158,7 @@ function applyFlippedOutputAsSellAmount(outputAmountUi: number): void {
 function flipSellBuyTokens(options?: { force?: boolean }): void {
   if (!options?.force && getFlipBlockedReason()) return;
   if (!swapInputMintInput || !swapOutputMintInput) return;
+  clearSwapNoLiquidityStickyOnMintChange();
   resetPinRouteOnMintPairChange();
   const sellMint = swapInputMintInput.value;
   const buyMint = swapOutputMintInput.value;
@@ -3100,6 +3195,7 @@ function afterSellBuyTokensFlipped(flippedOutputAmountUi: number | null = null):
 }
 
 function applySelectedToken(mint: string, side: TokenPickerSide): void {
+  clearSwapNoLiquidityStickyOnMintChange();
   invalidateSwapQuoteAfterInputChange();
   const input = side === 'input' ? swapInputMintInput : swapOutputMintInput;
   const otherInput = side === 'input' ? swapOutputMintInput : swapInputMintInput;
@@ -6747,6 +6843,10 @@ async function refreshSelectedRouteQuote(
   outputMint: string,
   amount: number,
 ): Promise<void> {
+  if (swapNoLiquidityStickyActiveForForm()) {
+    reapplySwapNoLiquidityStickyUi();
+    return;
+  }
   if (swapQuoteError) clearInlineError(swapQuoteError);
   if (swapQuoteWarning) clearInlineWarning(swapQuoteWarning);
   applyQuoteLoadingUi();
@@ -6788,9 +6888,7 @@ async function refreshSelectedRouteQuote(
       throw new Error('Quote refresh failed.');
     }
   } catch (err) {
-    if (swapQuoteError) {
-      showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
-    }
+    handleSwapQuoteFetchFailure(err);
   } finally {
     swapQuoteFetching = false;
     setSwapQuoteButtonLoading(false, { skipEnableSync: lastSwapQuoteOk != null });
@@ -6817,6 +6915,10 @@ async function fetchSwapQuote(): Promise<void> {
   if (!isSwapQuoteInputReady()) return;
   const inputMint = swapInputMintInput.value.trim();
   const outputMint = swapOutputMintInput.value.trim();
+  if (swapNoLiquidityStickyActiveForForm()) {
+    reapplySwapNoLiquidityStickyUi();
+    return;
+  }
   const amount = parseSwapAmountInputValue(swapAmountInput.value);
   const wallet = swapWalletAddressInput?.value.trim() ?? '';
 
@@ -6897,17 +6999,10 @@ async function fetchSwapQuote(): Promise<void> {
     try {
       await requestVybeQuote(wallet, inputMint, outputMint, quoteAmount, buildOpts);
     } catch (quoteErr) {
-      if (swapQuoteError) {
-        showInlineError(
-          swapQuoteError,
-          quoteErr instanceof Error ? quoteErr.message : String(quoteErr),
-        );
-      }
-      invalidateSwapQuoteUi();
+      handleSwapQuoteFetchFailure(quoteErr);
     }
   } catch (err) {
-    if (swapQuoteError) showInlineError(swapQuoteError, err instanceof Error ? err.message : String(err));
-    invalidateSwapQuoteUi();
+    handleSwapQuoteFetchFailure(err);
   } finally {
     swapQuoteFetching = false;
     setSwapQuoteButtonLoading(false, { skipEnableSync: lastSwapQuoteOk != null });
@@ -8835,6 +8930,7 @@ syncSlippageInputForAutoSlippage();
 
 if (swapInputMintInput) {
   swapInputMintInput.addEventListener('input', () => {
+    clearSwapNoLiquidityStickyOnMintChange();
     invalidateSwapQuoteAfterInputChange();
     applyOutputMintConstraintForInput();
     updateSwapPairCards();
@@ -8846,6 +8942,7 @@ if (swapInputMintInput) {
 }
 if (swapOutputMintInput) {
   swapOutputMintInput.addEventListener('input', () => {
+    clearSwapNoLiquidityStickyOnMintChange();
     invalidateSwapQuoteAfterInputChange();
     updateSwapPairCards();
     syncSwapSellAmountUi();
