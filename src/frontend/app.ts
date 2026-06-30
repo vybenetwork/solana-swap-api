@@ -400,7 +400,20 @@ type SwapNoLiquidityStickyState = {
 };
 let swapNoLiquiditySticky: SwapNoLiquidityStickyState | null = null;
 
-function isNoLiquidityPoolQuoteError(message: string): boolean {
+const STICKY_NO_DIRECT_POOLS_ERROR = 'No direct or 2 hop pools found for this pair';
+
+function normalizeStickyRouteUnavailableError(rawError: string): string {
+  const lower = rawError.trim().toLowerCase();
+  if (
+    lower.includes('no direct or quote-bridge pools') ||
+    lower.includes('no direct or 2 hop pools')
+  ) {
+    return STICKY_NO_DIRECT_POOLS_ERROR;
+  }
+  return rawError.trim();
+}
+
+function isSimulationPoolQuoteError(message: string): boolean {
   const m = message.trim();
   if (!m) return false;
   return (
@@ -410,8 +423,36 @@ function isNoLiquidityPoolQuoteError(message: string): boolean {
   );
 }
 
-function formatNoLiquidityPoolErrorMessage(rawError: string): string {
-  return `No Liquidity left in pool (error: "${rawError}")`;
+function isStickyRouteUnavailableQuoteError(message: string): boolean {
+  const m = message.trim();
+  if (!m) return false;
+  if (isSimulationPoolQuoteError(m)) return true;
+  const lower = m.toLowerCase();
+  return (
+    lower.includes('no direct or quote-bridge pools') ||
+    lower.includes('no direct or 2 hop pools') ||
+    lower.includes('no pools found during scan') ||
+    lower.includes('no markets from vybe') ||
+    lower.includes('no usable markets from vybe') ||
+    lower.includes('all pools failed') ||
+    lower.includes('all vyberouter pools failed') ||
+    lower.includes('vybe swap enumeration returned no routes') ||
+    lower.includes('vybe rpc pool scan returned no routes') ||
+    lower.includes('no_usable_vybe_pools') ||
+    lower.includes('no_vybe_markets')
+  );
+}
+
+function stickyRouteUnavailableDisplayTitle(rawError: string): string {
+  if (isSimulationPoolQuoteError(rawError)) return 'No Liquidity Available';
+  return normalizeStickyRouteUnavailableError(rawError);
+}
+
+function formatStickyRouteUnavailableInlineError(rawError: string): string {
+  if (isSimulationPoolQuoteError(rawError)) {
+    return `No Liquidity left in pool (error: "${rawError}")`;
+  }
+  return normalizeStickyRouteUnavailableError(rawError);
 }
 
 function currentSwapMintPair(): { inputMint: string; outputMint: string } {
@@ -447,20 +488,24 @@ function applySwapNoLiquidityStickyUi(rawError: string): void {
 function reapplySwapNoLiquidityStickyUi(): void {
   if (!swapNoLiquidityStickyActiveForForm() || !swapNoLiquiditySticky) return;
   const { rawError, outputMint } = swapNoLiquiditySticky;
+  const displayTitle = stickyRouteUnavailableDisplayTitle(rawError);
   if (swapQuoteError) {
-    showInlineError(swapQuoteError, formatNoLiquidityPoolErrorMessage(rawError));
+    showInlineError(swapQuoteError, formatStickyRouteUnavailableInlineError(rawError));
   }
   if (swapQuoteSummaryEl) {
     swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder(false);
     swapQuoteSummaryEl.hidden = false;
   }
-  mountRoutingDiagram(swapQuoteDetailsRoutingEl, renderNoLiquidityRoutingDiagram(outputMint));
+  mountRoutingDiagram(
+    swapQuoteDetailsRoutingEl,
+    renderNoLiquidityRoutingDiagram(outputMint, displayTitle),
+  );
   if (swapQuoteDetailsRouteStepsEl) {
     swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(false);
   }
   if (swapRouteOptionsEl && swapRouteOptionsPanelActive()) {
     swapRouteOptionsEl.hidden = false;
-    swapRouteOptionsEl.innerHTML = renderNoLiquidityRouteOptionsPanel();
+    swapRouteOptionsEl.innerHTML = renderNoLiquidityRouteOptionsPanel(displayTitle);
   }
   if (swapQuoteDetailsFieldsEl) {
     swapQuoteDetailsFieldsEl.innerHTML = '<p class="routing-empty">—</p>';
@@ -474,7 +519,7 @@ function reapplySwapNoLiquidityStickyUi(): void {
 function handleSwapQuoteFetchFailure(err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
   invalidateSwapQuoteUi();
-  if (isNoLiquidityPoolQuoteError(msg)) {
+  if (isStickyRouteUnavailableQuoteError(msg)) {
     applySwapNoLiquidityStickyUi(msg);
   } else if (swapQuoteError) {
     showInlineError(swapQuoteError, msg);

@@ -412,13 +412,18 @@ function renderRouteOptionsPlaceholder(loading = false): string {
   return `<div class="swap-route-options__grid">${cards.join('')}</div>`;
 }
 
-function renderRouteOptionNoLiquidityCard(rank: number, active: boolean): string {
+function renderRouteOptionNoLiquidityCard(
+  rank: number,
+  active: boolean,
+  displayTitle = 'No Liquidity Available',
+): string {
+  const title = deps.escapeHtml(displayTitle);
   return `<div class="swap-route-option swap-route-option--no-liquidity swap-route-option--disabled${active ? ' swap-route-option--active' : ''}" aria-disabled="true" aria-pressed="${active ? 'true' : 'false'}">
       <div class="swap-route-option__head">
         <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${rank}</span>${renderRouteRankStars(rank)}</span>
         <span class="swap-route-option__badge swap-route-option__badge--trades">trades</span>
       </div>
-      <div class="swap-route-option__title swap-route-option__title--no-liquidity">No Liquidity Available</div>
+      <div class="swap-route-option__title swap-route-option__title--no-liquidity">${title}</div>
       <span class="swap-route-option__pool-link swap-route-option__pool-link--empty">—</span>
       <dl class="swap-route-option__metrics">
         <div class="swap-route-option__metric"><dt>Liquidity</dt><dd>—</dd></div>
@@ -429,9 +434,11 @@ function renderRouteOptionNoLiquidityCard(rank: number, active: boolean): string
     </div>`;
 }
 
-export function renderNoLiquidityRouteOptionsPanel(): string {
+export function renderNoLiquidityRouteOptionsPanel(
+  displayTitle = 'No Liquidity Available',
+): string {
   const cards = Array.from({ length: ROUTE_OPTIONS_UI_INITIAL }, (_, i) =>
-    renderRouteOptionNoLiquidityCard(i + 1, i === 0),
+    renderRouteOptionNoLiquidityCard(i + 1, i === 0, displayTitle),
   );
   return `<div class="swap-route-options__grid">${cards.join('')}</div>`;
 }
@@ -4722,12 +4729,18 @@ function renderNoLiquiditySupportedProtocolsHtml(): string {
   </div>`;
 }
 
-function renderNoLiquidityRouteMarketNode(marketsUrl: string): string {
+function renderNoLiquidityRouteMarketNode(
+  marketsUrl: string,
+  displayTitle = 'No Liquidity Available',
+): string {
+  const title = deps.escapeHtml(displayTitle);
+  const outSym = deps.escapeHtml(deps.getSwapOutSym() || 'token');
+  const linkLabel = `Check to see which markets ${outSym} is hosted on`;
   const railNode = `<div class="routing-market-node routing-market-node--no-liquidity">
     <span class="routing-hop-index-badge routing-hop-index-badge--spacer" aria-hidden="true">&#8203;</span>
     <div class="routing-no-liquidity-box">
-      <p class="routing-no-liquidity__title">No Liquidity Available</p>
-      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer"><img class="routing-no-liquidity__link-logo" src="/images/solscan-logo.png" alt="" width="14" height="14" decoding="async" /><span>View markets on Solscan</span></a>
+      <p class="routing-no-liquidity__title">${title}</p>
+      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer"><img class="routing-no-liquidity__link-logo" src="/images/solscan-logo.png" alt="" width="14" height="14" decoding="async" /><span>${linkLabel}</span></a>
       ${renderNoLiquiditySupportedProtocolsHtml()}
     </div>
   </div>`;
@@ -5880,7 +5893,10 @@ export function renderRoutingDiagram(quote: Record<string, unknown>): string {
   );
 }
 
-export function renderNoLiquidityRoutingDiagram(outputMint: string): string {
+export function renderNoLiquidityRoutingDiagram(
+  outputMint: string,
+  displayTitle = 'No Liquidity Available',
+): string {
   const inSym = deps.getSwapInSym();
   const outSym = deps.getSwapOutSym();
   const inChipDisplay = deps.getQuoteWalletPayLabel();
@@ -5892,7 +5908,7 @@ export function renderNoLiquidityRoutingDiagram(outputMint: string): string {
   const marketsUrl = deps.escapeHtml(solscanTokenMarketsUrl(resolvedOutMint));
   const body =
     renderRoutePctBadge('100%') +
-    renderNoLiquidityRouteMarketNode(marketsUrl) +
+    renderNoLiquidityRouteMarketNode(marketsUrl, displayTitle) +
     renderRoutePctBadge(`${ROUTING_PLACEHOLDER_DASH}%`, 'out');
   const trackBody = `<div class="routing-rail-row routing-rail-row--no-liquidity">${body}<div class="routing-rail-tail" aria-hidden="true"></div></div>`;
   const frame = renderRoutingFrame(

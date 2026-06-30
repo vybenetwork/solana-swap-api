@@ -23138,13 +23138,14 @@ function renderRouteOptionsPlaceholder(loading = false) {
   );
   return `<div class="swap-route-options__grid">${cards.join("")}</div>`;
 }
-function renderRouteOptionNoLiquidityCard(rank, active) {
+function renderRouteOptionNoLiquidityCard(rank, active, displayTitle = "No Liquidity Available") {
+  const title = deps.escapeHtml(displayTitle);
   return `<div class="swap-route-option swap-route-option--no-liquidity swap-route-option--disabled${active ? " swap-route-option--active" : ""}" aria-disabled="true" aria-pressed="${active ? "true" : "false"}">
       <div class="swap-route-option__head">
         <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${rank}</span>${renderRouteRankStars(rank)}</span>
         <span class="swap-route-option__badge swap-route-option__badge--trades">trades</span>
       </div>
-      <div class="swap-route-option__title swap-route-option__title--no-liquidity">No Liquidity Available</div>
+      <div class="swap-route-option__title swap-route-option__title--no-liquidity">${title}</div>
       <span class="swap-route-option__pool-link swap-route-option__pool-link--empty">\u2014</span>
       <dl class="swap-route-option__metrics">
         <div class="swap-route-option__metric"><dt>Liquidity</dt><dd>\u2014</dd></div>
@@ -23154,10 +23155,10 @@ function renderRouteOptionNoLiquidityCard(rank, active) {
       </dl>
     </div>`;
 }
-function renderNoLiquidityRouteOptionsPanel() {
+function renderNoLiquidityRouteOptionsPanel(displayTitle = "No Liquidity Available") {
   const cards = Array.from(
     { length: ROUTE_OPTIONS_UI_INITIAL },
-    (_, i) => renderRouteOptionNoLiquidityCard(i + 1, i === 0)
+    (_, i) => renderRouteOptionNoLiquidityCard(i + 1, i === 0, displayTitle)
   );
   return `<div class="swap-route-options__grid">${cards.join("")}</div>`;
 }
@@ -25858,12 +25859,15 @@ function renderNoLiquiditySupportedProtocolsHtml() {
     <div class="routing-no-liquidity-protocols__grid">${rows.join("")}</div>
   </div>`;
 }
-function renderNoLiquidityRouteMarketNode(marketsUrl) {
+function renderNoLiquidityRouteMarketNode(marketsUrl, displayTitle = "No Liquidity Available") {
+  const title = deps.escapeHtml(displayTitle);
+  const outSym = deps.escapeHtml(deps.getSwapOutSym() || "token");
+  const linkLabel = `Check to see which markets ${outSym} is hosted on`;
   const railNode = `<div class="routing-market-node routing-market-node--no-liquidity">
     <span class="routing-hop-index-badge routing-hop-index-badge--spacer" aria-hidden="true">&#8203;</span>
     <div class="routing-no-liquidity-box">
-      <p class="routing-no-liquidity__title">No Liquidity Available</p>
-      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer"><img class="routing-no-liquidity__link-logo" src="/images/solscan-logo.png" alt="" width="14" height="14" decoding="async" /><span>View markets on Solscan</span></a>
+      <p class="routing-no-liquidity__title">${title}</p>
+      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer"><img class="routing-no-liquidity__link-logo" src="/images/solscan-logo.png" alt="" width="14" height="14" decoding="async" /><span>${linkLabel}</span></a>
       ${renderNoLiquiditySupportedProtocolsHtml()}
     </div>
   </div>`;
@@ -26541,7 +26545,7 @@ function renderRoutingDiagram(quote) {
     maxRouteFeeBelow
   );
 }
-function renderNoLiquidityRoutingDiagram(outputMint) {
+function renderNoLiquidityRoutingDiagram(outputMint, displayTitle = "No Liquidity Available") {
   const inSym = deps.getSwapInSym();
   const outSym = deps.getSwapOutSym();
   const inChipDisplay = deps.getQuoteWalletPayLabel();
@@ -26550,7 +26554,7 @@ function renderNoLiquidityRoutingDiagram(outputMint) {
   const inputTotalLabel = payUsdLabel != null ? payUsdLabel.replace(/^≈\s*/, "").trim() : null;
   const resolvedOutMint = outputMint.trim() || deps.getFormOutputMint();
   const marketsUrl = deps.escapeHtml(solscanTokenMarketsUrl(resolvedOutMint));
-  const body = renderRoutePctBadge("100%") + renderNoLiquidityRouteMarketNode(marketsUrl) + renderRoutePctBadge(`${ROUTING_PLACEHOLDER_DASH}%`, "out");
+  const body = renderRoutePctBadge("100%") + renderNoLiquidityRouteMarketNode(marketsUrl, displayTitle) + renderRoutePctBadge(`${ROUTING_PLACEHOLDER_DASH}%`, "out");
   const trackBody = `<div class="routing-rail-row routing-rail-row--no-liquidity">${body}<div class="routing-rail-tail" aria-hidden="true"></div></div>`;
   const frame = renderRoutingFrame(
     hasIn ? inChipDisplay : ROUTING_PLACEHOLDER_DASH,
@@ -28037,13 +28041,35 @@ var lastVybeBuild = null;
 var enumeratedRoutesUiState = null;
 var lastVybeQuoteBodyForRoutes = null;
 var swapNoLiquiditySticky = null;
-function isNoLiquidityPoolQuoteError(message) {
+var STICKY_NO_DIRECT_POOLS_ERROR = "No direct or 2 hop pools found for this pair";
+function normalizeStickyRouteUnavailableError(rawError) {
+  const lower = rawError.trim().toLowerCase();
+  if (lower.includes("no direct or quote-bridge pools") || lower.includes("no direct or 2 hop pools")) {
+    return STICKY_NO_DIRECT_POOLS_ERROR;
+  }
+  return rawError.trim();
+}
+function isSimulationPoolQuoteError(message) {
   const m = message.trim();
   if (!m) return false;
   return m.includes("single-hop simulation failed") || m.includes("ProgramFailedToComplete") || m.includes("route simulation gate failed");
 }
-function formatNoLiquidityPoolErrorMessage(rawError) {
-  return `No Liquidity left in pool (error: "${rawError}")`;
+function isStickyRouteUnavailableQuoteError(message) {
+  const m = message.trim();
+  if (!m) return false;
+  if (isSimulationPoolQuoteError(m)) return true;
+  const lower = m.toLowerCase();
+  return lower.includes("no direct or quote-bridge pools") || lower.includes("no direct or 2 hop pools") || lower.includes("no pools found during scan") || lower.includes("no markets from vybe") || lower.includes("no usable markets from vybe") || lower.includes("all pools failed") || lower.includes("all vyberouter pools failed") || lower.includes("vybe swap enumeration returned no routes") || lower.includes("vybe rpc pool scan returned no routes") || lower.includes("no_usable_vybe_pools") || lower.includes("no_vybe_markets");
+}
+function stickyRouteUnavailableDisplayTitle(rawError) {
+  if (isSimulationPoolQuoteError(rawError)) return "No Liquidity Available";
+  return normalizeStickyRouteUnavailableError(rawError);
+}
+function formatStickyRouteUnavailableInlineError(rawError) {
+  if (isSimulationPoolQuoteError(rawError)) {
+    return `No Liquidity left in pool (error: "${rawError}")`;
+  }
+  return normalizeStickyRouteUnavailableError(rawError);
 }
 function currentSwapMintPair() {
   return {
@@ -28071,20 +28097,24 @@ function applySwapNoLiquidityStickyUi(rawError) {
 function reapplySwapNoLiquidityStickyUi() {
   if (!swapNoLiquidityStickyActiveForForm() || !swapNoLiquiditySticky) return;
   const { rawError, outputMint } = swapNoLiquiditySticky;
+  const displayTitle = stickyRouteUnavailableDisplayTitle(rawError);
   if (swapQuoteError) {
-    showInlineError(swapQuoteError, formatNoLiquidityPoolErrorMessage(rawError));
+    showInlineError(swapQuoteError, formatStickyRouteUnavailableInlineError(rawError));
   }
   if (swapQuoteSummaryEl) {
     swapQuoteSummaryEl.innerHTML = renderQuoteSummaryPlaceholder(false);
     swapQuoteSummaryEl.hidden = false;
   }
-  mountRoutingDiagram(swapQuoteDetailsRoutingEl, renderNoLiquidityRoutingDiagram(outputMint));
+  mountRoutingDiagram(
+    swapQuoteDetailsRoutingEl,
+    renderNoLiquidityRoutingDiagram(outputMint, displayTitle)
+  );
   if (swapQuoteDetailsRouteStepsEl) {
     swapQuoteDetailsRouteStepsEl.innerHTML = renderQuoteRoutePlanStepsPlaceholder(false);
   }
   if (swapRouteOptionsEl && swapRouteOptionsPanelActive()) {
     swapRouteOptionsEl.hidden = false;
-    swapRouteOptionsEl.innerHTML = renderNoLiquidityRouteOptionsPanel();
+    swapRouteOptionsEl.innerHTML = renderNoLiquidityRouteOptionsPanel(displayTitle);
   }
   if (swapQuoteDetailsFieldsEl) {
     swapQuoteDetailsFieldsEl.innerHTML = '<p class="routing-empty">\u2014</p>';
@@ -28097,7 +28127,7 @@ function reapplySwapNoLiquidityStickyUi() {
 function handleSwapQuoteFetchFailure(err) {
   const msg = err instanceof Error ? err.message : String(err);
   invalidateSwapQuoteUi();
-  if (isNoLiquidityPoolQuoteError(msg)) {
+  if (isStickyRouteUnavailableQuoteError(msg)) {
     applySwapNoLiquidityStickyUi(msg);
   } else if (swapQuoteError) {
     showInlineError(swapQuoteError, msg);
