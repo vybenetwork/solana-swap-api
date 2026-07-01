@@ -16,31 +16,79 @@ import {
  * Turn Axios/API errors into a message suitable for logs or API responses.
  * Example: "API returned 403 Forbidden — verify your API key has access to the /v4/trades endpoint."
  */
+function extractApiErrorMessage(body: unknown): string | null {
+  if (body == null) return null;
+  if (typeof body === 'string') {
+    const trimmed = body.trim();
+    if (!trimmed) return null;
+    if (trimmed.startsWith('<') || trimmed.startsWith('<!DOCTYPE')) {
+      return 'Upstream returned HTML instead of JSON — gateway or service may be unavailable.';
+    }
+    if (trimmed.length <= 500) return trimmed;
+    return trimmed.slice(0, 500);
+  }
+  if (typeof body !== 'object') return null;
+
+  const record = body as Record<string, unknown>;
+  const detail = record.detail ?? record.details;
+  const detailStr =
+    typeof detail === 'string'
+      ? detail.trim()
+      : detail != null
+        ? String(detail).trim()
+        : '';
+  const message = typeof record.message === 'string' ? record.message.trim() : '';
+  const error = typeof record.error === 'string' ? record.error.trim() : '';
+
+  const generic = new Set([
+    'downstream service error',
+    'internal server error',
+    'server error',
+    'swap failed',
+    'unprocessable entity',
+  ]);
+
+  const candidates = [detailStr, message, error].filter(Boolean);
+  for (const candidate of candidates) {
+    if (!generic.has(candidate.toLowerCase())) return candidate;
+  }
+  for (const candidate of candidates) {
+    if (candidate) return candidate;
+  }
+  return null;
+}
+
 export function toHumanReadableError(err: unknown): string {
   if (axios.isAxiosError(err)) {
-    const ax = err as AxiosError<{ message?: string; error?: string }>;
+    const ax = err as AxiosError<Record<string, unknown>>;
     const status = ax.response?.status;
     const endpoint = ax.config?.url ?? 'endpoint';
     const body = ax.response?.data;
-    const msg = typeof body === 'object' && body && (body.message ?? body.error);
+    const extracted = extractApiErrorMessage(body);
+    const id =
+      typeof body === 'object' && body && body.id != null ? String(body.id) : '';
+
     if (status === 403) {
       return `API returned 403 Forbidden — verify your API key has access to ${endpoint}. If the key works locally but not on a server, the key may be IP-restricted; contact Vybe support to allow your server IP.`;
     }
     if (status === 404) {
-      return `API returned 404 Not Found for ${endpoint}.`;
+      return extracted ?? `API returned 404 Not Found for ${endpoint}.`;
     }
     if (status && status >= 500) {
-      const id =
-        typeof body === 'object' && body && 'id' in body && body.id != null ? String(body.id) : '';
       const detail =
-        msg && typeof msg === 'string' ? msg : 'Vybe server error. Try again later or contact support.';
+        extracted && extracted.toLowerCase() !== 'downstream service error'
+          ? extracted
+          : 'Vybe server error. Try again later or contact support.';
       return id ? `${detail} (ref: ${id})` : detail;
     }
-    if (msg && typeof msg === 'string') return msg;
+    if (extracted) return extracted;
     if (status) return `API returned ${status} for ${endpoint}.`;
   }
   if (err instanceof Error) {
     const msg = err.message.trim();
+    if (/unexpected token '<'/i.test(msg)) {
+      return 'Upstream returned HTML instead of JSON — gateway or service may be unavailable.';
+    }
     return msg || 'An unexpected error occurred.';
   }
   const s = String(err).trim();
