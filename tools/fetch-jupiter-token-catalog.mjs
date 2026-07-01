@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { localizeCatalogIcons } from './token-icon-download.mjs';
+import { excludedMintSet, loadExcludedCatalog } from './token-catalog-excluded.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(__dirname, '..', 'public', 'data');
@@ -52,11 +53,23 @@ async function main() {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const stripped = tokens.map(stripPriceFields);
 
+  const excluded = excludedMintSet();
+  const excludedMeta = loadExcludedCatalog().entries;
+  const skipped = stripped.filter((t) => excluded.has(t.mint));
+  const eligible = stripped.filter((t) => !excluded.has(t.mint));
+  if (skipped.length > 0) {
+    console.log(`Skipping ${skipped.length} mint(s) on denylist (token-catalog-excluded.json):`);
+    for (const t of skipped) {
+      const note = excludedMeta[t.mint];
+      console.log(`  - ${t.symbol || '?'} ${t.mint.slice(0, 8)}… — ${note?.reason ?? 'excluded'}`);
+    }
+  }
+
   console.log('Localizing token icons…');
-  const { tokens: withIcons, downloaded, failed } = await localizeCatalogIcons(stripped);
+  const { tokens: withIcons, downloaded, failed } = await localizeCatalogIcons(eligible);
   console.log(`Icons: ${downloaded} saved, ${failed} skipped/failed`);
 
-  const header = `# Vybe swap demo — token catalog from Jupiter datapi (Top list)\n# Source: ${SOURCE.replace('100', String(LIMIT))}\n# Icons: /data/token-icons/ (run npm run download:token-icons to refresh)\n# Columns: mint\tsymbol\tname\tlogoUrl\tdecimals\ttags\n# Regenerate: npm run fetch:catalog\n`;
+  const header = `# Vybe swap demo — token catalog from Jupiter datapi (Top list)\n# Source: ${SOURCE.replace('100', String(LIMIT))}\n# Denylist: public/data/token-catalog-excluded.json (${excluded.size} mints)\n# Icons: /data/token-icons/ (run npm run download:token-icons to refresh)\n# Columns: mint\tsymbol\tname\tlogoUrl\tdecimals\ttags\n# Regenerate: npm run fetch:catalog\n# Filter routes: npm run filter:catalog\n`;
   const rows = withIcons.map((t) =>
     [t.mint, t.symbol, t.name, t.logoUrl, t.decimals, token2022Tag(t)].map(escTsv).join('\t'),
   );
@@ -64,10 +77,26 @@ async function main() {
 
   fs.writeFileSync(
     path.join(OUT_DIR, 'token-catalog.json'),
-    `${JSON.stringify({ source: SOURCE, fetchedAt: new Date().toISOString(), iconsLocalizedAt: new Date().toISOString(), count: withIcons.length, tokens: withIcons }, null, 2)}\n`,
+    `${JSON.stringify(
+      {
+        source: SOURCE,
+        fetchedAt: new Date().toISOString(),
+        iconsLocalizedAt: new Date().toISOString(),
+        jupiterReturned: stripped.length,
+        excludedSkipped: skipped.length,
+        excludedDenylist: 'public/data/token-catalog-excluded.json',
+        count: withIcons.length,
+        tokens: withIcons,
+      },
+      null,
+      2,
+    )}\n`,
   );
 
   console.log(`Wrote ${withIcons.length} tokens to public/data/token-catalog.{tsv,json}`);
+  if (skipped.length > 0) {
+    console.log(`(${skipped.length} Jupiter mint(s) omitted — see token-catalog-excluded.json)`);
+  }
 }
 
 main().catch((err) => {

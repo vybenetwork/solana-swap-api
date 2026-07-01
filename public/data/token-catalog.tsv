@@ -1,103 +1,86 @@
-# Vybe swap demo — token catalog (icons served from /data/token-icons/)
-# Regenerate: npm run fetch:catalog
+# Vybe swap demo — token catalog (SOL-buy filtered)
+# Source: https://datapi.jup.ag/v1/assets/search?query=&limit=100
+# Filter: 0.01 SOL → token via Vybe; keep 1–2 hop routes
+# Filtered: 2026-07-01T20:36:26.251Z
+# Denylist: token-catalog-excluded.json (24 mints)
+# Icons: /data/token-icons/
+# Columns: mint	symbol	name	logoUrl	decimals	tags
+# Regenerate list: npm run fetch:catalog
+# Re-filter: npm run filter:catalog
 mint	symbol	name	logoUrl	decimals	tags
 So11111111111111111111111111111111111111112	SOL	Wrapped SOL	/data/token-icons/So11111111111111111111111111111111111111112.png	9	
 EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v	USDC	USD Coin	/data/token-icons/EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v.png	6	
 Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB	USDT	USDT	/data/token-icons/Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB.svg	6	
-98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g	HYPE	HYPE	/data/token-icons/98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g.png	9	
 cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij	cbBTC	Coinbase Wrapped BTC	/data/token-icons/cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij.png	8	
-9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D	jlUSDC	jupiter lend USDC	/data/token-icons/9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D.png	6	
+USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB	USD1	World Liberty Financial USD	/data/token-icons/USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB.png	6	
+98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g	HYPE	HYPE	/data/token-icons/98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g.png	9	
+9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump	ANSEM	The Black Bull	/data/token-icons/9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump.png	6	Token2022
+SNDKbwMUQvZhnLnxLduradgLHG5KrPuKwpnrkkGRhfH	SNDK	Sandisk - Backpack Securities	/data/token-icons/SNDKbwMUQvZhnLnxLduradgLHG5KrPuKwpnrkkGRhfH.svg	6	Token2022
+7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs	ETH	Ether (Portal)	/data/token-icons/7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs.png	8	
+JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD	JupUSD	Jupiter USD	/data/token-icons/JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD.png	6	
 2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH	USDG	Global Dollar	/data/token-icons/2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH.png	6	Token2022
 A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS	ZEC	Zcash	/data/token-icons/A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS.svg	8	
-7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs	ETH	Ether (Portal)	/data/token-icons/7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs.png	8	
-2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo	PYUSD	PayPal USD	/data/token-icons/2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo.png	6	Token2022
-USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB	USD1	World Liberty Financial USD	/data/token-icons/USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB.png	6	
-pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn	PUMP	Pump	/data/token-icons/pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn.png	6	Token2022
-JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD	JupUSD	Jupiter USD	/data/token-icons/JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD.png	6	
-CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH	CASH	CASH	/data/token-icons/CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH.png	6	Token2022
-DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT	USDe	USDe	/data/token-icons/DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT.png	9	
-3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh	WBTC	Wrapped BTC (Portal)	/data/token-icons/3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh.png	8	
-jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v	JupSOL	Jupiter Staked SOL	/data/token-icons/jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v.png	9	
-6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN	TRUMP	OFFICIAL TRUMP	/data/token-icons/6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN.png	6	
+JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN	JUP	Jupiter	/data/token-icons/JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN.png	6	
 J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn	JitoSOL	Jito Staked SOL	/data/token-icons/J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn.png	9	
 27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4	JLP	Jupiter Perps	/data/token-icons/27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4.png	6	
-AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj	syrupUSDC	Syrup USDC	/data/token-icons/AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj.svg	6	
-FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump	three	three.ws	/data/token-icons/FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump.jpg	6	Token2022
-3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7	PRIME		/data/token-icons/3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7.png	6	
 9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump	Fartcoin	Fartcoin	/data/token-icons/9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump.png	6	
-6FrrzDk5mQARGc1TDYoyVnSyRdds1t4PbtohCD6p3tgG	USX	USX	/data/token-icons/6FrrzDk5mQARGc1TDYoyVnSyRdds1t4PbtohCD6p3tgG.png	6	
-USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA	USDS	USDS	/data/token-icons/USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA.svg	6	
-XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1	CRCLx	Circle xStock	/data/token-icons/XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1.png	8	Token2022
+METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL	MET	Meteora	/data/token-icons/METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL.svg	6	
+6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN	TRUMP	OFFICIAL TRUMP	/data/token-icons/6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN.png	6	
+3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh	WBTC	Wrapped BTC (Portal)	/data/token-icons/3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh.png	8	
 CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp	CARDS	Collector Crypt	/data/token-icons/CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp.png	6	
-SV151D5pjygAKA8aJJcKzm4wFnRX5G92Fye94jQJk7g	SV151	Scarlet & Violet 151	/data/token-icons/SV151D5pjygAKA8aJJcKzm4wFnRX5G92Fye94jQJk7g.png	6	
+DRAMjSWR7HRfJKjRkvQWYL2bcaejaVhuxEcjf4pAY4Cw	DRAM	Roundhill Memory ETF - Backpack Securities	/data/token-icons/DRAMjSWR7HRfJKjRkvQWYL2bcaejaVhuxEcjf4pAY4Cw.svg	6	Token2022
+XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1	CRCLx	Circle xStock	/data/token-icons/XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1.png	8	Token2022
+USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA	USDS	USDS	/data/token-icons/USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA.svg	6	
+FDEF2U9geiWS7sdGPCUo2r1wGswkJr2mmVTECiH6pump	MITCH	idrawline	/data/token-icons/FDEF2U9geiWS7sdGPCUo2r1wGswkJr2mmVTECiH6pump.jpg	6	
+jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v	JupSOL	Jupiter Staked SOL	/data/token-icons/jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v.png	9	
 Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk	USELESS	USELESS COIN	/data/token-icons/Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk.png	6	
+Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump	KINS	Kintara	/data/token-icons/Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump.png	6	Token2022
+Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8	SPCXx	SpaceX xStock	/data/token-icons/Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8.png	8	Token2022
+2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv	PENGU	Pudgy Penguins	/data/token-icons/2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv.png	6	
+2uQsyo1fXXQkDtcpXnLofWy88PxcvnfH2L8FPSE62FVU	jlWSOL	jupiter lend WSOL	/data/token-icons/2uQsyo1fXXQkDtcpXnLofWy88PxcvnfH2L8FPSE62FVU.png	9	
+68Nq68CrtLVpyvK5Un7UADiNczaGf39hBbj3diRsYj6D	NEST	Nest	https://crimson-raw-koala-952.mypinata.cloud/ipfs/bafkreicc2k264crqmx6dve4mu6nzksdc7r5szx2jzmwsm2agsi6wemlpmi	9	
+HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr	EURC	EURC	/data/token-icons/HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr.png	6	
+Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh	NVDAx	NVIDIA xStock	/data/token-icons/Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh.png	8	Token2022
+6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump	TOESCOIN	TOES	/data/token-icons/6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump.png	6	Token2022
+XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB	TSLAx	Tesla xStock	/data/token-icons/XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB.png	8	Token2022
+BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy	BP	Backpack	/data/token-icons/BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy.png	9	
 4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R	RAY	Raydium	/data/token-icons/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R.png	6	
 mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So	mSOL	Marinade staked SOL (mSOL)	/data/token-icons/mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So.png	9	
-JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN	JUP	Jupiter	/data/token-icons/JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN.png	6	
-METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL	MET	Meteora	/data/token-icons/METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL.svg	6	
-HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr	EURC	EURC	/data/token-icons/HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr.png	6	
-8G5ayEsJF4Q7FEWEGeF4jtnUWZBEKCqhySTFQf9Ppump	HeavyPulp	HeavyPulp	/data/token-icons/8G5ayEsJF4Q7FEWEGeF4jtnUWZBEKCqhySTFQf9Ppump.jpg	6	Token2022
-CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn	xBTC	OKX Wrapped BTC	/data/token-icons/CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn.png	8	
-2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv	PENGU	Pudgy Penguins	/data/token-icons/2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv.png	6	
-5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5	ONyc	Onchain Yield Coin	/data/token-icons/5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5.png	9	
-7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk	JUICED	JUICED	/data/token-icons/7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk.png	6	
-XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W	SPYx	SP500 xStock	/data/token-icons/XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W.png	8	Token2022
-Bybit2vBJGhPF52GBdNaQfUJ6ZpThSgHBobjWZpLPb4B	bbSOL	BybitSOL	/data/token-icons/Bybit2vBJGhPF52GBdNaQfUJ6ZpThSgHBobjWZpLPb4B.png	9	
-3ZLekZYq2qkZiSpnSvabjit34tUkjSwD1JFuW9as9wBG	wNEAR	Wrapped NEAR fungible token	/data/token-icons/3ZLekZYq2qkZiSpnSvabjit34tUkjSwD1JFuW9as9wBG.svg	9	
-GbbesPbaYh5uiAZSYNXTc7w9jty1rpg3P9L4JeN4LkKc	TRX	TRON	/data/token-icons/GbbesPbaYh5uiAZSYNXTc7w9jty1rpg3P9L4JeN4LkKc.png	6	
-Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ	QQQx	Nasdaq xStock	/data/token-icons/Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ.png	8	Token2022
-PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S	NEURALINK	Neuralink PreStocks	/data/token-icons/PrekqLJvJ3qVdXmBGDiexvwUTF4rLFDa6HWS4HJbw9S.png	9	Token2022
-5UUH9RTDiSpq6HKS6bp4NdU9PNJpXRXuiw6ShBTBhgH2	TROLL	TROLL	/data/token-icons/5UUH9RTDiSpq6HKS6bp4NdU9PNJpXRXuiw6ShBTBhgH2.png	6	
-DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263	Bonk	Bonk	/data/token-icons/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263.jpg	5	
-XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB	TSLAx	Tesla xStock	/data/token-icons/XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB.png	8	Token2022
-Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh	NVDAx	NVIDIA xStock	/data/token-icons/Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh.png	8	Token2022
-rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof	RENDER	Render Token	https://shdw-drive.genesysgo.net/5zseP54TGrcz9C8HdjZwJJsZ6f3VbP11p1abwKWGykZH/rndr.png	8	
-stke7uu3fXHsGqKVVjKnkmj65LRPVrqr4bLG2SJg7rh	STKESOL	STKE SOL	/data/token-icons/stke7uu3fXHsGqKVVjKnkmj65LRPVrqr4bLG2SJg7rh.png	9	
-Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump	neet	NotInEmploymentEducationTraining	/data/token-icons/Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump.jpg	6	
 jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL	JTO	JITO	/data/token-icons/jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL.png	9	
-XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ	MSTRx	MicroStrategy xStock	/data/token-icons/XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ.png	8	Token2022
-Cmn4v2wipYV41dkakDvCgFJpxhtaaKt11NyWV8pjSE8A	jlUSDT	jupiter lend USDT	/data/token-icons/Cmn4v2wipYV41dkakDvCgFJpxhtaaKt11NyWV8pjSE8A.png	6	
-pSo1f9nQXWgXibFtKf7NWYxb5enAM4qfP6UJSiXRQfL	PSOL	Phantom Staked SOL	/data/token-icons/pSo1f9nQXWgXibFtKf7NWYxb5enAM4qfP6UJSiXRQfL.png	9	
-hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux	HNT	Helium Network Token	/data/token-icons/hntyVP6YFm1Hg25TN9WGLqM12b8TQmcknKrdu1oxWux.png	8	
-HmBdm8vbisABUjkxms6ZUnoaXbfwFM6ymxShWfAENaoi	EITHER	Eitherway	https://i.ibb.co/rGJfJSWK/photo-2026-03-20-15-25-06.jpg	9	
-PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua	KALSHI	Kalshi PreStocks	/data/token-icons/PreLWGkkeqG1s4HEfFZSy9moCrJ7btsHuUtfcCeoRua.png	9	Token2022
-5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm	INF	Infinity	/data/token-icons/5oVNBeEEQvYi1cX3ir8Dx5n1P7pdxydbGF2X4TxVusJm.png	9	
-6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump	TOESCOIN	TOES	/data/token-icons/6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump.png	6	Token2022
-BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy	BP	Backpack	/data/token-icons/BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy.png	9	
-J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr	SPX	SPX6900 (Wormhole)	/data/token-icons/J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr.png	8	
-61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump	arc	AI Rig Complex	/data/token-icons/61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump.png	6	
-oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp	ORE	ORE	/data/token-icons/oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp.png	11	
-33eum82LaAhtv5YkUq1BdwEviSErH5CnFxqVNLT5pump	WORLDCUP	World Cup Coin	/data/token-icons/33eum82LaAhtv5YkUq1BdwEviSErH5CnFxqVNLT5pump.jpg	6	Token2022
-EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm	$WIF	dogwifhat	/data/token-icons/EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm.jpg	6	
-G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG	BIRB	Moonbirds	/data/token-icons/G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG.svg	6	
-orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE	ORCA	Orca	/data/token-icons/orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE.png	6	
-3ThdFZQKM6kRyVGLG48kaPg5TRMhYMKY1iCRa9xop1WC	eUSX	eUSX	/data/token-icons/3ThdFZQKM6kRyVGLG48kaPg5TRMhYMKY1iCRa9xop1WC.png	6	
-9PR7nCP9DpcUotnDPVLUBUZKu5WAYkwrCUx9wDnSpump	Ban	Comedian	/data/token-icons/9PR7nCP9DpcUotnDPVLUBUZKu5WAYkwrCUx9wDnSpump.webp	6	
-bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1	bSOL	BlazeStake Staked SOL (bSOL)	/data/token-icons/bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1.png	9	
-2uQsyo1fXXQkDtcpXnLofWy88PxcvnfH2L8FPSE62FVU	jlWSOL	jupiter lend WSOL	/data/token-icons/2uQsyo1fXXQkDtcpXnLofWy88PxcvnfH2L8FPSE62FVU.png	9	
-AymATz4TCL9sWNEEV9Kvyz45CHVhDZ6kUgjTJPzLpU9P	XAUt0	Tether Gold	/data/token-icons/AymATz4TCL9sWNEEV9Kvyz45CHVhDZ6kUgjTJPzLpU9P.png	6	
-HNg5PYJmtqcmzXrv6S9zP1CDKk5BgDuyFBxbvNApump	ALCH	Alchemist AI	/data/token-icons/HNg5PYJmtqcmzXrv6S9zP1CDKk5BgDuyFBxbvNApump.jpg	6	
-FeR8VBqNRSUD5NtXAj2n3j1dAHkZHfyDktKuLXD4pump	jellyjelly	jelly-my-jelly	/data/token-icons/FeR8VBqNRSUD5NtXAj2n3j1dAHkZHfyDktKuLXD4pump.png	6	
-5YMkXAYccHSGnHn9nob9xEvv6Pvka9DZWH7nTbotTu9E	hyUSD	hyUSD	/data/token-icons/5YMkXAYccHSGnHn9nob9xEvv6Pvka9DZWH7nTbotTu9E.png	6	
-Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs	GRASS	Grass	/data/token-icons/Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs.png	9	
-EN2nnxrg8uUi6x2sJkzNPd2eT6rB9rdSoQNNaENA4RZA	SQUIRE	Pod the Squire	/data/token-icons/EN2nnxrg8uUi6x2sJkzNPd2eT6rB9rdSoQNNaENA4RZA.jpg	6	Token2022
-Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump	KINS	Kintara	/data/token-icons/Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump.png	6	Token2022
-SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3	SKR	Seeker	/data/token-icons/SKRbvo6Gf7GondiT3BbTfuRDPqLWei4j2Qy2NPGZhW3.png	6	
-zinc155BS4mSPk8GXQj4R5hkVDQXcW253pTYq5SGyfi	ZINC	ZINC	/data/token-icons/zinc155BS4mSPk8GXQj4R5hkVDQXcW253pTYq5SGyfi.png	9	
-CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2	MON	Monad	/data/token-icons/CrAr4RRJMBVwRsZtT62pEhfA9H5utymC2mVx8e7FreP2.jpg	8	
-8fr7WGTVFszfyNWRMXj6fRjZZAnDwmXwEpCrtzmUkdih	wYLDS		/data/token-icons/8fr7WGTVFszfyNWRMXj6fRjZZAnDwmXwEpCrtzmUkdih.png	6	
-Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump	Buttcoin	Buttcoin	/data/token-icons/Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump.jpg	6	Token2022
-Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw	ANTHROPIC	Anthropic PreStocks	/data/token-icons/Pren1FvFX6J3E4kXhJuCiAD5aDmGEb7qJRncwA8Lkhw.png	9	Token2022
-E6ifp2mJy8cYQehUGUtFvrXriRKxRuonLmrvTFypump	SPCX	SPCX	/data/token-icons/E6ifp2mJy8cYQehUGUtFvrXriRKxRuonLmrvTFypump.jpg	6	
-Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump	pippin	Pippin	/data/token-icons/Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump.png	6	
-ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82	BOME	BOOK OF MEME	/data/token-icons/ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82.png	6	
-j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh	jlUSDS	jupiter lend USDS	/data/token-icons/j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh.png	6	
-9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif	jlUSDG	jupiter lend USDG	/data/token-icons/9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif.png	6	Token2022
-TKLSidmLVt3cqGaaodG8tyRzoANfQwoh67AccjmubeZ	tKalshi	T-Kalshi	/data/token-icons/TKLSidmLVt3cqGaaodG8tyRzoANfQwoh67AccjmubeZ.svg	9	Token2022
-ZBCNpuD7YMXzTHB2fhGkGi78MNsHGLRXUhRewNRm9RU	ZBCN	Zebec Network	/data/token-icons/ZBCNpuD7YMXzTHB2fhGkGi78MNsHGLRXUhRewNRm9RU.png	6	
+XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W	SPYx	SP500 xStock	/data/token-icons/XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W.png	8	Token2022
+BCdwQBAn8dYB5YjTsoB6TdHAWokxv28k2oZUodERpump	MANIFEST	Manifesting	/data/token-icons/BCdwQBAn8dYB5YjTsoB6TdHAWokxv28k2oZUodERpump.png	6	Token2022
 J8PSdNP3QewKq2Z1JJJFDMaqF7KcaiJhR7gbr5KZpump	TripleT	Tung Tung Tung Sahur	/data/token-icons/J8PSdNP3QewKq2Z1JJJFDMaqF7KcaiJhR7gbr5KZpump.jpg	6	Token2022
-HgBRWfYxEfvPhtqkaeymCQtHCrKE46qQ43pKe8HCpump	Bert	Bertram The Pomeranian	/data/token-icons/HgBRWfYxEfvPhtqkaeymCQtHCrKE46qQ43pKe8HCpump.png	6	
-GcV9tEj62VncGithz4o4N9x6HWXARxuRgEAYk9zahNA8	jlEURC	jupiter lend EURC	/data/token-icons/GcV9tEj62VncGithz4o4N9x6HWXARxuRgEAYk9zahNA8.png	6	
-3KHMZhpthXuiCcgfTv7vVu9PpEz64KAEURFwi6Lopump	Goblin	GoblinCoin	/data/token-icons/3KHMZhpthXuiCcgfTv7vVu9PpEz64KAEURFwi6Lopump.png	6	Token2022
+5YMkXAYccHSGnHn9nob9xEvv6Pvka9DZWH7nTbotTu9E	hyUSD	hyUSD	/data/token-icons/5YMkXAYccHSGnHn9nob9xEvv6Pvka9DZWH7nTbotTu9E.png	6	
+5UUH9RTDiSpq6HKS6bp4NdU9PNJpXRXuiw6ShBTBhgH2	TROLL	TROLL	/data/token-icons/5UUH9RTDiSpq6HKS6bp4NdU9PNJpXRXuiw6ShBTBhgH2.png	6	
+SPCXwBHVrKpRqMRawL3NNvt1sXP2Yf3edwRbta53N69	SPCX69	SPCX69	/data/token-icons/SPCXwBHVrKpRqMRawL3NNvt1sXP2Yf3edwRbta53N69.png	6	Token2022
+6FrrzDk5mQARGc1TDYoyVnSyRdds1t4PbtohCD6p3tgG	USX	USX	/data/token-icons/6FrrzDk5mQARGc1TDYoyVnSyRdds1t4PbtohCD6p3tgG.png	6	
+HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3	PYTH	Pyth Network	/data/token-icons/HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3.svg	6	
+EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm	$WIF	dogwifhat	/data/token-icons/EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm.jpg	6	
+XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ	MSTRx	MicroStrategy xStock	/data/token-icons/XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ.png	8	Token2022
+GbbesPbaYh5uiAZSYNXTc7w9jty1rpg3P9L4JeN4LkKc	TRX	TRON	/data/token-icons/GbbesPbaYh5uiAZSYNXTc7w9jty1rpg3P9L4JeN4LkKc.png	6	
+DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263	Bonk	Bonk	/data/token-icons/DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263.jpg	5	
+Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump	Buttcoin	Buttcoin	/data/token-icons/Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump.jpg	6	Token2022
+B6f27ETGcjgGNB1fqULJbXVmw9FnL8HgBp7R83hmpump	drooling	Drooling cat	/data/token-icons/B6f27ETGcjgGNB1fqULJbXVmw9FnL8HgBp7R83hmpump.png	6	Token2022
+HRJLkc6vDysVHdrUpCsQ5EBx6fPM15TZRKAhfUBnpump	WIF2	WIF2	/data/token-icons/HRJLkc6vDysVHdrUpCsQ5EBx6fPM15TZRKAhfUBnpump.png	6	Token2022
+orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE	ORCA	Orca	/data/token-icons/orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE.png	6	
+61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump	arc	AI Rig Complex	/data/token-icons/61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump.png	6	
+FbmmdcCYHL7WETG89xtWmNFMzQAaQ8Zs9NXVbimibonk	DONT	DisclaimerCoin	/data/token-icons/FbmmdcCYHL7WETG89xtWmNFMzQAaQ8Zs9NXVbimibonk.png	6	
 8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn	ZEREBRO	zerebro	/data/token-icons/8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn.png	6	
-EicWvteVi2fWepEzS3FYWsnuPoP6caZfjnKqNvydLjCH	LIT	Lighter	/data/token-icons/EicWvteVi2fWepEzS3FYWsnuPoP6caZfjnKqNvydLjCH.png	8	
+SLXdx4BUt2v9uJQNzWqSfzTJ9UKLUDsvxHFMEEdrfgq	SLX	Solstice	/data/token-icons/SLXdx4BUt2v9uJQNzWqSfzTJ9UKLUDsvxHFMEEdrfgq.png	6	
+KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS	KMNO	Kamino	/data/token-icons/KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS.svg	6	
+Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ	QQQx	Nasdaq xStock	/data/token-icons/Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ.png	8	Token2022
+FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump	three	three.ws	/data/token-icons/FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump.jpg	6	Token2022
+J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr	SPX	SPX6900 (Wormhole)	/data/token-icons/J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr.png	8	
+Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump	neet	NotInEmploymentEducationTraining	/data/token-icons/Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump.jpg	6	
+FeR8VBqNRSUD5NtXAj2n3j1dAHkZHfyDktKuLXD4pump	jellyjelly	jelly-my-jelly	/data/token-icons/FeR8VBqNRSUD5NtXAj2n3j1dAHkZHfyDktKuLXD4pump.png	6	
+WETZjtprkDMCcUxPi9PfWnowMRZkiGGHDb9rABuRZ2U	WET	HumidiFi Token	/data/token-icons/WETZjtprkDMCcUxPi9PfWnowMRZkiGGHDb9rABuRZ2U.jpg	6	
+ARXwZkNAtzPfdcoqQiduJn8EPv9fKiDfGn2KyggyDrFs	ARX	Arcium	/data/token-icons/ARXwZkNAtzPfdcoqQiduJn8EPv9fKiDfGn2KyggyDrFs.png	9	
+zinc155BS4mSPk8GXQj4R5hkVDQXcW253pTYq5SGyfi	ZINC	ZINC	/data/token-icons/zinc155BS4mSPk8GXQj4R5hkVDQXcW253pTYq5SGyfi.png	9	
+Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs	GRASS	Grass	/data/token-icons/Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs.png	9	
+3KHMZhpthXuiCcgfTv7vVu9PpEz64KAEURFwi6Lopump	Goblin	GoblinCoin	/data/token-icons/3KHMZhpthXuiCcgfTv7vVu9PpEz64KAEURFwi6Lopump.png	6	Token2022
+4TyZGqRLG3VcHTGMcLBoPUmqYitMVojXinAmkL8xpump	testicle	testicle	/data/token-icons/4TyZGqRLG3VcHTGMcLBoPUmqYitMVojXinAmkL8xpump.jpg	6	Token2022
+5GgRAEmv8ZxF2PR5hY72Qs5x1bnQ6UK2RbTPoqJ3wSwW	PAXG	PAX Gold	/data/token-icons/5GgRAEmv8ZxF2PR5hY72Qs5x1bnQ6UK2RbTPoqJ3wSwW.png	6	Token2022
+AymATz4TCL9sWNEEV9Kvyz45CHVhDZ6kUgjTJPzLpU9P	XAUt0	Tether Gold	/data/token-icons/AymATz4TCL9sWNEEV9Kvyz45CHVhDZ6kUgjTJPzLpU9P.png	6	
+Bybit2vBJGhPF52GBdNaQfUJ6ZpThSgHBobjWZpLPb4B	bbSOL	BybitSOL	/data/token-icons/Bybit2vBJGhPF52GBdNaQfUJ6ZpThSgHBobjWZpLPb4B.png	9	
+Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu	COINx	Coinbase xStock	/data/token-icons/Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu.png	8	Token2022
+ACpzkGJV3DDU8HXy8yjab7RL9qNmDGym2GwLkzNppump	SON	Are Ya Winning, Son?	/data/token-icons/ACpzkGJV3DDU8HXy8yjab7RL9qNmDGym2GwLkzNppump.jpg	6	Token2022

@@ -188,27 +188,12 @@
           <span class="section-warning swap-widget-warning" id="swapQuoteWarning" hidden aria-hidden="true" role="status"></span>
         </div>
         <div class="section-lede meta">
-          Get a swap quote from the Vybe Trading API, review routing and price impact, then build an unsigned transaction to sign in your wallet. This demo does not broadcast.
+          Get a swap quote from the Vybe Trading API, review routing and price impact, then build &amp; sign in your wallet. This demo does not broadcast.
         </div>
 
         <div class="swap-hero-layout">
           <div class="swap-hero-col swap-hero-col--widget">
         <div class="swap-widget">
-          <div class="swap-mode-switch swap-mode-switch--triple" role="tablist" aria-label="Swap mode">
-            <button type="button" class="swap-mode-switch__btn swap-mode-switch__btn--active" id="swapModeBuildSign" role="tab" aria-selected="true" data-mode="build-sign">
-              <span class="swap-mode-switch__icon swap-mode-switch__icon--build-sign" aria-hidden="true"></span>
-              <span class="swap-mode-switch__label">Build &amp; Sign</span>
-            </button>
-            <button type="button" class="swap-mode-switch__btn" id="swapModeBuild" role="tab" aria-selected="false" data-mode="build">
-              <span class="swap-mode-switch__icon swap-mode-switch__icon--build" aria-hidden="true"></span>
-              <span class="swap-mode-switch__label">Build only</span>
-            </button>
-            <button type="button" class="swap-mode-switch__btn" id="swapModePasteSign" role="tab" aria-selected="false" data-mode="paste-sign">
-              <span class="swap-mode-switch__icon swap-mode-switch__icon--paste" aria-hidden="true"></span>
-              <span class="swap-mode-switch__label">Paste &amp; Sign</span>
-            </button>
-          </div>
-
           <section class="swap-wallet-execution" id="swapWalletExecution">
             <div class="swap-wallet-execution-heading">Wallet &amp; execution</div>
             <div class="swap-advanced-grid">
@@ -257,22 +242,6 @@
                 </label>
               </div>
             </div>
-          </section>
-
-          <section class="swap-paste-sign" id="swapPasteSignPanel" hidden>
-            <div class="swap-paste-sign-heading">Paste transaction</div>
-            <p class="swap-paste-sign-hint meta">
-              Paste a base64 wire transaction (Moonbags CustomSign style). Connect your wallet, then click
-              <strong>Sign pasted tx</strong>. Uses the same flow as Trade-Sol-Debug: in-page RPC, blockhash refresh, sign, send.
-            </p>
-            <textarea
-              id="swapPasteTxInput"
-              class="swap-tx-textarea swap-paste-sign-input"
-              rows="6"
-              placeholder="Paste base64 transaction…"
-              spellcheck="false"
-              autocomplete="off"
-            ></textarea>
           </section>
 
           <div id="swapStandardFlow">
@@ -577,8 +546,8 @@
           </div>
 
           <div id="swapBuildResult" class="swap-build-result" hidden>
-            <h3 class="swap-build-title" id="swapBuildResultTitle">Unsigned transaction (base64)</h3>
-            <p class="meta" id="swapBuildResultMeta">Sign in your wallet. This app does not broadcast.</p>
+            <h3 class="swap-build-title" id="swapBuildResultTitle">Transaction signature</h3>
+            <p class="meta" id="swapBuildResultMeta">Signed and sent via your browser wallet (Phantom simulates balance changes before you approve).</p>
             <textarea id="swapTxBase64" readonly rows="3" class="swap-tx-textarea"></textarea>
             <button type="button" id="swapCopyTxBtn" class="swap-ghost-btn">Copy base64</button>
           </div>
