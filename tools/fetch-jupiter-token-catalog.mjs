@@ -7,7 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { localizeCatalogIcons } from './token-icon-download.mjs';
-import { excludedMintSet, loadExcludedCatalog } from './token-catalog-excluded.mjs';
+import { excludedMintSet, loadExcludedCatalog, saveExcludedCatalog } from './token-catalog-excluded.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(__dirname, '..', 'public', 'data');
@@ -45,6 +45,11 @@ function escTsv(v) {
 }
 
 async function main() {
+  if (process.env.CATALOG_FILTER_RESET_DENYLIST === '1') {
+    saveExcludedCatalog({});
+    console.log('Reset denylist (CATALOG_FILTER_RESET_DENYLIST=1)');
+  }
+
   const res = await fetch(`${SOURCE.replace('limit=100', `limit=${LIMIT}`)}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const tokens = await res.json();

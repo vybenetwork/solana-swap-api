@@ -3,9 +3,13 @@
  * Filter public/data/token-catalog.{json,tsv} to tokens reachable from native SOL
  * with a simple 0.01 SOL buy (1- or 2-hop Vybe route only).
  *
+ * Quotes go through swap-api POST /api/trading/vybe-quote — same path as the UI
+ * (native SOL inputMintAddress; server maps SOL→WSOL + ATA hints + enrich).
+ *
  * Usage:
  *   npm run filter:catalog
- *   SWAP_API=https://solana-swap-api.vybenetwork.com CATALOG_FILTER_WALLET=... npm run filter:catalog
+ *   SWAP_API=http://127.0.0.1:3007 npm run filter:catalog
+ *   CATALOG_FILTER_RESET_DENYLIST=1 npm run filter:catalog   # re-test all mints
  */
 import fs from 'fs';
 import path from 'path';
@@ -15,6 +19,7 @@ import {
   excludedMintSet,
   loadExcludedCatalog,
   mergeExcludedCatalog,
+  saveExcludedCatalog,
 } from './token-catalog-excluded.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -22,7 +27,7 @@ const OUT_DIR = path.join(__dirname, '..', 'public', 'data');
 const CATALOG_JSON = path.join(OUT_DIR, 'token-catalog.json');
 const CATALOG_TSV = path.join(OUT_DIR, 'token-catalog.tsv');
 
-const API = (process.env.SWAP_API || 'https://solana-swap-api.vybenetwork.com').replace(/\/$/, '');
+const API = (process.env.SWAP_API || 'http://127.0.0.1:3007').replace(/\/$/, '');
 const WALLET =
   process.env.CATALOG_FILTER_WALLET?.trim() || '7Tar8QZTrRPwoGY5Ke9Vfwf6CmpBfekrNofERxgReza';
 const SOL_AMOUNT = Number(process.env.CATALOG_FILTER_SOL_AMOUNT || 0.01);
@@ -31,7 +36,44 @@ const MAX_HOPS = Math.max(1, Number(process.env.CATALOG_FILTER_MAX_HOPS || 2));
 
 const NATIVE_SOL_MINT = '11111111111111111111111111111111';
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
+const SOL_DECIMALS = 9;
 const SKIP_QUOTE_MINTS = new Set([NATIVE_SOL_MINT, WSOL_MINT]);
+
+/** Match frontend requestVybeQuote + buildSwapOpts when market discovery is off. */
+function buildFrontendVybeQuoteBody(outputMint) {
+  return {
+    accountAddress: WALLET,
+    amount: SOL_AMOUNT,
+    inputMintAddress: NATIVE_SOL_MINT,
+    outputMintAddress: outputMint,
+    slippage: 2,
+    router: 'vybe',
+    enumerateRoutes: false,
+    inputMintDecimals: SOL_DECIMALS,
+  };
+}
+
+async function waitForSwapApi(maxSec = 90) {
+  const deadline = Date.now() + maxSec * 1000;
+  while (Date.now() < deadline) {
+    try {
+      const res = await fetch(`${API}/api/trading/vybe-quote`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(
+          buildFrontendVybeQuoteBody('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'),
+        ),
+        signal: AbortSignal.timeout(30_000),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body?.outAmount) return;
+    } catch {
+      /* retry */
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  throw new Error(`swap-api not ready at ${API} — start ix-builder :8000, Rust :8090, swap-api :3007`);
+}
 
 function escTsv(v) {
   return String(v ?? '').replace(/\t/g, ' ').replace(/\r?\n/g, ' ');
@@ -79,22 +121,18 @@ async function fetchSolBuyQuote(outputMint) {
   const res = await fetch(`${API}/api/trading/vybe-quote`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      accountAddress: WALLET,
-      amount: SOL_AMOUNT,
-      inputMintAddress: NATIVE_SOL_MINT,
-      outputMintAddress: outputMint,
-      slippage: 2,
-      router: 'vybe',
-      enumerateRoutes: false,
-      marketFetchMode: 'full',
-      closeWsolAta: true,
-      createOutputAta: true,
-    }),
+    body: JSON.stringify(buildFrontendVybeQuoteBody(outputMint)),
+    signal: AbortSignal.timeout(120_000),
   });
-  const body = await res.json();
+  const text = await res.text();
+  let body;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return { error: `Invalid JSON (HTTP ${res.status}): ${text.slice(0, 120)}` };
+  }
   if (!res.ok && !body?.error) {
-    return { error: `HTTP ${res.status}` };
+    return { error: body?.message || `HTTP ${res.status}` };
   }
   return body;
 }
@@ -149,6 +187,14 @@ function writeCatalog(catalog, meta) {
 }
 
 async function main() {
+  if (process.env.CATALOG_FILTER_RESET_DENYLIST === '1') {
+    saveExcludedCatalog({});
+    console.log(`Reset denylist → ${EXCLUDED_JSON}`);
+  }
+
+  console.log(`Waiting for swap-api at ${API}…`);
+  await waitForSwapApi();
+
   if (!fs.existsSync(CATALOG_JSON)) {
     throw new Error(`Missing ${CATALOG_JSON} — run npm run fetch:catalog first`);
   }

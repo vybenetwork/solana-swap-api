@@ -13,6 +13,7 @@
     "typecheck:frontend": "tsc -p tsconfig.frontend.json",
     "fetch:catalog": "node tools/fetch-jupiter-token-catalog.mjs",
     "filter:catalog": "node tools/filter-catalog-by-sol-quote.mjs",
+    "refresh:catalog:local": "CATALOG_FILTER_RESET_DENYLIST=1 npm run fetch:catalog && SWAP_API=http://127.0.0.1:3007 npm run filter:catalog",
     "download:token-icons": "node tools/download-token-icons.mjs",
     "prod-like-proxy": "node tools/local-vybe-proxy.mjs",
     "prod-like-local": "bash tools/run-prod-like-local.sh",
