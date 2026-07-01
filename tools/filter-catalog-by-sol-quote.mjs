@@ -26,6 +26,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(__dirname, '..', 'public', 'data');
 const CATALOG_JSON = path.join(OUT_DIR, 'token-catalog.json');
 const CATALOG_TSV = path.join(OUT_DIR, 'token-catalog.tsv');
+const DEBUG_FAILURES_TSV = path.join(OUT_DIR, 'token-catalog-filter-failures.tsv');
 
 const API = (process.env.SWAP_API || 'http://127.0.0.1:3007').replace(/\/$/, '');
 const WALLET =
@@ -39,17 +40,136 @@ const WSOL_MINT = 'So11111111111111111111111111111111111111112';
 const SOL_DECIMALS = 9;
 const SKIP_QUOTE_MINTS = new Set([NATIVE_SOL_MINT, WSOL_MINT]);
 
-/** Match frontend requestVybeQuote + buildSwapOpts when market discovery is off. */
-function buildFrontendVybeQuoteBody(outputMint) {
+function mintsForPriceResolve(outputMint) {
+  const m = outputMint.trim();
+  const mints = [WSOL_MINT];
+  if (m && m !== WSOL_MINT && m !== NATIVE_SOL_MINT && !mints.includes(m)) mints.push(m);
+  return mints;
+}
+
+function pickPriceStats(stats, mint) {
+  if (!stats || typeof stats !== 'object') return null;
+  const row =
+    stats[mint] ??
+    (mint === NATIVE_SOL_MINT ? stats[WSOL_MINT] : mint === WSOL_MINT ? stats[NATIVE_SOL_MINT] : undefined);
+  if (!row || typeof row !== 'object') return null;
+  const price = typeof row.price === 'number' && Number.isFinite(row.price) && row.price > 0 ? row.price : undefined;
+  const decimals =
+    typeof row.decimals === 'number' && Number.isFinite(row.decimals) ? row.decimals : undefined;
+  return { price, decimals };
+}
+
+function isSolMint(mint) {
+  const m = mint.trim();
+  return m === NATIVE_SOL_MINT || m === WSOL_MINT;
+}
+
+function walletHasMint(items, mint) {
+  const m = mint.trim();
+  return items.some((i) => String(i.mintAddress ?? '').trim() === m);
+}
+
+/** Mirror frontend buildSwapAtaHintsFromSessionBalances for Vybe SOL buys. */
+function buildAtaHintsFromWalletItems(items, inputMint, outputMint, amountUi) {
+  const input = inputMint.trim();
+  const output = outputMint.trim();
+  const closeWsolAta = !walletHasMint(items, WSOL_MINT);
+
+  let amount = amountUi;
+  let closeInputAta = false;
+  let inputBalanceExact;
+  let inputDecimals;
+
+  if (!isSolMint(input)) {
+    const inputRow = items.find((i) => String(i.mintAddress ?? '').trim() === input);
+    if (inputRow) {
+      inputBalanceExact = String(inputRow.amountExact ?? '')
+        .trim()
+        .replace(/,/g, '') || undefined;
+      inputDecimals =
+        typeof inputRow.decimals === 'number' && Number.isFinite(inputRow.decimals)
+          ? inputRow.decimals
+          : undefined;
+    }
+  }
+
+  let createOutputAta;
+  if (!isSolMint(output) && output !== WSOL_MINT) {
+    createOutputAta = !walletHasMint(items, output);
+  }
+
+  return {
+    closeWsolAta,
+    createOutputAta,
+    closeInputAta,
+    amount,
+    inputBalanceExact,
+    inputDecimals,
+  };
+}
+
+async function fetchWalletBalancesOnce() {
+  const res = await fetch(`${API}/api/wallets/${encodeURIComponent(WALLET)}/token-balances`, {
+    signal: AbortSignal.timeout(120_000),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.error || `token-balances HTTP ${res.status}`);
+  }
+  return Array.isArray(body.tokens) ? body.tokens : [];
+}
+
+async function resolvePricesForPair(outputMint) {
+  const mints = mintsForPriceResolve(outputMint);
+  const res = await fetch(`${API}/api/tokens/resolve-prices`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mints }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(body?.error || `resolve-prices HTTP ${res.status}`);
+  }
+  return body.stats && typeof body.stats === 'object' ? body.stats : {};
+}
+
+/** Match frontend vybe-quote after resolve-prices + wallet ATA hints + buildSwapClientParams. */
+function buildFrontendVybeQuoteBody(outputMint, priceHints, catalogDecimals, ataHints) {
+  const inputStats = pickPriceStats(priceHints, NATIVE_SOL_MINT);
+  const outputStats = pickPriceStats(priceHints, outputMint);
+  const slippage = Number(process.env.CATALOG_FILTER_SLIPPAGE || 2);
+  const hints = ataHints ?? {
+    closeWsolAta: true,
+    createOutputAta: true,
+    closeInputAta: false,
+    amount: SOL_AMOUNT,
+  };
   return {
     accountAddress: WALLET,
-    amount: SOL_AMOUNT,
+    amount: hints.amount ?? SOL_AMOUNT,
     inputMintAddress: NATIVE_SOL_MINT,
     outputMintAddress: outputMint,
-    slippage: 2,
+    slippage: Number.isFinite(slippage) ? slippage : 2,
     router: 'vybe',
-    enumerateRoutes: false,
-    inputMintDecimals: SOL_DECIMALS,
+    gasless: false,
+    autoCalculateSlippage: false,
+    marketFetchMode: 'full',
+    enumerateRoutes: true,
+    swapFee: 0,
+    ...(hints.closeWsolAta === true ? { closeWsolAta: true } : { closeWsolAta: false }),
+    ...(typeof hints.createOutputAta === 'boolean' ? { createOutputAta: hints.createOutputAta } : {}),
+    closeInputAta: hints.closeInputAta === true,
+    enrich: true,
+    ...(inputStats?.price != null ? { inputMintPrice: inputStats.price } : {}),
+    ...(outputStats?.price != null ? { outputMintPrice: outputStats.price } : {}),
+    ...(hints.inputBalanceExact ? { inputBalanceExact: hints.inputBalanceExact } : {}),
+    inputMintDecimals: hints.inputDecimals ?? inputStats?.decimals ?? SOL_DECIMALS,
+    ...(outputStats?.decimals != null
+      ? { outputMintDecimals: outputStats.decimals }
+      : catalogDecimals != null
+        ? { outputMintDecimals: catalogDecimals }
+        : {}),
   };
 }
 
@@ -57,11 +177,12 @@ async function waitForSwapApi(maxSec = 90) {
   const deadline = Date.now() + maxSec * 1000;
   while (Date.now() < deadline) {
     try {
+      const priceHints = await resolvePricesForPair('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263');
       const res = await fetch(`${API}/api/trading/vybe-quote`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(
-          buildFrontendVybeQuoteBody('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263'),
+          buildFrontendVybeQuoteBody('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', priceHints, 5),
         ),
         signal: AbortSignal.timeout(30_000),
       });
@@ -117,11 +238,26 @@ function quotePasses(body) {
   return { ok: true, hops };
 }
 
-async function fetchSolBuyQuote(outputMint) {
+async function fetchSolBuyQuote(token, walletItems) {
+  let priceHints = {};
+  try {
+    priceHints = await resolvePricesForPair(token.mint);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { error: `resolve-prices failed: ${msg}` };
+  }
+  const ataHints = buildAtaHintsFromWalletItems(
+    walletItems,
+    NATIVE_SOL_MINT,
+    token.mint,
+    SOL_AMOUNT,
+  );
   const res = await fetch(`${API}/api/trading/vybe-quote`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(buildFrontendVybeQuoteBody(outputMint)),
+    body: JSON.stringify(
+      buildFrontendVybeQuoteBody(token.mint, priceHints, token.decimals, ataHints),
+    ),
     signal: AbortSignal.timeout(120_000),
   });
   const text = await res.text();
@@ -150,6 +286,12 @@ async function mapPool(items, worker) {
   return results;
 }
 
+function writeDebugFailuresList(removed, filteredAt) {
+  const header = `# SOL-buy filter failures — debug list\n# Filtered: ${filteredAt}\n# Quote: token-balances + resolve-prices → vybe-quote\n# Columns: mint\tsymbol\treason\n`;
+  const rows = removed.map((r) => [r.mint, r.symbol ?? '', r.reason].map(escTsv).join('\t'));
+  fs.writeFileSync(DEBUG_FAILURES_TSV, `${header}${rows.join('\n')}\n`);
+}
+
 function writeCatalog(catalog, meta) {
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const tokens = catalog.tokens;
@@ -172,11 +314,14 @@ function writeCatalog(catalog, meta) {
           inputMint: NATIVE_SOL_MINT,
           amountSol: SOL_AMOUNT,
           maxHops: MAX_HOPS,
+          marketFetchMode: 'full',
+          enumerateRoutes: true,
           api: API,
           wallet: WALLET,
           removedCount: meta.removed.length,
           removed: meta.removed,
           excludedDenylist: 'public/data/token-catalog-excluded.json',
+          debugFailuresList: 'public/data/token-catalog-filter-failures.tsv',
           excludedTotal: meta.excludedTotal,
         },
       },
@@ -194,6 +339,13 @@ async function main() {
 
   console.log(`Waiting for swap-api at ${API}…`);
   await waitForSwapApi();
+
+  console.log(`Fetching wallet balances for ${WALLET}…`);
+  const walletItems = await fetchWalletBalancesOnce();
+  const wsolHeld = walletHasMint(walletItems, WSOL_MINT);
+  console.log(
+    `Wallet ${walletItems.length} token row(s) — WSOL ATA ${wsolHeld ? 'open (closeWsolAta=false)' : 'absent (closeWsolAta=true)'}`,
+  );
 
   if (!fs.existsSync(CATALOG_JSON)) {
     throw new Error(`Missing ${CATALOG_JSON} — run npm run fetch:catalog first`);
@@ -233,7 +385,7 @@ async function main() {
   const outcomes = await mapPool(toTest, async (token) => {
     const label = `${token.symbol || '?'} (${token.mint.slice(0, 8)}…)`;
     try {
-      const body = await fetchSolBuyQuote(token.mint);
+      const body = await fetchSolBuyQuote(token, walletItems);
       const verdict = quotePasses(body);
       done++;
       if (verdict.ok) {
@@ -272,11 +424,13 @@ async function main() {
   const excludedTotal = Object.keys(loadExcludedCatalog().entries).length;
 
   writeCatalog({ ...catalog, tokens: orderedKept }, { filteredAt, removed, excludedTotal });
+  writeDebugFailuresList(removed, filteredAt);
 
   console.log('');
   console.log(`Kept ${orderedKept.length}/${tokens.length} tokens`);
   console.log(`Removed ${removed.length} (${newlyFailed.length} new → denylist)`);
   console.log(`Denylist total: ${excludedTotal} mint(s) in ${EXCLUDED_JSON}`);
+  console.log(`Wrote ${DEBUG_FAILURES_TSV}`);
   console.log(`Wrote ${CATALOG_JSON}`);
   console.log(`Wrote ${CATALOG_TSV}`);
 }

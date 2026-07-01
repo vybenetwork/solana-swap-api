@@ -1,157 +1,127 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-01T21:10:08.768Z",
+  "updatedAt": "2026-07-01T21:20:56.433Z",
   "description": "Mints excluded from token-catalog after failing 0.01 SOL Vybe buy (1–2 hop). Skipped on fetch:catalog.",
-  "count": 25,
+  "count": 20,
   "entries": {
     "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo": {
       "symbol": "PYUSD",
       "reason": "No direct or 2 hop pools found for this pair",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
-      "source": "filter:catalog"
-    },
-    "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH": {
-      "symbol": "USDG",
-      "reason": "route simulation gate failed (first hop or wallet-funded later hop): {\"InstructionError\":[7,{\"Custom\":1}]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7": {
       "symbol": "PRIME",
       "reason": "route simulation gate failed (first hop or wallet-funded later hop): {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
-      "source": "filter:catalog"
-    },
-    "59obFNBzyTBGowrkif5uK7ojS58vsuWz3ZCvg6tfZAGw": {
-      "symbol": "PST",
-      "reason": "single-hop simulation failed: {\"InstructionError\":[4,\"ProgramFailedToComplete\"]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "5pYB12kEhfhSFXJjZ7JtyqDpt6uUqhsF6iu6Ee9spump": {
       "symbol": "CATWIF",
-      "reason": "single-hop simulation failed: {\"InstructionError\":[5,{\"Custom\":3008}]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "reason": "No enough initialized tickArray",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5": {
       "symbol": "ONyc",
       "reason": "single-hop simulation failed: {\"InstructionError\":[4,\"ProgramFailedToComplete\"]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk": {
       "symbol": "JUICED",
       "reason": "single-hop simulation failed: {\"InstructionError\":[4,\"ProgramFailedToComplete\"]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
-      "source": "filter:catalog"
-    },
-    "8wxkvAfEns76yBzu4MnbV7VnXWjg3iDPA9uwAQ6cpump": {
-      "symbol": "SOLANGELES",
-      "reason": "single-hop simulation failed: {\"InstructionError\":[5,{\"Custom\":3008}]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D": {
       "symbol": "jlUSDC",
       "reason": "route simulation gate failed (first hop or wallet-funded later hop): {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif": {
       "symbol": "jlUSDG",
       "reason": "route simulation gate failed (first hop or wallet-funded later hop): {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj": {
       "symbol": "syrupUSDC",
       "reason": "route simulation gate failed (first hop or wallet-funded later hop): {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "BcHEaaTCvycPwwsJ9yQTXdHP9X2gCLkznDbZ8VySpump": {
       "symbol": "Jotchua",
       "reason": "single-hop simulation failed: {\"InstructionError\":[5,{\"Custom\":3008}]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH": {
       "symbol": "CASH",
       "reason": "No enough initialized tickArray",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "Cmn4v2wipYV41dkakDvCgFJpxhtaaKt11NyWV8pjSE8A": {
       "symbol": "jlUSDT",
       "reason": "route simulation gate failed (first hop or wallet-funded later hop): {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn": {
       "symbol": "xBTC",
       "reason": "Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT": {
       "symbol": "USDe",
       "reason": "No direct or 2 hop pools found for this pair",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "DiRshqNDE68bWbGdLHm1GwQ76MvWQG3af6w1NdQondo": {
       "symbol": "NBISon",
       "reason": "No direct or 2 hop pools found for this pair",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A": {
       "symbol": "hSOL",
       "reason": "Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "iy11ytbSGcUnrjE6Lfv78TFqxKyUESfku1FugS9ondo": {
       "symbol": "SLVon",
-      "reason": "Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "reason": "route simulation gate failed (first hop or wallet-funded later hop): {\"InstructionError\":[7,{\"Custom\":3008}]}",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh": {
       "symbol": "jlUSDS",
       "reason": "Invalid tick array",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "MUxEsUKSMACyw5fZf68wxf5FLnZVhtU9CwH8uNNGay1": {
       "symbol": "MU",
-      "reason": "single-hop simulation failed: {\"InstructionError\":[5,{\"Custom\":3008}]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "reason": "route simulation gate failed (first hop or wallet-funded later hop): {\"InstructionError\":[7,{\"Custom\":3008}]}",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "oPAiAikWTaFj9RYoRFD35ccfwhnMcB3ThgBZRHSkjTZ": {
       "symbol": "tOpenAI",
-      "reason": "route simulation gate failed (first hop or wallet-funded later hop): {\"InstructionError\":[7,{\"Custom\":3008}]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
-      "source": "filter:catalog"
-    },
-    "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn": {
-      "symbol": "PUMP",
-      "reason": "single-hop simulation failed: {\"InstructionError\":[5,{\"Custom\":3008}]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
-      "source": "filter:catalog"
-    },
-    "SPCXxcqXj6e5dJDVNovHN8744zkbhM2bYudU45BimGb": {
-      "symbol": "SPCX",
-      "reason": "single-hop simulation failed: {\"InstructionError\":[5,{\"Custom\":3008}]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "reason": "route simulation gate failed (first hop or wallet-funded later hop): {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     },
     "TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v": {
       "symbol": "tSpaceX",
       "reason": "single-hop simulation failed: {\"InstructionError\":[4,\"ProgramFailedToComplete\"]}",
-      "excludedAt": "2026-07-01T21:10:08.761Z",
+      "excludedAt": "2026-07-01T21:20:56.426Z",
       "source": "filter:catalog"
     }
   }
