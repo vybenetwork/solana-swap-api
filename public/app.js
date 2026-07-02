@@ -20452,6 +20452,86 @@ function txHasComputeBudgetPrice(vtx) {
   }
   return false;
 }
+function txHasAnyComputeBudget(vtx) {
+  const keys = accountKeyStrings(vtx);
+  return vtx.message.compiledInstructions.some(
+    (ix) => keys[ix.programIdIndex] === COMPUTE_BUDGET_PROGRAM_ID
+  );
+}
+function readComputeUnitLimitFromInstructions(instructions) {
+  for (const ix of instructions) {
+    if (ix.programId.toBase58() !== COMPUTE_BUDGET_PROGRAM_ID) continue;
+    const data = ix.data;
+    if (data[0] === 2 && data.length >= 5) return readUInt32LE(data, 1);
+  }
+  return null;
+}
+var FRONTEND_NETWORK_FEE_MULTIPLIER = 2n;
+var FRONTEND_ATOMIC_MULTI_HOP_NETWORK_FEE_MULTIPLIER = 4n;
+var FRONTEND_MULTI_HOP_MIN_NETWORK_FEE_LAMPORTS = 100000n;
+function resolveFrontendNetworkFeeMultiplier(options) {
+  const hops = options?.routeHopCount ?? 0;
+  const txCount = options?.txCount ?? 1;
+  if (hops >= 2 && txCount === 1) return FRONTEND_ATOMIC_MULTI_HOP_NETWORK_FEE_MULTIPLIER;
+  return FRONTEND_NETWORK_FEE_MULTIPLIER;
+}
+function applyFrontendNetworkFeeMultiplier(lamports, multiplier) {
+  if (lamports <= 0n || multiplier <= 1n) return lamports;
+  return lamports * multiplier;
+}
+function applyMultiHopNetworkFeeFloor(lamports, routeHopCount) {
+  if (routeHopCount < 2) return lamports;
+  return lamports < FRONTEND_MULTI_HOP_MIN_NETWORK_FEE_LAMPORTS ? FRONTEND_MULTI_HOP_MIN_NETWORK_FEE_LAMPORTS : lamports;
+}
+function applyFrontendNetworkFeeAdjustments(lamports, options) {
+  if (lamports == null || lamports <= 0n) return lamports;
+  const multiplier = options?.feeMultiplier ?? 1n;
+  let adjusted = applyFrontendNetworkFeeMultiplier(lamports, multiplier);
+  adjusted = applyMultiHopNetworkFeeFloor(adjusted, options?.routeHopCount ?? 0);
+  return adjusted;
+}
+function shouldInjectComputeBudgetForSwapLeg(options) {
+  const { routeHopCount, txCount, legIndex } = options;
+  if (routeHopCount >= 2 && txCount === 1) return false;
+  if (routeHopCount >= 2 && txCount > 1) return legIndex === txCount - 1;
+  return true;
+}
+async function augmentVersionedSwapTxWithTargetNetworkFee(connection, vtx, targetTotalLamports, altAccounts = []) {
+  if (targetTotalLamports <= 0n) return vtx;
+  if (txHasAnyComputeBudget(vtx)) return vtx;
+  const decoded = computeNetworkFeeLamportsFromVersionedTx(vtx);
+  if (txHasComputeBudgetPrice(vtx) && decoded >= targetTotalLamports) return vtx;
+  const decompiled = TransactionMessage.decompile(vtx.message, {
+    addressLookupTableAccounts: altAccounts
+  });
+  const computeBudgetProgramId = ComputeBudgetProgram.programId.toBase58();
+  const swapInstructions = decompiled.instructions.filter(
+    (ix) => ix.programId.toBase58() !== computeBudgetProgramId
+  );
+  const numSigs = BigInt(Math.max(vtx.message.header.numRequiredSignatures, 1));
+  const baseFee = numSigs * BASE_SIGNATURE_FEE_LAMPORTS;
+  const priorityTarget = targetTotalLamports > baseFee ? targetTotalLamports - baseFee : 0n;
+  let unitLimit = readComputeUnitLimitFromInstructions(decompiled.instructions) ?? DEFAULT_COMPUTE_UNIT_LIMIT;
+  if (unitLimit <= 0n) unitLimit = DEFAULT_COMPUTE_UNIT_LIMIT;
+  try {
+    const sim = await connection.simulateTransaction(vtx, {
+      replaceRecentBlockhash: true,
+      commitment: "processed"
+    });
+    const consumed = sim.value.unitsConsumed;
+    if (consumed != null && consumed > 0) {
+      unitLimit = BigInt(Math.ceil(consumed * 1.1));
+    }
+  } catch {
+  }
+  const microLamportsPerCu = priorityTarget > 0n ? (priorityTarget * 1000000n + unitLimit - 1n) / unitLimit : DEFAULT_MICRO_LAMPORTS_PER_CU;
+  decompiled.instructions = [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: Number(unitLimit) }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: Number(microLamportsPerCu) }),
+    ...swapInstructions
+  ];
+  return new VersionedTransaction(decompiled.compileToV0Message(altAccounts));
+}
 function computeNetworkFeeLamportsFromVersionedTx(vtx) {
   const keys = accountKeyStrings(vtx);
   const numSigs = BigInt(Math.max(vtx.message.header.numRequiredSignatures, 1));
@@ -20532,19 +20612,25 @@ function computeNetworkFeeLamportsFromSwapTxStrings(txStrings) {
   }
   return found ? total.toString() : null;
 }
-async function estimateNetworkFeeLamportsForSwapTx(connection, txString) {
+async function estimateNetworkFeeLamportsForSwapTx(connection, txString, options) {
   const trimmed = txString.trim();
   if (!trimmed) return null;
   try {
     const vtx = decodeVersionedSwapTxFromBase64(trimmed);
     const decoded = computeNetworkFeeLamportsFromVersionedTx(vtx);
     if (txHasComputeBudgetPrice(vtx) && decoded > BASE_SIGNATURE_FEE_LAMPORTS) {
-      return decoded.toString();
+      const bumped2 = applyFrontendNetworkFeeAdjustments(decoded, options);
+      return bumped2 != null && bumped2 > 0n ? bumped2.toString() : null;
     }
     const estimated = await estimateNetworkFeeLamportsFromSimulation(connection, vtx);
-    return estimated > 0n ? estimated.toString() : decoded > 0n ? decoded.toString() : null;
+    const raw = estimated > 0n ? estimated : decoded > 0n ? decoded : null;
+    const bumped = applyFrontendNetworkFeeAdjustments(raw, options);
+    return bumped != null && bumped > 0n ? bumped.toString() : null;
   } catch {
-    return computeNetworkFeeLamportsFromSwapTx(trimmed);
+    const decoded = computeNetworkFeeLamportsFromSwapTx(trimmed);
+    if (!decoded) return null;
+    const bumped = applyFrontendNetworkFeeAdjustments(BigInt(decoded), options);
+    return bumped != null && bumped > 0n ? bumped.toString() : null;
   }
 }
 function computeSwapTxSizeBytes(txString) {
@@ -20565,11 +20651,11 @@ function computeSwapTxSizesBytes(txStrings) {
   }
   return sizes;
 }
-async function estimateNetworkFeeLamportsForSwapTxs(connection, txStrings) {
+async function estimateNetworkFeeLamportsForSwapTxs(connection, txStrings, options) {
   let total = 0n;
   let found = false;
   for (const tx of txStrings) {
-    const lamports = await estimateNetworkFeeLamportsForSwapTx(connection, tx);
+    const lamports = await estimateNetworkFeeLamportsForSwapTx(connection, tx, options);
     if (!lamports) continue;
     try {
       total += BigInt(lamports);
@@ -20577,7 +20663,116 @@ async function estimateNetworkFeeLamportsForSwapTxs(connection, txStrings) {
     } catch {
     }
   }
+  const hops = options?.routeHopCount ?? 0;
+  if (found && hops >= 2) {
+    total = applyMultiHopNetworkFeeFloor(total, hops);
+  }
   return found ? total.toString() : null;
+}
+async function loadAltAccountsForVtx(connection, vtx) {
+  const altAccounts = [];
+  for (const lookup of vtx.message.addressTableLookups) {
+    const res = await connection.getAddressLookupTable(lookup.accountKey);
+    if (!res.value) {
+      throw new Error(`Failed to load address lookup table ${lookup.accountKey.toBase58()}.`);
+    }
+    altAccounts.push(res.value);
+  }
+  return altAccounts;
+}
+async function prepareSwapTxForSigning(connection, txString, options) {
+  const trimmed = txString.trim();
+  const injectComputeBudget = options?.injectComputeBudget !== false;
+  let targetNetworkFee = 0n;
+  const targetRaw = options?.targetNetworkFeeLamports?.trim();
+  if (targetRaw && /^\d+$/.test(targetRaw)) {
+    try {
+      targetNetworkFee = BigInt(targetRaw);
+    } catch {
+      targetNetworkFee = 0n;
+    }
+  }
+  const augmentPreparedTx = async (vtx2, altAccounts) => {
+    if (!injectComputeBudget || targetNetworkFee <= 0n) return vtx2;
+    return augmentVersionedSwapTxWithTargetNetworkFee(
+      connection,
+      vtx2,
+      targetNetworkFee,
+      altAccounts
+    );
+  };
+  try {
+    const res = await fetch("/api/solana/prepare-swap-tx", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ tx: trimmed })
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok && typeof body.tx === "string" && body.tx.length > 0) {
+      if (body.simulationErr) {
+        console.warn("Swap tx simulation warning:", body.simulationErr);
+      }
+      const vtx2 = decodeVersionedSwapTxFromBase64(body.tx);
+      if (vtx2.message.addressTableLookups.length === 0) {
+        return augmentPreparedTx(vtx2, []);
+      }
+      const altAccounts = await loadAltAccountsForVtx(connection, vtx2);
+      return augmentPreparedTx(vtx2, altAccounts);
+    }
+    if (!res.ok && body.error) {
+      console.warn("Server prepare-swap-tx failed, using browser fallback:", body.error);
+    }
+  } catch (err) {
+    console.warn("Server prepare-swap-tx unavailable, using browser fallback:", err);
+  }
+  const vtx = decodeVersionedSwapTxFromBase64(trimmed);
+  const { blockhash } = await connection.getLatestBlockhash("processed");
+  const lookups = vtx.message.addressTableLookups;
+  if (lookups.length > 0) {
+    const altAccounts = await loadAltAccountsForVtx(connection, vtx);
+    const decompiled = TransactionMessage.decompile(vtx.message, {
+      addressLookupTableAccounts: altAccounts
+    });
+    decompiled.recentBlockhash = blockhash;
+    const prepared = new VersionedTransaction(decompiled.compileToV0Message(altAccounts));
+    return augmentPreparedTx(prepared, altAccounts);
+  }
+  vtx.message.recentBlockhash = blockhash;
+  return augmentPreparedTx(vtx, []);
+}
+async function prepareSwapTxsForSigning(connection, txStrings, options) {
+  const txs = txStrings.map((t) => t.trim()).filter(Boolean);
+  if (txs.length === 0) return [];
+  const routeHopCount = options?.routeHopCount ?? 0;
+  const feeMultiplier = options?.feeMultiplier ?? resolveFrontendNetworkFeeMultiplier({ routeHopCount, txCount: txs.length });
+  return Promise.all(
+    txs.map(async (txString, legIndex) => {
+      const injectComputeBudget = shouldInjectComputeBudgetForSwapLeg({
+        routeHopCount,
+        txCount: txs.length,
+        legIndex
+      });
+      let targetNetworkFeeLamports;
+      if (injectComputeBudget) {
+        try {
+          const estimated = await estimateNetworkFeeLamportsForSwapTx(connection, txString, {
+            feeMultiplier,
+            routeHopCount
+          });
+          if (estimated) targetNetworkFeeLamports = estimated;
+        } catch {
+        }
+      }
+      if (!targetNetworkFeeLamports && injectComputeBudget && routeHopCount >= 2) {
+        targetNetworkFeeLamports = FRONTEND_MULTI_HOP_MIN_NETWORK_FEE_LAMPORTS.toString();
+      }
+      return prepareSwapTxForSigning(connection, txString, {
+        targetNetworkFeeLamports,
+        injectComputeBudget
+      });
+    })
+  );
 }
 
 // src/wallet-balance-limit.ts
@@ -33638,6 +33833,16 @@ async function pollAllTransactionConfirmations(signatures, generation, onLeg) {
   }
   return { ok: true };
 }
+function resolveSwapRouteHopCount(quote) {
+  const plan = Array.isArray(quote.routePlan) ? quote.routePlan : [];
+  return plan.length;
+}
+function resolveSwapNetworkFeeMultiplier(quote, txStrings) {
+  return resolveFrontendNetworkFeeMultiplier({
+    routeHopCount: resolveSwapRouteHopCount(quote),
+    txCount: txStrings.length
+  });
+}
 async function signAndSendSwapLegs(txStrings) {
   const txs = txStrings.map((t) => t.trim()).filter(Boolean);
   if (txs.length === 0) throw new Error("No transaction to sign.");
@@ -33645,7 +33850,13 @@ async function signAndSendSwapLegs(txStrings) {
   if (!provider?.signTransaction && !provider?.signAllTransactions && !provider?.signAndSendTransaction) {
     throw new Error("Connected wallet cannot sign transactions.");
   }
-  const prepared = await Promise.all(txs.map((t) => prepareSwapTxForSigning(t)));
+  const ctx = swapSignRetryContext;
+  const routeHopCount = ctx != null ? resolveSwapRouteHopCount(ctx.quote) : 0;
+  const feeMultiplier = ctx != null ? resolveSwapNetworkFeeMultiplier(ctx.quote, txs) : void 0;
+  const prepared = await prepareSwapTxsForSigning(getBrowserConnection(), txs, {
+    routeHopCount,
+    feeMultiplier
+  });
   const connection = getBrowserConnection();
   const signatures = [];
   if (txs.length === 1 && provider.signAndSendTransaction) {
@@ -33762,15 +33973,21 @@ async function runSwapSignDialogFlow(quote, buildPayload, txStrings, options) {
   let confirmQuote = quote;
   let confirmBuild = buildPayload;
   const txSizeBytes = computeSwapTxSizesBytes(txStrings);
+  const routeHopCount = resolveSwapRouteHopCount(quote);
+  const feeMultiplier = resolveSwapNetworkFeeMultiplier(quote, txStrings);
   let txNetworkFeeLamports = computeNetworkFeeLamportsFromSwapTxStrings(txStrings);
   try {
     const estimated = await estimateNetworkFeeLamportsForSwapTxs(
       getBrowserConnection(),
-      txStrings
+      txStrings,
+      { feeMultiplier, routeHopCount }
     );
     if (estimated) txNetworkFeeLamports = estimated;
   } catch (err) {
     console.warn("Could not estimate swap network fee from tx:", err);
+  }
+  if (!txNetworkFeeLamports && routeHopCount >= 2) {
+    txNetworkFeeLamports = FRONTEND_MULTI_HOP_MIN_NETWORK_FEE_LAMPORTS.toString();
   }
   if (txNetworkFeeLamports) {
     confirmBuild = { ...buildPayload, _txNetworkFeeLamports: txNetworkFeeLamports };
@@ -34095,60 +34312,6 @@ function getBrowserConnection() {
     w.__swapBrowserConnection = new Connection(`${window.location.origin}/api/solana/rpc`, "processed");
   }
   return w.__swapBrowserConnection;
-}
-function decodeVersionedTxFromBase64(txString) {
-  const trimmed = txString.trim();
-  try {
-    return VersionedTransaction.deserialize(
-      Uint8Array.from(atob(trimmed), (c) => c.charCodeAt(0))
-    );
-  } catch {
-    throw new Error("Could not decode swap transaction (expected base64 wire bytes).");
-  }
-}
-async function prepareSwapTxForSigning(txString) {
-  const trimmed = txString.trim();
-  try {
-    const res = await fetch("/api/solana/prepare-swap-tx", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      cache: "no-store",
-      body: JSON.stringify({ tx: trimmed })
-    });
-    const body = await res.json().catch(() => ({}));
-    if (res.ok && typeof body.tx === "string" && body.tx.length > 0) {
-      if (body.simulationErr) {
-        console.warn("Swap tx simulation warning:", body.simulationErr);
-      }
-      return decodeVersionedTxFromBase64(body.tx);
-    }
-    if (!res.ok && body.error) {
-      console.warn("Server prepare-swap-tx failed, using browser fallback:", body.error);
-    }
-  } catch (err) {
-    console.warn("Server prepare-swap-tx unavailable, using browser fallback:", err);
-  }
-  const vtx = decodeVersionedTxFromBase64(trimmed);
-  const connection = getBrowserConnection();
-  const { blockhash } = await connection.getLatestBlockhash("processed");
-  const lookups = vtx.message.addressTableLookups;
-  if (lookups.length > 0) {
-    const altAccounts = [];
-    for (const lookup of lookups) {
-      const res = await connection.getAddressLookupTable(lookup.accountKey);
-      if (!res.value) {
-        throw new Error(`Failed to load address lookup table ${lookup.accountKey.toBase58()}.`);
-      }
-      altAccounts.push(res.value);
-    }
-    const decompiled = TransactionMessage.decompile(vtx.message, {
-      addressLookupTableAccounts: altAccounts
-    });
-    decompiled.recentBlockhash = blockhash;
-    return new VersionedTransaction(decompiled.compileToV0Message(altAccounts));
-  }
-  vtx.message.recentBlockhash = blockhash;
-  return vtx;
 }
 function updateWalletTotalUsdUi() {
   const wrap = swapWalletTotalUsdEl;
