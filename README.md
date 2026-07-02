@@ -17,7 +17,7 @@ It includes a production-ready Node.js backend and a modern frontend that integr
 
 Try the live demo: https://solana-swap-api.vybenetwork.com
 
-![Solana Swap API app](screenshots/solana-swap-api-app.jpg)
+![Solana Swap API app](screenshots/solana-swap-api-app-demo.jpg)
 
 ---
 
