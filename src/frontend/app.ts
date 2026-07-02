@@ -1065,8 +1065,14 @@ function rememberSwapQuoteEnumerateRoutes(buildOpts: Record<string, unknown>): v
     lastSwapQuoteEnumerateRoutes = null;
     return;
   }
-  // Pinned route refresh sends enumerateRoutes:false — do not clobber discovery tracking.
-  if (buildOpts.enumerateRoutes === false && String(buildOpts.poolAddress ?? '').trim()) return;
+  // Single-hop pinned refresh sends enumerateRoutes:false — do not clobber discovery tracking.
+  if (
+    buildOpts.enumerateRoutes === false &&
+    String(buildOpts.poolAddress ?? '').trim() &&
+    !isSelectedVybeMultiHopMarket()
+  ) {
+    return;
+  }
   lastSwapQuoteEnumerateRoutes = buildOpts.enumerateRoutes !== false;
 }
 
@@ -2285,14 +2291,15 @@ function clearActiveRouterQuoteUiIfNoCache(router: SwapRouterId): void {
 
 function quoteAffectingBuildOptsSnapshot(buildOpts: Record<string, unknown>): Record<string, unknown> {
   const poolPinned = String(buildOpts.poolAddress ?? '').trim().length > 0;
+  const multiHopPinned = poolPinned && buildOpts.enumerateRoutes === true;
   return {
     slippage: buildOpts.slippage,
     gasless: buildOpts.gasless,
     autoCalculateSlippage: buildOpts.autoCalculateSlippage,
     partner: buildOpts.partner,
     swapFee: buildOpts.swapFee,
-    marketFetchMode: poolPinned ? undefined : buildOpts.marketFetchMode,
-    enumerateRoutes: poolPinned ? false : buildOpts.enumerateRoutes,
+    marketFetchMode: multiHopPinned ? buildOpts.marketFetchMode : poolPinned ? undefined : buildOpts.marketFetchMode,
+    enumerateRoutes: multiHopPinned ? true : poolPinned ? false : buildOpts.enumerateRoutes,
     router: buildOpts.router,
   };
 }
@@ -5865,9 +5872,11 @@ function inferRouteOptionSource(
 
 function shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts: Record<string, unknown>): boolean {
   if (!enumeratedRoutesUiState?.routes.length) return false;
-  if (buildOpts.enumerateRoutes !== false) return false;
   const pool = String(buildOpts.poolAddress ?? '').trim();
   if (!pool) return false;
+  // Multi-hop Vybe markets need enumerateRoutes on refetch; still update only the selected card.
+  if (buildOpts.enumerateRoutes === true && isSelectedVybeMultiHopMarket()) return true;
+  if (buildOpts.enumerateRoutes !== false) return false;
   if (enumeratedRoutesUiState.routes.length <= 1) return true;
   const candidate = getSelectedEnumeratedRouteCandidate();
   let selectedPool = String(candidate?.marketAddress ?? '').trim();
@@ -7915,15 +7924,38 @@ function selectedRoutePinFields(): {
   return completeRoutePinFields({ poolAddress, programAddress, protocol });
 }
 
+function isVybeMultiHopQuoteBody(body: Record<string, unknown>): boolean {
+  const plan = body.routePlan;
+  if (Array.isArray(plan) && plan.length > 1) return true;
+  const hopCount = body._hopCount ?? body.hopCount;
+  if (typeof hopCount === 'number' && hopCount > 1) return true;
+  const build = body._build as Record<string, unknown> | undefined;
+  const details = (build?.details ?? body.details) as Record<string, unknown> | undefined;
+  if (details?.quoteBridge && typeof details.quoteBridge === 'object') return true;
+  if (details?.preSwapNeeded === true || details?.postSwapNeeded === true) return true;
+  return false;
+}
+
+function isSelectedVybeMultiHopMarket(): boolean {
+  if (normalizeRouterId(getSwapRouter()) !== 'vybe') return false;
+  const body =
+    activeRouteQuoteBodyForPin() ??
+    (lastSwapQuoteOk && typeof lastSwapQuoteOk === 'object'
+      ? (lastSwapQuoteOk as Record<string, unknown>)
+      : null);
+  return body != null && isVybeMultiHopQuoteBody(body);
+}
+
 /** Apply selected route pins to the build request only — never mutate manual pool/protocol UI fields. */
 function mergeSelectedRoutePinIntoBuildOpts(opts: Record<string, unknown>): Record<string, unknown> {
   const pin = selectedRoutePinFields();
   if (!pin) return opts;
+  const multiHop = isSelectedVybeMultiHopMarket();
   const next: Record<string, unknown> = {
     ...opts,
     poolAddress: pin.poolAddress,
-    marketFetchMode: undefined,
-    enumerateRoutes: false,
+    marketFetchMode: multiHop ? (opts.marketFetchMode ?? MARKET_FETCH_MODE) : undefined,
+    enumerateRoutes: multiHop ? true : false,
   };
   if (pin.programAddress) next.programAddress = pin.programAddress;
   if (pin.protocol) next.protocol = pin.protocol;

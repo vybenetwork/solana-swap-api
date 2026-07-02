@@ -28555,7 +28555,9 @@ function rememberSwapQuoteEnumerateRoutes(buildOpts) {
     lastSwapQuoteEnumerateRoutes = null;
     return;
   }
-  if (buildOpts.enumerateRoutes === false && String(buildOpts.poolAddress ?? "").trim()) return;
+  if (buildOpts.enumerateRoutes === false && String(buildOpts.poolAddress ?? "").trim() && !isSelectedVybeMultiHopMarket()) {
+    return;
+  }
   lastSwapQuoteEnumerateRoutes = buildOpts.enumerateRoutes !== false;
 }
 function clearSwapQuoteEnumerateRoutesTracking() {
@@ -29568,14 +29570,15 @@ function clearActiveRouterQuoteUiIfNoCache(router) {
 }
 function quoteAffectingBuildOptsSnapshot(buildOpts) {
   const poolPinned = String(buildOpts.poolAddress ?? "").trim().length > 0;
+  const multiHopPinned = poolPinned && buildOpts.enumerateRoutes === true;
   return {
     slippage: buildOpts.slippage,
     gasless: buildOpts.gasless,
     autoCalculateSlippage: buildOpts.autoCalculateSlippage,
     partner: buildOpts.partner,
     swapFee: buildOpts.swapFee,
-    marketFetchMode: poolPinned ? void 0 : buildOpts.marketFetchMode,
-    enumerateRoutes: poolPinned ? false : buildOpts.enumerateRoutes,
+    marketFetchMode: multiHopPinned ? buildOpts.marketFetchMode : poolPinned ? void 0 : buildOpts.marketFetchMode,
+    enumerateRoutes: multiHopPinned ? true : poolPinned ? false : buildOpts.enumerateRoutes,
     router: buildOpts.router
   };
 }
@@ -32279,9 +32282,10 @@ function inferRouteOptionSource(body, rvt) {
 }
 function shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts) {
   if (!enumeratedRoutesUiState?.routes.length) return false;
-  if (buildOpts.enumerateRoutes !== false) return false;
   const pool = String(buildOpts.poolAddress ?? "").trim();
   if (!pool) return false;
+  if (buildOpts.enumerateRoutes === true && isSelectedVybeMultiHopMarket()) return true;
+  if (buildOpts.enumerateRoutes !== false) return false;
   if (enumeratedRoutesUiState.routes.length <= 1) return true;
   const candidate = getSelectedEnumeratedRouteCandidate();
   let selectedPool = String(candidate?.marketAddress ?? "").trim();
@@ -33883,14 +33887,31 @@ function selectedRoutePinFields() {
   if (!poolAddress) return null;
   return completeRoutePinFields({ poolAddress, programAddress, protocol });
 }
+function isVybeMultiHopQuoteBody(body) {
+  const plan = body.routePlan;
+  if (Array.isArray(plan) && plan.length > 1) return true;
+  const hopCount = body._hopCount ?? body.hopCount;
+  if (typeof hopCount === "number" && hopCount > 1) return true;
+  const build = body._build;
+  const details = build?.details ?? body.details;
+  if (details?.quoteBridge && typeof details.quoteBridge === "object") return true;
+  if (details?.preSwapNeeded === true || details?.postSwapNeeded === true) return true;
+  return false;
+}
+function isSelectedVybeMultiHopMarket() {
+  if (normalizeRouterId(getSwapRouter()) !== "vybe") return false;
+  const body = activeRouteQuoteBodyForPin() ?? (lastSwapQuoteOk && typeof lastSwapQuoteOk === "object" ? lastSwapQuoteOk : null);
+  return body != null && isVybeMultiHopQuoteBody(body);
+}
 function mergeSelectedRoutePinIntoBuildOpts(opts) {
   const pin = selectedRoutePinFields();
   if (!pin) return opts;
+  const multiHop = isSelectedVybeMultiHopMarket();
   const next = {
     ...opts,
     poolAddress: pin.poolAddress,
-    marketFetchMode: void 0,
-    enumerateRoutes: false
+    marketFetchMode: multiHop ? opts.marketFetchMode ?? MARKET_FETCH_MODE : void 0,
+    enumerateRoutes: multiHop ? true : false
   };
   if (pin.programAddress) next.programAddress = pin.programAddress;
   if (pin.protocol) next.protocol = pin.protocol;
