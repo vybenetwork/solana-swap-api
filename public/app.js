@@ -29647,7 +29647,9 @@ function needsQuoteRefetchBeforeBuild() {
 }
 async function refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts) {
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
-  const pinnedOpts = mergeSelectedRoutePinIntoBuildOpts(buildOpts);
+  const pinnedOpts = swapBuildOptsForRefetchQuote(
+    mergeSelectedRoutePinIntoBuildOpts(buildOpts)
+  );
   if (enumeratedRoutesUiState?.routes.length && !selectedRoutePinFields()) {
     throw new Error("Select a route market before refetching the quote.");
   }
@@ -31967,6 +31969,9 @@ function swapBuildOptsWithoutEnrich(buildOpts) {
 function swapBuildOptsWithEnrich(buildOpts) {
   return { ...buildOpts, enrich: true };
 }
+function swapBuildOptsForRefetchQuote(buildOpts) {
+  return isSelectedVybeMultiHopMarket() ? swapBuildOptsWithEnrich(buildOpts) : swapBuildOptsWithoutEnrich(buildOpts);
+}
 var ENRICHMENT_DISPLAY_QUOTE_KEYS = [
   "routePlan",
   "priceImpactPct",
@@ -33093,7 +33098,7 @@ async function refreshSelectedRouteQuote(wallet, inputMint, outputMint, amount) 
         inputMint,
         outputMint,
         quoteAmount,
-        swapBuildOptsWithoutEnrich(pinnedOpts),
+        swapBuildOptsForRefetchQuote(pinnedOpts),
         { skipEnsurePrices: true }
       );
     } finally {
@@ -33813,7 +33818,7 @@ async function handleSwapSignDialogRefetchRebuild() {
     const inputMint = swapInputMintInput?.value.trim() ?? "";
     const outputMint = swapOutputMintInput?.value.trim() ?? "";
     const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
-    const buildOpts = swapBuildOptsWithoutEnrich(
+    const buildOpts = swapBuildOptsForRefetchQuote(
       mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions())
     );
     await refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts);
@@ -33823,7 +33828,11 @@ async function handleSwapSignDialogRefetchRebuild() {
       return;
     }
     appendSwapSignLog("Quote received \u2014 rebuilding swap\u2026", "neutral");
-    await postBuildSwap({ skipQuoteRefetch: true, preserveSignDialogLogs: true, enrich: false });
+    await postBuildSwap({
+      skipQuoteRefetch: true,
+      preserveSignDialogLogs: true,
+      enrich: isSelectedVybeMultiHopMarket()
+    });
   } catch (err) {
     appendSwapSignLog(err instanceof Error ? err.message : String(err), "error");
     setSwapSignDialogActions("failed");
@@ -33917,7 +33926,8 @@ function mergeSelectedRoutePinIntoBuildOpts(opts) {
     return {
       ...rest,
       marketFetchMode: opts.marketFetchMode ?? MARKET_FETCH_MODE,
-      enumerateRoutes: true
+      enumerateRoutes: true,
+      enrich: true
     };
   }
   const next = {
@@ -33945,7 +33955,6 @@ async function postBuildSwap(options) {
     return;
   }
   if (!swapBuildResultEl || !swapTxBase64El) return;
-  const refetchForExpiredQuote = !options?.skipQuoteRefetch && isBuildBtnQuoteExpired();
   const needsQuoteRefetch = !options?.skipQuoteRefetch && (isBuildBtnQuoteExpired() || needsQuoteRefetchBeforeBuild());
   let signFlowGeneration = null;
   if (swapBuildBtn) swapBuildBtn.disabled = true;
@@ -33966,8 +33975,12 @@ async function postBuildSwap(options) {
   const outputMint = swapOutputMintInput?.value.trim() ?? "";
   const amount = swapAmountInput ? parseSwapAmountInputValue(swapAmountInput.value) : NaN;
   let buildOpts = mergeSelectedRoutePinIntoBuildOpts(collectSwapBuildOptions());
-  if (options?.enrich === false || refetchForExpiredQuote) {
+  if (options?.enrich === false) {
     buildOpts = swapBuildOptsWithoutEnrich(buildOpts);
+  } else if (options?.enrich === true) {
+    buildOpts = swapBuildOptsWithEnrich(buildOpts);
+  } else if (needsQuoteRefetch) {
+    buildOpts = swapBuildOptsForRefetchQuote(buildOpts);
   }
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   if (swapQuoteError) clearInlineError(swapQuoteError);
