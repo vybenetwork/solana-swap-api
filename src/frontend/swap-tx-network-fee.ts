@@ -4,12 +4,80 @@
  * instructions are present; otherwise simulates + recent prioritization fees.
  */
 
-import { Connection, VersionedTransaction } from '@solana/web3.js';
+import {
+  ComputeBudgetProgram,
+  Connection,
+  TransactionMessage,
+  VersionedTransaction,
+  type AddressLookupTableAccount,
+} from '@solana/web3.js';
+
+export type NetworkFeeEstimateOptions = {
+  feeMultiplier?: bigint;
+  routeHopCount?: number;
+};
+
+export type PrepareSwapTxSigningOptions = {
+  targetNetworkFeeLamports?: string;
+  injectComputeBudget?: boolean;
+};
 
 const COMPUTE_BUDGET_PROGRAM_ID = 'ComputeBudget111111111111111111111111111111';
 const BASE_SIGNATURE_FEE_LAMPORTS = 5_000n;
 const DEFAULT_COMPUTE_UNIT_LIMIT = 200_000n;
 const DEFAULT_MICRO_LAMPORTS_PER_CU = 50_000n;
+
+/** Default 2× bump on simulated priority fee. */
+export const FRONTEND_NETWORK_FEE_MULTIPLIER = 2n;
+/** Single-tx atomic multi-hop routes need more headroom than one-hop swaps. */
+export const FRONTEND_ATOMIC_MULTI_HOP_NETWORK_FEE_MULTIPLIER = 4n;
+/** Floor shown in sign-confirm for 2+ hop routes (0.0001 SOL). */
+export const FRONTEND_MULTI_HOP_MIN_NETWORK_FEE_LAMPORTS = 100_000n;
+
+export function resolveFrontendNetworkFeeMultiplier(options: {
+  routeHopCount?: number;
+  txCount?: number;
+}): bigint {
+  const hops = options.routeHopCount ?? 0;
+  const txCount = options.txCount ?? 1;
+  if (hops >= 2 && txCount === 1) return FRONTEND_ATOMIC_MULTI_HOP_NETWORK_FEE_MULTIPLIER;
+  return FRONTEND_NETWORK_FEE_MULTIPLIER;
+}
+
+function applyFrontendNetworkFeeMultiplier(lamports: bigint, multiplier: bigint): bigint {
+  if (lamports <= 0n || multiplier <= 1n) return lamports;
+  return lamports * multiplier;
+}
+
+export function applyMultiHopNetworkFeeFloor(lamports: bigint, routeHopCount: number): bigint {
+  if (routeHopCount < 2) return lamports;
+  return lamports < FRONTEND_MULTI_HOP_MIN_NETWORK_FEE_LAMPORTS
+    ? FRONTEND_MULTI_HOP_MIN_NETWORK_FEE_LAMPORTS
+    : lamports;
+}
+
+export function applyFrontendNetworkFeeAdjustments(
+  lamports: bigint | null,
+  options?: NetworkFeeEstimateOptions,
+): bigint | null {
+  if (lamports == null || lamports <= 0n) return lamports;
+  const multiplier = options?.feeMultiplier ?? 1n;
+  let adjusted = applyFrontendNetworkFeeMultiplier(lamports, multiplier);
+  adjusted = applyMultiHopNetworkFeeFloor(adjusted, options?.routeHopCount ?? 0);
+  return adjusted;
+}
+
+/** Inject compute budget on the last leg of multi-tx quote-bridge routes only. */
+export function shouldInjectComputeBudgetForSwapLeg(options: {
+  routeHopCount: number;
+  txCount: number;
+  legIndex: number;
+}): boolean {
+  const { routeHopCount, txCount, legIndex } = options;
+  if (routeHopCount >= 2 && txCount === 1) return false;
+  if (routeHopCount >= 2 && txCount > 1) return legIndex === txCount - 1;
+  return true;
+}
 
 function readUInt32LE(data: Uint8Array, offset: number): bigint {
   return (
@@ -39,6 +107,78 @@ function txHasComputeBudgetPrice(vtx: VersionedTransaction): boolean {
     if (data.length >= 9 && data[0] === 3) return true;
   }
   return false;
+}
+
+function txHasAnyComputeBudget(vtx: VersionedTransaction): boolean {
+  const keys = accountKeyStrings(vtx);
+  return vtx.message.compiledInstructions.some(
+    (ix) => keys[ix.programIdIndex] === COMPUTE_BUDGET_PROGRAM_ID,
+  );
+}
+
+function readComputeUnitLimitFromInstructions(
+  instructions: Array<{ programId: { toBase58(): string }; data: Uint8Array }>,
+): bigint | null {
+  for (const ix of instructions) {
+    if (ix.programId.toBase58() !== COMPUTE_BUDGET_PROGRAM_ID) continue;
+    const data = ix.data;
+    if (data[0] === 2 && data.length >= 5) return readUInt32LE(data, 1);
+  }
+  return null;
+}
+
+/** Add compute budget ixs so wallet simulation shows a realistic priority fee. */
+export async function augmentVersionedSwapTxWithTargetNetworkFee(
+  connection: Connection,
+  vtx: VersionedTransaction,
+  targetTotalLamports: bigint,
+  altAccounts: AddressLookupTableAccount[] = [],
+): Promise<VersionedTransaction> {
+  if (targetTotalLamports <= 0n) return vtx;
+  if (txHasAnyComputeBudget(vtx)) return vtx;
+  const decoded = computeNetworkFeeLamportsFromVersionedTx(vtx);
+  if (txHasComputeBudgetPrice(vtx) && decoded >= targetTotalLamports) return vtx;
+
+  const decompiled = TransactionMessage.decompile(vtx.message, {
+    addressLookupTableAccounts: altAccounts,
+  });
+  const computeBudgetProgramId = ComputeBudgetProgram.programId.toBase58();
+  const swapInstructions = decompiled.instructions.filter(
+    (ix) => ix.programId.toBase58() !== computeBudgetProgramId,
+  );
+
+  const numSigs = BigInt(Math.max(vtx.message.header.numRequiredSignatures, 1));
+  const baseFee = numSigs * BASE_SIGNATURE_FEE_LAMPORTS;
+  const priorityTarget = targetTotalLamports > baseFee ? targetTotalLamports - baseFee : 0n;
+
+  let unitLimit =
+    readComputeUnitLimitFromInstructions(decompiled.instructions) ?? DEFAULT_COMPUTE_UNIT_LIMIT;
+  if (unitLimit <= 0n) unitLimit = DEFAULT_COMPUTE_UNIT_LIMIT;
+
+  try {
+    const sim = await connection.simulateTransaction(vtx, {
+      replaceRecentBlockhash: true,
+      commitment: 'processed',
+    });
+    const consumed = sim.value.unitsConsumed;
+    if (consumed != null && consumed > 0) {
+      unitLimit = BigInt(Math.ceil(consumed * 1.1));
+    }
+  } catch {
+    /* use default / decoded unit limit */
+  }
+
+  const microLamportsPerCu =
+    priorityTarget > 0n
+      ? (priorityTarget * 1_000_000n + unitLimit - 1n) / unitLimit
+      : DEFAULT_MICRO_LAMPORTS_PER_CU;
+
+  decompiled.instructions = [
+    ComputeBudgetProgram.setComputeUnitLimit({ units: Number(unitLimit) }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: Number(microLamportsPerCu) }),
+    ...swapInstructions,
+  ];
+  return new VersionedTransaction(decompiled.compileToV0Message(altAccounts));
 }
 
 /** signatures * 5000 + ceil(unitLimit * microLamports/CU / 1e6) */
@@ -142,6 +282,7 @@ export function computeNetworkFeeLamportsFromSwapTxStrings(txStrings: string[]):
 export async function estimateNetworkFeeLamportsForSwapTx(
   connection: Connection,
   txString: string,
+  options?: NetworkFeeEstimateOptions,
 ): Promise<string | null> {
   const trimmed = txString.trim();
   if (!trimmed) return null;
@@ -149,12 +290,18 @@ export async function estimateNetworkFeeLamportsForSwapTx(
     const vtx = decodeVersionedSwapTxFromBase64(trimmed);
     const decoded = computeNetworkFeeLamportsFromVersionedTx(vtx);
     if (txHasComputeBudgetPrice(vtx) && decoded > BASE_SIGNATURE_FEE_LAMPORTS) {
-      return decoded.toString();
+      const bumped = applyFrontendNetworkFeeAdjustments(decoded, options);
+      return bumped != null && bumped > 0n ? bumped.toString() : null;
     }
     const estimated = await estimateNetworkFeeLamportsFromSimulation(connection, vtx);
-    return estimated > 0n ? estimated.toString() : decoded > 0n ? decoded.toString() : null;
+    const raw = estimated > 0n ? estimated : decoded > 0n ? decoded : null;
+    const bumped = applyFrontendNetworkFeeAdjustments(raw, options);
+    return bumped != null && bumped > 0n ? bumped.toString() : null;
   } catch {
-    return computeNetworkFeeLamportsFromSwapTx(trimmed);
+    const decoded = computeNetworkFeeLamportsFromSwapTx(trimmed);
+    if (!decoded) return null;
+    const bumped = applyFrontendNetworkFeeAdjustments(BigInt(decoded), options);
+    return bumped != null && bumped > 0n ? bumped.toString() : null;
   }
 }
 
@@ -191,11 +338,12 @@ export function formatSwapTxSizesBytesDisplay(sizes: number[]): string | null {
 export async function estimateNetworkFeeLamportsForSwapTxs(
   connection: Connection,
   txStrings: string[],
+  options?: NetworkFeeEstimateOptions,
 ): Promise<string | null> {
   let total = 0n;
   let found = false;
   for (const tx of txStrings) {
-    const lamports = await estimateNetworkFeeLamportsForSwapTx(connection, tx);
+    const lamports = await estimateNetworkFeeLamportsForSwapTx(connection, tx, options);
     if (!lamports) continue;
     try {
       total += BigInt(lamports);
@@ -203,6 +351,10 @@ export async function estimateNetworkFeeLamportsForSwapTxs(
     } catch {
       /* skip */
     }
+  }
+  const hops = options?.routeHopCount ?? 0;
+  if (found && hops >= 2) {
+    total = applyMultiHopNetworkFeeFloor(total, hops);
   }
   return found ? total.toString() : null;
 }

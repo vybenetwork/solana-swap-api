@@ -10,9 +10,16 @@ import {
   type AddressLookupTableAccount,
 } from '@solana/web3.js';
 import {
+  augmentVersionedSwapTxWithTargetNetworkFee,
   computeSwapTxSizesBytes,
   computeNetworkFeeLamportsFromSwapTxStrings,
+  decodeVersionedSwapTxFromBase64,
+  estimateNetworkFeeLamportsForSwapTx,
   estimateNetworkFeeLamportsForSwapTxs,
+  FRONTEND_MULTI_HOP_MIN_NETWORK_FEE_LAMPORTS,
+  resolveFrontendNetworkFeeMultiplier,
+  shouldInjectComputeBudgetForSwapLeg,
+  type PrepareSwapTxSigningOptions,
 } from './swap-tx-network-fee.js';
 import {
   buildSwapClientParams,
@@ -7616,7 +7623,11 @@ async function signAndSendSwapLegs(txStrings: string[]): Promise<string[]> {
     throw new Error('Connected wallet cannot sign transactions.');
   }
 
-  const prepared = await Promise.all(txs.map((t) => prepareSwapTxForSigning(t)));
+  const ctx = swapSignRetryContext;
+  const routeHopCount = ctx != null ? resolveSwapRouteHopCount(ctx.quote) : 0;
+  const feeMultiplier =
+    ctx != null ? resolveSwapNetworkFeeMultiplier(ctx.quote, txs) : undefined;
+  const prepared = await prepareSwapTxsForSigning(txs, { routeHopCount, feeMultiplier });
   const connection = getBrowserConnection();
   const signatures: string[] = [];
 
@@ -7754,6 +7765,21 @@ function reportSwapSignPrepError(message: string, generation: number | null): vo
   if (swapQuoteError) showInlineError(swapQuoteError, message);
 }
 
+function resolveSwapRouteHopCount(quote: Record<string, unknown>): number {
+  const plan = Array.isArray(quote.routePlan) ? quote.routePlan : [];
+  return plan.length;
+}
+
+function resolveSwapNetworkFeeMultiplier(
+  quote: Record<string, unknown>,
+  txStrings: string[],
+): bigint {
+  return resolveFrontendNetworkFeeMultiplier({
+    routeHopCount: resolveSwapRouteHopCount(quote),
+    txCount: txStrings.length,
+  });
+}
+
 async function runSwapSignDialogFlow(
   quote: Record<string, unknown>,
   buildPayload: Record<string, unknown>,
@@ -7768,15 +7794,21 @@ async function runSwapSignDialogFlow(
   let confirmQuote = quote;
   let confirmBuild = buildPayload;
   const txSizeBytes = computeSwapTxSizesBytes(txStrings);
+  const routeHopCount = resolveSwapRouteHopCount(quote);
+  const feeMultiplier = resolveSwapNetworkFeeMultiplier(quote, txStrings);
   let txNetworkFeeLamports = computeNetworkFeeLamportsFromSwapTxStrings(txStrings);
   try {
     const estimated = await estimateNetworkFeeLamportsForSwapTxs(
       getBrowserConnection(),
       txStrings,
+      { feeMultiplier, routeHopCount },
     );
     if (estimated) txNetworkFeeLamports = estimated;
   } catch (err) {
     console.warn('Could not estimate swap network fee from tx:', err);
+  }
+  if (!txNetworkFeeLamports && routeHopCount >= 2) {
+    txNetworkFeeLamports = FRONTEND_MULTI_HOP_MIN_NETWORK_FEE_LAMPORTS.toString();
   }
   if (txNetworkFeeLamports) {
     confirmBuild = { ...buildPayload, _txNetworkFeeLamports: txNetworkFeeLamports };
@@ -8192,19 +8224,55 @@ function getBrowserConnection(): Connection {
 }
 
 function decodeVersionedTxFromBase64(txString: string): VersionedTransaction {
-  const trimmed = txString.trim();
-  try {
-    return VersionedTransaction.deserialize(
-      Uint8Array.from(atob(trimmed), (c) => c.charCodeAt(0)),
-    );
-  } catch {
-    throw new Error('Could not decode swap transaction (expected base64 wire bytes).');
-  }
+  return decodeVersionedSwapTxFromBase64(txString);
 }
 
-/** Vybe v0 swap txs use ALTs — refresh blockhash (+ ALTs) before wallet sign/simulate. */
-async function prepareSwapTxForSigning(txString: string): Promise<VersionedTransaction> {
+async function loadAltAccountsForVtx(
+  connection: Connection,
+  vtx: VersionedTransaction,
+): Promise<AddressLookupTableAccount[]> {
+  const altAccounts: AddressLookupTableAccount[] = [];
+  for (const lookup of vtx.message.addressTableLookups) {
+    const res = await connection.getAddressLookupTable(lookup.accountKey);
+    if (!res.value) {
+      throw new Error(`Failed to load address lookup table ${lookup.accountKey.toBase58()}.`);
+    }
+    altAccounts.push(res.value);
+  }
+  return altAccounts;
+}
+
+/** Vybe v0 swap txs use ALTs — refresh blockhash (+ optional compute budget) before wallet sign/simulate. */
+async function prepareSwapTxForSigning(
+  txString: string,
+  options?: PrepareSwapTxSigningOptions,
+): Promise<VersionedTransaction> {
   const trimmed = txString.trim();
+  const connection = getBrowserConnection();
+  const injectComputeBudget = options?.injectComputeBudget !== false;
+  let targetNetworkFee = 0n;
+  const targetRaw = options?.targetNetworkFeeLamports?.trim();
+  if (targetRaw && /^\d+$/.test(targetRaw)) {
+    try {
+      targetNetworkFee = BigInt(targetRaw);
+    } catch {
+      targetNetworkFee = 0n;
+    }
+  }
+
+  const augmentPreparedTx = async (
+    vtx: VersionedTransaction,
+    altAccounts: AddressLookupTableAccount[],
+  ): Promise<VersionedTransaction> => {
+    if (!injectComputeBudget || targetNetworkFee <= 0n) return vtx;
+    return augmentVersionedSwapTxWithTargetNetworkFee(
+      connection,
+      vtx,
+      targetNetworkFee,
+      altAccounts,
+    );
+  };
+
   try {
     const res = await fetch('/api/solana/prepare-swap-tx', {
       method: 'POST',
@@ -8221,7 +8289,12 @@ async function prepareSwapTxForSigning(txString: string): Promise<VersionedTrans
       if (body.simulationErr) {
         console.warn('Swap tx simulation warning:', body.simulationErr);
       }
-      return decodeVersionedTxFromBase64(body.tx);
+      const vtx = decodeVersionedTxFromBase64(body.tx);
+      if (vtx.message.addressTableLookups.length === 0) {
+        return augmentPreparedTx(vtx, []);
+      }
+      const altAccounts = await loadAltAccountsForVtx(connection, vtx);
+      return augmentPreparedTx(vtx, altAccounts);
     }
     if (!res.ok && body.error) {
       console.warn('Server prepare-swap-tx failed, using browser fallback:', body.error);
@@ -8231,28 +8304,63 @@ async function prepareSwapTxForSigning(txString: string): Promise<VersionedTrans
   }
 
   const vtx = decodeVersionedTxFromBase64(trimmed);
-  const connection = getBrowserConnection();
   const { blockhash } = await connection.getLatestBlockhash('processed');
   const lookups = vtx.message.addressTableLookups;
 
   if (lookups.length > 0) {
-    const altAccounts: AddressLookupTableAccount[] = [];
-    for (const lookup of lookups) {
-      const res = await connection.getAddressLookupTable(lookup.accountKey);
-      if (!res.value) {
-        throw new Error(`Failed to load address lookup table ${lookup.accountKey.toBase58()}.`);
-      }
-      altAccounts.push(res.value);
-    }
+    const altAccounts = await loadAltAccountsForVtx(connection, vtx);
     const decompiled = TransactionMessage.decompile(vtx.message, {
       addressLookupTableAccounts: altAccounts,
     });
     decompiled.recentBlockhash = blockhash;
-    return new VersionedTransaction(decompiled.compileToV0Message(altAccounts));
+    const prepared = new VersionedTransaction(decompiled.compileToV0Message(altAccounts));
+    return augmentPreparedTx(prepared, altAccounts);
   }
 
   vtx.message.recentBlockhash = blockhash;
-  return vtx;
+  return augmentPreparedTx(vtx, []);
+}
+
+async function prepareSwapTxsForSigning(
+  txStrings: string[],
+  options?: { routeHopCount?: number; feeMultiplier?: bigint },
+): Promise<VersionedTransaction[]> {
+  const txs = txStrings.map((t) => t.trim()).filter(Boolean);
+  if (txs.length === 0) return [];
+  const routeHopCount = options?.routeHopCount ?? 0;
+  const feeMultiplier =
+    options?.feeMultiplier ??
+    resolveFrontendNetworkFeeMultiplier({ routeHopCount, txCount: txs.length });
+  const connection = getBrowserConnection();
+
+  return Promise.all(
+    txs.map(async (txString, legIndex) => {
+      const injectComputeBudget = shouldInjectComputeBudgetForSwapLeg({
+        routeHopCount,
+        txCount: txs.length,
+        legIndex,
+      });
+      let targetNetworkFeeLamports: string | undefined;
+      if (injectComputeBudget) {
+        try {
+          const estimated = await estimateNetworkFeeLamportsForSwapTx(connection, txString, {
+            feeMultiplier,
+            routeHopCount,
+          });
+          if (estimated) targetNetworkFeeLamports = estimated;
+        } catch {
+          /* fall through to floor */
+        }
+      }
+      if (!targetNetworkFeeLamports && injectComputeBudget && routeHopCount >= 2) {
+        targetNetworkFeeLamports = FRONTEND_MULTI_HOP_MIN_NETWORK_FEE_LAMPORTS.toString();
+      }
+      return prepareSwapTxForSigning(txString, {
+        targetNetworkFeeLamports,
+        injectComputeBudget,
+      });
+    }),
+  );
 }
 
 /** Sign one or more swap legs; multi-hop routes use signAllTransactions then send in order. */
