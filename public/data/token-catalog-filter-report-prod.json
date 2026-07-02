@@ -1,0 +1,1060 @@
+{
+  "filteredAt": "2026-07-02T02:42:16.281Z",
+  "api": "https://solana-swap-api.vybenetwork.com",
+  "testedCount": 101,
+  "keptCount": 86,
+  "removedCount": 15,
+  "localBaseline": {
+    "keptCount": 89,
+    "removedCount": 13,
+    "api": "http://127.0.0. ${new Date().toISOString()}"
+  },
+  "rows": [
+    {
+      "symbol": "USDC",
+      "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "782799"
+    },
+    {
+      "symbol": "USDT",
+      "mint": "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "783650"
+    },
+    {
+      "symbol": "cbBTC",
+      "mint": "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "1298"
+    },
+    {
+      "symbol": "jlUSDC",
+      "mint": "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D",
+      "ok": false,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "SPCX",
+      "mint": "SPCXxcqXj6e5dJDVNovHN8744zkbhM2bYudU45BimGb",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "4911"
+    },
+    {
+      "symbol": "PYUSD",
+      "mint": "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+      "ok": false,
+      "reason": "No direct or 2 hop pools found for this pair",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "USD1",
+      "mint": "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "782667"
+    },
+    {
+      "symbol": "HYPE",
+      "mint": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "12435321"
+    },
+    {
+      "symbol": "ANSEM",
+      "mint": "9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "4706484"
+    },
+    {
+      "symbol": "SNDK",
+      "mint": "SNDKbwMUQvZhnLnxLduradgLHG5KrPuKwpnrkkGRhfH",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "380"
+    },
+    {
+      "symbol": "MU",
+      "mint": "MUxEsUKSMACyw5fZf68wxf5FLnZVhtU9CwH8uNNGay1",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "745"
+    },
+    {
+      "symbol": "JupUSD",
+      "mint": "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "777866"
+    },
+    {
+      "symbol": "ETH",
+      "mint": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "48260"
+    },
+    {
+      "symbol": "USDG",
+      "mint": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "780925"
+    },
+    {
+      "symbol": "PUMP",
+      "mint": "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "550260908"
+    },
+    {
+      "symbol": "ZEC",
+      "mint": "A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "186105"
+    },
+    {
+      "symbol": "JitoSOL",
+      "mint": "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "7764850"
+    },
+    {
+      "symbol": "JUP",
+      "mint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "3296286"
+    },
+    {
+      "symbol": "Fartcoin",
+      "mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "5628744"
+    },
+    {
+      "symbol": "CASH",
+      "mint": "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH",
+      "ok": false,
+      "reason": "No enough initialized tickArray",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "MET",
+      "mint": "METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "4218300"
+    },
+    {
+      "symbol": "JLP",
+      "mint": "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "217776"
+    },
+    {
+      "symbol": "WBTC",
+      "mint": "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "1299"
+    },
+    {
+      "symbol": "CARDS",
+      "mint": "CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "3560320"
+    },
+    {
+      "symbol": "TRUMP",
+      "mint": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "461143"
+    },
+    {
+      "symbol": "syrupUSDC",
+      "mint": "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj",
+      "ok": false,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "DRAM",
+      "mint": "DRAMjSWR7HRfJKjRkvQWYL2bcaejaVhuxEcjf4pAY4Cw",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "11793"
+    },
+    {
+      "symbol": "CRCLx",
+      "mint": "XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "1237871"
+    },
+    {
+      "symbol": "USDS",
+      "mint": "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "782775"
+    },
+    {
+      "symbol": "JUICED",
+      "mint": "7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk",
+      "ok": false,
+      "reason": "single-hop simulation failed: {\"InstructionError\":[4,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "MITCH",
+      "mint": "FDEF2U9geiWS7sdGPCUo2r1wGswkJr2mmVTECiH6pump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "248047990"
+    },
+    {
+      "symbol": "JupSOL",
+      "mint": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "8369482"
+    },
+    {
+      "symbol": "Jotchua",
+      "mint": "BcHEaaTCvycPwwsJ9yQTXdHP9X2gCLkznDbZ8VySpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "72781353"
+    },
+    {
+      "symbol": "PRIME",
+      "mint": "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
+      "ok": false,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "USELESS",
+      "mint": "Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "9627434"
+    },
+    {
+      "symbol": "SPCXx",
+      "mint": "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "487769"
+    },
+    {
+      "symbol": "EURC",
+      "mint": "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "687932"
+    },
+    {
+      "symbol": "KINS",
+      "mint": "Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "57205570"
+    },
+    {
+      "symbol": "NVDAx",
+      "mint": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "393176"
+    },
+    {
+      "symbol": "ONyc",
+      "mint": "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5",
+      "ok": false,
+      "reason": "single-hop simulation failed: {\"InstructionError\":[4,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "PENGU",
+      "mint": "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "125999994"
+    },
+    {
+      "symbol": "TSLAx",
+      "mint": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "184438"
+    },
+    {
+      "symbol": "SPCX69",
+      "mint": "SPCXwBHVrKpRqMRawL3NNvt1sXP2Yf3edwRbta53N69",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "184847015"
+    },
+    {
+      "symbol": "CATWIF",
+      "mint": "5pYB12kEhfhSFXJjZ7JtyqDpt6uUqhsF6iu6Ee9spump",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "716242197"
+    },
+    {
+      "symbol": "mSOL",
+      "mint": "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "7201262"
+    },
+    {
+      "symbol": "RAY",
+      "mint": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "1200480"
+    },
+    {
+      "symbol": "jlWSOL",
+      "mint": "2uQsyo1fXXQkDtcpXnLofWy88PxcvnfH2L8FPSE62FVU",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "9655273"
+    },
+    {
+      "symbol": "NEST",
+      "mint": "68Nq68CrtLVpyvK5Un7UADiNczaGf39hBbj3diRsYj6D",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "54253694111"
+    },
+    {
+      "symbol": "TROLL",
+      "mint": "5UUH9RTDiSpq6HKS6bp4NdU9PNJpXRXuiw6ShBTBhgH2",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "12408295"
+    },
+    {
+      "symbol": "SPYx",
+      "mint": "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "103817"
+    },
+    {
+      "symbol": "BP",
+      "mint": "BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "1268310956"
+    },
+    {
+      "symbol": "JTO",
+      "mint": "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "988606980"
+    },
+    {
+      "symbol": "TripleT",
+      "mint": "J8PSdNP3QewKq2Z1JJJFDMaqF7KcaiJhR7gbr5KZpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "57838580"
+    },
+    {
+      "symbol": "MSTRx",
+      "mint": "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "816625"
+    },
+    {
+      "symbol": "hyUSD",
+      "mint": "5YMkXAYccHSGnHn9nob9xEvv6Pvka9DZWH7nTbotTu9E",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "778219"
+    },
+    {
+      "symbol": "USDe",
+      "mint": "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT",
+      "ok": false,
+      "reason": "No direct or 2 hop pools found for this pair",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "xBTC",
+      "mint": "CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn",
+      "ok": false,
+      "reason": "Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "PYTH",
+      "mint": "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "19817290"
+    },
+    {
+      "symbol": "MANIFEST",
+      "mint": "BCdwQBAn8dYB5YjTsoB6TdHAWokxv28k2oZUodERpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "42360493"
+    },
+    {
+      "symbol": "USX",
+      "mint": "6FrrzDk5mQARGc1TDYoyVnSyRdds1t4PbtohCD6p3tgG",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "778938"
+    },
+    {
+      "symbol": "jlUSDG",
+      "mint": "9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif",
+      "ok": false,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "BIRB",
+      "mint": "G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "12719308"
+    },
+    {
+      "symbol": "TOESCOIN",
+      "mint": "6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "77341274"
+    },
+    {
+      "symbol": "Bonk",
+      "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "18249286267"
+    },
+    {
+      "symbol": "NBISon",
+      "mint": "DiRshqNDE68bWbGdLHm1GwQ76MvWQG3af6w1NdQondo",
+      "ok": false,
+      "reason": "No direct or 2 hop pools found for this pair",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "TRX",
+      "mint": "GbbesPbaYh5uiAZSYNXTc7w9jty1rpg3P9L4JeN4LkKc",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "2461058"
+    },
+    {
+      "symbol": "SOLANGELES",
+      "mint": "8wxkvAfEns76yBzu4MnbV7VnXWjg3iDPA9uwAQ6cpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "148165898"
+    },
+    {
+      "symbol": "Buttcoin",
+      "mint": "Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "51339041"
+    },
+    {
+      "symbol": "ORCA",
+      "mint": "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "648790"
+    },
+    {
+      "symbol": "drooling",
+      "mint": "B6f27ETGcjgGNB1fqULJbXVmw9FnL8HgBp7R83hmpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "398699293"
+    },
+    {
+      "symbol": "PST",
+      "mint": "59obFNBzyTBGowrkif5uK7ojS58vsuWz3ZCvg6tfZAGw",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "699275"
+    },
+    {
+      "symbol": "KMNO",
+      "mint": "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "39109070"
+    },
+    {
+      "symbol": "$WIF",
+      "mint": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "4590331"
+    },
+    {
+      "symbol": "tSpaceX",
+      "mint": "TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v",
+      "ok": false,
+      "reason": "single-hop simulation failed: {\"InstructionError\":[4,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "QQQx",
+      "mint": "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "106947"
+    },
+    {
+      "symbol": "SLX",
+      "mint": "SLXdx4BUt2v9uJQNzWqSfzTJ9UKLUDsvxHFMEEdrfgq",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "1538465"
+    },
+    {
+      "symbol": "arc",
+      "mint": "61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "9365705"
+    },
+    {
+      "symbol": "DONT",
+      "mint": "FbmmdcCYHL7WETG89xtWmNFMzQAaQ8Zs9NXVbimibonk",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "246902158324"
+    },
+    {
+      "symbol": "SPX",
+      "mint": "J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "215071520"
+    },
+    {
+      "symbol": "WIF2",
+      "mint": "HRJLkc6vDysVHdrUpCsQ5EBx6fPM15TZRKAhfUBnpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "1661397071"
+    },
+    {
+      "symbol": "GRASS",
+      "mint": "Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "1611001901"
+    },
+    {
+      "symbol": "WET",
+      "mint": "WETZjtprkDMCcUxPi9PfWnowMRZkiGGHDb9rABuRZ2U",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "12251173"
+    },
+    {
+      "symbol": "ARX",
+      "mint": "ARXwZkNAtzPfdcoqQiduJn8EPv9fKiDfGn2KyggyDrFs",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "3557127872"
+    },
+    {
+      "symbol": "bbSOL",
+      "mint": "Bybit2vBJGhPF52GBdNaQfUJ6ZpThSgHBobjWZpLPb4B",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "8629842"
+    },
+    {
+      "symbol": "three",
+      "mint": "FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "336383201"
+    },
+    {
+      "symbol": "PAXG",
+      "mint": "5GgRAEmv8ZxF2PR5hY72Qs5x1bnQ6UK2RbTPoqJ3wSwW",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "191"
+    },
+    {
+      "symbol": "ZEREBRO",
+      "mint": "8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "19947345"
+    },
+    {
+      "symbol": "hSOL",
+      "mint": "he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A",
+      "ok": false,
+      "reason": "Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "neet",
+      "mint": "Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "34580683"
+    },
+    {
+      "symbol": "jlUSDT",
+      "mint": "Cmn4v2wipYV41dkakDvCgFJpxhtaaKt11NyWV8pjSE8A",
+      "ok": false,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "jellyjelly",
+      "mint": "FeR8VBqNRSUD5NtXAj2n3j1dAHkZHfyDktKuLXD4pump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "13069021"
+    },
+    {
+      "symbol": "pippin",
+      "mint": "Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "44643359"
+    },
+    {
+      "symbol": "ZINC",
+      "mint": "zinc155BS4mSPk8GXQj4R5hkVDQXcW253pTYq5SGyfi",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "106881457"
+    },
+    {
+      "symbol": "tOpenAI",
+      "mint": "oPAiAikWTaFj9RYoRFD35ccfwhnMcB3ThgBZRHSkjTZ",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "971916"
+    },
+    {
+      "symbol": "COINx",
+      "mint": "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "482503"
+    },
+    {
+      "symbol": "XAUt0",
+      "mint": "AymATz4TCL9sWNEEV9Kvyz45CHVhDZ6kUgjTJPzLpU9P",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "186"
+    },
+    {
+      "symbol": "jlUSDS",
+      "mint": "j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh",
+      "ok": false,
+      "reason": "Invalid tick array",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "SLVon",
+      "mint": "iy11ytbSGcUnrjE6Lfv78TFqxKyUESfku1FugS9ondo",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "12832014"
+    },
+    {
+      "symbol": "tKalshi",
+      "mint": "TKLSidmLVt3cqGaaodG8tyRzoANfQwoh67AccjmubeZ",
+      "ok": true,
+      "reason": null,
+      "hops": 2,
+      "simOk": null,
+      "outAmount": "1711015"
+    },
+    {
+      "symbol": "testicle",
+      "mint": "4TyZGqRLG3VcHTGMcLBoPUmqYitMVojXinAmkL8xpump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "177927464"
+    },
+    {
+      "symbol": "Goblin",
+      "mint": "3KHMZhpthXuiCcgfTv7vVu9PpEz64KAEURFwi6Lopump",
+      "ok": true,
+      "reason": null,
+      "hops": 1,
+      "simOk": null,
+      "outAmount": "1038920789"
+    }
+  ],
+  "failures": [
+    {
+      "symbol": "jlUSDC",
+      "mint": "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D",
+      "ok": false,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "PYUSD",
+      "mint": "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+      "ok": false,
+      "reason": "No direct or 2 hop pools found for this pair",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "CASH",
+      "mint": "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH",
+      "ok": false,
+      "reason": "No enough initialized tickArray",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "syrupUSDC",
+      "mint": "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj",
+      "ok": false,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "JUICED",
+      "mint": "7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk",
+      "ok": false,
+      "reason": "single-hop simulation failed: {\"InstructionError\":[4,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "PRIME",
+      "mint": "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
+      "ok": false,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "ONyc",
+      "mint": "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5",
+      "ok": false,
+      "reason": "single-hop simulation failed: {\"InstructionError\":[4,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "USDe",
+      "mint": "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT",
+      "ok": false,
+      "reason": "No direct or 2 hop pools found for this pair",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "xBTC",
+      "mint": "CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn",
+      "ok": false,
+      "reason": "Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "jlUSDG",
+      "mint": "9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif",
+      "ok": false,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "NBISon",
+      "mint": "DiRshqNDE68bWbGdLHm1GwQ76MvWQG3af6w1NdQondo",
+      "ok": false,
+      "reason": "No direct or 2 hop pools found for this pair",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "tSpaceX",
+      "mint": "TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v",
+      "ok": false,
+      "reason": "single-hop simulation failed: {\"InstructionError\":[4,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "hSOL",
+      "mint": "he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A",
+      "ok": false,
+      "reason": "Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "jlUSDT",
+      "mint": "Cmn4v2wipYV41dkakDvCgFJpxhtaaKt11NyWV8pjSE8A",
+      "ok": false,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    },
+    {
+      "symbol": "jlUSDS",
+      "mint": "j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh",
+      "ok": false,
+      "reason": "Invalid tick array",
+      "hops": null,
+      "simOk": null,
+      "outAmount": null
+    }
+  ]
+}
