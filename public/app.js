@@ -29570,16 +29570,17 @@ function clearActiveRouterQuoteUiIfNoCache(router) {
 }
 function quoteAffectingBuildOptsSnapshot(buildOpts) {
   const poolPinned = String(buildOpts.poolAddress ?? "").trim().length > 0;
-  const multiHopPinned = poolPinned && buildOpts.enumerateRoutes === true;
+  const multiHopEnumerated = !poolPinned && buildOpts.enumerateRoutes === true && isSelectedVybeMultiHopMarket();
   return {
     slippage: buildOpts.slippage,
     gasless: buildOpts.gasless,
     autoCalculateSlippage: buildOpts.autoCalculateSlippage,
     partner: buildOpts.partner,
     swapFee: buildOpts.swapFee,
-    marketFetchMode: multiHopPinned ? buildOpts.marketFetchMode : poolPinned ? void 0 : buildOpts.marketFetchMode,
-    enumerateRoutes: multiHopPinned ? true : poolPinned ? false : buildOpts.enumerateRoutes,
-    router: buildOpts.router
+    marketFetchMode: multiHopEnumerated || !poolPinned ? buildOpts.marketFetchMode : void 0,
+    enumerateRoutes: multiHopEnumerated ? true : poolPinned ? false : buildOpts.enumerateRoutes,
+    router: buildOpts.router,
+    ...multiHopEnumerated ? { routeIndex: enumeratedRoutesUiState?.selectedIndex ?? 0 } : {}
   };
 }
 function currentSwapQuoteTrackingKey() {
@@ -29647,7 +29648,7 @@ function needsQuoteRefetchBeforeBuild() {
 async function refetchSwapQuoteBeforeBuild(wallet, inputMint, outputMint, amount, buildOpts) {
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   const pinnedOpts = mergeSelectedRoutePinIntoBuildOpts(buildOpts);
-  if (enumeratedRoutesUiState?.routes.length && !String(pinnedOpts.poolAddress ?? "").trim()) {
+  if (enumeratedRoutesUiState?.routes.length && !selectedRoutePinFields()) {
     throw new Error("Select a route market before refetching the quote.");
   }
   const quoteAmount = typeof pinnedOpts.amount === "number" && Number.isFinite(pinnedOpts.amount) ? pinnedOpts.amount : amount;
@@ -33073,10 +33074,10 @@ async function refreshSelectedRouteQuote(wallet, inputMint, outputMint, amount) 
   applyQuoteLoadingUi();
   try {
     const buildOpts = collectSwapBuildOptions();
-    const pinnedOpts = mergeSelectedRoutePinIntoBuildOpts(buildOpts);
-    if (!String(pinnedOpts.poolAddress ?? "").trim()) {
+    if (enumeratedRoutesUiState?.routes.length && !selectedRoutePinFields()) {
       throw new Error("Select a route market before refreshing the quote.");
     }
+    const pinnedOpts = mergeSelectedRoutePinIntoBuildOpts(buildOpts);
     const quoteAmount = typeof pinnedOpts.amount === "number" && Number.isFinite(pinnedOpts.amount) ? pinnedOpts.amount : amount;
     void refreshLowSolTradeWarning();
     const priceStats = await resolvePairTokenPrices(inputMint, outputMint, [inputMint, outputMint]);
@@ -33906,12 +33907,24 @@ function isSelectedVybeMultiHopMarket() {
 function mergeSelectedRoutePinIntoBuildOpts(opts) {
   const pin = selectedRoutePinFields();
   if (!pin) return opts;
-  const multiHop = isSelectedVybeMultiHopMarket();
+  if (isSelectedVybeMultiHopMarket()) {
+    const {
+      poolAddress: _poolAddress,
+      programAddress: _programAddress,
+      protocol: _protocol,
+      ...rest
+    } = opts;
+    return {
+      ...rest,
+      marketFetchMode: opts.marketFetchMode ?? MARKET_FETCH_MODE,
+      enumerateRoutes: true
+    };
+  }
   const next = {
     ...opts,
     poolAddress: pin.poolAddress,
-    marketFetchMode: multiHop ? opts.marketFetchMode ?? MARKET_FETCH_MODE : void 0,
-    enumerateRoutes: multiHop ? true : false
+    marketFetchMode: void 0,
+    enumerateRoutes: false
   };
   if (pin.programAddress) next.programAddress = pin.programAddress;
   if (pin.protocol) next.protocol = pin.protocol;

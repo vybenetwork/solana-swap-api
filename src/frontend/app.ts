@@ -2291,16 +2291,20 @@ function clearActiveRouterQuoteUiIfNoCache(router: SwapRouterId): void {
 
 function quoteAffectingBuildOptsSnapshot(buildOpts: Record<string, unknown>): Record<string, unknown> {
   const poolPinned = String(buildOpts.poolAddress ?? '').trim().length > 0;
-  const multiHopPinned = poolPinned && buildOpts.enumerateRoutes === true;
+  const multiHopEnumerated =
+    !poolPinned && buildOpts.enumerateRoutes === true && isSelectedVybeMultiHopMarket();
   return {
     slippage: buildOpts.slippage,
     gasless: buildOpts.gasless,
     autoCalculateSlippage: buildOpts.autoCalculateSlippage,
     partner: buildOpts.partner,
     swapFee: buildOpts.swapFee,
-    marketFetchMode: multiHopPinned ? buildOpts.marketFetchMode : poolPinned ? undefined : buildOpts.marketFetchMode,
-    enumerateRoutes: multiHopPinned ? true : poolPinned ? false : buildOpts.enumerateRoutes,
+    marketFetchMode: multiHopEnumerated || !poolPinned ? buildOpts.marketFetchMode : undefined,
+    enumerateRoutes: multiHopEnumerated ? true : poolPinned ? false : buildOpts.enumerateRoutes,
     router: buildOpts.router,
+    ...(multiHopEnumerated
+      ? { routeIndex: enumeratedRoutesUiState?.selectedIndex ?? 0 }
+      : {}),
   };
 }
 
@@ -2396,7 +2400,7 @@ async function refetchSwapQuoteBeforeBuild(
 ): Promise<void> {
   const router = normalizeRouterId(buildOpts.router ?? getSwapRouter());
   const pinnedOpts = mergeSelectedRoutePinIntoBuildOpts(buildOpts);
-  if (enumeratedRoutesUiState?.routes.length && !String(pinnedOpts.poolAddress ?? '').trim()) {
+  if (enumeratedRoutesUiState?.routes.length && !selectedRoutePinFields()) {
     throw new Error('Select a route market before refetching the quote.');
   }
   const quoteAmount =
@@ -6887,10 +6891,10 @@ async function refreshSelectedRouteQuote(
 
   try {
     const buildOpts = collectSwapBuildOptions();
-    const pinnedOpts = mergeSelectedRoutePinIntoBuildOpts(buildOpts);
-    if (!String(pinnedOpts.poolAddress ?? '').trim()) {
+    if (enumeratedRoutesUiState?.routes.length && !selectedRoutePinFields()) {
       throw new Error('Select a route market before refreshing the quote.');
     }
+    const pinnedOpts = mergeSelectedRoutePinIntoBuildOpts(buildOpts);
     const quoteAmount =
       typeof pinnedOpts.amount === 'number' && Number.isFinite(pinnedOpts.amount)
         ? pinnedOpts.amount
@@ -7950,12 +7954,25 @@ function isSelectedVybeMultiHopMarket(): boolean {
 function mergeSelectedRoutePinIntoBuildOpts(opts: Record<string, unknown>): Record<string, unknown> {
   const pin = selectedRoutePinFields();
   if (!pin) return opts;
-  const multiHop = isSelectedVybeMultiHopMarket();
+  if (isSelectedVybeMultiHopMarket()) {
+    // Atomic quote-bridge: leg-2 pool/program pins disable ix-builder enumeration.
+    const {
+      poolAddress: _poolAddress,
+      programAddress: _programAddress,
+      protocol: _protocol,
+      ...rest
+    } = opts;
+    return {
+      ...rest,
+      marketFetchMode: opts.marketFetchMode ?? MARKET_FETCH_MODE,
+      enumerateRoutes: true,
+    };
+  }
   const next: Record<string, unknown> = {
     ...opts,
     poolAddress: pin.poolAddress,
-    marketFetchMode: multiHop ? (opts.marketFetchMode ?? MARKET_FETCH_MODE) : undefined,
-    enumerateRoutes: multiHop ? true : false,
+    marketFetchMode: undefined,
+    enumerateRoutes: false,
   };
   if (pin.programAddress) next.programAddress = pin.programAddress;
   if (pin.protocol) next.protocol = pin.protocol;
