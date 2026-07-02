@@ -10,6 +10,9 @@
  *   npm run filter:catalog
  *   SWAP_API=http://127.0.0.1:3007 npm run filter:catalog
  *   CATALOG_FILTER_RESET_DENYLIST=1 npm run filter:catalog   # re-test all mints
+ *   CATALOG_FILTER_SOLSCAN=0 npm run filter:catalog          # skip Solscan scrape
+ *   CATALOG_FILTER_JUPITER=0 npm run filter:catalog          # only tokens already in catalog
+ *   CATALOG_FILTER_SKIP_DENYLIST=1 npm run filter:catalog     # skip re-testing denylisted mints
  */
 import fs from 'fs';
 import path from 'path';
@@ -21,19 +24,31 @@ import {
   mergeExcludedCatalog,
   saveExcludedCatalog,
 } from './token-catalog-excluded.mjs';
+import { fetchSolscanMarketsForToken } from './lib/fetch-solscan-markets.mjs';
+import { fetchJupiterTopTokens, JUPITER_LIMIT, mergeCatalogWithJupiter } from './lib/jupiter-catalog.mjs';
+import {
+  compareRouteToSolscan,
+  extractSelectedRoute,
+} from './lib/swap-api-quote-lib.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(__dirname, '..', 'public', 'data');
 const CATALOG_JSON = path.join(OUT_DIR, 'token-catalog.json');
 const CATALOG_TSV = path.join(OUT_DIR, 'token-catalog.tsv');
 const DEBUG_FAILURES_TSV = path.join(OUT_DIR, 'token-catalog-filter-failures.tsv');
+const FILTER_REPORT_JSON = path.join(OUT_DIR, 'token-catalog-filter-report.json');
 
 const API = (process.env.SWAP_API || 'http://127.0.0.1:3007').replace(/\/$/, '');
 const WALLET =
   process.env.CATALOG_FILTER_WALLET?.trim() || '7Tar8QZTrRPwoGY5Ke9Vfwf6CmpBfekrNofERxgReza';
 const SOL_AMOUNT = Number(process.env.CATALOG_FILTER_SOL_AMOUNT || 0.01);
-const CONCURRENCY = Math.max(1, Number(process.env.CATALOG_FILTER_CONCURRENCY || 4));
+const SOLSCAN_ENABLED = process.env.CATALOG_FILTER_SOLSCAN !== '0';
+const CONCURRENCY = SOLSCAN_ENABLED
+  ? 1
+  : Math.max(1, Number(process.env.CATALOG_FILTER_CONCURRENCY || 1));
 const MAX_HOPS = Math.max(1, Number(process.env.CATALOG_FILTER_MAX_HOPS || 2));
+const INCLUDE_JUPITER = process.env.CATALOG_FILTER_JUPITER !== '0';
+const RETEST_DENYLISTED = process.env.CATALOG_FILTER_SKIP_DENYLIST !== '1';
 
 const NATIVE_SOL_MINT = '11111111111111111111111111111111';
 const WSOL_MINT = 'So11111111111111111111111111111111111111112';
@@ -177,6 +192,8 @@ async function waitForSwapApi(maxSec = 90) {
   const deadline = Date.now() + maxSec * 1000;
   while (Date.now() < deadline) {
     try {
+      const root = await fetch(`${API}/`, { signal: AbortSignal.timeout(5_000) });
+      if (!root.ok) throw new Error(`HTTP ${root.status}`);
       const priceHints = await resolvePricesForPair('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263');
       const res = await fetch(`${API}/api/trading/vybe-quote`, {
         method: 'POST',
@@ -184,16 +201,26 @@ async function waitForSwapApi(maxSec = 90) {
         body: JSON.stringify(
           buildFrontendVybeQuoteBody('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', priceHints, 5),
         ),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(120_000),
       });
       const body = await res.json().catch(() => ({}));
-      if (res.ok && body?.outAmount) return;
-    } catch {
-      /* retry */
+      const outAmount =
+        body?.outAmount ??
+        body?._build?.details?.quote?.outAmount ??
+        body?._build?.enrichment?.quotedOutRaw;
+      if (res.ok && outAmount) return;
+      if (!res.ok) {
+        console.warn(`swap-api probe: HTTP ${res.status} — ${body?.error ?? 'no error body'}`);
+      }
+    } catch (err) {
+      console.warn(`swap-api probe: ${err instanceof Error ? err.message : String(err)}`);
     }
     await new Promise((r) => setTimeout(r, 2000));
   }
-  throw new Error(`swap-api not ready at ${API} — start ix-builder :8000, Rust :8090, swap-api :3007`);
+  throw new Error(
+    `swap-api not ready at ${API} — need swap-api :3007, Rust Vybe :8090, ix-builder :8000. ` +
+      `Set VYBE_API_BASE=http://127.0.0.1:8090 and your 48-char staging VYBE_API_KEY in .env.`,
+  );
 }
 
 function escTsv(v) {
@@ -287,9 +314,49 @@ async function mapPool(items, worker) {
 }
 
 function writeDebugFailuresList(removed, filteredAt) {
-  const header = `# SOL-buy filter failures — debug list\n# Filtered: ${filteredAt}\n# Quote: token-balances + resolve-prices → vybe-quote\n# Columns: mint\tsymbol\treason\n`;
-  const rows = removed.map((r) => [r.mint, r.symbol ?? '', r.reason].map(escTsv).join('\t'));
+  const header =
+    `# SOL-buy filter failures — debug list\n` +
+    `# Filtered: ${filteredAt}\n` +
+    `# Quote: token-balances + resolve-prices → vybe-quote` +
+    (SOLSCAN_ENABLED ? ' + Solscan #markets (TVL top 100)' : '') +
+    `\n# Columns: mint\tsymbol\treason\tsolscanEligible\tsolPairEligible\teligibleRank\teligibleTotal\tselectedTvlUsd\tassessment\n`;
+  const rows = removed.map((r) =>
+    [
+      r.mint,
+      r.symbol ?? '',
+      r.reason,
+      r.solscanEligible ?? '',
+      r.solPairEligible ?? '',
+      r.eligibleRank ?? '',
+      r.eligibleTotal ?? '',
+      r.selectedTvlUsd ?? '',
+      r.routeAssessment ?? '',
+    ]
+      .map(escTsv)
+      .join('\t'),
+  );
   fs.writeFileSync(DEBUG_FAILURES_TSV, `${header}${rows.join('\n')}\n`);
+}
+
+function writeFilterReport(report) {
+  fs.writeFileSync(FILTER_REPORT_JSON, `${JSON.stringify(report, null, 2)}\n`);
+}
+
+async function attachSolscanContext(token, quoteBody, verdict) {
+  if (!SOLSCAN_ENABLED) return { solscan: null, comparison: null };
+  const solscan = await fetchSolscanMarketsForToken({
+    mint: token.mint,
+    symbol: token.symbol,
+    catalogStatus: verdict.ok ? 'kept' : 'failed',
+    filterReason: verdict.ok ? null : verdict.reason,
+  });
+  const comparison = compareRouteToSolscan(extractSelectedRoute(quoteBody), solscan, token.mint, token.symbol);
+  return { solscan, comparison };
+}
+
+function solscanLogSuffix(comparison) {
+  if (!comparison?.assessmentDetail) return '';
+  return comparison.assessmentDetail;
 }
 
 function writeCatalog(catalog, meta) {
@@ -352,17 +419,35 @@ async function main() {
   }
 
   const catalog = JSON.parse(fs.readFileSync(CATALOG_JSON, 'utf8'));
-  const tokens = Array.isArray(catalog.tokens) ? catalog.tokens : [];
+  let tokens = Array.isArray(catalog.tokens) ? catalog.tokens : [];
   if (tokens.length === 0) throw new Error('Catalog has no tokens');
 
+  const catalogCount = tokens.length;
+  if (INCLUDE_JUPITER) {
+    console.log(`Fetching Jupiter top ${JUPITER_LIMIT}…`);
+    const jupiter = await fetchJupiterTopTokens();
+    tokens = mergeCatalogWithJupiter(tokens, jupiter);
+    const added = tokens.length - catalogCount;
+    console.log(
+      `Merged Jupiter ${jupiter.length} + catalog ${catalogCount} → ${tokens.length} token(s)` +
+        (added > 0 ? ` (+${added} not in catalog — includes previously filtered)` : ''),
+    );
+  }
+
   const denylisted = excludedMintSet();
-  const alreadyExcluded = tokens.filter((t) => denylisted.has(t.mint) && !SKIP_QUOTE_MINTS.has(t.mint));
+  const alreadyExcluded = RETEST_DENYLISTED
+    ? []
+    : tokens.filter((t) => denylisted.has(t.mint) && !SKIP_QUOTE_MINTS.has(t.mint));
   if (alreadyExcluded.length > 0) {
     console.log(`Removing ${alreadyExcluded.length} mint(s) already on denylist`);
   }
 
   const alwaysKeep = tokens.filter((t) => SKIP_QUOTE_MINTS.has(t.mint));
-  const toTest = tokens.filter((t) => !SKIP_QUOTE_MINTS.has(t.mint) && !denylisted.has(t.mint));
+  const toTest = tokens.filter((t) => {
+    if (SKIP_QUOTE_MINTS.has(t.mint)) return false;
+    if (!RETEST_DENYLISTED && denylisted.has(t.mint)) return false;
+    return true;
+  });
   const preRemoved = alreadyExcluded.map((t) => {
     const note = loadExcludedCatalog().entries[t.mint];
     return {
@@ -375,11 +460,19 @@ async function main() {
   console.log(`API ${API}`);
   console.log(`Wallet ${WALLET}`);
   console.log(`Denylist ${denylisted.size} mint(s) — ${EXCLUDED_JSON}`);
+  if (RETEST_DENYLISTED && denylisted.size > 0) {
+    const retest = toTest.filter((t) => denylisted.has(t.mint)).length;
+    if (retest > 0) console.log(`Re-testing ${retest} previously denylisted mint(s)`);
+  }
   console.log(`Queue ${toTest.length} SOL→token quotes @ ${SOL_AMOUNT} SOL (${CONCURRENCY} concurrent)`);
+  if (SOLSCAN_ENABLED) {
+    console.log(`Solscan: scrape #markets per token (serial — top 100 by TVL)`);
+  }
   console.log(`Always keep ${alwaysKeep.length} SOL/WSOL entries without quoting`);
 
   const removed = [...preRemoved];
   const kept = [...alwaysKeep];
+  const filterRows = [];
 
   let done = 0;
   const outcomes = await mapPool(toTest, async (token) => {
@@ -387,16 +480,56 @@ async function main() {
     try {
       const body = await fetchSolBuyQuote(token, walletItems);
       const verdict = quotePasses(body);
+      let solscan = null;
+      let comparison = null;
+      if (SOLSCAN_ENABLED) {
+        try {
+          ({ solscan, comparison } = await attachSolscanContext(token, body, verdict));
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          solscan = { error: msg };
+        }
+      }
       done++;
+      const solSuffix = solscanLogSuffix(comparison);
       if (verdict.ok) {
-        console.log(`[${done}/${toTest.length}] keep ${label} — ${verdict.hops} hop(s)`);
+        const routeNote = comparison?.assessmentDetail ?? '';
+        console.log(`[${done}/${toTest.length}] keep ${label} — ${verdict.hops} hop(s)${routeNote}`);
+        filterRows.push({
+          mint: token.mint,
+          symbol: token.symbol,
+          kept: true,
+          hops: verdict.hops,
+          reason: null,
+          solscanSummary: solscan?.summary ?? null,
+          comparison: comparison ?? null,
+        });
         return { token, keep: true };
       }
-      console.log(`[${done}/${toTest.length}] drop ${label} — ${verdict.reason}`);
+      console.log(`[${done}/${toTest.length}] drop ${label} — ${verdict.reason}${solSuffix}`);
+      const rank = comparison?.selectedEligibleRank;
       removed.push({
         mint: token.mint,
         symbol: token.symbol,
         reason: verdict.reason,
+        solscanEligible: comparison?.solscanEligibleCount ?? solscan?.summary?.eligibleCount ?? '',
+        solPairEligible: comparison?.solscanSolPairEligibleCount ?? solscan?.summary?.solPairEligibleCount ?? '',
+        eligibleRank: rank?.rank ?? '',
+        eligibleTotal: rank?.totalEligible ?? '',
+        selectedTvlUsd: rank?.tvlUsd ?? '',
+        routeAssessment: comparison?.assessment ?? '',
+      });
+      filterRows.push({
+        mint: token.mint,
+        symbol: token.symbol,
+        kept: false,
+        hops: countSwapHops(body),
+        reason: verdict.reason,
+        solscanSummary: solscan?.summary ?? null,
+        solscanUrl: solscan?.solscanUrl ?? null,
+        eligibleRanked: comparison?.eligibleRanked ?? null,
+        comparison: comparison ?? null,
+        solscanError: solscan?.error ?? null,
       });
       return { token, keep: false };
     } catch (err) {
@@ -404,6 +537,7 @@ async function main() {
       const reason = err instanceof Error ? err.message : String(err);
       console.log(`[${done}/${toTest.length}] drop ${label} — ${reason}`);
       removed.push({ mint: token.mint, symbol: token.symbol, reason });
+      filterRows.push({ mint: token.mint, symbol: token.symbol, kept: false, reason, error: reason });
       return { token, keep: false };
     }
   });
@@ -425,12 +559,27 @@ async function main() {
 
   writeCatalog({ ...catalog, tokens: orderedKept }, { filteredAt, removed, excludedTotal });
   writeDebugFailuresList(removed, filteredAt);
+  writeFilterReport({
+    filteredAt,
+    api: API,
+    solscanEnabled: SOLSCAN_ENABLED,
+    jupiterMerged: INCLUDE_JUPITER,
+    catalogCount,
+    mergedCount: tokens.length,
+    tokenCount: tokens.length,
+    testedCount: toTest.length,
+    keptCount: orderedKept.length,
+    removedCount: removed.length,
+    newlyFailedCount: newlyFailed.length,
+    rows: filterRows,
+  });
 
   console.log('');
   console.log(`Kept ${orderedKept.length}/${tokens.length} tokens`);
   console.log(`Removed ${removed.length} (${newlyFailed.length} new → denylist)`);
   console.log(`Denylist total: ${excludedTotal} mint(s) in ${EXCLUDED_JSON}`);
   console.log(`Wrote ${DEBUG_FAILURES_TSV}`);
+  if (SOLSCAN_ENABLED) console.log(`Wrote ${FILTER_REPORT_JSON}`);
   console.log(`Wrote ${CATALOG_JSON}`);
   console.log(`Wrote ${CATALOG_TSV}`);
 }

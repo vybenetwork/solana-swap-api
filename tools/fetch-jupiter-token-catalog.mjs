@@ -6,32 +6,14 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { fetchJupiterTopTokens, JUPITER_LIMIT, JUPITER_SOURCE } from './lib/jupiter-catalog.mjs';
 import { localizeCatalogIcons } from './token-icon-download.mjs';
 import { excludedMintSet, loadExcludedCatalog, saveExcludedCatalog } from './token-catalog-excluded.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = path.join(__dirname, '..', 'public', 'data');
-const SOURCE = 'https://datapi.jup.ag/v1/assets/search?query=&limit=100';
-const LIMIT = Number(process.env.JUP_CATALOG_LIMIT || 100);
-
-function stripPriceFields(token) {
-  return {
-    mint: token.id,
-    symbol: token.symbol,
-    name: token.name,
-    logoUrl: token.icon,
-    decimals: token.decimals,
-    tokenProgram: token.tokenProgram,
-    isVerified: token.isVerified,
-    organicScore: token.organicScore,
-    organicScoreLabel: token.organicScoreLabel,
-    tags: token.tags,
-    holderCount: token.holderCount,
-    issuer: token.issuer,
-    twitter: token.twitter,
-    website: token.website,
-  };
-}
+const SOURCE = JUPITER_SOURCE;
+const LIMIT = JUPITER_LIMIT;
 
 function token2022Tag(token) {
   const tp = token.tokenProgram || '';
@@ -50,13 +32,8 @@ async function main() {
     console.log('Reset denylist (CATALOG_FILTER_RESET_DENYLIST=1)');
   }
 
-  const res = await fetch(`${SOURCE.replace('limit=100', `limit=${LIMIT}`)}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const tokens = await res.json();
-  if (!Array.isArray(tokens)) throw new Error('Unexpected response');
-
   fs.mkdirSync(OUT_DIR, { recursive: true });
-  const stripped = tokens.map(stripPriceFields);
+  const stripped = await fetchJupiterTopTokens(LIMIT);
 
   const excluded = excludedMintSet();
   const excludedMeta = loadExcludedCatalog().entries;

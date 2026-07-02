@@ -1,15 +1,15 @@
 {
-  "filteredAt": "2026-07-02T02:30:21.561Z",
+  "filteredAt": "2026-07-02T09:01:34.950Z",
   "api": "http://127.0.0.1:3007",
   "solscanEnabled": false,
   "jupiterMerged": true,
-  "catalogCount": 81,
-  "mergedCount": 102,
-  "tokenCount": 102,
-  "testedCount": 101,
+  "catalogCount": 100,
+  "mergedCount": 101,
+  "tokenCount": 101,
+  "testedCount": 100,
   "keptCount": 89,
-  "removedCount": 13,
-  "newlyFailedCount": 13,
+  "removedCount": 12,
+  "newlyFailedCount": 12,
   "rows": [
     {
       "mint": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
@@ -30,11 +30,20 @@
       "comparison": null
     },
     {
-      "mint": "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
-      "symbol": "PYUSD",
+      "mint": "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij",
+      "symbol": "cbBTC",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D",
+      "symbol": "jlUSDC",
       "kept": false,
       "hops": null,
-      "reason": "No eligible pools found for this pair",
+      "reason": "swapCompute LiquidityInsufficient",
       "solscanSummary": null,
       "solscanUrl": null,
       "eligibleRanked": null,
@@ -42,10 +51,19 @@
       "solscanError": null
     },
     {
-      "mint": "cbbtcf3aa214zXHbiAZQwf4122FBYbraNdFqgw4iMij",
-      "symbol": "cbBTC",
+      "mint": "SPCXxcqXj6e5dJDVNovHN8744zkbhM2bYudU45BimGb",
+      "symbol": "SPCX",
       "kept": true,
       "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+      "symbol": "PYUSD",
+      "kept": true,
+      "hops": 2,
       "reason": null,
       "solscanSummary": null,
       "comparison": null
@@ -60,8 +78,8 @@
       "comparison": null
     },
     {
-      "mint": "SPCXxcqXj6e5dJDVNovHN8744zkbhM2bYudU45BimGb",
-      "symbol": "SPCX",
+      "mint": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+      "symbol": "HYPE",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -78,17 +96,8 @@
       "comparison": null
     },
     {
-      "mint": "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D",
-      "symbol": "jlUSDC",
-      "kept": true,
-      "hops": 2,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
-      "symbol": "HYPE",
+      "mint": "MUxEsUKSMACyw5fZf68wxf5FLnZVhtU9CwH8uNNGay1",
+      "symbol": "MU",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -96,8 +105,8 @@
       "comparison": null
     },
     {
-      "mint": "SNDKbwMUQvZhnLnxLduradgLHG5KrPuKwpnrkkGRhfH",
-      "symbol": "SNDK",
+      "mint": "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD",
+      "symbol": "JupUSD",
       "kept": true,
       "hops": 2,
       "reason": null,
@@ -105,8 +114,8 @@
       "comparison": null
     },
     {
-      "mint": "MUxEsUKSMACyw5fZf68wxf5FLnZVhtU9CwH8uNNGay1",
-      "symbol": "MU",
+      "mint": "SNDKbwMUQvZhnLnxLduradgLHG5KrPuKwpnrkkGRhfH",
+      "symbol": "SNDK",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -132,8 +141,8 @@
       "comparison": null
     },
     {
-      "mint": "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD",
-      "symbol": "JupUSD",
+      "mint": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+      "symbol": "USDG",
       "kept": true,
       "hops": 2,
       "reason": null,
@@ -150,10 +159,10 @@
       "comparison": null
     },
     {
-      "mint": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
-      "symbol": "USDG",
+      "mint": "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
+      "symbol": "JLP",
       "kept": true,
-      "hops": 2,
+      "hops": 1,
       "reason": null,
       "solscanSummary": null,
       "comparison": null
@@ -177,8 +186,8 @@
       "comparison": null
     },
     {
-      "mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
-      "symbol": "Fartcoin",
+      "mint": "METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL",
+      "symbol": "MET",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -188,36 +197,15 @@
     {
       "mint": "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH",
       "symbol": "CASH",
-      "kept": false,
-      "hops": null,
-      "reason": "No enumerated Vybe routes could be built for this pair",
-      "solscanSummary": null,
-      "solscanUrl": null,
-      "eligibleRanked": null,
-      "comparison": null,
-      "solscanError": null
-    },
-    {
-      "mint": "CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp",
-      "symbol": "CARDS",
       "kept": true,
-      "hops": 1,
+      "hops": 2,
       "reason": null,
       "solscanSummary": null,
       "comparison": null
     },
     {
-      "mint": "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
-      "symbol": "JLP",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL",
-      "symbol": "MET",
+      "mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
+      "symbol": "Fartcoin",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -229,6 +217,27 @@
       "symbol": "WBTC",
       "kept": true,
       "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj",
+      "symbol": "syrupUSDC",
+      "kept": false,
+      "hops": null,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[7,\"ProgramFailedToComplete\"]}",
+      "solscanSummary": null,
+      "solscanUrl": null,
+      "eligibleRanked": null,
+      "comparison": null,
+      "solscanError": null
+    },
+    {
+      "mint": "G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG",
+      "symbol": "BIRB",
+      "kept": true,
+      "hops": 2,
       "reason": null,
       "solscanSummary": null,
       "comparison": null
@@ -252,31 +261,10 @@
       "comparison": null
     },
     {
-      "mint": "XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1",
-      "symbol": "CRCLx",
+      "mint": "CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp",
+      "symbol": "CARDS",
       "kept": true,
       "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk",
-      "symbol": "JUICED",
-      "kept": false,
-      "hops": null,
-      "reason": "No enumerated Vybe routes could be built for this pair",
-      "solscanSummary": null,
-      "solscanUrl": null,
-      "eligibleRanked": null,
-      "comparison": null,
-      "solscanError": null
-    },
-    {
-      "mint": "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj",
-      "symbol": "syrupUSDC",
-      "kept": true,
-      "hops": 2,
       "reason": null,
       "solscanSummary": null,
       "comparison": null
@@ -291,6 +279,18 @@
       "comparison": null
     },
     {
+      "mint": "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
+      "symbol": "PRIME",
+      "kept": false,
+      "hops": null,
+      "reason": "Request timed out",
+      "solscanSummary": null,
+      "solscanUrl": null,
+      "eligibleRanked": null,
+      "comparison": null,
+      "solscanError": null
+    },
+    {
       "mint": "FDEF2U9geiWS7sdGPCUo2r1wGswkJr2mmVTECiH6pump",
       "symbol": "MITCH",
       "kept": true,
@@ -298,6 +298,18 @@
       "reason": null,
       "solscanSummary": null,
       "comparison": null
+    },
+    {
+      "mint": "7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk",
+      "symbol": "JUICED",
+      "kept": false,
+      "hops": null,
+      "reason": "No enough initialized tickArray",
+      "solscanSummary": null,
+      "solscanUrl": null,
+      "eligibleRanked": null,
+      "comparison": null,
+      "solscanError": null
     },
     {
       "mint": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
@@ -309,8 +321,8 @@
       "comparison": null
     },
     {
-      "mint": "BcHEaaTCvycPwwsJ9yQTXdHP9X2gCLkznDbZ8VySpump",
-      "symbol": "Jotchua",
+      "mint": "XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1",
+      "symbol": "CRCLx",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -318,35 +330,8 @@
       "comparison": null
     },
     {
-      "mint": "Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk",
-      "symbol": "USELESS",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
-      "symbol": "EURC",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8",
-      "symbol": "SPCXx",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
-      "symbol": "PRIME",
+      "mint": "5YMkXAYccHSGnHn9nob9xEvv6Pvka9DZWH7nTbotTu9E",
+      "symbol": "hyUSD",
       "kept": true,
       "hops": 2,
       "reason": null,
@@ -354,38 +339,8 @@
       "comparison": null
     },
     {
-      "mint": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
-      "symbol": "NVDAx",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5",
-      "symbol": "ONyc",
-      "kept": false,
-      "hops": null,
-      "reason": "No enumerated Vybe routes could be built for this pair",
-      "solscanSummary": null,
-      "solscanUrl": null,
-      "eligibleRanked": null,
-      "comparison": null,
-      "solscanError": null
-    },
-    {
-      "mint": "Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump",
-      "symbol": "KINS",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv",
-      "symbol": "PENGU",
+      "mint": "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+      "symbol": "EURC",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -402,8 +357,8 @@
       "comparison": null
     },
     {
-      "mint": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
-      "symbol": "TSLAx",
+      "mint": "BcHEaaTCvycPwwsJ9yQTXdHP9X2gCLkznDbZ8VySpump",
+      "symbol": "Jotchua",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -411,19 +366,10 @@
       "comparison": null
     },
     {
-      "mint": "5pYB12kEhfhSFXJjZ7JtyqDpt6uUqhsF6iu6Ee9spump",
-      "symbol": "CATWIF",
+      "mint": "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT",
+      "symbol": "USDe",
       "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
-      "symbol": "mSOL",
-      "kept": true,
-      "hops": 1,
+      "hops": 2,
       "reason": null,
       "solscanSummary": null,
       "comparison": null
@@ -438,8 +384,53 @@
       "comparison": null
     },
     {
-      "mint": "2uQsyo1fXXQkDtcpXnLofWy88PxcvnfH2L8FPSE62FVU",
-      "symbol": "jlWSOL",
+      "mint": "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8",
+      "symbol": "SPCXx",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk",
+      "symbol": "USELESS",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+      "symbol": "NVDAx",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump",
+      "symbol": "KINS",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+      "symbol": "TSLAx",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv",
+      "symbol": "PENGU",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -465,35 +456,8 @@
       "comparison": null
     },
     {
-      "mint": "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
-      "symbol": "JTO",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy",
-      "symbol": "BP",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
       "mint": "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",
       "symbol": "MSTRx",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "J8PSdNP3QewKq2Z1JJJFDMaqF7KcaiJhR7gbr5KZpump",
-      "symbol": "TripleT",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -510,11 +474,47 @@
       "comparison": null
     },
     {
+      "mint": "5pYB12kEhfhSFXJjZ7JtyqDpt6uUqhsF6iu6Ee9spump",
+      "symbol": "CATWIF",
+      "kept": true,
+      "hops": 2,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "J8PSdNP3QewKq2Z1JJJFDMaqF7KcaiJhR7gbr5KZpump",
+      "symbol": "TripleT",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+      "symbol": "mSOL",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy",
+      "symbol": "BP",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
       "mint": "CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn",
       "symbol": "xBTC",
       "kept": false,
       "hops": null,
-      "reason": "No enumerated Vybe routes could be built for this pair",
+      "reason": "Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote",
       "solscanSummary": null,
       "solscanUrl": null,
       "eligibleRanked": null,
@@ -522,16 +522,13 @@
       "solscanError": null
     },
     {
-      "mint": "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT",
-      "symbol": "USDe",
-      "kept": false,
-      "hops": null,
-      "reason": "No eligible pools found for this pair",
+      "mint": "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+      "symbol": "JTO",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
       "solscanSummary": null,
-      "solscanUrl": null,
-      "eligibleRanked": null,
-      "comparison": null,
-      "solscanError": null
+      "comparison": null
     },
     {
       "mint": "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
@@ -543,40 +540,16 @@
       "comparison": null
     },
     {
-      "mint": "BCdwQBAn8dYB5YjTsoB6TdHAWokxv28k2oZUodERpump",
-      "symbol": "MANIFEST",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "5YMkXAYccHSGnHn9nob9xEvv6Pvka9DZWH7nTbotTu9E",
-      "symbol": "hyUSD",
-      "kept": true,
-      "hops": 2,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
       "mint": "9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif",
       "symbol": "jlUSDG",
-      "kept": true,
-      "hops": 2,
-      "reason": null,
+      "kept": false,
+      "hops": null,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[5,\"ProgramFailedToComplete\"]}",
       "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump",
-      "symbol": "TOESCOIN",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
+      "solscanUrl": null,
+      "eligibleRanked": null,
+      "comparison": null,
+      "solscanError": null
     },
     {
       "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
@@ -588,29 +561,8 @@
       "comparison": null
     },
     {
-      "mint": "G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG",
-      "symbol": "BIRB",
-      "kept": false,
-      "hops": null,
-      "reason": "No enumerated Vybe routes could be built for this pair",
-      "solscanSummary": null,
-      "solscanUrl": null,
-      "eligibleRanked": null,
-      "comparison": null,
-      "solscanError": null
-    },
-    {
-      "mint": "6FrrzDk5mQARGc1TDYoyVnSyRdds1t4PbtohCD6p3tgG",
-      "symbol": "USX",
-      "kept": true,
-      "hops": 2,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump",
-      "symbol": "Buttcoin",
+      "mint": "6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump",
+      "symbol": "TOESCOIN",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -627,6 +579,45 @@
       "comparison": null
     },
     {
+      "mint": "DiRshqNDE68bWbGdLHm1GwQ76MvWQG3af6w1NdQondo",
+      "symbol": "NBISon",
+      "kept": false,
+      "hops": null,
+      "reason": "No direct or 2 hop pools found for this pair",
+      "solscanSummary": null,
+      "solscanUrl": null,
+      "eligibleRanked": null,
+      "comparison": null,
+      "solscanError": null
+    },
+    {
+      "mint": "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS",
+      "symbol": "KMNO",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "2uQsyo1fXXQkDtcpXnLofWy88PxcvnfH2L8FPSE62FVU",
+      "symbol": "jlWSOL",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "6FrrzDk5mQARGc1TDYoyVnSyRdds1t4PbtohCD6p3tgG",
+      "symbol": "USX",
+      "kept": true,
+      "hops": 2,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
       "mint": "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
       "symbol": "ORCA",
       "kept": true,
@@ -636,20 +627,8 @@
       "comparison": null
     },
     {
-      "mint": "DiRshqNDE68bWbGdLHm1GwQ76MvWQG3af6w1NdQondo",
-      "symbol": "NBISon",
-      "kept": false,
-      "hops": null,
-      "reason": "No eligible pools found for this pair",
-      "solscanSummary": null,
-      "solscanUrl": null,
-      "eligibleRanked": null,
-      "comparison": null,
-      "solscanError": null
-    },
-    {
-      "mint": "B6f27ETGcjgGNB1fqULJbXVmw9FnL8HgBp7R83hmpump",
-      "symbol": "drooling",
+      "mint": "BCdwQBAn8dYB5YjTsoB6TdHAWokxv28k2oZUodERpump",
+      "symbol": "MANIFEST",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -666,8 +645,80 @@
       "comparison": null
     },
     {
-      "mint": "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS",
-      "symbol": "KMNO",
+      "mint": "B6f27ETGcjgGNB1fqULJbXVmw9FnL8HgBp7R83hmpump",
+      "symbol": "drooling",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump",
+      "symbol": "Buttcoin",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5",
+      "symbol": "ONyc",
+      "kept": false,
+      "hops": null,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[5,\"ProgramFailedToComplete\"]}",
+      "solscanSummary": null,
+      "solscanUrl": null,
+      "eligibleRanked": null,
+      "comparison": null,
+      "solscanError": null
+    },
+    {
+      "mint": "xSoL18r4U1k2ALa4yF857VDZJqCKecLtty92nscre3o",
+      "symbol": "xSHIN",
+      "kept": false,
+      "hops": null,
+      "reason": "No direct or 2 hop pools found for this pair",
+      "solscanSummary": null,
+      "solscanUrl": null,
+      "eligibleRanked": null,
+      "comparison": null,
+      "solscanError": null
+    },
+    {
+      "mint": "SLXdx4BUt2v9uJQNzWqSfzTJ9UKLUDsvxHFMEEdrfgq",
+      "symbol": "SLX",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v",
+      "symbol": "tSpaceX",
+      "kept": false,
+      "hops": null,
+      "reason": "atomic bundled tx simulation failed: {\"InstructionError\":[5,\"ProgramFailedToComplete\"]}",
+      "solscanSummary": null,
+      "solscanUrl": null,
+      "eligibleRanked": null,
+      "comparison": null,
+      "solscanError": null
+    },
+    {
+      "mint": "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ",
+      "symbol": "QQQx",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "FbmmdcCYHL7WETG89xtWmNFMzQAaQ8Zs9NXVbimibonk",
+      "symbol": "DONT",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -693,38 +744,8 @@
       "comparison": null
     },
     {
-      "mint": "TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v",
-      "symbol": "tSpaceX",
-      "kept": false,
-      "hops": null,
-      "reason": "No enumerated Vybe routes could be built for this pair",
-      "solscanSummary": null,
-      "solscanUrl": null,
-      "eligibleRanked": null,
-      "comparison": null,
-      "solscanError": null
-    },
-    {
-      "mint": "SLXdx4BUt2v9uJQNzWqSfzTJ9UKLUDsvxHFMEEdrfgq",
-      "symbol": "SLX",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump",
-      "symbol": "arc",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ",
-      "symbol": "QQQx",
+      "mint": "HRJLkc6vDysVHdrUpCsQ5EBx6fPM15TZRKAhfUBnpump",
+      "symbol": "WIF2",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -741,8 +762,8 @@
       "comparison": null
     },
     {
-      "mint": "HRJLkc6vDysVHdrUpCsQ5EBx6fPM15TZRKAhfUBnpump",
-      "symbol": "WIF2",
+      "mint": "FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump",
+      "symbol": "three",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -750,17 +771,8 @@
       "comparison": null
     },
     {
-      "mint": "FbmmdcCYHL7WETG89xtWmNFMzQAaQ8Zs9NXVbimibonk",
-      "symbol": "DONT",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs",
-      "symbol": "GRASS",
+      "mint": "61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump",
+      "symbol": "arc",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -786,17 +798,8 @@
       "comparison": null
     },
     {
-      "mint": "FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump",
-      "symbol": "three",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump",
-      "symbol": "neet",
+      "mint": "Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs",
+      "symbol": "GRASS",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -813,31 +816,10 @@
       "comparison": null
     },
     {
-      "mint": "8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn",
-      "symbol": "ZEREBRO",
+      "mint": "MEFNBXixkEbait3xn9bkm8WsJzXtVsaJEn4c8Sam21u",
+      "symbol": "ME",
       "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A",
-      "symbol": "hSOL",
-      "kept": false,
-      "hops": null,
-      "reason": "No enumerated Vybe routes could be built for this pair",
-      "solscanSummary": null,
-      "solscanUrl": null,
-      "eligibleRanked": null,
-      "comparison": null,
-      "solscanError": null
-    },
-    {
-      "mint": "FeR8VBqNRSUD5NtXAj2n3j1dAHkZHfyDktKuLXD4pump",
-      "symbol": "jellyjelly",
-      "kept": true,
-      "hops": 1,
+      "hops": 2,
       "reason": null,
       "solscanSummary": null,
       "comparison": null
@@ -852,8 +834,8 @@
       "comparison": null
     },
     {
-      "mint": "Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump",
-      "symbol": "pippin",
+      "mint": "8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn",
+      "symbol": "ZEREBRO",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -861,17 +843,8 @@
       "comparison": null
     },
     {
-      "mint": "zinc155BS4mSPk8GXQj4R5hkVDQXcW253pTYq5SGyfi",
-      "symbol": "ZINC",
-      "kept": true,
-      "hops": 1,
-      "reason": null,
-      "solscanSummary": null,
-      "comparison": null
-    },
-    {
-      "mint": "Cmn4v2wipYV41dkakDvCgFJpxhtaaKt11NyWV8pjSE8A",
-      "symbol": "jlUSDT",
+      "mint": "TKLSidmLVt3cqGaaodG8tyRzoANfQwoh67AccjmubeZ",
+      "symbol": "tKalshi",
       "kept": true,
       "hops": 2,
       "reason": null,
@@ -888,17 +861,17 @@
       "comparison": null
     },
     {
-      "mint": "oPAiAikWTaFj9RYoRFD35ccfwhnMcB3ThgBZRHSkjTZ",
-      "symbol": "tOpenAI",
+      "mint": "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu",
+      "symbol": "COINx",
       "kept": true,
-      "hops": 2,
+      "hops": 1,
       "reason": null,
       "solscanSummary": null,
       "comparison": null
     },
     {
-      "mint": "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu",
-      "symbol": "COINx",
+      "mint": "Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump",
+      "symbol": "pippin",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -910,7 +883,7 @@
       "symbol": "jlUSDS",
       "kept": false,
       "hops": null,
-      "reason": "No enumerated Vybe routes could be built for this pair",
+      "reason": "Invalid tick array",
       "solscanSummary": null,
       "solscanUrl": null,
       "eligibleRanked": null,
@@ -918,20 +891,8 @@
       "solscanError": null
     },
     {
-      "mint": "iy11ytbSGcUnrjE6Lfv78TFqxKyUESfku1FugS9ondo",
-      "symbol": "SLVon",
-      "kept": false,
-      "hops": null,
-      "reason": "No enumerated Vybe routes could be built for this pair",
-      "solscanSummary": null,
-      "solscanUrl": null,
-      "eligibleRanked": null,
-      "comparison": null,
-      "solscanError": null
-    },
-    {
-      "mint": "3KHMZhpthXuiCcgfTv7vVu9PpEz64KAEURFwi6Lopump",
-      "symbol": "Goblin",
+      "mint": "Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump",
+      "symbol": "neet",
       "kept": true,
       "hops": 1,
       "reason": null,
@@ -939,25 +900,52 @@
       "comparison": null
     },
     {
-      "mint": "TKLSidmLVt3cqGaaodG8tyRzoANfQwoh67AccjmubeZ",
-      "symbol": "tKalshi",
-      "kept": false,
-      "hops": null,
-      "reason": "No enumerated Vybe routes could be built for this pair",
-      "solscanSummary": null,
-      "solscanUrl": null,
-      "eligibleRanked": null,
-      "comparison": null,
-      "solscanError": null
-    },
-    {
-      "mint": "4TyZGqRLG3VcHTGMcLBoPUmqYitMVojXinAmkL8xpump",
-      "symbol": "testicle",
+      "mint": "FeR8VBqNRSUD5NtXAj2n3j1dAHkZHfyDktKuLXD4pump",
+      "symbol": "jellyjelly",
       "kept": true,
       "hops": 1,
       "reason": null,
       "solscanSummary": null,
       "comparison": null
+    },
+    {
+      "mint": "63LfDmNb3MQ8mw9MtZ2To9bEA2M71kZUUGq5tiJxcqj9",
+      "symbol": "GIGA",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "zinc155BS4mSPk8GXQj4R5hkVDQXcW253pTYq5SGyfi",
+      "symbol": "ZINC",
+      "kept": true,
+      "hops": 1,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "oPAiAikWTaFj9RYoRFD35ccfwhnMcB3ThgBZRHSkjTZ",
+      "symbol": "tOpenAI",
+      "kept": true,
+      "hops": 2,
+      "reason": null,
+      "solscanSummary": null,
+      "comparison": null
+    },
+    {
+      "mint": "he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A",
+      "symbol": "hSOL",
+      "kept": false,
+      "hops": null,
+      "reason": "Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote",
+      "solscanSummary": null,
+      "solscanUrl": null,
+      "eligibleRanked": null,
+      "comparison": null,
+      "solscanError": null
     }
   ]
 }

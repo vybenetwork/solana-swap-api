@@ -1,17 +1,16 @@
 # SOL-buy filter failures — debug list
-# Filtered: 2026-07-02T02:30:21.561Z
+# Filtered: 2026-07-02T09:01:34.950Z
 # Quote: token-balances + resolve-prices → vybe-quote
 # Columns: mint	symbol	reason	solscanEligible	solPairEligible	eligibleRank	eligibleTotal	selectedTvlUsd	assessment
-2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo	PYUSD	No eligible pools found for this pair						
-CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH	CASH	No enumerated Vybe routes could be built for this pair						
-7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk	JUICED	No enumerated Vybe routes could be built for this pair						
-5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5	ONyc	No enumerated Vybe routes could be built for this pair						
-CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn	xBTC	No enumerated Vybe routes could be built for this pair						
-DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT	USDe	No eligible pools found for this pair						
-G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG	BIRB	No enumerated Vybe routes could be built for this pair						
-DiRshqNDE68bWbGdLHm1GwQ76MvWQG3af6w1NdQondo	NBISon	No eligible pools found for this pair						
-TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v	tSpaceX	No enumerated Vybe routes could be built for this pair						
-he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A	hSOL	No enumerated Vybe routes could be built for this pair						
-j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh	jlUSDS	No enumerated Vybe routes could be built for this pair						
-iy11ytbSGcUnrjE6Lfv78TFqxKyUESfku1FugS9ondo	SLVon	No enumerated Vybe routes could be built for this pair						
-TKLSidmLVt3cqGaaodG8tyRzoANfQwoh67AccjmubeZ	tKalshi	No enumerated Vybe routes could be built for this pair						
+9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D	jlUSDC	swapCompute LiquidityInsufficient						
+AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj	syrupUSDC	atomic bundled tx simulation failed: {"InstructionError":[7,"ProgramFailedToComplete"]}						
+3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7	PRIME	Request timed out						
+7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk	JUICED	No enough initialized tickArray						
+CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn	xBTC	Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote						
+9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif	jlUSDG	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}						
+DiRshqNDE68bWbGdLHm1GwQ76MvWQG3af6w1NdQondo	NBISon	No direct or 2 hop pools found for this pair						
+5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5	ONyc	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}						
+xSoL18r4U1k2ALa4yF857VDZJqCKecLtty92nscre3o	xSHIN	No direct or 2 hop pools found for this pair						
+TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v	tSpaceX	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}						
+j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh	jlUSDS	Invalid tick array						
+he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A	hSOL	Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote						

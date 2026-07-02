@@ -133,7 +133,7 @@ function isNonRetryableSwapBuildErrorMessage(msg: string): boolean {
 }
 
 /**
- * Run an async function with retries on error (2s delay, up to 3 retries).
+ * Run an async function with retries on error (250ms delay, up to 2 retries).
  * @param fn - Function that performs one attempt
  * @returns Result of fn
  */

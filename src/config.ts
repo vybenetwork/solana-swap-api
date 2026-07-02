@@ -63,10 +63,10 @@ export const VYBE_DATA_API_BASE = (
 export const VYBE_TIMEOUT_MS = 60_000;
 
 /** Max retries for backend calls before failing (total attempts = this + 1). */
-export const VYBE_MAX_RETRIES = 3;
+export const VYBE_MAX_RETRIES = 2;
 
 /** Delay between retries (ms). */
-export const VYBE_RETRY_DELAY_MS = 2000;
+export const VYBE_RETRY_DELAY_MS = 250;
 
 /** Path to public static assets (for Express). */
 export const PUBLIC_DIR = path.join(projectRoot, 'public');
