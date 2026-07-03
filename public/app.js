@@ -22185,6 +22185,9 @@ function persistWalletBalanceMetadata(items) {
     saveTokenMeta(walletItemToTokenMeta(item));
   }
 }
+function getSessionWalletBalanceItems() {
+  return sessionWalletBalances?.items ?? [];
+}
 function renderWalletBalancesLoading() {
   return `<div class="token-picker-wallet-loading" aria-live="polite">
     <span class="token-picker-wallet-loading-spinner" aria-hidden="true"></span>
@@ -28007,6 +28010,7 @@ var walletBalancesFetching = false;
 var walletBalancesReadyFor = "";
 var lastWalletBalanceFetchAddress = "";
 var lastAutoAppliedWalletAddress = "";
+var swapBalanceRecoveryInFlight = false;
 var swapQuoteLoading = document.getElementById("swapQuoteLoading");
 var swapQuoteError = document.getElementById("swapQuoteError");
 var swapQuoteWarning = document.getElementById("swapQuoteWarning");
@@ -28218,6 +28222,69 @@ function reapplySwapNoLiquidityStickyUi() {
   updateSwapPairCards(void 0, false);
   syncSwapQuoteButtonState();
 }
+function isSwapBalanceInsufficientError(msg) {
+  const m = msg.trim().toLowerCase();
+  if (!m) return false;
+  if (/insufficient liquidity/i.test(m)) return false;
+  return /insufficient balance/i.test(m) || /amount exceeds wallet balance/i.test(m) || /insufficientbalance/i.test(m) || /balance too low/i.test(m) || /not enough balance/i.test(m) || /no .+ in this wallet/i.test(m) && !/liquidity/i.test(m);
+}
+function applyMaxSellAmountForMint(mint) {
+  if (!swapInputMintInput || !swapAmountInput) return false;
+  const sellable = getWalletSellableForUi(mint);
+  if (sellable == null || sellable <= 0) return false;
+  if (getSwapRouter() === "vybe" && !isNativeSolMint(mint)) {
+    const item = getWalletBalanceListItem(mint);
+    if (item && item.amountUi > 0) {
+      if (swapQuoteError) clearInlineError(swapQuoteError);
+      swapAmountInput.value = maxSwapInputStringForWalletItem(item);
+      syncSwapAmountMaxFromBalance();
+      swapAmountInput.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    }
+  }
+  const maxInput = getMaxSellAmountForInput(mint) ?? sellable;
+  if (!Number.isFinite(maxInput) || maxInput <= 0) return false;
+  if (swapQuoteError) clearInlineError(swapQuoteError);
+  setSwapSellAmountToBalance(maxInput, mint);
+  return true;
+}
+function switchSellTokenToSolWithMaxAmount() {
+  clearSwapNoLiquidityStickyOnMintChange();
+  const positive = getSessionWalletBalanceItems().filter((i) => i.amountUi > 0);
+  const solItem = findNativeSolBalanceItem(positive);
+  if (solItem) {
+    applySellTokenFromBalance(solItem, "max");
+    updateSwapPairCards();
+    updateSwapTokenIcons();
+    return true;
+  }
+  applySelectedToken(NATIVE_SOL_MINT, "input");
+  return applyMaxSellAmountForMint(NATIVE_SOL_MINT);
+}
+async function recoverSellAmountAfterBalanceError(failedMint) {
+  if (swapBalanceRecoveryInFlight) return;
+  const mint = failedMint.trim();
+  const wallet = swapWalletAddressInput?.value.trim() ?? "";
+  if (!mint || !hasValidSwapWallet()) return;
+  if ((swapInputMintInput?.value.trim() ?? "") !== mint) return;
+  swapBalanceRecoveryInFlight = true;
+  try {
+    await refreshWalletBalancesForSwap(wallet, false);
+    if ((swapInputMintInput?.value.trim() ?? "") !== mint) return;
+    updateSwapPairCards();
+    updateSwapTokenIcons();
+    const item = getWalletBalanceListItem(mint);
+    const stillTradable = item != null && item.amountUi > 0 && isWalletTokenTradable(mint);
+    const recovered = stillTradable ? applyMaxSellAmountForMint(mint) : switchSellTokenToSolWithMaxAmount();
+    syncSwapSellAmountUi();
+    syncSellPctButtonsState();
+    syncSwapQuoteButtonState();
+    void refreshLowSolTradeWarning();
+    if (recovered && swapQuoteError) clearInlineError(swapQuoteError);
+  } finally {
+    swapBalanceRecoveryInFlight = false;
+  }
+}
 function handleSwapQuoteFetchFailure(err) {
   const msg = err instanceof Error ? err.message : String(err);
   invalidateSwapQuoteUi();
@@ -28225,6 +28292,9 @@ function handleSwapQuoteFetchFailure(err) {
     applySwapNoLiquidityStickyUi(msg);
   } else if (swapQuoteError) {
     showInlineError(swapQuoteError, msg);
+  }
+  if (isSwapBalanceInsufficientError(msg)) {
+    void recoverSellAmountAfterBalanceError(swapInputMintInput?.value.trim() ?? "");
   }
 }
 var quotedMintSession = /* @__PURE__ */ new Set();
@@ -33267,6 +33337,7 @@ async function fetchSwapQuote() {
           `Amount exceeds wallet balance (${formatSwapInputAmountValue(totalBal, getMintDecimals(inputMint))}).`
         );
       }
+      void recoverSellAmountAfterBalanceError(inputMint);
       return;
     }
   }

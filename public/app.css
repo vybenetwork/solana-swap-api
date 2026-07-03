@@ -4159,6 +4159,10 @@ tr:hover td {
   --routing-path-pad-top: 2.85rem;
 }
 
+.routing-canvas--has-fees:not(.routing-canvas--has-acc-rent-above) .routing-path {
+  --routing-path-pad-top: 4.2rem;
+}
+
 .routing-canvas--has-acc-rent-above.routing-canvas--has-fees .routing-path {
   --routing-path-pad-top: 4.2rem;
 }
