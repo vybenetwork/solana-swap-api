@@ -637,23 +637,22 @@ function truncateFeeTableTokenSymbol(sym: string): string {
   return `${s.slice(0, 5)}...`;
 }
 
+/** Acc-rent UI symbol — WSOL ATAs are closed, never native SOL system accounts. */
+function accRentAccountSymbol(mint: string): string {
+  if (isSolMint(mint)) return 'WSOL';
+  return truncateFeeTableTokenSymbol(mintSymbolSync(mint));
+}
+
 function accRentFeeDisplayLabel(item: Pick<HopFeeItemLite, 'mint' | 'accountMint' | 'destinationKind' | 'label'>): string {
-  const accountMint = accRentAccountMint(item);
+  const sym = accRentAccountSymbol(accRentAccountMint(item));
   if (item.destinationKind === 'closed_token_account') {
-    const sym = isSolMint(accountMint)
-      ? 'SOL'
-      : truncateFeeTableTokenSymbol(mintSymbolSync(accountMint));
     return `${sym} Rent Reclaim`;
   }
-  const sym = isSolMint(accountMint)
-    ? 'WSOL'
-    : truncateFeeTableTokenSymbol(mintSymbolSync(accountMint));
   return `${sym} Rent Fee`;
 }
 
 function accRentDestBracketLabel(item: Pick<HopFeeItemLite, 'mint' | 'accountMint' | 'destinationKind'>): string {
-  const sym = mintSymbolSync(accRentAccountMint(item));
-  return `${sym} Account`;
+  return `${accRentAccountSymbol(accRentAccountMint(item))} Account`;
 }
 const HARDCODED_MINT_SYMBOLS: Record<string, string> = {
   [NATIVE_SOL_MINT]: 'SOL',
@@ -2152,7 +2151,7 @@ export function getQuotePayHeroCostStack(
         if (!shouldShowPayRentDeduction(quote)) continue;
         if (isEphemeralSameTxWsolAccRentItem(item, hopItems, quote, step, i)) continue;
         if (sameMint && hasInputMintRentReclaim(quote, mint)) continue;
-        const accountSym = mintSymbolSync(accRentAccountMint(item));
+        const accountSym = accRentAccountSymbol(accRentAccountMint(item));
         if (sameMint) {
           sameMintRentUi += ui;
           sameMintRentAccountSym = accountSym;
@@ -2709,7 +2708,7 @@ export interface QuoteReceiveHeroReclaimItem {
   label: string;
 }
 
-/** SOL rent reclaim is already netted into the receive amount when output is SOL/WSOL. */
+/** WSOL ATA rent reclaim is already netted into the receive amount when output is SOL/WSOL. */
 function shouldShowReceiveRentReclaim(quote: Record<string, unknown>): boolean {
   const outMint = quoteOutputMint(quote);
   return Boolean(outMint) && !isSolMint(outMint);
@@ -2732,7 +2731,7 @@ export function getQuoteReceiveHeroReclaimStack(
     const item = closeEntryToReclaimFeeItem(entry);
     const ui = feeAmountToUi(item.amountRaw, NATIVE_SOL_MINT);
     if (ui == null || ui <= 0) continue;
-    const accountSym = mintSymbolSync(entry.mint);
+    const accountSym = accRentAccountSymbol(entry.mint);
     out.push({
       ui,
       sym: 'SOL',
@@ -7281,9 +7280,9 @@ function getSignConfirmReceiveBonusLines(quote: Record<string, unknown>): QuoteR
     const ui = feeAmountToUi(item.amountRaw, NATIVE_SOL_MINT);
     if (ui == null || ui <= 0) continue;
     const label =
-      entry.category === 'wsol' || entry.category === 'bridge'
-        ? 'rent reclaim'
-        : `${mintSymbolSync(entry.mint)} rent reclaim`;
+      entry.category === 'wsol' || entry.category === 'bridge' || isSolMint(entry.mint)
+        ? 'WSOL rent reclaim'
+        : `${accRentAccountSymbol(entry.mint)} rent reclaim`;
     items.push({ ui, sym: 'SOL', mint: NATIVE_SOL_MINT, label });
   }
   return items;

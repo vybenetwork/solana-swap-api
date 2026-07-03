@@ -23264,18 +23264,19 @@ function truncateFeeTableTokenSymbol(sym) {
   if (s.length <= 5) return s;
   return `${s.slice(0, 5)}...`;
 }
+function accRentAccountSymbol(mint) {
+  if (isSolMint(mint)) return "WSOL";
+  return truncateFeeTableTokenSymbol(mintSymbolSync(mint));
+}
 function accRentFeeDisplayLabel(item) {
-  const accountMint = accRentAccountMint(item);
+  const sym = accRentAccountSymbol(accRentAccountMint(item));
   if (item.destinationKind === "closed_token_account") {
-    const sym2 = isSolMint(accountMint) ? "SOL" : truncateFeeTableTokenSymbol(mintSymbolSync(accountMint));
-    return `${sym2} Rent Reclaim`;
+    return `${sym} Rent Reclaim`;
   }
-  const sym = isSolMint(accountMint) ? "WSOL" : truncateFeeTableTokenSymbol(mintSymbolSync(accountMint));
   return `${sym} Rent Fee`;
 }
 function accRentDestBracketLabel(item) {
-  const sym = mintSymbolSync(accRentAccountMint(item));
-  return `${sym} Account`;
+  return `${accRentAccountSymbol(accRentAccountMint(item))} Account`;
 }
 var HARDCODED_MINT_SYMBOLS = {
   [NATIVE_SOL_MINT]: "SOL",
@@ -24123,7 +24124,7 @@ function getQuotePayHeroCostStack(quote, sellSym) {
         if (!shouldShowPayRentDeduction(quote)) continue;
         if (isEphemeralSameTxWsolAccRentItem(item, hopItems, quote, step, i)) continue;
         if (sameMint && hasInputMintRentReclaim(quote, mint)) continue;
-        const accountSym = mintSymbolSync(accRentAccountMint(item));
+        const accountSym = accRentAccountSymbol(accRentAccountMint(item));
         if (sameMint) {
           sameMintRentUi += ui;
           sameMintRentAccountSym = accountSym;
@@ -24568,7 +24569,7 @@ function getQuoteReceiveHeroReclaimStack(quote) {
     const item = closeEntryToReclaimFeeItem(entry);
     const ui = feeAmountToUi(item.amountRaw, NATIVE_SOL_MINT);
     if (ui == null || ui <= 0) continue;
-    const accountSym = mintSymbolSync(entry.mint);
+    const accountSym = accRentAccountSymbol(entry.mint);
     out.push({
       ui,
       sym: "SOL",
@@ -27602,7 +27603,7 @@ function getSignConfirmReceiveBonusLines(quote) {
     const item = closeEntryToReclaimFeeItem(entry);
     const ui = feeAmountToUi(item.amountRaw, NATIVE_SOL_MINT);
     if (ui == null || ui <= 0) continue;
-    const label = entry.category === "wsol" || entry.category === "bridge" ? "rent reclaim" : `${mintSymbolSync(entry.mint)} rent reclaim`;
+    const label = entry.category === "wsol" || entry.category === "bridge" || isSolMint(entry.mint) ? "WSOL rent reclaim" : `${accRentAccountSymbol(entry.mint)} rent reclaim`;
     items.push({ ui, sym: "SOL", mint: NATIVE_SOL_MINT, label });
   }
   return items;
