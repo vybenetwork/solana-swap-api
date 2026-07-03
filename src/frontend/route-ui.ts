@@ -368,6 +368,8 @@ function routeOutputAmount(route: EnumeratedRouteUiEntry): number {
 
 /** Routes with output under half the best are unusable when 2–3 markets are shown. */
 const POOR_OUTPUT_FRACTION = 0.5;
+/** Warn when output is more than 5% below the best market. */
+const LOW_OUTPUT_WARN_FRACTION = 0.95;
 
 function maxRouteOutputAmount(routes: EnumeratedRouteUiEntry[]): number {
   let maxOut = 0;
@@ -376,6 +378,67 @@ function maxRouteOutputAmount(routes: EnumeratedRouteUiEntry[]): number {
     if (out > maxOut) maxOut = out;
   }
   return maxOut;
+}
+
+export type LowOutputWarning = {
+  shortfallPct: number;
+};
+
+export function getLowOutputWarning(
+  routes: EnumeratedRouteUiEntry[],
+  index: number,
+): LowOutputWarning | null {
+  if (routes.length < 2) return null;
+  const maxOut = maxRouteOutputAmount(routes);
+  if (!(maxOut > 0)) return null;
+  const route = routes.find((r) => r.index === index);
+  if (!route) return null;
+  const out = routeOutputAmount(route);
+  if (!(out > 0) || out >= maxOut * LOW_OUTPUT_WARN_FRACTION) return null;
+  return { shortfallPct: ((maxOut - out) / maxOut) * 100 };
+}
+
+export function formatLowOutputWarningMessage(
+  warning: LowOutputWarning,
+  outSym?: string,
+): string {
+  const sym = outSym?.trim() ? ` ${outSym.trim()}` : '';
+  return `Low output: this route delivers ${formatWarnPercent(warning.shortfallPct)}% less${sym} than the best available market.`;
+}
+
+export type RouteMarketWarning = {
+  level: 'none' | 'orange' | 'red';
+  badge: 'none' | 'low-liquidity' | 'low-output';
+  message: string | null;
+};
+
+export function getRouteMarketWarning(
+  routes: EnumeratedRouteUiEntry[],
+  route: EnumeratedRouteUiEntry,
+  outSym?: string,
+): RouteMarketWarning {
+  const quote = route.quote ?? {};
+  const liquidity = isMultipleMarketsRoute(route) ? undefined : route.candidate?.liquidity;
+  const liq = lowLiquidityWarningFromQuote(quote, liquidity);
+  const lowOut = getLowOutputWarning(routes, route.index);
+
+  let level: RouteMarketWarning['level'] = 'none';
+  if (liq && lowOut) level = 'red';
+  else if (liq || lowOut) level = 'orange';
+
+  let badge: RouteMarketWarning['badge'] = 'none';
+  if (liq) badge = 'low-liquidity';
+  else if (lowOut) badge = 'low-output';
+
+  const parts: string[] = [];
+  if (liq) parts.push(lowLiquidityWarningTitle(liq));
+  if (lowOut) parts.push(formatLowOutputWarningMessage(lowOut, outSym));
+
+  return {
+    level,
+    badge,
+    message: parts.length > 0 ? parts.join(' ') : null,
+  };
 }
 
 export function isEnumeratedRouteSelectable(
@@ -479,18 +542,7 @@ function renderRouteRankStars(displayRank: number): string {
   return `<span class="swap-route-option__stars" aria-hidden="true">${'★'.repeat(count)}</span>`;
 }
 
-type RouteOptionWarnBadge = 'none' | 'low-liquidity' | 'high-impact';
-
-function routeOptionWarnBadge(
-  quote: Record<string, unknown>,
-  liquidity?: number,
-): RouteOptionWarnBadge {
-  const sim = simulationOutputWarningFromQuote(quote);
-  const liq = lowLiquidityWarningFromQuote(quote, liquidity);
-  if (liq) return 'low-liquidity';
-  if (sim) return 'high-impact';
-  return 'none';
-}
+type RouteOptionWarnBadge = RouteMarketWarning['badge'];
 
 function renderRouteOptionBadge(
   highlight: RouteOptionHighlightBadge | undefined,
@@ -500,8 +552,8 @@ function renderRouteOptionBadge(
   if (warnBadge === 'low-liquidity') {
     return '<span class="swap-route-option__badge swap-route-option__badge--low-liquidity">Low Liquidity</span>';
   }
-  if (warnBadge === 'high-impact') {
-    return '<span class="swap-route-option__badge swap-route-option__badge--high-impact">High Impact</span>';
+  if (warnBadge === 'low-output') {
+    return '<span class="swap-route-option__badge swap-route-option__badge--low-output">Low Output</span>';
   }
   if (highlight === 'best-price') {
     return '<span class="swap-route-option__badge swap-route-option__badge--best-price">Best Price</span>';
@@ -578,6 +630,7 @@ export function renderNoLiquidityRouteOptionsPanel(
 
 function renderRouteOptionCard(
   route: EnumeratedRouteUiEntry,
+  routes: EnumeratedRouteUiEntry[],
   selectedIndex: number,
   displayRank: number,
   highlight: RouteOptionHighlightBadge | undefined,
@@ -595,17 +648,18 @@ function renderRouteOptionCard(
   const hopSuffix =
     hopExtra > 0 ? renderRouteHopExtraSuffix(route.quote, hopExtra, route.candidate, programLabel) : '';
   const liquidity = multipleMarkets ? undefined : route.candidate?.liquidity;
-  const warnLevel = disabled ? 'none' : swapRouteWarningLevel(quote, liquidity);
-  const optionWarnBadge = disabled ? 'none' : routeOptionWarnBadge(quote, liquidity);
+  const marketWarn = disabled
+    ? ({ level: 'none', badge: 'none', message: null } satisfies RouteMarketWarning)
+    : getRouteMarketWarning(routes, route);
   const warnClass =
-    warnLevel === 'red'
+    marketWarn.level === 'red'
       ? ' swap-route-option--warn-severe'
-      : warnLevel === 'orange'
+      : marketWarn.level === 'orange'
         ? ' swap-route-option--warn-caution'
         : '';
-  const warnTitle = warnLevel !== 'none' ? combinedRouteWarningTitle(quote, liquidity) : '';
+  const warnTitle = marketWarn.message ?? '';
   const warnIcon =
-    warnLevel !== 'none'
+    marketWarn.level !== 'none' && warnTitle
       ? `<span class="swap-route-option__warn" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`
       : '';
   const disabledTitle = disabled
@@ -616,7 +670,7 @@ function renderRouteOptionCard(
       <div class="swap-route-option__head">
         <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${displayRank}</span>${renderRouteRankStars(displayRank)}</span>
         <span class="swap-route-option__head-badges">
-          ${renderRouteOptionBadge(highlight, route.source, optionWarnBadge)}
+          ${renderRouteOptionBadge(highlight, route.source, marketWarn.badge)}
           ${warnIcon}
         </span>
       </div>
@@ -666,6 +720,7 @@ export function renderRouteOptionsPanel(): void {
   const cards = state.routes.slice(0, visibleCount).map((route, i) =>
     renderRouteOptionCard(
       route,
+      state.routes,
       state.selectedIndex,
       i + 1,
       highlightBadges.get(route.index),
@@ -6591,16 +6646,6 @@ export function renderRouteSubtitleHtml(
   return `<span class="swap-quote-route-title"><span class="swap-quote-route-title__icon-wrap" aria-hidden="true"><img class="${iconClass}" src="${routerIconSrc(routerBrand)}" alt="" width="${size}" height="${size}" decoding="async" /></span><span class="swap-quote-route-title-text">${deps.escapeHtml(text)}</span></span>`;
 }
 
-function simulationOutputWarningFromQuote(quote: Record<string, unknown>): Record<string, unknown> | null {
-  const w = quote._simulationOutputWarning;
-  if (!w || typeof w !== 'object') return null;
-  const rec = w as Record<string, unknown>;
-  if (rec.warn !== true) return null;
-  const shortfallPct = Number(rec.shortfallPct);
-  if (!Number.isFinite(shortfallPct)) return null;
-  return rec;
-}
-
 const MIN_ROUTE_POOL_LIQUIDITY_USD = 1000;
 
 function lowLiquidityWarningFromQuote(
@@ -6625,36 +6670,9 @@ function lowLiquidityWarningFromQuote(
   return null;
 }
 
-function swapRouteWarningLevel(
-  quote: Record<string, unknown>,
-  liquidity?: number,
-): 'none' | 'orange' | 'red' {
-  const sim = simulationOutputWarningFromQuote(quote);
-  const liq = lowLiquidityWarningFromQuote(quote, liquidity);
-  if (sim && liq) return 'red';
-  if (sim || liq) return 'orange';
-  return 'none';
-}
-
-function simulationOutputWarningTitle(w: Record<string, unknown>): string {
-  if (w.source === 'price_impact') {
-    return `Quote is ${formatWarnPercent(Number(w.shortfallPct))}% worse than spot price.`;
-  }
-  return `Simulated output is ${formatWarnPercent(Number(w.shortfallPct))}% below quote. Token account rent/reclaim excluded.`;
-}
-
 function lowLiquidityWarningTitle(w: Record<string, unknown>): string {
   const liq = Number(w.liquidityUsd);
   return `Pool liquidity is $${liq.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`;
-}
-
-function combinedRouteWarningTitle(quote: Record<string, unknown>, liquidity?: number): string {
-  const parts: string[] = [];
-  const liq = lowLiquidityWarningFromQuote(quote, liquidity);
-  const sim = simulationOutputWarningFromQuote(quote);
-  if (liq) parts.push(lowLiquidityWarningTitle(liq));
-  if (sim) parts.push(simulationOutputWarningTitle(sim));
-  return parts.join(' ');
 }
 
 export function updateRouteDiagramTitle(quote: Record<string, unknown>): void {

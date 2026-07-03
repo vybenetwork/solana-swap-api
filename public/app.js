@@ -23117,6 +23117,7 @@ function routeOutputAmount(route) {
   return out != null && Number.isFinite(out) ? out : 0;
 }
 var POOR_OUTPUT_FRACTION = 0.5;
+var LOW_OUTPUT_WARN_FRACTION = 0.95;
 function maxRouteOutputAmount(routes) {
   let maxOut = 0;
   for (const route of routes) {
@@ -23124,6 +23125,40 @@ function maxRouteOutputAmount(routes) {
     if (out > maxOut) maxOut = out;
   }
   return maxOut;
+}
+function getLowOutputWarning(routes, index) {
+  if (routes.length < 2) return null;
+  const maxOut = maxRouteOutputAmount(routes);
+  if (!(maxOut > 0)) return null;
+  const route = routes.find((r) => r.index === index);
+  if (!route) return null;
+  const out = routeOutputAmount(route);
+  if (!(out > 0) || out >= maxOut * LOW_OUTPUT_WARN_FRACTION) return null;
+  return { shortfallPct: (maxOut - out) / maxOut * 100 };
+}
+function formatLowOutputWarningMessage(warning, outSym) {
+  const sym = outSym?.trim() ? ` ${outSym.trim()}` : "";
+  return `Low output: this route delivers ${formatWarnPercent(warning.shortfallPct)}% less${sym} than the best available market.`;
+}
+function getRouteMarketWarning(routes, route, outSym) {
+  const quote = route.quote ?? {};
+  const liquidity = isMultipleMarketsRoute(route) ? void 0 : route.candidate?.liquidity;
+  const liq = lowLiquidityWarningFromQuote(quote, liquidity);
+  const lowOut = getLowOutputWarning(routes, route.index);
+  let level = "none";
+  if (liq && lowOut) level = "red";
+  else if (liq || lowOut) level = "orange";
+  let badge = "none";
+  if (liq) badge = "low-liquidity";
+  else if (lowOut) badge = "low-output";
+  const parts = [];
+  if (liq) parts.push(lowLiquidityWarningTitle(liq));
+  if (lowOut) parts.push(formatLowOutputWarningMessage(lowOut, outSym));
+  return {
+    level,
+    badge,
+    message: parts.length > 0 ? parts.join(" ") : null
+  };
 }
 function isEnumeratedRouteSelectable(routes, index) {
   if (routes.length < 2 || routes.length > 3) return true;
@@ -23205,19 +23240,12 @@ function renderRouteRankStars(displayRank) {
   const count = 4 - displayRank;
   return `<span class="swap-route-option__stars" aria-hidden="true">${"\u2605".repeat(count)}</span>`;
 }
-function routeOptionWarnBadge(quote, liquidity) {
-  const sim = simulationOutputWarningFromQuote(quote);
-  const liq = lowLiquidityWarningFromQuote(quote, liquidity);
-  if (liq) return "low-liquidity";
-  if (sim) return "high-impact";
-  return "none";
-}
 function renderRouteOptionBadge(highlight, source, warnBadge = "none") {
   if (warnBadge === "low-liquidity") {
     return '<span class="swap-route-option__badge swap-route-option__badge--low-liquidity">Low Liquidity</span>';
   }
-  if (warnBadge === "high-impact") {
-    return '<span class="swap-route-option__badge swap-route-option__badge--high-impact">High Impact</span>';
+  if (warnBadge === "low-output") {
+    return '<span class="swap-route-option__badge swap-route-option__badge--low-output">Low Output</span>';
   }
   if (highlight === "best-price") {
     return '<span class="swap-route-option__badge swap-route-option__badge--best-price">Best Price</span>';
@@ -23281,7 +23309,7 @@ function renderNoLiquidityRouteOptionsPanel(displayTitle = "No Liquidity Availab
   );
   return `<div class="swap-route-options__grid">${cards.join("")}</div>`;
 }
-function renderRouteOptionCard(route, selectedIndex, displayRank, highlight, showTradeActivity, disabled = false) {
+function renderRouteOptionCard(route, routes, selectedIndex, displayRank, highlight, showTradeActivity, disabled = false) {
   const idx = route.index;
   const active = !disabled && idx === selectedIndex;
   const quote = route.quote ?? {};
@@ -23292,18 +23320,17 @@ function renderRouteOptionCard(route, selectedIndex, displayRank, highlight, sho
   const hopExtra = multipleMarkets ? 0 : routeHopExtraCount(route.quote);
   const hopSuffix = hopExtra > 0 ? renderRouteHopExtraSuffix(route.quote, hopExtra, route.candidate, programLabel) : "";
   const liquidity = multipleMarkets ? void 0 : route.candidate?.liquidity;
-  const warnLevel = disabled ? "none" : swapRouteWarningLevel(quote, liquidity);
-  const optionWarnBadge = disabled ? "none" : routeOptionWarnBadge(quote, liquidity);
-  const warnClass = warnLevel === "red" ? " swap-route-option--warn-severe" : warnLevel === "orange" ? " swap-route-option--warn-caution" : "";
-  const warnTitle = warnLevel !== "none" ? combinedRouteWarningTitle(quote, liquidity) : "";
-  const warnIcon = warnLevel !== "none" ? `<span class="swap-route-option__warn" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">\u26A0</span>` : "";
+  const marketWarn = disabled ? { level: "none", badge: "none", message: null } : getRouteMarketWarning(routes, route);
+  const warnClass = marketWarn.level === "red" ? " swap-route-option--warn-severe" : marketWarn.level === "orange" ? " swap-route-option--warn-caution" : "";
+  const warnTitle = marketWarn.message ?? "";
+  const warnIcon = marketWarn.level !== "none" && warnTitle ? `<span class="swap-route-option__warn" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">\u26A0</span>` : "";
   const disabledTitle = disabled ? ' title="Output is less than 50% of the best route"' : "";
   const disabledClass = disabled ? " swap-route-option--disabled swap-route-option--poor-output" : "";
   return `<div class="swap-route-option${active ? " swap-route-option--active" : ""}${warnClass}${disabledClass}" data-route-index="${idx}" role="button" tabindex="${disabled ? "-1" : "0"}" aria-disabled="${disabled ? "true" : "false"}" aria-pressed="${active ? "true" : "false"}"${disabledTitle}>
       <div class="swap-route-option__head">
         <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${displayRank}</span>${renderRouteRankStars(displayRank)}</span>
         <span class="swap-route-option__head-badges">
-          ${renderRouteOptionBadge(highlight, route.source, optionWarnBadge)}
+          ${renderRouteOptionBadge(highlight, route.source, marketWarn.badge)}
           ${warnIcon}
         </span>
       </div>
@@ -23350,6 +23377,7 @@ function renderRouteOptionsPanel() {
   const cards = state.routes.slice(0, visibleCount).map(
     (route, i) => renderRouteOptionCard(
       route,
+      state.routes,
       state.selectedIndex,
       i + 1,
       highlightBadges.get(route.index),
@@ -27124,15 +27152,6 @@ function renderRouteSubtitleHtml(text, routerBrand) {
   const size = routerBrand === "vybe" ? 14 : 13;
   return `<span class="swap-quote-route-title"><span class="swap-quote-route-title__icon-wrap" aria-hidden="true"><img class="${iconClass}" src="${routerIconSrc(routerBrand)}" alt="" width="${size}" height="${size}" decoding="async" /></span><span class="swap-quote-route-title-text">${deps.escapeHtml(text)}</span></span>`;
 }
-function simulationOutputWarningFromQuote(quote) {
-  const w = quote._simulationOutputWarning;
-  if (!w || typeof w !== "object") return null;
-  const rec = w;
-  if (rec.warn !== true) return null;
-  const shortfallPct = Number(rec.shortfallPct);
-  if (!Number.isFinite(shortfallPct)) return null;
-  return rec;
-}
 var MIN_ROUTE_POOL_LIQUIDITY_USD = 1e3;
 function lowLiquidityWarningFromQuote(quote, liquidity) {
   const score = Number(liquidity);
@@ -27152,30 +27171,9 @@ function lowLiquidityWarningFromQuote(quote, liquidity) {
   }
   return null;
 }
-function swapRouteWarningLevel(quote, liquidity) {
-  const sim = simulationOutputWarningFromQuote(quote);
-  const liq = lowLiquidityWarningFromQuote(quote, liquidity);
-  if (sim && liq) return "red";
-  if (sim || liq) return "orange";
-  return "none";
-}
-function simulationOutputWarningTitle(w) {
-  if (w.source === "price_impact") {
-    return `Quote is ${formatWarnPercent(Number(w.shortfallPct))}% worse than spot price.`;
-  }
-  return `Simulated output is ${formatWarnPercent(Number(w.shortfallPct))}% below quote. Token account rent/reclaim excluded.`;
-}
 function lowLiquidityWarningTitle(w) {
   const liq = Number(w.liquidityUsd);
   return `Pool liquidity is $${liq.toLocaleString(void 0, { maximumFractionDigits: 2 })}.`;
-}
-function combinedRouteWarningTitle(quote, liquidity) {
-  const parts = [];
-  const liq = lowLiquidityWarningFromQuote(quote, liquidity);
-  const sim = simulationOutputWarningFromQuote(quote);
-  if (liq) parts.push(lowLiquidityWarningTitle(liq));
-  if (sim) parts.push(simulationOutputWarningTitle(sim));
-  return parts.join(" ");
 }
 function updateRouteDiagramTitle(quote) {
   const titleHtml = renderRouteSubtitleHtml(
@@ -29143,99 +29141,26 @@ function clearInlineWarning(el) {
   el.hidden = true;
   el.setAttribute("aria-hidden", "true");
 }
-function resolveOutputWarnThresholdPct(thresholdPct) {
-  const fromWarning = Number(thresholdPct);
-  if (Number.isFinite(fromWarning) && fromWarning >= 0) return fromWarning;
-  const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : NaN;
-  if (Number.isFinite(slippage) && slippage >= 0) return slippage;
-  return DEFAULT_SWAP_SLIPPAGE_PCT;
-}
-function getSimulationOutputWarning(quote) {
-  const w = quote._simulationOutputWarning;
-  if (!w || typeof w !== "object") return null;
-  const rec = w;
-  if (rec.warn !== true) return null;
-  const shortfallPct = Number(rec.shortfallPct);
-  if (!Number.isFinite(shortfallPct)) return null;
-  const source = typeof rec.source === "string" ? rec.source : void 0;
-  return {
-    warn: true,
-    thresholdPct: resolveOutputWarnThresholdPct(Number(rec.thresholdPct)),
-    shortfallPct,
-    ...source ? { source } : {}
-  };
-}
 var MIN_ROUTE_POOL_LIQUIDITY_USD2 = 1e3;
-function getLowLiquidityWarning(quote, liquidity) {
-  const score = Number(liquidity);
-  if (Number.isFinite(score) && score >= MIN_ROUTE_POOL_LIQUIDITY_USD2) {
-    return null;
-  }
-  const w = quote._lowLiquidityWarning;
-  if (!w || typeof w !== "object") return null;
-  const rec = w;
-  if (rec.warn !== true) return null;
-  const liquidityUsd = Number(rec.liquidityUsd);
-  if (!Number.isFinite(liquidityUsd)) return null;
-  return {
-    warn: true,
-    thresholdUsd: Number(rec.thresholdUsd ?? 1e3),
-    liquidityUsd
-  };
-}
-function swapRouteWarningLevel2(quote, liquidity) {
-  const sim = getSimulationOutputWarning(quote);
-  const liq = getLowLiquidityWarning(quote, liquidity);
-  if (sim && liq) return "red";
-  if (sim || liq) return "orange";
-  return "none";
-}
-function formatLowLiquidityWarningMessage(warning) {
-  return `Pool liquidity is $${warning.liquidityUsd.toLocaleString(void 0, { maximumFractionDigits: 2 })}.`;
-}
-function formatSimulationOutputWarningMessage(warning, outSym) {
-  const sym = outSym?.trim() ? ` ${outSym.trim()}` : "";
-  if (warning.source === "price_impact") {
-    return `Quote is ${formatWarnPercent(warning.shortfallPct)}% worse than spot price for this swap size.`;
-  }
-  return `Simulation delivers ${formatWarnPercent(warning.shortfallPct)}% less${sym} than quoted. Token account rent and reclaim are excluded from this comparison.`;
-}
-function formatCombinedRouteWarningsMessage(quote, outSym, liquidity) {
-  const sim = getSimulationOutputWarning(quote);
-  const liq = getLowLiquidityWarning(quote, liquidity);
-  const parts = [];
-  if (liq) parts.push(formatLowLiquidityWarningMessage(liq));
-  if (sim) parts.push(formatSimulationOutputWarningMessage(sim, outSym));
-  return parts.length > 0 ? parts.join(" ") : null;
-}
-function renderRouteWarningsHtml(quote, outSym, liquidity) {
-  const level = swapRouteWarningLevel2(quote, liquidity);
-  if (level === "none") return "";
-  const msg = formatCombinedRouteWarningsMessage(quote, outSym, liquidity);
-  if (!msg) return "";
+function renderRouteWarningsHtml(level, message) {
   const levelClass = level === "red" ? " swap-quote-simulation-warning--severe" : " swap-quote-simulation-warning--caution";
   return `<div class="swap-quote-simulation-warning${levelClass}" role="status">
       <span class="swap-quote-simulation-warning__icon" aria-hidden="true">\u26A0</span>
-      <span class="swap-quote-simulation-warning__text">${escapeHtml2(msg)}</span>
+      <span class="swap-quote-simulation-warning__text">${escapeHtml2(message)}</span>
     </div>`;
 }
-function selectedEnumeratedRouteLiquidity() {
-  const state = enumeratedRoutesUiState;
-  if (!state?.routes.length) return void 0;
-  const route = state.routes.find((r) => r.index === state.selectedIndex) ?? state.routes[0];
-  const score = Number(route?.candidate?.liquidity);
-  return Number.isFinite(score) && score > 0 ? score : void 0;
-}
-function syncRouteOptionsWarningBanner(quote) {
+function syncRouteOptionsWarningBanner(_quote) {
   if (!swapRouteOptionsWarningEl) return;
-  const html = renderRouteWarningsHtml(quote, getSwapOutSym(), selectedEnumeratedRouteLiquidity());
-  if (!html) {
+  const state = enumeratedRoutesUiState;
+  const route = state?.routes.find((r) => r.index === state.selectedIndex) ?? state?.routes[0] ?? null;
+  const warning = state && route ? getRouteMarketWarning(state.routes, route, getSwapOutSym()) : null;
+  if (!warning || warning.level === "none" || !warning.message) {
     swapRouteOptionsWarningEl.hidden = true;
     swapRouteOptionsWarningEl.setAttribute("aria-hidden", "true");
     swapRouteOptionsWarningEl.innerHTML = "";
     return;
   }
-  swapRouteOptionsWarningEl.innerHTML = html;
+  swapRouteOptionsWarningEl.innerHTML = renderRouteWarningsHtml(warning.level, warning.message);
   swapRouteOptionsWarningEl.hidden = false;
   swapRouteOptionsWarningEl.removeAttribute("aria-hidden");
 }
@@ -32764,14 +32689,14 @@ function confirmRouteWarningSelection(message, level) {
   });
 }
 function routeEntryWarning(route) {
-  const quote = route.quote ?? {};
-  const liquidity = Number(route.candidate?.liquidity);
-  const liq = Number.isFinite(liquidity) && liquidity > 0 ? liquidity : void 0;
-  const level = swapRouteWarningLevel2(quote, liq);
-  if (level === "none") return null;
-  const message = formatCombinedRouteWarningsMessage(quote, getSwapOutSym(), liq);
-  if (!message) return null;
-  return { level, message };
+  if (!enumeratedRoutesUiState) return null;
+  const warning = getRouteMarketWarning(
+    enumeratedRoutesUiState.routes,
+    route,
+    getSwapOutSym()
+  );
+  if (warning.level === "none" || !warning.message) return null;
+  return { level: warning.level, message: warning.message };
 }
 function applyEnumeratedRouteSelection(index) {
   if (!enumeratedRoutesUiState || !lastVybeQuoteBodyForRoutes) return;

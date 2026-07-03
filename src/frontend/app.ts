@@ -125,6 +125,7 @@ import {
   renderRoutePanels,
   renderRouteOptionsPanel,
   isEnumeratedRouteSelectable,
+  getRouteMarketWarning,
   bindRoutingDiagramZoomListeners,
   scheduleRoutingDiagramZoom,
   mountRoutingDiagram,
@@ -141,7 +142,6 @@ import {
   mintSymbolSync,
   type EnumeratedRoutesUiState,
 } from './route-ui.js';
-import { formatWarnPercent } from './format-warn-pct.js';
 import {
   applyPriceImpactTierClass,
   clearPriceImpactTierClass,
@@ -1546,142 +1546,33 @@ function clearInlineWarning(el: HTMLElement): void {
   el.setAttribute('aria-hidden', 'true');
 }
 
-type SimulationOutputWarning = {
-  warn: true;
-  thresholdPct?: number;
-  shortfallPct: number;
-  source?: string;
-};
-
-type LowLiquidityWarning = {
-  warn: true;
-  thresholdUsd?: number;
-  liquidityUsd: number;
-};
-
 type SwapRouteWarningLevel = 'none' | 'orange' | 'red';
-
-function resolveOutputWarnThresholdPct(thresholdPct?: number): number {
-  const fromWarning = Number(thresholdPct);
-  if (Number.isFinite(fromWarning) && fromWarning >= 0) return fromWarning;
-  const slippage = swapSlippageInput ? Number(swapSlippageInput.value) : NaN;
-  if (Number.isFinite(slippage) && slippage >= 0) return slippage;
-  return DEFAULT_SWAP_SLIPPAGE_PCT;
-}
-
-function getSimulationOutputWarning(quote: Record<string, unknown>): SimulationOutputWarning | null {
-  const w = quote._simulationOutputWarning;
-  if (!w || typeof w !== 'object') return null;
-  const rec = w as Record<string, unknown>;
-  if (rec.warn !== true) return null;
-  const shortfallPct = Number(rec.shortfallPct);
-  if (!Number.isFinite(shortfallPct)) return null;
-  const source = typeof rec.source === 'string' ? rec.source : undefined;
-  return {
-    warn: true,
-    thresholdPct: resolveOutputWarnThresholdPct(Number(rec.thresholdPct)),
-    shortfallPct,
-    ...(source ? { source } : {}),
-  };
-}
 
 const MIN_ROUTE_POOL_LIQUIDITY_USD = 1000;
 
-function getLowLiquidityWarning(
-  quote: Record<string, unknown>,
-  liquidity?: number,
-): LowLiquidityWarning | null {
-  const score = Number(liquidity);
-  if (Number.isFinite(score) && score >= MIN_ROUTE_POOL_LIQUIDITY_USD) {
-    return null;
-  }
-  const w = quote._lowLiquidityWarning;
-  if (!w || typeof w !== 'object') return null;
-  const rec = w as Record<string, unknown>;
-  if (rec.warn !== true) return null;
-  const liquidityUsd = Number(rec.liquidityUsd);
-  if (!Number.isFinite(liquidityUsd)) return null;
-  return {
-    warn: true,
-    thresholdUsd: Number(rec.thresholdUsd ?? 1000),
-    liquidityUsd,
-  };
-}
-
-function swapRouteWarningLevel(
-  quote: Record<string, unknown>,
-  liquidity?: number,
-): SwapRouteWarningLevel {
-  const sim = getSimulationOutputWarning(quote);
-  const liq = getLowLiquidityWarning(quote, liquidity);
-  if (sim && liq) return 'red';
-  if (sim || liq) return 'orange';
-  return 'none';
-}
-
-function formatLowLiquidityWarningMessage(warning: LowLiquidityWarning): string {
-  return `Pool liquidity is $${warning.liquidityUsd.toLocaleString(undefined, { maximumFractionDigits: 2 })}.`;
-}
-
-function formatSimulationOutputWarningMessage(
-  warning: SimulationOutputWarning,
-  outSym?: string,
-): string {
-  const sym = outSym?.trim() ? ` ${outSym.trim()}` : '';
-  if (warning.source === 'price_impact') {
-    return `Quote is ${formatWarnPercent(warning.shortfallPct)}% worse than spot price for this swap size.`;
-  }
-  return `Simulation delivers ${formatWarnPercent(warning.shortfallPct)}% less${sym} than quoted. Token account rent and reclaim are excluded from this comparison.`;
-}
-
-function formatCombinedRouteWarningsMessage(
-  quote: Record<string, unknown>,
-  outSym?: string,
-  liquidity?: number,
-): string | null {
-  const sim = getSimulationOutputWarning(quote);
-  const liq = getLowLiquidityWarning(quote, liquidity);
-  const parts: string[] = [];
-  if (liq) parts.push(formatLowLiquidityWarningMessage(liq));
-  if (sim) parts.push(formatSimulationOutputWarningMessage(sim, outSym));
-  return parts.length > 0 ? parts.join(' ') : null;
-}
-
-function renderRouteWarningsHtml(
-  quote: Record<string, unknown>,
-  outSym?: string,
-  liquidity?: number,
-): string {
-  const level = swapRouteWarningLevel(quote, liquidity);
-  if (level === 'none') return '';
-  const msg = formatCombinedRouteWarningsMessage(quote, outSym, liquidity);
-  if (!msg) return '';
+function renderRouteWarningsHtml(level: Exclude<SwapRouteWarningLevel, 'none'>, message: string): string {
   const levelClass =
     level === 'red' ? ' swap-quote-simulation-warning--severe' : ' swap-quote-simulation-warning--caution';
   return `<div class="swap-quote-simulation-warning${levelClass}" role="status">
       <span class="swap-quote-simulation-warning__icon" aria-hidden="true">⚠</span>
-      <span class="swap-quote-simulation-warning__text">${escapeHtml(msg)}</span>
+      <span class="swap-quote-simulation-warning__text">${escapeHtml(message)}</span>
     </div>`;
 }
 
-function selectedEnumeratedRouteLiquidity(): number | undefined {
-  const state = enumeratedRoutesUiState;
-  if (!state?.routes.length) return undefined;
-  const route = state.routes.find((r) => r.index === state.selectedIndex) ?? state.routes[0];
-  const score = Number(route?.candidate?.liquidity);
-  return Number.isFinite(score) && score > 0 ? score : undefined;
-}
-
-function syncRouteOptionsWarningBanner(quote: Record<string, unknown>): void {
+function syncRouteOptionsWarningBanner(_quote: Record<string, unknown>): void {
   if (!swapRouteOptionsWarningEl) return;
-  const html = renderRouteWarningsHtml(quote, getSwapOutSym(), selectedEnumeratedRouteLiquidity());
-  if (!html) {
+  const state = enumeratedRoutesUiState;
+  const route =
+    state?.routes.find((r) => r.index === state.selectedIndex) ?? state?.routes[0] ?? null;
+  const warning =
+    state && route ? getRouteMarketWarning(state.routes, route, getSwapOutSym()) : null;
+  if (!warning || warning.level === 'none' || !warning.message) {
     swapRouteOptionsWarningEl.hidden = true;
     swapRouteOptionsWarningEl.setAttribute('aria-hidden', 'true');
     swapRouteOptionsWarningEl.innerHTML = '';
     return;
   }
-  swapRouteOptionsWarningEl.innerHTML = html;
+  swapRouteOptionsWarningEl.innerHTML = renderRouteWarningsHtml(warning.level, warning.message);
   swapRouteOptionsWarningEl.hidden = false;
   swapRouteOptionsWarningEl.removeAttribute('aria-hidden');
 }
@@ -6259,14 +6150,14 @@ function confirmRouteWarningSelection(
 function routeEntryWarning(
   route: NonNullable<typeof enumeratedRoutesUiState>['routes'][number],
 ): { level: Exclude<SwapRouteWarningLevel, 'none'>; message: string } | null {
-  const quote = route.quote ?? {};
-  const liquidity = Number(route.candidate?.liquidity);
-  const liq = Number.isFinite(liquidity) && liquidity > 0 ? liquidity : undefined;
-  const level = swapRouteWarningLevel(quote, liq);
-  if (level === 'none') return null;
-  const message = formatCombinedRouteWarningsMessage(quote, getSwapOutSym(), liq);
-  if (!message) return null;
-  return { level, message };
+  if (!enumeratedRoutesUiState) return null;
+  const warning = getRouteMarketWarning(
+    enumeratedRoutesUiState.routes,
+    route,
+    getSwapOutSym(),
+  );
+  if (warning.level === 'none' || !warning.message) return null;
+  return { level: warning.level, message: warning.message };
 }
 
 function applyEnumeratedRouteSelection(index: number): void {
