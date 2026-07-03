@@ -5972,12 +5972,15 @@ function inferRouteOptionSource(
   return inferDirectRouteSource(rvt);
 }
 
+function isMultiHopEnumerateRouteRefetch(buildOpts: Record<string, unknown>): boolean {
+  return buildOpts.enumerateRoutes === true && isSelectedVybeMultiHopMarket();
+}
+
 function shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts: Record<string, unknown>): boolean {
   if (!enumeratedRoutesUiState?.routes.length) return false;
+  if (isMultiHopEnumerateRouteRefetch(buildOpts)) return false;
   const pool = String(buildOpts.poolAddress ?? '').trim();
   if (!pool) return false;
-  // Multi-hop Vybe markets need enumerateRoutes on refetch; still update only the selected card.
-  if (buildOpts.enumerateRoutes === true && isSelectedVybeMultiHopMarket()) return true;
   if (buildOpts.enumerateRoutes !== false) return false;
   if (enumeratedRoutesUiState.routes.length <= 1) return true;
   const candidate = getSelectedEnumeratedRouteCandidate();
@@ -6086,7 +6089,10 @@ function mergePinnedRouteQuoteIntoEnumeratedRoutes(body: Record<string, unknown>
   }
 }
 
-function syncEnumeratedRoutesFromBody(body: Record<string, unknown>): void {
+function syncEnumeratedRoutesFromBody(
+  body: Record<string, unknown>,
+  options?: { preserveSelectedIndex?: boolean },
+): void {
   const rvt = body._routeDiscovery as
     | {
         routes?: Array<Record<string, unknown>>;
@@ -6099,10 +6105,18 @@ function syncEnumeratedRoutesFromBody(body: Record<string, unknown>): void {
     | undefined;
   if (Array.isArray(rvt?.routes) && rvt.routes.length > 0) {
     lastVybeQuoteBodyForRoutes = body;
+    const routes = rvt.routes.map(mapEnumeratedRouteEntry);
+    const prevSelected = enumeratedRoutesUiState?.selectedIndex ?? 0;
+    const selectedIndex =
+      options?.preserveSelectedIndex && routes.some((r) => r.index === prevSelected)
+        ? prevSelected
+        : 0;
     enumeratedRoutesUiState = {
-      routes: rvt.routes.map(mapEnumeratedRouteEntry),
-      selectedIndex: 0,
-      expanded: false,
+      routes,
+      selectedIndex,
+      expanded: options?.preserveSelectedIndex
+        ? (enumeratedRoutesUiState?.expanded ?? false)
+        : false,
     };
     return;
   }
@@ -6234,9 +6248,10 @@ function applyVybeQuoteBodyToUi(
   }
   quotedMintSession.add(inputMint);
   quotedMintSession.add(outputMint);
+  const multiHopEnumerateRefetch = isMultiHopEnumerateRouteRefetch(buildOpts);
   const preserveEnumeratedRoutes = shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts);
   const prevEnrichedQuote = (() => {
-    if (preserveEnumeratedRoutes && enumeratedRoutesUiState) {
+    if ((preserveEnumeratedRoutes || multiHopEnumerateRefetch) && enumeratedRoutesUiState) {
       const selectedIndex = enumeratedRoutesUiState.selectedIndex;
       const route = enumeratedRoutesUiState.routes.find((r) => r.index === selectedIndex);
       if (route?.quote && typeof route.quote === 'object') {
@@ -6245,7 +6260,9 @@ function applyVybeQuoteBodyToUi(
     }
     return lastSwapQuoteOk;
   })();
-  if (preserveEnumeratedRoutes) {
+  if (multiHopEnumerateRefetch) {
+    syncEnumeratedRoutesFromBody(body, { preserveSelectedIndex: true });
+  } else if (preserveEnumeratedRoutes) {
     mergePinnedRouteQuoteIntoEnumeratedRoutes(body);
   } else {
     syncEnumeratedRoutesFromBody(body);

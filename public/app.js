@@ -26130,7 +26130,11 @@ function renderHopFeeRow(item, equiv, destCtx, quote, hopOutMint = "") {
   const titleParts = [formatFeeEquivDetailText(equiv, reclaim)];
   const note = item.destinationNote?.trim();
   if (note) titleParts.push(note);
-  const amtHtml = renderHopFeeAmountHtml(item.mint, item.amountRaw, equiv.feeSym, false, reclaim);
+  const accRentRow = isAccRentWalletFeeItem(item) || reclaim;
+  const amountMint = accRentRow ? WSOL_MINT : item.mint;
+  let amountSym = equiv.feeSym;
+  if (accRentRow || amountSym === "WSOL") amountSym = "SOL";
+  const amtHtml = renderHopFeeAmountHtml(amountMint, item.amountRaw, amountSym, false, reclaim);
   const usdRaw = quote ? formatHopFeeRowUsdDisplay(item, equiv, quote) : equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : "\u2014";
   const usd = reclaim && usdRaw !== "\u2014" ? `+${usdRaw}` : usdRaw;
   const usdMod = reclaim ? "hop-fee-row__usd--credit" : "hop-fee-row__usd--debit";
@@ -32487,11 +32491,14 @@ function inferRouteOptionSource(body, rvt) {
   if (router === "jupiter" || router === "titan") return router;
   return inferDirectRouteSource(rvt);
 }
+function isMultiHopEnumerateRouteRefetch(buildOpts) {
+  return buildOpts.enumerateRoutes === true && isSelectedVybeMultiHopMarket();
+}
 function shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts) {
   if (!enumeratedRoutesUiState?.routes.length) return false;
+  if (isMultiHopEnumerateRouteRefetch(buildOpts)) return false;
   const pool = String(buildOpts.poolAddress ?? "").trim();
   if (!pool) return false;
-  if (buildOpts.enumerateRoutes === true && isSelectedVybeMultiHopMarket()) return true;
   if (buildOpts.enumerateRoutes !== false) return false;
   if (enumeratedRoutesUiState.routes.length <= 1) return true;
   const candidate = getSelectedEnumeratedRouteCandidate();
@@ -32572,14 +32579,17 @@ function mergePinnedRouteQuoteIntoEnumeratedRoutes(body) {
     lastVybeQuoteBodyForRoutes = prevBody;
   }
 }
-function syncEnumeratedRoutesFromBody(body) {
+function syncEnumeratedRoutesFromBody(body, options) {
   const rvt = body._routeDiscovery;
   if (Array.isArray(rvt?.routes) && rvt.routes.length > 0) {
     lastVybeQuoteBodyForRoutes = body;
+    const routes = rvt.routes.map(mapEnumeratedRouteEntry);
+    const prevSelected = enumeratedRoutesUiState?.selectedIndex ?? 0;
+    const selectedIndex = options?.preserveSelectedIndex && routes.some((r) => r.index === prevSelected) ? prevSelected : 0;
     enumeratedRoutesUiState = {
-      routes: rvt.routes.map(mapEnumeratedRouteEntry),
-      selectedIndex: 0,
-      expanded: false
+      routes,
+      selectedIndex,
+      expanded: options?.preserveSelectedIndex ? enumeratedRoutesUiState?.expanded ?? false : false
     };
     return;
   }
@@ -32687,9 +32697,10 @@ function applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, bui
   }
   quotedMintSession.add(inputMint);
   quotedMintSession.add(outputMint);
+  const multiHopEnumerateRefetch = isMultiHopEnumerateRouteRefetch(buildOpts);
   const preserveEnumeratedRoutes = shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts);
   const prevEnrichedQuote = (() => {
-    if (preserveEnumeratedRoutes && enumeratedRoutesUiState) {
+    if ((preserveEnumeratedRoutes || multiHopEnumerateRefetch) && enumeratedRoutesUiState) {
       const selectedIndex = enumeratedRoutesUiState.selectedIndex;
       const route = enumeratedRoutesUiState.routes.find((r) => r.index === selectedIndex);
       if (route?.quote && typeof route.quote === "object") {
@@ -32698,7 +32709,9 @@ function applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, bui
     }
     return lastSwapQuoteOk;
   })();
-  if (preserveEnumeratedRoutes) {
+  if (multiHopEnumerateRefetch) {
+    syncEnumeratedRoutesFromBody(body, { preserveSelectedIndex: true });
+  } else if (preserveEnumeratedRoutes) {
     mergePinnedRouteQuoteIntoEnumeratedRoutes(body);
   } else {
     syncEnumeratedRoutesFromBody(body);
