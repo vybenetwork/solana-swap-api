@@ -2034,7 +2034,6 @@ tr:hover td {
   transition: background 0.12s ease, color 0.12s ease;
   min-height: 17px;
   max-height: 17px;
-  cursor: copy;
   border: none;
   background: transparent;
 }
