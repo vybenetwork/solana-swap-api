@@ -677,6 +677,26 @@
       </div>
     </dialog>
 
+    <dialog id="routeWarningConfirmDialog" class="swap-sign-dialog route-warning-confirm-dialog">
+      <div class="swap-sign-dialog__shell">
+        <div class="routing-dialog-header">
+          <h2 class="routing-dialog-title">Route warning</h2>
+          <button type="button" class="routing-dialog-close" id="routeWarningConfirmDismiss" aria-label="Close">×</button>
+        </div>
+        <p class="swap-sign-dialog__lead">
+          This market has a warning. Confirm if you still want to use it.
+        </p>
+        <div id="routeWarningConfirmMessage" class="swap-quote-simulation-warning swap-quote-simulation-warning--caution" role="status">
+          <span class="swap-quote-simulation-warning__icon" aria-hidden="true">⚠</span>
+          <span class="swap-quote-simulation-warning__text" id="routeWarningConfirmMessageText"></span>
+        </div>
+        <div class="swap-sign-dialog__actions">
+          <button type="button" class="swap-sign-dialog__btn swap-sign-dialog__btn--secondary" id="routeWarningConfirmCancel">Cancel</button>
+          <button type="button" class="swap-sign-dialog__btn swap-sign-dialog__btn--primary" id="routeWarningConfirmOk">Confirm</button>
+        </div>
+      </div>
+    </dialog>
+
     <script type="importmap">
       {
         "imports": {

@@ -22942,6 +22942,7 @@ function initRouteUi(d) {
 var ROUTE_OPTIONS_UI_INITIAL = 3;
 var poolCopyToastHideTimer = null;
 var pendingPoolCopyToast = null;
+var POOL_COPY_TOAST_MS = 400;
 function normalizePoolTradeActivityUi(partial) {
   const buyCount = Math.max(0, Number(partial?.buyCount ?? 0)) || 0;
   const sellCount = Math.max(0, Number(partial?.sellCount ?? 0)) || 0;
@@ -23031,7 +23032,7 @@ function showPoolCopyToastAt(linkEl) {
     hidePoolCopyToast();
     pendingPoolCopyToast = null;
     poolCopyToastHideTimer = null;
-  }, 1500);
+  }, POOL_COPY_TOAST_MS);
 }
 function findRoutePoolLinkEl(container, address) {
   return container.querySelector(
@@ -23056,7 +23057,7 @@ function flushPoolCopyToast() {
   });
 }
 function schedulePoolCopyToast(address) {
-  pendingPoolCopyToast = { address, until: Date.now() + 2e3 };
+  pendingPoolCopyToast = { address, until: Date.now() + POOL_COPY_TOAST_MS };
   flushPoolCopyToast();
 }
 function renderRoutePoolLink(marketAddress) {
@@ -23114,6 +23115,47 @@ function sourceBadgeLabel(source) {
 function routeOutputAmount(route) {
   const out = deps.quoteOutputUiAmount(route.quote ?? {});
   return out != null && Number.isFinite(out) ? out : 0;
+}
+var POOR_OUTPUT_FRACTION = 0.5;
+function maxRouteOutputAmount(routes) {
+  let maxOut = 0;
+  for (const route of routes) {
+    const out = routeOutputAmount(route);
+    if (out > maxOut) maxOut = out;
+  }
+  return maxOut;
+}
+function isEnumeratedRouteSelectable(routes, index) {
+  if (routes.length < 2 || routes.length > 3) return true;
+  const maxOut = maxRouteOutputAmount(routes);
+  if (!(maxOut > 0)) return true;
+  const route = routes.find((r) => r.index === index);
+  if (!route) return false;
+  return routeOutputAmount(route) >= maxOut * POOR_OUTPUT_FRACTION;
+}
+function poorOutputRouteIndices(routes) {
+  const poor = /* @__PURE__ */ new Set();
+  if (routes.length < 2 || routes.length > 3) return poor;
+  const maxOut = maxRouteOutputAmount(routes);
+  if (!(maxOut > 0)) return poor;
+  const threshold = maxOut * POOR_OUTPUT_FRACTION;
+  for (const route of routes) {
+    if (routeOutputAmount(route) < threshold) poor.add(route.index);
+  }
+  return poor;
+}
+function bestSelectableRouteIndex(routes) {
+  let bestIndex = null;
+  let bestOut = -1;
+  for (const route of routes) {
+    if (!isEnumeratedRouteSelectable(routes, route.index)) continue;
+    const out = routeOutputAmount(route);
+    if (out > bestOut) {
+      bestOut = out;
+      bestIndex = route.index;
+    }
+  }
+  return bestIndex;
 }
 function routeTradeActivityScore(route) {
   return normalizePoolTradeActivityUi(route.candidate).tradeCount;
@@ -23239,9 +23281,9 @@ function renderNoLiquidityRouteOptionsPanel(displayTitle = "No Liquidity Availab
   );
   return `<div class="swap-route-options__grid">${cards.join("")}</div>`;
 }
-function renderRouteOptionCard(route, selectedIndex, displayRank, highlight, showTradeActivity) {
+function renderRouteOptionCard(route, selectedIndex, displayRank, highlight, showTradeActivity, disabled = false) {
   const idx = route.index;
-  const active = idx === selectedIndex;
+  const active = !disabled && idx === selectedIndex;
   const quote = route.quote ?? {};
   const outUi = deps.quoteOutputUiAmount(quote);
   const outLabel = outUi != null ? deps.formatSwapAmountValue(outUi) : "\u2014";
@@ -23250,12 +23292,14 @@ function renderRouteOptionCard(route, selectedIndex, displayRank, highlight, sho
   const hopExtra = multipleMarkets ? 0 : routeHopExtraCount(route.quote);
   const hopSuffix = hopExtra > 0 ? renderRouteHopExtraSuffix(route.quote, hopExtra, route.candidate, programLabel) : "";
   const liquidity = multipleMarkets ? void 0 : route.candidate?.liquidity;
-  const warnLevel = swapRouteWarningLevel(quote, liquidity);
-  const optionWarnBadge = routeOptionWarnBadge(quote, liquidity);
+  const warnLevel = disabled ? "none" : swapRouteWarningLevel(quote, liquidity);
+  const optionWarnBadge = disabled ? "none" : routeOptionWarnBadge(quote, liquidity);
   const warnClass = warnLevel === "red" ? " swap-route-option--warn-severe" : warnLevel === "orange" ? " swap-route-option--warn-caution" : "";
   const warnTitle = warnLevel !== "none" ? combinedRouteWarningTitle(quote, liquidity) : "";
   const warnIcon = warnLevel !== "none" ? `<span class="swap-route-option__warn" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">\u26A0</span>` : "";
-  return `<div class="swap-route-option${active ? " swap-route-option--active" : ""}${warnClass}" data-route-index="${idx}" role="button" tabindex="0" aria-pressed="${active ? "true" : "false"}">
+  const disabledTitle = disabled ? ' title="Output is less than 50% of the best route"' : "";
+  const disabledClass = disabled ? " swap-route-option--disabled swap-route-option--poor-output" : "";
+  return `<div class="swap-route-option${active ? " swap-route-option--active" : ""}${warnClass}${disabledClass}" data-route-index="${idx}" role="button" tabindex="${disabled ? "-1" : "0"}" aria-disabled="${disabled ? "true" : "false"}" aria-pressed="${active ? "true" : "false"}"${disabledTitle}>
       <div class="swap-route-option__head">
         <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${displayRank}</span>${renderRouteRankStars(displayRank)}</span>
         <span class="swap-route-option__head-badges">
@@ -23291,12 +23335,27 @@ function renderRouteOptionsPanel() {
   }
   el.hidden = false;
   const loading = deps.isSwapQuoteFetching();
+  const poorIndices = poorOutputRouteIndices(state.routes);
+  if (poorIndices.has(state.selectedIndex)) {
+    const fallback = bestSelectableRouteIndex(state.routes);
+    if (fallback != null && fallback !== state.selectedIndex) {
+      deps.selectEnumeratedRoute(fallback);
+      return;
+    }
+  }
   const visibleCount = state.expanded ? state.routes.length : Math.min(ROUTE_OPTIONS_UI_INITIAL, state.routes.length);
   const hiddenCount = state.routes.length - visibleCount;
   const highlightBadges = computeRouteHighlightBadges(state.routes);
   const showTradeActivity = SHOW_ROUTE_TRADE_METRIC && routesHaveTradeActivity(state.routes);
   const cards = state.routes.slice(0, visibleCount).map(
-    (route, i) => renderRouteOptionCard(route, state.selectedIndex, i + 1, highlightBadges.get(route.index), showTradeActivity)
+    (route, i) => renderRouteOptionCard(
+      route,
+      state.selectedIndex,
+      i + 1,
+      highlightBadges.get(route.index),
+      showTradeActivity,
+      poorIndices.has(route.index)
+    )
   );
   if (!state.expanded && state.routes.length < ROUTE_OPTIONS_UI_INITIAL) {
     for (let rank = state.routes.length + 1; rank <= ROUTE_OPTIONS_UI_INITIAL; rank++) {
@@ -23306,9 +23365,11 @@ function renderRouteOptionsPanel() {
   const moreBtn = !state.expanded && hiddenCount > 0 ? `<button type="button" class="swap-route-options__more" data-route-expand="1">Show ${hiddenCount} more route${hiddenCount === 1 ? "" : "s"}</button>` : state.expanded && state.routes.length > ROUTE_OPTIONS_UI_INITIAL ? `<button type="button" class="swap-route-options__more" data-route-expand="0">Show fewer</button>` : "";
   el.innerHTML = `<div class="swap-route-options__grid">${cards.join("")}</div>${moreBtn}`;
   el.querySelectorAll("[data-route-index]").forEach((card) => {
+    const disabled = card.classList.contains("swap-route-option--disabled");
     const selectRoute = () => {
+      if (disabled) return;
       const index = Number(card.dataset.routeIndex);
-      if (Number.isFinite(index)) deps.selectEnumeratedRoute(index);
+      if (Number.isFinite(index)) deps.selectEnumeratedRoute(index, { confirmWarnings: true });
     };
     card.addEventListener("click", (e) => {
       const poolLink = e.target.closest("[data-route-pool-link]");
@@ -23319,6 +23380,7 @@ function renderRouteOptionsPanel() {
       schedulePoolCopyToast(address);
     });
     card.addEventListener("keydown", (e) => {
+      if (disabled) return;
       if (e.key === "Enter" || e.key === " ") {
         e.preventDefault();
         selectRoute();
@@ -28151,6 +28213,24 @@ var swapSignConfirmCancelEl = document.getElementById("swapSignConfirmCancel");
 var swapSignConfirmDismissEl = document.getElementById("swapSignConfirmDismiss");
 var swapSignConfirmTxidsEl = document.getElementById("swapSignConfirmTxids");
 var swapSignConfirmRefetchRetryEl = document.getElementById("swapSignConfirmRefetchRetry");
+var routeWarningConfirmDialogEl = document.getElementById(
+  "routeWarningConfirmDialog"
+);
+var routeWarningConfirmMessageEl = document.getElementById(
+  "routeWarningConfirmMessage"
+);
+var routeWarningConfirmMessageTextEl = document.getElementById(
+  "routeWarningConfirmMessageText"
+);
+var routeWarningConfirmCancelEl = document.getElementById(
+  "routeWarningConfirmCancel"
+);
+var routeWarningConfirmDismissEl = document.getElementById(
+  "routeWarningConfirmDismiss"
+);
+var routeWarningConfirmOkEl = document.getElementById(
+  "routeWarningConfirmOk"
+);
 var swapPairCardsEl = document.getElementById("swapPairCards");
 var swapQuoteDetailsEmptyEl = document.getElementById("swapQuoteDetailsEmpty");
 var swapQuoteDetailsBodyEl = document.getElementById("swapQuoteDetailsBody");
@@ -32657,10 +32737,47 @@ function applyActiveRouteQuoteToUi(body, wallet, inputMint, outputMint, amount, 
   if (swapBuildBtn) syncBuildButtonState();
   syncSwapBuildResultFromQuote();
 }
-function selectEnumeratedRoute(index) {
+var routeWarningConfirmResolver = null;
+function settleRouteWarningConfirm(confirmed) {
+  const resolve = routeWarningConfirmResolver;
+  routeWarningConfirmResolver = null;
+  if (routeWarningConfirmDialogEl?.open) routeWarningConfirmDialogEl.close();
+  resolve?.(confirmed);
+}
+function confirmRouteWarningSelection(message, level) {
+  if (!routeWarningConfirmDialogEl || !routeWarningConfirmMessageEl || !routeWarningConfirmMessageTextEl) {
+    return Promise.resolve(false);
+  }
+  if (routeWarningConfirmResolver) settleRouteWarningConfirm(false);
+  routeWarningConfirmMessageTextEl.textContent = message;
+  routeWarningConfirmMessageEl.classList.toggle(
+    "swap-quote-simulation-warning--severe",
+    level === "red"
+  );
+  routeWarningConfirmMessageEl.classList.toggle(
+    "swap-quote-simulation-warning--caution",
+    level !== "red"
+  );
+  return new Promise((resolve) => {
+    routeWarningConfirmResolver = resolve;
+    if (!routeWarningConfirmDialogEl.open) routeWarningConfirmDialogEl.showModal();
+  });
+}
+function routeEntryWarning(route) {
+  const quote = route.quote ?? {};
+  const liquidity = Number(route.candidate?.liquidity);
+  const liq = Number.isFinite(liquidity) && liquidity > 0 ? liquidity : void 0;
+  const level = swapRouteWarningLevel2(quote, liq);
+  if (level === "none") return null;
+  const message = formatCombinedRouteWarningsMessage(quote, getSwapOutSym(), liq);
+  if (!message) return null;
+  return { level, message };
+}
+function applyEnumeratedRouteSelection(index) {
   if (!enumeratedRoutesUiState || !lastVybeQuoteBodyForRoutes) return;
   const route = enumeratedRoutesUiState.routes.find((r) => r.index === index);
   if (!route) return;
+  if (!isEnumeratedRouteSelectable(enumeratedRoutesUiState.routes, index)) return;
   enumeratedRoutesUiState = { ...enumeratedRoutesUiState, selectedIndex: index };
   applyEnumeratedRouteCandidateToPinFields(route.candidate);
   renderRouteOptionsPanel();
@@ -32679,6 +32796,25 @@ function selectEnumeratedRoute(index) {
     buildOpts
   );
   syncSwapQuoteButtonState();
+}
+function selectEnumeratedRoute(index, options) {
+  void (async () => {
+    if (!enumeratedRoutesUiState || !lastVybeQuoteBodyForRoutes) return;
+    const route = enumeratedRoutesUiState.routes.find((r) => r.index === index);
+    if (!route) return;
+    if (!isEnumeratedRouteSelectable(enumeratedRoutesUiState.routes, index)) return;
+    if (index === enumeratedRoutesUiState.selectedIndex) return;
+    if (options?.confirmWarnings) {
+      const warning = routeEntryWarning(route);
+      if (warning) {
+        const confirmed = await confirmRouteWarningSelection(warning.message, warning.level);
+        if (!confirmed) return;
+        if (!enumeratedRoutesUiState?.routes.some((r) => r.index === index)) return;
+        if (!isEnumeratedRouteSelectable(enumeratedRoutesUiState.routes, index)) return;
+      }
+    }
+    applyEnumeratedRouteSelection(index);
+  })();
 }
 function applyVybeQuoteBodyToUi(body, wallet, inputMint, outputMint, amount, buildOpts) {
   if (!swapQuoteFetching) return;
@@ -34763,6 +34899,16 @@ function handleSwapSignDialogDismiss() {
   }
   closeSwapSignDialog();
 }
+routeWarningConfirmCancelEl?.addEventListener("click", () => settleRouteWarningConfirm(false));
+routeWarningConfirmDismissEl?.addEventListener("click", () => settleRouteWarningConfirm(false));
+routeWarningConfirmOkEl?.addEventListener("click", () => settleRouteWarningConfirm(true));
+routeWarningConfirmDialogEl?.addEventListener("cancel", (event) => {
+  event.preventDefault();
+  settleRouteWarningConfirm(false);
+});
+routeWarningConfirmDialogEl?.addEventListener("click", (event) => {
+  if (event.target === routeWarningConfirmDialogEl) settleRouteWarningConfirm(false);
+});
 swapSignConfirmCancelEl?.addEventListener("click", () => handleSwapSignDialogDismiss());
 swapSignConfirmDismissEl?.addEventListener("click", () => handleSwapSignDialogDismiss());
 swapSignConfirmTxidsEl?.addEventListener("click", (event) => {

@@ -83,7 +83,7 @@ export interface RouteUiDeps {
   syncRoutePlanStepsUi: () => void;
   getEnumeratedRoutesState: () => EnumeratedRoutesUiState | null;
   setEnumeratedRoutesExpanded: (expanded: boolean) => void;
-  selectEnumeratedRoute: (index: number) => void;
+  selectEnumeratedRoute: (index: number, options?: { confirmWarnings?: boolean }) => void;
   vybeMarketDiscoveryActive: () => boolean;
   swapRouteOptionsPanelActive: () => boolean;
   isSwapQuoteFetching: () => boolean;
@@ -129,6 +129,7 @@ const ROUTE_OPTIONS_UI_INITIAL = 3;
 
 let poolCopyToastHideTimer: number | null = null;
 let pendingPoolCopyToast: { address: string; until: number } | null = null;
+const POOL_COPY_TOAST_MS = 400;
 
 type PoolTradeActivityUi = {
   tradeCount?: number;
@@ -260,7 +261,7 @@ function showPoolCopyToastAt(linkEl: HTMLElement): void {
     hidePoolCopyToast();
     pendingPoolCopyToast = null;
     poolCopyToastHideTimer = null;
-  }, 1500);
+  }, POOL_COPY_TOAST_MS);
 }
 
 function findRoutePoolLinkEl(container: HTMLElement, address: string): HTMLElement | null {
@@ -288,7 +289,7 @@ function flushPoolCopyToast(): void {
 }
 
 function schedulePoolCopyToast(address: string): void {
-  pendingPoolCopyToast = { address, until: Date.now() + 2000 };
+  pendingPoolCopyToast = { address, until: Date.now() + POOL_COPY_TOAST_MS };
   flushPoolCopyToast();
 }
 
@@ -363,6 +364,56 @@ function sourceBadgeLabel(source: string | undefined): string {
 function routeOutputAmount(route: EnumeratedRouteUiEntry): number {
   const out = deps.quoteOutputUiAmount(route.quote ?? {});
   return out != null && Number.isFinite(out) ? out : 0;
+}
+
+/** Routes with output under half the best are unusable when 2–3 markets are shown. */
+const POOR_OUTPUT_FRACTION = 0.5;
+
+function maxRouteOutputAmount(routes: EnumeratedRouteUiEntry[]): number {
+  let maxOut = 0;
+  for (const route of routes) {
+    const out = routeOutputAmount(route);
+    if (out > maxOut) maxOut = out;
+  }
+  return maxOut;
+}
+
+export function isEnumeratedRouteSelectable(
+  routes: EnumeratedRouteUiEntry[],
+  index: number,
+): boolean {
+  if (routes.length < 2 || routes.length > 3) return true;
+  const maxOut = maxRouteOutputAmount(routes);
+  if (!(maxOut > 0)) return true;
+  const route = routes.find((r) => r.index === index);
+  if (!route) return false;
+  return routeOutputAmount(route) >= maxOut * POOR_OUTPUT_FRACTION;
+}
+
+function poorOutputRouteIndices(routes: EnumeratedRouteUiEntry[]): Set<number> {
+  const poor = new Set<number>();
+  if (routes.length < 2 || routes.length > 3) return poor;
+  const maxOut = maxRouteOutputAmount(routes);
+  if (!(maxOut > 0)) return poor;
+  const threshold = maxOut * POOR_OUTPUT_FRACTION;
+  for (const route of routes) {
+    if (routeOutputAmount(route) < threshold) poor.add(route.index);
+  }
+  return poor;
+}
+
+function bestSelectableRouteIndex(routes: EnumeratedRouteUiEntry[]): number | null {
+  let bestIndex: number | null = null;
+  let bestOut = -1;
+  for (const route of routes) {
+    if (!isEnumeratedRouteSelectable(routes, route.index)) continue;
+    const out = routeOutputAmount(route);
+    if (out > bestOut) {
+      bestOut = out;
+      bestIndex = route.index;
+    }
+  }
+  return bestIndex;
 }
 
 type RouteOptionHighlightBadge = 'best-price' | 'highest-liquidity' | 'highest-activity';
@@ -531,9 +582,10 @@ function renderRouteOptionCard(
   displayRank: number,
   highlight: RouteOptionHighlightBadge | undefined,
   showTradeActivity: boolean,
+  disabled = false,
 ): string {
   const idx = route.index;
-  const active = idx === selectedIndex;
+  const active = !disabled && idx === selectedIndex;
   const quote = route.quote ?? {};
   const outUi = deps.quoteOutputUiAmount(quote);
   const outLabel = outUi != null ? deps.formatSwapAmountValue(outUi) : '—';
@@ -543,8 +595,8 @@ function renderRouteOptionCard(
   const hopSuffix =
     hopExtra > 0 ? renderRouteHopExtraSuffix(route.quote, hopExtra, route.candidate, programLabel) : '';
   const liquidity = multipleMarkets ? undefined : route.candidate?.liquidity;
-  const warnLevel = swapRouteWarningLevel(quote, liquidity);
-  const optionWarnBadge = routeOptionWarnBadge(quote, liquidity);
+  const warnLevel = disabled ? 'none' : swapRouteWarningLevel(quote, liquidity);
+  const optionWarnBadge = disabled ? 'none' : routeOptionWarnBadge(quote, liquidity);
   const warnClass =
     warnLevel === 'red'
       ? ' swap-route-option--warn-severe'
@@ -556,7 +608,11 @@ function renderRouteOptionCard(
     warnLevel !== 'none'
       ? `<span class="swap-route-option__warn" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`
       : '';
-  return `<div class="swap-route-option${active ? ' swap-route-option--active' : ''}${warnClass}" data-route-index="${idx}" role="button" tabindex="0" aria-pressed="${active ? 'true' : 'false'}">
+  const disabledTitle = disabled
+    ? ' title="Output is less than 50% of the best route"'
+    : '';
+  const disabledClass = disabled ? ' swap-route-option--disabled swap-route-option--poor-output' : '';
+  return `<div class="swap-route-option${active ? ' swap-route-option--active' : ''}${warnClass}${disabledClass}" data-route-index="${idx}" role="button" tabindex="${disabled ? '-1' : '0'}" aria-disabled="${disabled ? 'true' : 'false'}" aria-pressed="${active ? 'true' : 'false'}"${disabledTitle}>
       <div class="swap-route-option__head">
         <span class="swap-route-option__rank-wrap"><span class="swap-route-option__rank">#${displayRank}</span>${renderRouteRankStars(displayRank)}</span>
         <span class="swap-route-option__head-badges">
@@ -593,6 +649,14 @@ export function renderRouteOptionsPanel(): void {
   }
   el.hidden = false;
   const loading = deps.isSwapQuoteFetching();
+  const poorIndices = poorOutputRouteIndices(state.routes);
+  if (poorIndices.has(state.selectedIndex)) {
+    const fallback = bestSelectableRouteIndex(state.routes);
+    if (fallback != null && fallback !== state.selectedIndex) {
+      deps.selectEnumeratedRoute(fallback);
+      return;
+    }
+  }
   const visibleCount = state.expanded
     ? state.routes.length
     : Math.min(ROUTE_OPTIONS_UI_INITIAL, state.routes.length);
@@ -600,7 +664,14 @@ export function renderRouteOptionsPanel(): void {
   const highlightBadges = computeRouteHighlightBadges(state.routes);
   const showTradeActivity = SHOW_ROUTE_TRADE_METRIC && routesHaveTradeActivity(state.routes);
   const cards = state.routes.slice(0, visibleCount).map((route, i) =>
-    renderRouteOptionCard(route, state.selectedIndex, i + 1, highlightBadges.get(route.index), showTradeActivity),
+    renderRouteOptionCard(
+      route,
+      state.selectedIndex,
+      i + 1,
+      highlightBadges.get(route.index),
+      showTradeActivity,
+      poorIndices.has(route.index),
+    ),
   );
   if (!state.expanded && state.routes.length < ROUTE_OPTIONS_UI_INITIAL) {
     for (let rank = state.routes.length + 1; rank <= ROUTE_OPTIONS_UI_INITIAL; rank++) {
@@ -615,9 +686,11 @@ export function renderRouteOptionsPanel(): void {
         : '';
   el.innerHTML = `<div class="swap-route-options__grid">${cards.join('')}</div>${moreBtn}`;
   el.querySelectorAll<HTMLElement>('[data-route-index]').forEach((card) => {
+    const disabled = card.classList.contains('swap-route-option--disabled');
     const selectRoute = () => {
+      if (disabled) return;
       const index = Number(card.dataset.routeIndex);
-      if (Number.isFinite(index)) deps.selectEnumeratedRoute(index);
+      if (Number.isFinite(index)) deps.selectEnumeratedRoute(index, { confirmWarnings: true });
     };
     card.addEventListener('click', (e) => {
       const poolLink = (e.target as Element).closest<HTMLElement>('[data-route-pool-link]');
@@ -628,6 +701,7 @@ export function renderRouteOptionsPanel(): void {
       schedulePoolCopyToast(address);
     });
     card.addEventListener('keydown', (e) => {
+      if (disabled) return;
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         selectRoute();

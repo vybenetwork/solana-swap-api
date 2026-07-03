@@ -124,6 +124,7 @@ import {
   clearQuoteRouteDiagramAndSteps,
   renderRoutePanels,
   renderRouteOptionsPanel,
+  isEnumeratedRouteSelectable,
   bindRoutingDiagramZoomListeners,
   scheduleRoutingDiagramZoom,
   mountRoutingDiagram,
@@ -369,6 +370,24 @@ const swapSignConfirmCancelEl = document.getElementById('swapSignConfirmCancel')
 const swapSignConfirmDismissEl = document.getElementById('swapSignConfirmDismiss') as HTMLButtonElement | null;
 const swapSignConfirmTxidsEl = document.getElementById('swapSignConfirmTxids') as HTMLElement | null;
 const swapSignConfirmRefetchRetryEl = document.getElementById('swapSignConfirmRefetchRetry') as HTMLButtonElement | null;
+const routeWarningConfirmDialogEl = document.getElementById(
+  'routeWarningConfirmDialog',
+) as HTMLDialogElement | null;
+const routeWarningConfirmMessageEl = document.getElementById(
+  'routeWarningConfirmMessage',
+) as HTMLElement | null;
+const routeWarningConfirmMessageTextEl = document.getElementById(
+  'routeWarningConfirmMessageText',
+) as HTMLElement | null;
+const routeWarningConfirmCancelEl = document.getElementById(
+  'routeWarningConfirmCancel',
+) as HTMLButtonElement | null;
+const routeWarningConfirmDismissEl = document.getElementById(
+  'routeWarningConfirmDismiss',
+) as HTMLButtonElement | null;
+const routeWarningConfirmOkEl = document.getElementById(
+  'routeWarningConfirmOk',
+) as HTMLButtonElement | null;
 const swapPairCardsEl = document.getElementById('swapPairCards') as HTMLElement | null;
 const swapQuoteDetailsEmptyEl = document.getElementById('swapQuoteDetailsEmpty') as HTMLElement | null;
 const swapQuoteDetailsBodyEl = document.getElementById('swapQuoteDetailsBody') as HTMLElement | null;
@@ -6205,10 +6224,56 @@ function applyActiveRouteQuoteToUi(
   syncSwapBuildResultFromQuote();
 }
 
-function selectEnumeratedRoute(index: number): void {
+let routeWarningConfirmResolver: ((confirmed: boolean) => void) | null = null;
+
+function settleRouteWarningConfirm(confirmed: boolean): void {
+  const resolve = routeWarningConfirmResolver;
+  routeWarningConfirmResolver = null;
+  if (routeWarningConfirmDialogEl?.open) routeWarningConfirmDialogEl.close();
+  resolve?.(confirmed);
+}
+
+function confirmRouteWarningSelection(
+  message: string,
+  level: Exclude<SwapRouteWarningLevel, 'none'>,
+): Promise<boolean> {
+  if (!routeWarningConfirmDialogEl || !routeWarningConfirmMessageEl || !routeWarningConfirmMessageTextEl) {
+    return Promise.resolve(false);
+  }
+  if (routeWarningConfirmResolver) settleRouteWarningConfirm(false);
+  routeWarningConfirmMessageTextEl.textContent = message;
+  routeWarningConfirmMessageEl.classList.toggle(
+    'swap-quote-simulation-warning--severe',
+    level === 'red',
+  );
+  routeWarningConfirmMessageEl.classList.toggle(
+    'swap-quote-simulation-warning--caution',
+    level !== 'red',
+  );
+  return new Promise((resolve) => {
+    routeWarningConfirmResolver = resolve;
+    if (!routeWarningConfirmDialogEl.open) routeWarningConfirmDialogEl.showModal();
+  });
+}
+
+function routeEntryWarning(
+  route: NonNullable<typeof enumeratedRoutesUiState>['routes'][number],
+): { level: Exclude<SwapRouteWarningLevel, 'none'>; message: string } | null {
+  const quote = route.quote ?? {};
+  const liquidity = Number(route.candidate?.liquidity);
+  const liq = Number.isFinite(liquidity) && liquidity > 0 ? liquidity : undefined;
+  const level = swapRouteWarningLevel(quote, liq);
+  if (level === 'none') return null;
+  const message = formatCombinedRouteWarningsMessage(quote, getSwapOutSym(), liq);
+  if (!message) return null;
+  return { level, message };
+}
+
+function applyEnumeratedRouteSelection(index: number): void {
   if (!enumeratedRoutesUiState || !lastVybeQuoteBodyForRoutes) return;
   const route = enumeratedRoutesUiState.routes.find((r) => r.index === index);
   if (!route) return;
+  if (!isEnumeratedRouteSelectable(enumeratedRoutesUiState.routes, index)) return;
   enumeratedRoutesUiState = { ...enumeratedRoutesUiState, selectedIndex: index };
   applyEnumeratedRouteCandidateToPinFields(route.candidate);
   renderRouteOptionsPanel();
@@ -6227,6 +6292,31 @@ function selectEnumeratedRoute(index: number): void {
     buildOpts,
   );
   syncSwapQuoteButtonState();
+}
+
+function selectEnumeratedRoute(
+  index: number,
+  options?: { confirmWarnings?: boolean },
+): void {
+  void (async () => {
+    if (!enumeratedRoutesUiState || !lastVybeQuoteBodyForRoutes) return;
+    const route = enumeratedRoutesUiState.routes.find((r) => r.index === index);
+    if (!route) return;
+    if (!isEnumeratedRouteSelectable(enumeratedRoutesUiState.routes, index)) return;
+    if (index === enumeratedRoutesUiState.selectedIndex) return;
+
+    if (options?.confirmWarnings) {
+      const warning = routeEntryWarning(route);
+      if (warning) {
+        const confirmed = await confirmRouteWarningSelection(warning.message, warning.level);
+        if (!confirmed) return;
+        if (!enumeratedRoutesUiState?.routes.some((r) => r.index === index)) return;
+        if (!isEnumeratedRouteSelectable(enumeratedRoutesUiState.routes, index)) return;
+      }
+    }
+
+    applyEnumeratedRouteSelection(index);
+  })();
 }
 
 function applyVybeQuoteBodyToUi(
@@ -8931,6 +9021,17 @@ function handleSwapSignDialogDismiss(): void {
   }
   closeSwapSignDialog();
 }
+
+routeWarningConfirmCancelEl?.addEventListener('click', () => settleRouteWarningConfirm(false));
+routeWarningConfirmDismissEl?.addEventListener('click', () => settleRouteWarningConfirm(false));
+routeWarningConfirmOkEl?.addEventListener('click', () => settleRouteWarningConfirm(true));
+routeWarningConfirmDialogEl?.addEventListener('cancel', (event) => {
+  event.preventDefault();
+  settleRouteWarningConfirm(false);
+});
+routeWarningConfirmDialogEl?.addEventListener('click', (event) => {
+  if (event.target === routeWarningConfirmDialogEl) settleRouteWarningConfirm(false);
+});
 
 swapSignConfirmCancelEl?.addEventListener('click', () => handleSwapSignDialogDismiss());
 swapSignConfirmDismissEl?.addEventListener('click', () => handleSwapSignDialogDismiss());
