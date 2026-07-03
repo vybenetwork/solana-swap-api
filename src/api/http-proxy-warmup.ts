@@ -1,5 +1,5 @@
 /**
- * Startup prefetch for Jupiter and pump.fun via the HTTP proxy pool (or direct fetch).
+ * Startup prefetch for Jupiter and pump.fun (direct connections; proxy only on 429).
  */
 
 import { loadPumpfunHeaders } from './pumpfun-price-fallback.js';

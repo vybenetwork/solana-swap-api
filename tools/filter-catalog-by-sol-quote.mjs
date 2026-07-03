@@ -28,7 +28,10 @@ import { fetchSolscanMarketsForToken } from './lib/fetch-solscan-markets.mjs';
 import { fetchJupiterTopTokens, JUPITER_LIMIT, mergeCatalogWithJupiter } from './lib/jupiter-catalog.mjs';
 import {
   compareRouteToSolscan,
+  extractBuildTxMetrics,
   extractSelectedRoute,
+  fetchSolBuyQuoteWithRetry,
+  QUOTE_TIMEOUT_MS,
 } from './lib/swap-api-quote-lib.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -201,7 +204,7 @@ async function waitForSwapApi(maxSec = 90) {
         body: JSON.stringify(
           buildFrontendVybeQuoteBody('DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', priceHints, 5),
         ),
-        signal: AbortSignal.timeout(120_000),
+        signal: AbortSignal.timeout(QUOTE_TIMEOUT_MS),
       });
       const body = await res.json().catch(() => ({}));
       const outAmount =
@@ -265,41 +268,6 @@ function quotePasses(body) {
   return { ok: true, hops };
 }
 
-async function fetchSolBuyQuote(token, walletItems) {
-  let priceHints = {};
-  try {
-    priceHints = await resolvePricesForPair(token.mint);
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return { error: `resolve-prices failed: ${msg}` };
-  }
-  const ataHints = buildAtaHintsFromWalletItems(
-    walletItems,
-    NATIVE_SOL_MINT,
-    token.mint,
-    SOL_AMOUNT,
-  );
-  const res = await fetch(`${API}/api/trading/vybe-quote`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(
-      buildFrontendVybeQuoteBody(token.mint, priceHints, token.decimals, ataHints),
-    ),
-    signal: AbortSignal.timeout(120_000),
-  });
-  const text = await res.text();
-  let body;
-  try {
-    body = JSON.parse(text);
-  } catch {
-    return { error: `Invalid JSON (HTTP ${res.status}): ${text.slice(0, 120)}` };
-  }
-  if (!res.ok && !body?.error) {
-    return { error: body?.message || `HTTP ${res.status}` };
-  }
-  return body;
-}
-
 async function mapPool(items, worker) {
   const results = new Array(items.length);
   let next = 0;
@@ -357,6 +325,14 @@ async function attachSolscanContext(token, quoteBody, verdict) {
 function solscanLogSuffix(comparison) {
   if (!comparison?.assessmentDetail) return '';
   return comparison.assessmentDetail;
+}
+
+function txMetricsLogSuffix(body) {
+  const { txSizeDisplay, signLabel } = extractBuildTxMetrics(body);
+  const parts = [];
+  if (txSizeDisplay) parts.push(txSizeDisplay);
+  if (signLabel) parts.push(signLabel);
+  return parts.length > 0 ? `, ${parts.join(', ')}` : '';
 }
 
 function writeCatalog(catalog, meta) {
@@ -465,6 +441,7 @@ async function main() {
     if (retest > 0) console.log(`Re-testing ${retest} previously denylisted mint(s)`);
   }
   console.log(`Queue ${toTest.length} SOL→token quotes @ ${SOL_AMOUNT} SOL (${CONCURRENCY} concurrent)`);
+  console.log(`Quote timeout ${Math.round(QUOTE_TIMEOUT_MS / 1000)}s per token (CATALOG_FILTER_QUOTE_TIMEOUT_MS)`);
   if (SOLSCAN_ENABLED) {
     console.log(`Solscan: scrape #markets per token (serial — top 100 by TVL)`);
   }
@@ -478,7 +455,7 @@ async function main() {
   const outcomes = await mapPool(toTest, async (token) => {
     const label = `${token.symbol || '?'} (${token.mint.slice(0, 8)}…)`;
     try {
-      const body = await fetchSolBuyQuote(token, walletItems);
+      const body = await fetchSolBuyQuoteWithRetry(token, walletItems);
       const verdict = quotePasses(body);
       let solscan = null;
       let comparison = null;
@@ -492,21 +469,31 @@ async function main() {
       }
       done++;
       const solSuffix = solscanLogSuffix(comparison);
+      const txMetrics = extractBuildTxMetrics(body);
       if (verdict.ok) {
         const routeNote = comparison?.assessmentDetail ?? '';
-        console.log(`[${done}/${toTest.length}] keep ${label} — ${verdict.hops} hop(s)${routeNote}`);
+        console.log(
+          `[${done}/${toTest.length}] keep ${label} — ${verdict.hops} hop(s)${txMetricsLogSuffix(body)}${routeNote}`,
+        );
         filterRows.push({
           mint: token.mint,
           symbol: token.symbol,
           kept: true,
           hops: verdict.hops,
           reason: null,
+          txSizeBytes: txMetrics.txSizeBytes,
+          txSizeDisplay: txMetrics.txSizeDisplay,
+          signCount: txMetrics.signCount,
+          signLabel: txMetrics.signLabel,
+          atomicRoute: txMetrics.atomicRoute,
           solscanSummary: solscan?.summary ?? null,
           comparison: comparison ?? null,
         });
         return { token, keep: true };
       }
-      console.log(`[${done}/${toTest.length}] drop ${label} — ${verdict.reason}${solSuffix}`);
+      console.log(
+        `[${done}/${toTest.length}] drop ${label} — ${verdict.reason}${txMetricsLogSuffix(body)}${solSuffix}`,
+      );
       const rank = comparison?.selectedEligibleRank;
       removed.push({
         mint: token.mint,
@@ -525,6 +512,11 @@ async function main() {
         kept: false,
         hops: countSwapHops(body),
         reason: verdict.reason,
+        txSizeBytes: txMetrics.txSizeBytes,
+        txSizeDisplay: txMetrics.txSizeDisplay,
+        signCount: txMetrics.signCount,
+        signLabel: txMetrics.signLabel,
+        atomicRoute: txMetrics.atomicRoute,
         solscanSummary: solscan?.summary ?? null,
         solscanUrl: solscan?.solscanUrl ?? null,
         eligibleRanked: comparison?.eligibleRanked ?? null,

@@ -6108,6 +6108,7 @@ function selectEnumeratedRoute(index: number): void {
   if (!route) return;
   enumeratedRoutesUiState = { ...enumeratedRoutesUiState, selectedIndex: index };
   applyEnumeratedRouteCandidateToPinFields(route.candidate);
+  renderRouteOptionsPanel();
   const wallet = swapQuoteWalletSnapshot ?? swapWalletAddressInput?.value.trim() ?? '';
   const inputMint = swapInputMintInput?.value.trim() ?? '';
   const outputMint = swapOutputMintInput?.value.trim() ?? '';

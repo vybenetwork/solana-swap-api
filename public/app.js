@@ -22937,6 +22937,8 @@ function initRouteUi(d) {
   deps = d;
 }
 var ROUTE_OPTIONS_UI_INITIAL = 3;
+var poolCopyToastHideTimer = null;
+var pendingPoolCopyToast = null;
 function normalizePoolTradeActivityUi(partial) {
   const buyCount = Math.max(0, Number(partial?.buyCount ?? 0)) || 0;
   const sellCount = Math.max(0, Number(partial?.sellCount ?? 0)) || 0;
@@ -22981,6 +22983,79 @@ function formatRoutePriceImpact(quote) {
   const formatted = formatPriceImpactPctMarketBox(pct, { leadingPlus: true });
   return formatPriceImpactPctWithArrow(displayed, formatted);
 }
+async function writePoolAddressToClipboard(address) {
+  try {
+    await navigator.clipboard.writeText(address);
+  } catch {
+    const ta = document.createElement("textarea");
+    ta.value = address;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+  }
+}
+function getPoolCopyToastEl() {
+  let el = document.getElementById("swap-route-pool-copy-tip");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "swap-route-pool-copy-tip";
+    el.className = "swap-route-pool-copy-tip";
+    el.textContent = "Copied to clipboard";
+    el.setAttribute("role", "status");
+    el.setAttribute("aria-live", "polite");
+    document.body.appendChild(el);
+  }
+  return el;
+}
+function hidePoolCopyToast() {
+  if (poolCopyToastHideTimer != null) {
+    window.clearTimeout(poolCopyToastHideTimer);
+    poolCopyToastHideTimer = null;
+  }
+  document.getElementById("swap-route-pool-copy-tip")?.classList.remove("is-visible");
+}
+function showPoolCopyToastAt(linkEl) {
+  const toast = getPoolCopyToastEl();
+  const rect = linkEl.getBoundingClientRect();
+  toast.style.left = `${rect.left + rect.width / 2}px`;
+  toast.style.top = `${rect.top - 6}px`;
+  toast.classList.add("is-visible");
+  if (poolCopyToastHideTimer != null) window.clearTimeout(poolCopyToastHideTimer);
+  poolCopyToastHideTimer = window.setTimeout(() => {
+    hidePoolCopyToast();
+    pendingPoolCopyToast = null;
+    poolCopyToastHideTimer = null;
+  }, 1500);
+}
+function findRoutePoolLinkEl(container, address) {
+  return container.querySelector(
+    `[data-route-pool-link][data-route-pool-address="${CSS.escape(address)}"]`
+  );
+}
+function flushPoolCopyToast() {
+  if (!pendingPoolCopyToast) return;
+  if (Date.now() > pendingPoolCopyToast.until) {
+    pendingPoolCopyToast = null;
+    hidePoolCopyToast();
+    return;
+  }
+  const container = deps.dom.swapRouteOptionsEl;
+  if (!container) return;
+  const address = pendingPoolCopyToast.address;
+  requestAnimationFrame(() => {
+    if (!pendingPoolCopyToast || pendingPoolCopyToast.address !== address) return;
+    const link = findRoutePoolLinkEl(container, address);
+    if (!link) return;
+    showPoolCopyToastAt(link);
+  });
+}
+function schedulePoolCopyToast(address) {
+  pendingPoolCopyToast = { address, until: Date.now() + 2e3 };
+  flushPoolCopyToast();
+}
 function renderRoutePoolLink(marketAddress) {
   const raw = (marketAddress ?? "").trim();
   if (!raw) {
@@ -22990,8 +23065,7 @@ function renderRoutePoolLink(marketAddress) {
   if (!isLikelySolanaPubkey(raw)) {
     return `<span class="swap-route-option__pool-link swap-route-option__pool-link--empty" title="${deps.escapeHtml(raw)}">${deps.escapeHtml(short)}</span>`;
   }
-  const url = deps.escapeHtml(solscanAccountUrl(raw));
-  return `<a class="swap-route-option__pool-link" href="${url}" target="_blank" rel="noopener noreferrer" data-route-pool-link title="View pool on Solscan \u2014 ${deps.escapeHtml(raw)}"><span class="swap-route-option__pool-link-label">${deps.escapeHtml(short)}</span><span class="swap-route-option__pool-link-icon" aria-hidden="true">\u2197</span></a>`;
+  return `<span class="swap-route-option__pool-link" data-route-pool-link data-route-pool-address="${deps.escapeHtml(raw)}" title="Copy pool address \u2014 ${deps.escapeHtml(raw)}"><span class="swap-route-option__pool-link-label">${deps.escapeHtml(short)}</span><span class="swap-route-option__pool-link-icon" aria-hidden="true">\u29C9</span></span>`;
 }
 function renderRouteOptionMetrics(quote, outLabel, liquidity, tradeActivity, showTradeActivity = false) {
   const liq = liquidity != null && liquidity > 0 ? formatLiquidityUsdCompact(liquidity) : "\u2014";
@@ -23197,6 +23271,8 @@ function renderRouteOptionsPanel() {
   if (!deps.swapRouteOptionsPanelActive()) {
     el.hidden = true;
     el.innerHTML = "";
+    pendingPoolCopyToast = null;
+    hidePoolCopyToast();
     return;
   }
   const state = deps.getEnumeratedRoutesState();
@@ -23232,8 +23308,12 @@ function renderRouteOptionsPanel() {
       if (Number.isFinite(index)) deps.selectEnumeratedRoute(index);
     };
     card.addEventListener("click", (e) => {
-      if (e.target.closest("[data-route-pool-link]")) return;
+      const poolLink = e.target.closest("[data-route-pool-link]");
+      const address = poolLink?.dataset.routePoolAddress?.trim();
       selectRoute();
+      if (!address) return;
+      void writePoolAddressToClipboard(address);
+      schedulePoolCopyToast(address);
     });
     card.addEventListener("keydown", (e) => {
       if (e.key === "Enter" || e.key === " ") {
@@ -23242,14 +23322,12 @@ function renderRouteOptionsPanel() {
       }
     });
   });
-  el.querySelectorAll("[data-route-pool-link]").forEach((link) => {
-    link.addEventListener("click", (e) => e.stopPropagation());
-  });
   const expandBtn = el.querySelector("[data-route-expand]");
   expandBtn?.addEventListener("click", () => {
     deps.setEnumeratedRoutesExpanded(expandBtn.dataset.routeExpand === "1");
     renderRouteOptionsPanel();
   });
+  flushPoolCopyToast();
 }
 var ACC_RENT_FEE_LABEL = "Acc Rent Fee";
 function accRentAccountMint(item) {
@@ -25760,7 +25838,7 @@ function renderMockAccRentAboveBranch() {
   );
   return `<div class="routing-acc-rent-above" aria-label="Account rent fee at this hop">
     <div class="routing-acc-rent-cards"><div class="routing-fee-slot routing-fee-slot--acc-rent">${chip}</div></div>
-    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(1)}</div>
+    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(1, "default", "up")}</div>
   </div>`;
 }
 function renderMockRoutingFeeBranch(outputSym = "SOL") {
@@ -26203,7 +26281,7 @@ function renderHopFeesTotalsChipsMock(walletSym, outputSym) {
   ].join("");
   return `<div class="hop-fees-totals" aria-label="Fee totals by currency">${chips}</div>`;
 }
-function renderRoutingFeeConnectors(feeCount, spread = "default") {
+function renderRoutingFeeConnectors(feeCount, spread = "default", direction = "down") {
   const vbW = 248;
   const vbH = 72;
   const cx = vbW / 2;
@@ -26212,23 +26290,45 @@ function renderRoutingFeeConnectors(feeCount, spread = "default") {
   const r = 8;
   const dropXs = spread === "compact" ? feeCount === 2 ? [vbW * 0.4, vbW * 0.6] : feeCount === 3 ? [vbW * 0.32, vbW * 0.5, vbW * 0.68] : feeCount >= 4 ? [vbW * 0.26, vbW * 0.42, vbW * 0.58, vbW * 0.74].slice(0, feeCount) : [cx] : feeCount === 2 ? [vbW * 0.25, vbW * 0.75] : feeCount === 3 ? [vbW / 6, vbW / 2, vbW * 5 / 6] : feeCount >= 4 ? [vbW * 0.12, vbW * 0.38, vbW * 0.62, vbW * 0.88].slice(0, feeCount) : [cx];
   const segments = [];
-  if (feeCount === 1) {
-    segments.push(`M ${cx} 0 L ${cx} ${endY}`);
+  if (direction === "down") {
+    if (feeCount === 1) {
+      segments.push(`M ${cx} 0 L ${cx} ${endY}`);
+    } else {
+      segments.push(`M ${cx} 0 L ${cx} ${barY}`);
+      const sorted = [...dropXs].sort((a, b) => a - b);
+      const barLeft = sorted[0] + r;
+      const barRight = sorted[sorted.length - 1] - r;
+      if (barRight > barLeft) {
+        segments.push(`M ${barLeft} ${barY} L ${barRight} ${barY}`);
+      }
+      for (const x of dropXs) {
+        if (x < cx - 0.5) {
+          segments.push(`M ${x + r} ${barY} A ${r} ${r} 0 0 0 ${x} ${barY + r} L ${x} ${endY}`);
+        } else if (x > cx + 0.5) {
+          segments.push(`M ${x - r} ${barY} A ${r} ${r} 0 0 1 ${x} ${barY + r} L ${x} ${endY}`);
+        } else {
+          segments.push(`M ${x} ${barY} L ${x} ${endY}`);
+        }
+      }
+    }
+  } else if (feeCount === 1) {
+    segments.push(`M ${cx} ${endY} L ${cx} 0`);
   } else {
-    segments.push(`M ${cx} 0 L ${cx} ${barY}`);
+    const bar = endY - barY;
+    segments.push(`M ${cx} ${endY} L ${cx} ${bar}`);
     const sorted = [...dropXs].sort((a, b) => a - b);
     const barLeft = sorted[0] + r;
     const barRight = sorted[sorted.length - 1] - r;
     if (barRight > barLeft) {
-      segments.push(`M ${barLeft} ${barY} L ${barRight} ${barY}`);
+      segments.push(`M ${barLeft} ${bar} L ${barRight} ${bar}`);
     }
     for (const x of dropXs) {
       if (x < cx - 0.5) {
-        segments.push(`M ${x + r} ${barY} A ${r} ${r} 0 0 0 ${x} ${barY + r} L ${x} ${endY}`);
+        segments.push(`M ${x} 0 L ${x} ${bar - r} A ${r} ${r} 0 0 0 ${x + r} ${bar}`);
       } else if (x > cx + 0.5) {
-        segments.push(`M ${x - r} ${barY} A ${r} ${r} 0 0 1 ${x} ${barY + r} L ${x} ${endY}`);
+        segments.push(`M ${x} 0 L ${x} ${bar - r} A ${r} ${r} 0 0 1 ${x - r} ${bar}`);
       } else {
-        segments.push(`M ${x} ${barY} L ${x} ${endY}`);
+        segments.push(`M ${x} 0 L ${x} ${bar}`);
       }
     }
   }
@@ -26339,7 +26439,7 @@ function renderHopFeesAboveBranch(step, quote, planIndex, isLastHop) {
   }).join("");
   return `<div class="routing-acc-rent-above routing-acc-rent-above--${countMod}${hasReclaim ? " routing-acc-rent-above--reclaim" : ""}" aria-label="Account rent fees at this hop">
     <div class="routing-acc-rent-cards routing-acc-rent-cards--${countMod}">${slots}</div>
-    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(feeCount, "compact")}</div>
+    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(feeCount, feeCount >= 2 ? "default" : "compact", "up")}</div>
   </div>`;
 }
 function renderRoutingFeeBranch(step, leg, quote) {
@@ -32458,6 +32558,7 @@ function selectEnumeratedRoute(index) {
   if (!route) return;
   enumeratedRoutesUiState = { ...enumeratedRoutesUiState, selectedIndex: index };
   applyEnumeratedRouteCandidateToPinFields(route.candidate);
+  renderRouteOptionsPanel();
   const wallet = swapQuoteWalletSnapshot ?? swapWalletAddressInput?.value.trim() ?? "";
   const inputMint = swapInputMintInput?.value.trim() ?? "";
   const outputMint = swapOutputMintInput?.value.trim() ?? "";

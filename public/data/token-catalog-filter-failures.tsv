@@ -1,16 +1,14 @@
 # SOL-buy filter failures — debug list
-# Filtered: 2026-07-02T09:01:34.950Z
-# Quote: token-balances + resolve-prices → vybe-quote
+# Filtered: 2026-07-02T22:47:52.349Z
+# Quote: token-balances + resolve-prices → vybe-quote + Solscan #markets (TVL top 100)
 # Columns: mint	symbol	reason	solscanEligible	solPairEligible	eligibleRank	eligibleTotal	selectedTvlUsd	assessment
-9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D	jlUSDC	swapCompute LiquidityInsufficient						
-AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj	syrupUSDC	atomic bundled tx simulation failed: {"InstructionError":[7,"ProgramFailedToComplete"]}						
-3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7	PRIME	Request timed out						
-7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk	JUICED	No enough initialized tickArray						
-CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn	xBTC	Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote						
-9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif	jlUSDG	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}						
-DiRshqNDE68bWbGdLHm1GwQ76MvWQG3af6w1NdQondo	NBISon	No direct or 2 hop pools found for this pair						
-5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5	ONyc	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}						
-xSoL18r4U1k2ALa4yF857VDZJqCKecLtty92nscre3o	xSHIN	No direct or 2 hop pools found for this pair						
-TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v	tSpaceX	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}						
-j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh	jlUSDS	Invalid tick array						
-he1iusmfkpAdwvxLNGV8Y1iSbj4rUy6yMhEA3fotn9A	hSOL	Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote						
+3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7	PRIME	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	7	2				quote_failed_but_solscan_has_sol_pair
+11111ZSvet4hKEYUAETZWELHgkeYjyNZovzcypyAWs	SOLANA	No direct or 2 hop pools found for this pair	0	0				no_sol_pair_on_solscan
+7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk	JUICED	No enough initialized tickArray	3	0				no_sol_pair_on_solscan
+CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn	xBTC	Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote	5	0				no_sol_pair_on_solscan
+5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5	ONyc	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	6	2				quote_failed_but_solscan_has_sol_pair
+xSoL18r4U1k2ALa4yF857VDZJqCKecLtty92nscre3o	xSHIN	No direct or 2 hop pools found for this pair	0	0				no_sol_pair_on_solscan
+TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v	tSpaceX	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	6	1				quote_failed_but_solscan_has_sol_pair
+AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj	syrupUSDC	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	12	1				quote_failed_but_solscan_has_sol_pair
+9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif	jlUSDG	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	0	0				no_sol_pair_on_solscan
+Cmn4v2wipYV41dkakDvCgFJpxhtaaKt11NyWV8pjSE8A	jlUSDT	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	0	0				no_sol_pair_on_solscan

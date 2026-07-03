@@ -13,6 +13,7 @@
     "typecheck:frontend": "tsc -p tsconfig.frontend.json",
     "fetch:catalog": "node tools/fetch-jupiter-token-catalog.mjs",
     "filter:catalog": "node tools/filter-catalog-by-sol-quote.mjs",
+    "benchmark:jupiter-100:prod": "SWAP_API=https://solana-swap-api.vybenetwork.com node tools/benchmark-jupiter-100-prod.mjs",
     "analyze:failures": "node tools/analyze-filter-failures.mjs",
     "scrape:solscan": "node tools/scrape-solscan-markets.mjs",
     "compare:routes": "node tools/compare-route-vs-solscan.mjs",

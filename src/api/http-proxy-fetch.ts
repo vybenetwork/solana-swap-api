@@ -1,6 +1,6 @@
 /**
- * HTTP proxy slot queue for outbound API calls (IPRoyal / PROXY_HOST + PROXY_AUTH).
- * Each use: take front slot → fetch → close → new ProxyAgent → rewarm → enqueue at back.
+ * Outbound fetch for Jupiter + pump.fun: direct first, HTTP proxy only on HTTP 429.
+ * Proxy slot queue (IPRoyal / PROXY_HOST + PROXY_AUTH) is filled lazily on first 429.
  */
 
 import { ProxyAgent, fetch as undiciFetch, type RequestInit as UndiciRequestInit } from 'undici';
@@ -27,6 +27,7 @@ const agentWaiters: Array<(agent: ProxyAgent) => void> = [];
 let warmupRotation = 0;
 let initialFillPromise: Promise<void> | null = null;
 let warmupComplete = false;
+let proxyPoolFillPromise: Promise<void> | null = null;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -114,10 +115,18 @@ async function recycleAgent(agent: ProxyAgent): Promise<void> {
   await createAndEnqueueAgent();
 }
 
+async function drainResponseBody(res: Response): Promise<void> {
+  try {
+    await res.arrayBuffer();
+  } catch {
+    /* optional */
+  }
+}
+
 async function warmupDirectConnections(): Promise<void> {
   const slotCount = getHttpProxyPoolSize();
   console.log(
-    `[http-proxy] warming ${slotCount} direct slot(s) — prefetch Jupiter + pump.fun`,
+    `[http-proxy] direct warmup — prefetch Jupiter + pump.fun (${slotCount} parallel probe(s))`,
   );
   const started = Date.now();
   const results = await Promise.allSettled(
@@ -127,30 +136,33 @@ async function warmupDirectConnections(): Promise<void> {
   );
   const ok = results.filter((r) => r.status === 'fulfilled').length;
   console.log(
-    `[http-proxy] direct warmup done in ${Date.now() - started}ms (${ok}/${results.length} slots ok)`,
+    `[http-proxy] direct warmup done in ${Date.now() - started}ms (${ok}/${results.length} ok)`,
   );
 }
 
 async function fillInitialProxyPool(): Promise<void> {
-  const proxyUrl = getHttpProxyUrl();
-  if (!proxyUrl) {
-    await warmupDirectConnections();
-    return;
+  await warmupDirectConnections();
+  if (getHttpProxyUrl()) {
+    console.log('[http-proxy] proxy pool deferred — used only on HTTP 429 from Jupiter/pump.fun');
   }
+}
 
-  const slotCount = getHttpProxyPoolSize();
-  console.log(
-    `[http-proxy] filling ${slotCount} proxy slot(s) — prefetch Jupiter + pump.fun`,
-  );
-  const started = Date.now();
-  await Promise.all(Array.from({ length: slotCount }, () => createAndEnqueueAgent()));
-  console.log(
-    `[http-proxy] pool ready in ${Date.now() - started}ms (${readyAgents.length} slot(s) queued)`,
-  );
+/** Lazily create at least one proxy slot when a 429 requires it. */
+async function ensureProxyAgentAvailable(): Promise<ProxyAgent> {
+  if (readyAgents.length > 0 || agentWaiters.length > 0) {
+    return acquireAgent();
+  }
+  if (!proxyPoolFillPromise) {
+    proxyPoolFillPromise = createAndEnqueueAgent().finally(() => {
+      proxyPoolFillPromise = null;
+    });
+  }
+  await proxyPoolFillPromise;
+  return acquireAgent();
 }
 
 /**
- * Fill the slot queue at startup (idempotent).
+ * Fill direct connection warmup at startup (idempotent). Proxy slots are not prefilled.
  */
 export async function warmupHttpProxyPool(): Promise<void> {
   if (warmupComplete) return;
@@ -161,7 +173,7 @@ export async function warmupHttpProxyPool(): Promise<void> {
   await ensureHttpProxyPoolWarmed();
 }
 
-/** Wait until initial slots are warmed (or direct prefetch finished). */
+/** Wait until direct Jupiter/pump.fun prefetch finished. */
 export function ensureHttpProxyPoolWarmed(): Promise<void> {
   if (warmupComplete) return Promise.resolve();
   if (!initialFillPromise) {
@@ -169,7 +181,7 @@ export function ensureHttpProxyPoolWarmed(): Promise<void> {
       .catch((err) => {
         initialFillPromise = null;
         console.warn(
-          `[http-proxy] initial pool fill failed: ${err instanceof Error ? err.message : String(err)}`,
+          `[http-proxy] initial warmup failed: ${err instanceof Error ? err.message : String(err)}`,
         );
       })
       .finally(() => {
@@ -180,19 +192,34 @@ export function ensureHttpProxyPoolWarmed(): Promise<void> {
 }
 
 /**
- * fetch() through a FIFO proxy slot: use front slot, then close → new proxy → rewarm → back of queue.
+ * Jupiter / pump.fun fetch: try direct first; retry through proxy only on HTTP 429.
  */
 export async function fetchWithHttpProxy(
   url: string | URL,
   init?: RequestInit,
 ): Promise<Response> {
   await ensureHttpProxyPoolWarmed();
-  const proxyUrl = getHttpProxyUrl();
-  if (!proxyUrl) {
-    return fetch(url, init);
+
+  let directRes: Response;
+  try {
+    directRes = await fetch(url, init);
+  } catch (err) {
+    throw err;
   }
 
-  const agent = await acquireAgent();
+  if (directRes.status !== 429) {
+    return directRes;
+  }
+
+  const proxyUrl = getHttpProxyUrl();
+  if (!proxyUrl) {
+    return directRes;
+  }
+
+  console.warn(`[http-proxy] HTTP 429 on direct fetch — retrying via proxy: ${String(url)}`);
+  await drainResponseBody(directRes);
+
+  const agent = await ensureProxyAgentAvailable();
   try {
     return await fetchViaDispatcher(url, init, agent);
   } finally {
@@ -206,5 +233,6 @@ export function resetHttpProxyPoolForTests(): void {
   agentWaiters.length = 0;
   warmupRotation = 0;
   initialFillPromise = null;
+  proxyPoolFillPromise = null;
   warmupComplete = false;
 }

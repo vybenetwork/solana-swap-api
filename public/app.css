@@ -2012,6 +2012,7 @@ tr:hover td {
   display: inline-flex;
   align-items: center;
   gap: 0.3rem;
+  position: relative;
   width: fit-content;
   max-width: 100%;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -2024,6 +2025,9 @@ tr:hover td {
   transition: background 0.12s ease, color 0.12s ease;
   min-height: 17px;
   max-height: 17px;
+  cursor: copy;
+  border: none;
+  background: transparent;
 }
 
 .swap-route-option__pool-link:hover {
@@ -2042,6 +2046,31 @@ tr:hover td {
   font-size: 0.78rem;
   line-height: 1;
   opacity: 0.9;
+}
+
+.swap-route-pool-copy-tip {
+  position: fixed;
+  z-index: 10000;
+  transform: translate(-50%, -100%);
+  padding: 0.35rem 0.55rem;
+  border-radius: 6px;
+  border: 1px solid #3f3f46;
+  background: #18181b;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.55);
+  color: #e4e4e7;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.12s ease, visibility 0.12s ease;
+}
+
+.swap-route-pool-copy-tip.is-visible {
+  opacity: 1;
+  visibility: visible;
 }
 
 .swap-route-option__metrics {
@@ -2311,7 +2340,7 @@ tr:hover td {
 }
 
 .swap-route-options-warning {
-  margin: 0.65rem 0 0.85rem;
+  margin: 0.65rem 0 0 0;
 }
 
 .swap-route-options-warning .swap-quote-simulation-warning {
@@ -4064,7 +4093,7 @@ tr:hover td {
 }
 
 .routing-acc-rent-above--2 {
-  --routing-fee-connector-h: 2.25rem;
+  --routing-fee-connector-h: 2.3rem;
   width: max-content;
 }
 
@@ -4114,11 +4143,11 @@ tr:hover td {
   position: relative;
   z-index: 0;
   pointer-events: none;
-  transform: scaleY(-1);
 }
 
 .routing-acc-rent-above--2 .routing-acc-rent-connectors {
-  min-width: 11rem;
+  min-width: 13rem;
+  max-width: 13rem;
 }
 
 .routing-acc-rent-above--3 .routing-acc-rent-connectors,
@@ -4131,19 +4160,19 @@ tr:hover td {
 }
 
 .routing-canvas--has-acc-rent-above.routing-canvas--has-fees .routing-path {
-  --routing-path-pad-top: 3.1rem;
+  --routing-path-pad-top: 4.2rem;
 }
 
 .routing-canvas--has-acc-rent-above.routing-canvas--flow.routing-frame--multi-acc-rent-above .routing-path {
-  --routing-path-pad-top: 3.2rem;
+  --routing-path-pad-top: 4.2rem;
 }
 
 .routing-canvas--acc-rent-above-2 .routing-path {
-  --routing-path-pad-top: 3.35rem;
+  --routing-path-pad-top: 4.2rem;
 }
 
 .routing-canvas--acc-rent-above-2.routing-canvas--has-fees .routing-path {
-  --routing-path-pad-top: 3.5rem;
+  --routing-path-pad-top: 4.2rem;
 }
 
 .routing-canvas--acc-rent-above-3 .routing-path {

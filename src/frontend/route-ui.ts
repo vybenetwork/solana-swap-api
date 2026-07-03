@@ -127,6 +127,9 @@ export interface EnumeratedRoutesUiState {
 
 const ROUTE_OPTIONS_UI_INITIAL = 3;
 
+let poolCopyToastHideTimer: number | null = null;
+let pendingPoolCopyToast: { address: string; until: number } | null = null;
+
 type PoolTradeActivityUi = {
   tradeCount?: number;
   buyCount?: number;
@@ -209,6 +212,86 @@ function formatRoutePriceImpact(quote: Record<string, unknown>): string | null {
   return formatPriceImpactPctWithArrow(displayed, formatted);
 }
 
+async function writePoolAddressToClipboard(address: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(address);
+  } catch {
+    const ta = document.createElement('textarea');
+    ta.value = address;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+function getPoolCopyToastEl(): HTMLDivElement {
+  let el = document.getElementById('swap-route-pool-copy-tip') as HTMLDivElement | null;
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'swap-route-pool-copy-tip';
+    el.className = 'swap-route-pool-copy-tip';
+    el.textContent = 'Copied to clipboard';
+    el.setAttribute('role', 'status');
+    el.setAttribute('aria-live', 'polite');
+    document.body.appendChild(el);
+  }
+  return el;
+}
+
+function hidePoolCopyToast(): void {
+  if (poolCopyToastHideTimer != null) {
+    window.clearTimeout(poolCopyToastHideTimer);
+    poolCopyToastHideTimer = null;
+  }
+  document.getElementById('swap-route-pool-copy-tip')?.classList.remove('is-visible');
+}
+
+function showPoolCopyToastAt(linkEl: HTMLElement): void {
+  const toast = getPoolCopyToastEl();
+  const rect = linkEl.getBoundingClientRect();
+  toast.style.left = `${rect.left + rect.width / 2}px`;
+  toast.style.top = `${rect.top - 6}px`;
+  toast.classList.add('is-visible');
+  if (poolCopyToastHideTimer != null) window.clearTimeout(poolCopyToastHideTimer);
+  poolCopyToastHideTimer = window.setTimeout(() => {
+    hidePoolCopyToast();
+    pendingPoolCopyToast = null;
+    poolCopyToastHideTimer = null;
+  }, 1500);
+}
+
+function findRoutePoolLinkEl(container: HTMLElement, address: string): HTMLElement | null {
+  return container.querySelector<HTMLElement>(
+    `[data-route-pool-link][data-route-pool-address="${CSS.escape(address)}"]`,
+  );
+}
+
+function flushPoolCopyToast(): void {
+  if (!pendingPoolCopyToast) return;
+  if (Date.now() > pendingPoolCopyToast.until) {
+    pendingPoolCopyToast = null;
+    hidePoolCopyToast();
+    return;
+  }
+  const container = deps.dom.swapRouteOptionsEl;
+  if (!container) return;
+  const address = pendingPoolCopyToast.address;
+  requestAnimationFrame(() => {
+    if (!pendingPoolCopyToast || pendingPoolCopyToast.address !== address) return;
+    const link = findRoutePoolLinkEl(container, address);
+    if (!link) return;
+    showPoolCopyToastAt(link);
+  });
+}
+
+function schedulePoolCopyToast(address: string): void {
+  pendingPoolCopyToast = { address, until: Date.now() + 2000 };
+  flushPoolCopyToast();
+}
+
 function renderRoutePoolLink(marketAddress: string | undefined): string {
   const raw = (marketAddress ?? '').trim();
   if (!raw) {
@@ -218,8 +301,7 @@ function renderRoutePoolLink(marketAddress: string | undefined): string {
   if (!isLikelySolanaPubkey(raw)) {
     return `<span class="swap-route-option__pool-link swap-route-option__pool-link--empty" title="${deps.escapeHtml(raw)}">${deps.escapeHtml(short)}</span>`;
   }
-  const url = deps.escapeHtml(solscanAccountUrl(raw));
-  return `<a class="swap-route-option__pool-link" href="${url}" target="_blank" rel="noopener noreferrer" data-route-pool-link title="View pool on Solscan — ${deps.escapeHtml(raw)}"><span class="swap-route-option__pool-link-label">${deps.escapeHtml(short)}</span><span class="swap-route-option__pool-link-icon" aria-hidden="true">↗</span></a>`;
+  return `<span class="swap-route-option__pool-link" data-route-pool-link data-route-pool-address="${deps.escapeHtml(raw)}" title="Copy pool address — ${deps.escapeHtml(raw)}"><span class="swap-route-option__pool-link-label">${deps.escapeHtml(short)}</span><span class="swap-route-option__pool-link-icon" aria-hidden="true">⧉</span></span>`;
 }
 
 function renderRouteOptionMetrics(
@@ -494,6 +576,8 @@ export function renderRouteOptionsPanel(): void {
   if (!deps.swapRouteOptionsPanelActive()) {
     el.hidden = true;
     el.innerHTML = '';
+    pendingPoolCopyToast = null;
+    hidePoolCopyToast();
     return;
   }
   const state = deps.getEnumeratedRoutesState();
@@ -536,8 +620,12 @@ export function renderRouteOptionsPanel(): void {
       if (Number.isFinite(index)) deps.selectEnumeratedRoute(index);
     };
     card.addEventListener('click', (e) => {
-      if ((e.target as Element).closest('[data-route-pool-link]')) return;
+      const poolLink = (e.target as Element).closest<HTMLElement>('[data-route-pool-link]');
+      const address = poolLink?.dataset.routePoolAddress?.trim();
       selectRoute();
+      if (!address) return;
+      void writePoolAddressToClipboard(address);
+      schedulePoolCopyToast(address);
     });
     card.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
@@ -546,14 +634,12 @@ export function renderRouteOptionsPanel(): void {
       }
     });
   });
-  el.querySelectorAll<HTMLAnchorElement>('[data-route-pool-link]').forEach((link) => {
-    link.addEventListener('click', (e) => e.stopPropagation());
-  });
   const expandBtn = el.querySelector<HTMLButtonElement>('[data-route-expand]');
   expandBtn?.addEventListener('click', () => {
     deps.setEnumeratedRoutesExpanded(expandBtn.dataset.routeExpand === '1');
     renderRouteOptionsPanel();
   });
+  flushPoolCopyToast();
 }
 
 export function clearRouteMintCaches(): void {
@@ -4595,7 +4681,7 @@ function renderMockAccRentAboveBranch(): string {
   );
   return `<div class="routing-acc-rent-above" aria-label="Account rent fee at this hop">
     <div class="routing-acc-rent-cards"><div class="routing-fee-slot routing-fee-slot--acc-rent">${chip}</div></div>
-    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(1)}</div>
+    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(1, 'default', 'up')}</div>
   </div>`;
 }
 
@@ -5355,6 +5441,7 @@ function sumHopPlanFeeTableTotals(
 function renderRoutingFeeConnectors(
   feeCount: number,
   spread: 'default' | 'compact' = 'default',
+  direction: 'down' | 'up' = 'down',
 ): string {
   const vbW = 248;
   const vbH = 72;
@@ -5382,23 +5469,46 @@ function renderRoutingFeeConnectors(
 
   const segments: string[] = [];
 
-  if (feeCount === 1) {
-    segments.push(`M ${cx} 0 L ${cx} ${endY}`);
+  if (direction === 'down') {
+    if (feeCount === 1) {
+      segments.push(`M ${cx} 0 L ${cx} ${endY}`);
+    } else {
+      segments.push(`M ${cx} 0 L ${cx} ${barY}`);
+      const sorted = [...dropXs].sort((a, b) => a - b);
+      const barLeft = sorted[0]! + r;
+      const barRight = sorted[sorted.length - 1]! - r;
+      if (barRight > barLeft) {
+        segments.push(`M ${barLeft} ${barY} L ${barRight} ${barY}`);
+      }
+      for (const x of dropXs) {
+        if (x < cx - 0.5) {
+          segments.push(`M ${x + r} ${barY} A ${r} ${r} 0 0 0 ${x} ${barY + r} L ${x} ${endY}`);
+        } else if (x > cx + 0.5) {
+          segments.push(`M ${x - r} ${barY} A ${r} ${r} 0 0 1 ${x} ${barY + r} L ${x} ${endY}`);
+        } else {
+          segments.push(`M ${x} ${barY} L ${x} ${endY}`);
+        }
+      }
+    }
+  } else if (feeCount === 1) {
+    segments.push(`M ${cx} ${endY} L ${cx} 0`);
   } else {
-    segments.push(`M ${cx} 0 L ${cx} ${barY}`);
+    // Mirror down-branch: stem from hop (endY) is barY units; bar sits above it; drops fill the rest.
+    const bar = endY - barY;
+    segments.push(`M ${cx} ${endY} L ${cx} ${bar}`);
     const sorted = [...dropXs].sort((a, b) => a - b);
     const barLeft = sorted[0]! + r;
     const barRight = sorted[sorted.length - 1]! - r;
     if (barRight > barLeft) {
-      segments.push(`M ${barLeft} ${barY} L ${barRight} ${barY}`);
+      segments.push(`M ${barLeft} ${bar} L ${barRight} ${bar}`);
     }
     for (const x of dropXs) {
       if (x < cx - 0.5) {
-        segments.push(`M ${x + r} ${barY} A ${r} ${r} 0 0 0 ${x} ${barY + r} L ${x} ${endY}`);
+        segments.push(`M ${x} 0 L ${x} ${bar - r} A ${r} ${r} 0 0 0 ${x + r} ${bar}`);
       } else if (x > cx + 0.5) {
-        segments.push(`M ${x - r} ${barY} A ${r} ${r} 0 0 1 ${x} ${barY + r} L ${x} ${endY}`);
+        segments.push(`M ${x} 0 L ${x} ${bar - r} A ${r} ${r} 0 0 1 ${x - r} ${bar}`);
       } else {
-        segments.push(`M ${x} ${barY} L ${x} ${endY}`);
+        segments.push(`M ${x} 0 L ${x} ${bar}`);
       }
     }
   }
@@ -5578,7 +5688,7 @@ function renderHopFeesAboveBranch(
 
   return `<div class="routing-acc-rent-above routing-acc-rent-above--${countMod}${hasReclaim ? ' routing-acc-rent-above--reclaim' : ''}" aria-label="Account rent fees at this hop">
     <div class="routing-acc-rent-cards routing-acc-rent-cards--${countMod}">${slots}</div>
-    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(feeCount, 'compact')}</div>
+    <div class="routing-acc-rent-connectors" aria-hidden="true">${renderRoutingFeeConnectors(feeCount, feeCount >= 2 ? 'default' : 'compact', 'up')}</div>
   </div>`;
 }
 
