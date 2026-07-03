@@ -4351,7 +4351,7 @@ tr:hover td {
 }
 
 .routing-chip-top {
-  font-size: 0.625rem;
+  font-size: 0.550rem;
   font-weight: 500;
   color: #a1a1aa;
   line-height: 1.2;
@@ -4359,7 +4359,7 @@ tr:hover td {
 }
 
 .routing-chip-bottom {
-  font-size: 0.625rem;
+  font-size: 0.55rem;
   font-weight: 500;
   color: #86efac;
   line-height: 1.2;
@@ -4429,7 +4429,7 @@ tr:hover td {
 }
 
 .routing-chip-top--fee-label {
-  font-weight: 600;
+  font-weight: 300;
   letter-spacing: 0.02em;
   text-transform: capitalize;
 }

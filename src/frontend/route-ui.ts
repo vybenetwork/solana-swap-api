@@ -4027,8 +4027,29 @@ function formatAccRentFeeSolSubline(equiv: FeeAmountEquiv): string {
 }
 
 function accRentFeeAmountEquiv(item: HopFeeItemLite, quote: Record<string, unknown>): FeeAmountEquiv {
-  const equiv = computeFeeEquivalents(item.amountRaw, item.mint, quote);
-  return { ...equiv, feeMint: WSOL_MINT, feeSym: 'WSOL' };
+  const feeMint = WSOL_MINT;
+  if (typeof item.ui === 'number' && Number.isFinite(item.ui) && item.ui > 0) {
+    const primary = deps.formatFeeEquivSmallAmount(item.ui);
+    let usd: string | null = null;
+    if (typeof item.usd === 'number' && Number.isFinite(item.usd) && item.usd > 0) {
+      usd = deps.formatFeeEquivUsdFiatDisplay(item.usd);
+    } else {
+      const feePrice = lookupMintPriceUsd(feeMint, quote);
+      if (Number.isFinite(feePrice) && feePrice > 0) {
+        usd = deps.formatFeeEquivUsdFiatDisplay(item.ui * feePrice);
+      }
+    }
+    return {
+      feeMint,
+      feeSym: 'SOL',
+      primary,
+      inputEquiv: null,
+      inputSym: deps.getSwapInSym(),
+      usd,
+    };
+  }
+  const equiv = computeFeeEquivalents(item.amountRaw, feeMint, quote);
+  return { ...equiv, feeMint, feeSym: 'SOL', inputEquiv: null };
 }
 
 function feeEquivForHopItem(item: HopFeeItemLite, quote: Record<string, unknown>): FeeAmountEquiv {
@@ -4076,7 +4097,11 @@ function feeEquivFromEnrichmentItem(
       inputEquiv = solEquivSublineFromUsd(item.usd, quote);
     }
   }
-  return { feeMint, feeSym, primary, inputEquiv, inputSym, usd };
+  const result = { feeMint, feeSym, primary, inputEquiv, inputSym, usd };
+  if (isAccRentWalletFeeItem(item) || isAccRentReclaimItem(item)) {
+    return { ...result, feeMint: WSOL_MINT, feeSym: 'SOL', inputEquiv: null };
+  }
+  return result;
 }
 
 /** Expand legacy nested token-acc rent onto the same row as other hop fees. */
@@ -4621,6 +4646,12 @@ function feeChipVariantForItem(
   return feeChipVariant(displayFeeItemLabel(item), reclaim);
 }
 
+function routingFeeChipUsesSolSubline(label: string, variant: string): boolean {
+  if (variant === 'fee-token-acc-rent' || variant === 'fee-token-acc-rent-reclaim') return true;
+  if (isAccRentFeeLabel(label)) return true;
+  return label.endsWith(' Rent Fee') || label.endsWith(' Rent Reclaim');
+}
+
 function renderRoutingFeeChip(
   label: string,
   equiv: FeeAmountEquiv,
@@ -4632,7 +4663,7 @@ function renderRoutingFeeChip(
   const usdInChip = equiv.usd
     ? `${usdPrefix}$${stripFiatPrefixForChip(equiv.usd)} USD`
     : '—';
-  const baseBelow = isAccRentFeeLabel(label) || label.endsWith(' Rent Fee')
+  const baseBelow = routingFeeChipUsesSolSubline(label, variant)
     ? formatAccRentFeeSolSubline(equiv)
     : equiv.inputEquiv
       ? stripApproxPrefix(equiv.inputEquiv)
@@ -5068,7 +5099,11 @@ function renderHopFeeRow(
   const titleParts = [formatFeeEquivDetailText(equiv, reclaim)];
   const note = item.destinationNote?.trim();
   if (note) titleParts.push(note);
-  const amtHtml = renderHopFeeAmountHtml(item.mint, item.amountRaw, equiv.feeSym, false, reclaim);
+  const accRentRow = isAccRentWalletFeeItem(item) || reclaim;
+  const amountMint = accRentRow ? WSOL_MINT : item.mint;
+  let amountSym = equiv.feeSym;
+  if (accRentRow || amountSym === 'WSOL') amountSym = 'SOL';
+  const amtHtml = renderHopFeeAmountHtml(amountMint, item.amountRaw, amountSym, false, reclaim);
   const usdRaw = quote ? formatHopFeeRowUsdDisplay(item, equiv, quote) : equiv.usd ? `$${stripFiatPrefixForChip(equiv.usd)}` : '—';
   const usd = reclaim && usdRaw !== '—' ? `+${usdRaw}` : usdRaw;
   const usdMod = reclaim ? 'hop-fee-row__usd--credit' : 'hop-fee-row__usd--debit';

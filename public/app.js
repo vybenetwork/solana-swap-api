@@ -25373,8 +25373,29 @@ function formatAccRentFeeSolSubline(equiv) {
   return `${amt} ${sym}`;
 }
 function accRentFeeAmountEquiv(item, quote) {
-  const equiv = computeFeeEquivalents(item.amountRaw, item.mint, quote);
-  return { ...equiv, feeMint: WSOL_MINT, feeSym: "WSOL" };
+  const feeMint = WSOL_MINT;
+  if (typeof item.ui === "number" && Number.isFinite(item.ui) && item.ui > 0) {
+    const primary = deps.formatFeeEquivSmallAmount(item.ui);
+    let usd = null;
+    if (typeof item.usd === "number" && Number.isFinite(item.usd) && item.usd > 0) {
+      usd = deps.formatFeeEquivUsdFiatDisplay(item.usd);
+    } else {
+      const feePrice = lookupMintPriceUsd(feeMint, quote);
+      if (Number.isFinite(feePrice) && feePrice > 0) {
+        usd = deps.formatFeeEquivUsdFiatDisplay(item.ui * feePrice);
+      }
+    }
+    return {
+      feeMint,
+      feeSym: "SOL",
+      primary,
+      inputEquiv: null,
+      inputSym: deps.getSwapInSym(),
+      usd
+    };
+  }
+  const equiv = computeFeeEquivalents(item.amountRaw, feeMint, quote);
+  return { ...equiv, feeMint, feeSym: "SOL", inputEquiv: null };
 }
 function feeEquivForHopItem(item, quote) {
   if (isPriorityFeeItem(item)) {
@@ -25409,7 +25430,11 @@ function feeEquivFromEnrichmentItem(item, quote) {
       inputEquiv = solEquivSublineFromUsd(item.usd, quote);
     }
   }
-  return { feeMint, feeSym, primary, inputEquiv, inputSym, usd };
+  const result = { feeMint, feeSym, primary, inputEquiv, inputSym, usd };
+  if (isAccRentWalletFeeItem(item) || isAccRentReclaimItem(item)) {
+    return { ...result, feeMint: WSOL_MINT, feeSym: "SOL", inputEquiv: null };
+  }
+  return result;
 }
 function flattenHopFeeItems(items) {
   const flat = [];
@@ -25800,10 +25825,15 @@ function feeChipVariantForItem(item, quote, hopOutMint, reclaim = false) {
   }
   return feeChipVariant(displayFeeItemLabel(item), reclaim);
 }
+function routingFeeChipUsesSolSubline(label, variant) {
+  if (variant === "fee-token-acc-rent" || variant === "fee-token-acc-rent-reclaim") return true;
+  if (isAccRentFeeLabel(label)) return true;
+  return label.endsWith(" Rent Fee") || label.endsWith(" Rent Reclaim");
+}
 function renderRoutingFeeChip(label, equiv, variant, title, positive = false) {
   const usdPrefix = positive ? "+" : "";
   const usdInChip = equiv.usd ? `${usdPrefix}$${stripFiatPrefixForChip(equiv.usd)} USD` : "\u2014";
-  const baseBelow = isAccRentFeeLabel(label) || label.endsWith(" Rent Fee") ? formatAccRentFeeSolSubline(equiv) : equiv.inputEquiv ? stripApproxPrefix(equiv.inputEquiv) : null;
+  const baseBelow = routingFeeChipUsesSolSubline(label, variant) ? formatAccRentFeeSolSubline(equiv) : equiv.inputEquiv ? stripApproxPrefix(equiv.inputEquiv) : null;
   const basePrefix = positive && baseBelow && baseBelow !== "\u2014" ? "+" : "";
   return `<div class="routing-chip-stack routing-chip-stack--${variant}" title="${deps.escapeHtml(title)}">
     <span class="routing-chip-top routing-chip-top--fee-label">${deps.escapeHtml(label)}</span>
