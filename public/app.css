@@ -2221,22 +2221,15 @@ tr:hover td {
   cursor: help;
 }
 
-.swap-route-option--warn-caution {
-  border-color: rgba(251, 146, 60, 0.45);
-}
-
 .swap-route-option--warn-caution .swap-route-option__warn {
   color: #fb923c;
-}
-
-.swap-route-option--warn-severe {
-  border-color: rgba(248, 113, 113, 0.5);
 }
 
 .swap-route-option--warn-severe .swap-route-option__warn {
   color: #f87171;
 }
 
+/* Warning borders only when selected — unselected cards stay grey like normal markets. */
 .swap-route-option--active.swap-route-option--warn-caution {
   border-color: rgba(251, 146, 60, 0.65);
   box-shadow:
@@ -2419,25 +2412,6 @@ tr:hover td {
 .swap-quote-route-title__icon--titan {
   width: 0.9rem;
   height: 0.9rem;
-}
-
-.swap-quote-route-warning {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-left: 0.35rem;
-  font-size: 0.95rem;
-  line-height: 1;
-  vertical-align: middle;
-  cursor: help;
-}
-
-.swap-quote-route-warning--caution {
-  color: #fb923c;
-}
-
-.swap-quote-route-warning--severe {
-  color: #f87171;
 }
 
 .swap-simulation-warning--caution {

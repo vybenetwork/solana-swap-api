@@ -6584,24 +6584,13 @@ function combinedRouteWarningTitle(quote: Record<string, unknown>, liquidity?: n
 }
 
 export function updateRouteDiagramTitle(quote: Record<string, unknown>): void {
-  const base = formatRouteDiagramTitle(quote);
-  const warnLevel = swapRouteWarningLevel(quote);
-  const warnTitle = warnLevel !== 'none' ? combinedRouteWarningTitle(quote) : '';
-  const warnClass =
-    warnLevel === 'red'
-      ? 'swap-quote-route-warning swap-quote-route-warning--severe'
-      : warnLevel === 'orange'
-        ? 'swap-quote-route-warning swap-quote-route-warning--caution'
-        : 'swap-quote-route-warning';
-
+  const titleHtml = renderRouteSubtitleHtml(
+    formatRouteDiagramTitle(quote),
+    routeDiagramTitleRouterBrand(quote),
+  );
   const applyTitle = (el: HTMLElement | null) => {
     if (!el) return;
-    const titleHtml = renderRouteSubtitleHtml(base, routeDiagramTitleRouterBrand(quote));
-    if (warnLevel !== 'none') {
-      el.innerHTML = `${titleHtml}<span class="${warnClass}" title="${deps.escapeHtml(warnTitle)}" aria-label="${deps.escapeHtml(warnTitle)}">⚠</span>`;
-    } else {
-      el.innerHTML = titleHtml;
-    }
+    el.innerHTML = titleHtml;
   };
 
   applyTitle(deps.dom.swapQuoteRouteSubtitleEl);
