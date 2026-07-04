@@ -8722,6 +8722,10 @@ tr:hover td {
   overflow: hidden;
 }
 
+.swap-sign-dialog.swap-sign-dialog--with-route {
+  max-width: min(1040px, calc(100vw - 2rem));
+}
+
 .swap-sign-dialog[open] {
   overscroll-behavior: none;
 }
@@ -8733,6 +8737,93 @@ tr:hover td {
 
 .swap-sign-dialog__shell {
   padding: 1rem 1.1rem 1.15rem;
+}
+
+.swap-sign-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.swap-sign-dialog--with-route .swap-sign-dialog__body {
+  flex-direction: row;
+  align-items: stretch;
+  gap: 1rem;
+}
+
+.swap-sign-dialog__main {
+  min-width: 0;
+  flex: 1 1 360px;
+}
+
+.swap-sign-dialog--with-route .swap-sign-dialog__main {
+  max-width: 400px;
+}
+
+.swap-sign-dialog__route {
+  flex: 1 1 420px;
+  min-width: 0;
+  max-height: min(70vh, 640px);
+  overflow: auto;
+  padding: 0.65rem 0.7rem 0.75rem;
+  border: 1px solid #27272a;
+  border-radius: 14px;
+  background: #0a0a0e;
+  min-width: 640px;
+  min-height: 590px;
+}
+
+.swap-sign-dialog__route[hidden] {
+  display: none !important;
+}
+
+.swap-sign-dialog__route-section + .swap-sign-dialog__route-section {
+  margin-top: 0.85rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.swap-sign-dialog__route-heading {
+  margin: 0 0 0.45rem;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #a1a1aa;
+}
+
+.swap-sign-dialog__routing {
+  min-height: 120px;
+}
+
+.swap-sign-dialog__route-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.swap-sign-dialog__card-value .inline-loading-spinner {
+  vertical-align: middle;
+}
+
+@media (max-width: 760px) {
+  .swap-sign-dialog.swap-sign-dialog--with-route {
+    max-width: min(420px, calc(100vw - 2rem));
+  }
+
+  .swap-sign-dialog--with-route .swap-sign-dialog__body {
+    flex-direction: column;
+  }
+
+  .swap-sign-dialog--with-route .swap-sign-dialog__main {
+    max-width: none;
+  }
+
+  .swap-sign-dialog__route {
+    max-height: min(42vh, 360px);
+    min-width: 0;
+    min-height: 0;
+  }
 }
 
 .swap-sign-dialog__lead {
