@@ -29,7 +29,11 @@ export {
   MIN_TICK_ARRAY_LIQUIDITY_USD,
 } from './pinned-swap-params.js';
 import { isIxBuilderQuoteToken } from './ix-builder-quote-tokens.js';
-import { staticAccountKeysFromSwapTx, validateTradeBuildStatic } from './pool-address-validation.js';
+import {
+  buildIncludesPoolAccount,
+  staticAccountKeysFromSwapTx,
+  validateTradeBuildStatic,
+} from './pool-address-validation.js';
 import { isQuoteBridgeBuild, type QuoteBridgeBuildDetails } from './quote-bridge-detect.js';
 import { isQuoteBridgeHopComboDisabled, quoteBridgeHopComboKey } from './quote-bridge-hop-combos.js';
 import { toVybeSwapMint } from './sol-mints.js';
@@ -531,7 +535,10 @@ export function buildTxIncludesAddresses(
   const pool = addresses.poolAddress?.trim();
   const program = addresses.programAddress?.trim();
   if (program && !keys.has(program)) return { ok: false, missingProgram: true };
-  if (pool && !keys.has(pool)) return { ok: false, missingPool: true };
+  // CLMM/DLMM put pool state in ALTs — trust build.poolAddress / enrichment ammKey.
+  if (pool && !buildIncludesPoolAccount(build, pool, keys)) {
+    return { ok: false, missingPool: true };
+  }
   return { ok: true };
 }
 
@@ -1070,9 +1077,12 @@ function buildSwapBodyForTradeAttempt(
     ...rest,
     router: 'vybe',
     // Route enumeration probes pin pool/program and rely on enrich:true for ix-builder's
-    // on-chain sim. simulate:true makes local ix-builder return simulation-only (no tx),
-    // which fails assertIxBuilderSwapResponse and rejects every candidate.
+    // on-chain sim + reported pool (ammKey). simulate:true makes local ix-builder return
+    // simulation-only (no tx), which fails assertIxBuilderSwapResponse and rejects every candidate.
+    // Always enrich here even when the client sent enrich:false (sign path) — CLMM/DLMM pool
+    // accounts live in ALTs, so validation needs enrichment.ammKey / poolAddress.
     simulate: false,
+    enrich: true,
     poolAddress: attempt.poolAddress,
     programAddress: attempt.programAddress,
     protocol: attempt.protocol,

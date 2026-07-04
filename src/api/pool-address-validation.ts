@@ -17,6 +17,51 @@ export function staticAccountKeysFromSwapTx(base64Tx: string): ReadonlySet<strin
   }
 }
 
+/** Pool addresses ix-builder already reported (top-level, details, enrichment ammKey). */
+export function reportedPoolAddresses(build: VybeSwapBuildResponse): ReadonlySet<string> {
+  const out = new Set<string>();
+  const add = (v: unknown) => {
+    const s = String(v ?? '').trim();
+    if (s) out.add(s);
+  };
+  add(build.poolAddress);
+  const details = build.details as unknown as Record<string, unknown> | undefined;
+  add(details?.poolAddress);
+  const quote = details?.quote as Record<string, unknown> | undefined;
+  add(quote?.poolAddress);
+  add(quote?.pool);
+  const enrichment = build.enrichment as
+    | {
+        routePlan?: Array<{
+          swapInfo?: { ammKey?: string };
+          hopFees?: { items?: Array<{ destinationAddress?: string }> };
+        }>;
+      }
+    | undefined;
+  for (const hop of enrichment?.routePlan ?? []) {
+    add(hop?.swapInfo?.ammKey);
+    for (const fee of hop?.hopFees?.items ?? []) {
+      add(fee?.destinationAddress);
+    }
+  }
+  return out;
+}
+
+/**
+ * Pool is present when it is in static keys, or ix-builder already reported it
+ * (CLMM/DLMM often put pool state only in ALTs — static-key checks alone false-reject).
+ */
+export function buildIncludesPoolAccount(
+  build: VybeSwapBuildResponse,
+  pool: string,
+  keys: ReadonlySet<string>,
+): boolean {
+  const poolAddr = pool.trim();
+  if (!poolAddr) return true;
+  if (keys.has(poolAddr)) return true;
+  return reportedPoolAddresses(build).has(poolAddr);
+}
+
 export interface TradePoolCandidate {
   marketAddress: string;
   programAddress: string;
@@ -81,10 +126,10 @@ export async function validateTradeRoutedBuildOnChain(
   }
 
   if (pool) {
-    if (!keys.has(pool)) {
+    if (!buildIncludesPoolAccount(build, pool, keys)) {
       return { ok: false, reason: `Built tx missing pool ${pool}` };
     }
-    // Pinned pool is in the tx — skip scanning every static account (N× getAccountInfo).
+    // Pinned pool is in the tx (static, reported, or ALT) — skip scanning every static account.
     return { ok: true, poolStateInTx: pool };
   }
 
@@ -116,7 +161,7 @@ export function validateTradeBuildStatic(
   if (program && !keys.has(program)) {
     return { ok: false, reason: `Built tx missing program ${program}` };
   }
-  if (pool && !keys.has(pool)) {
+  if (pool && !buildIncludesPoolAccount(build, pool, keys)) {
     return { ok: false, reason: `Built tx missing pool ${pool}` };
   }
 
