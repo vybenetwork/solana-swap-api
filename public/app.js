@@ -21411,16 +21411,18 @@ function parseCatalogTsv(text) {
     const parts = trimmed.split("	");
     if (parts.length < 4) continue;
     const [mint, symbol, name, logoUrl, decimalsRaw, tagsRaw] = parts;
-    const m = (mint ?? "").trim();
-    if (!m) continue;
+    const rawMint = (mint ?? "").trim();
+    if (!rawMint) continue;
+    const m = preferNativeSolMint(rawMint);
+    const isNativeSol = m === NATIVE_SOL_MINT;
     const dec = decimalsRaw?.trim() ? Number(decimalsRaw) : void 0;
     const tags = tagsRaw?.trim() ? tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) : void 0;
     out.push({
       mint: m,
-      symbol: (symbol ?? "").trim() || truncateMint(m),
-      name: (name ?? "").trim() || (symbol ?? "").trim() || m,
+      symbol: isNativeSol ? "SOL" : (symbol ?? "").trim() || truncateMint(m),
+      name: isNativeSol ? "Solana" : (name ?? "").trim() || (symbol ?? "").trim() || m,
       logoUrl: resolveLogoUrl(logoUrl ?? ""),
-      decimals: Number.isFinite(dec) ? dec : void 0,
+      decimals: isNativeSol ? 9 : Number.isFinite(dec) ? dec : void 0,
       tags,
       source: "catalog",
       savedAt: now
@@ -21429,16 +21431,18 @@ function parseCatalogTsv(text) {
   return out;
 }
 function catalogEntryFromJson(raw) {
-  const mint = String(raw.mint ?? raw.id ?? "").trim();
-  if (!mint) return null;
+  const rawMint = String(raw.mint ?? raw.id ?? "").trim();
+  if (!rawMint) return null;
+  const mint = preferNativeSolMint(rawMint);
+  const isNativeSol = mint === NATIVE_SOL_MINT;
   const tags = Array.isArray(raw.tags) ? raw.tags.map((t) => String(t)) : typeof raw.tags === "string" && raw.tags ? [raw.tags] : void 0;
   const organicScore = typeof raw.organicScore === "number" ? raw.organicScore : void 0;
   return {
     mint,
-    symbol: String(raw.symbol ?? "").trim() || truncateMint(mint),
-    name: String(raw.name ?? "").trim() || String(raw.symbol ?? mint),
+    symbol: isNativeSol ? "SOL" : String(raw.symbol ?? "").trim() || truncateMint(mint),
+    name: isNativeSol ? "Solana" : String(raw.name ?? "").trim() || String(raw.symbol ?? mint),
     logoUrl: resolveLogoUrl(String(raw.logoUrl ?? raw.icon ?? "")),
-    decimals: typeof raw.decimals === "number" ? raw.decimals : void 0,
+    decimals: isNativeSol ? 9 : typeof raw.decimals === "number" ? raw.decimals : void 0,
     tags,
     organicScore,
     isVerified: raw.isVerified === true,
@@ -21453,7 +21457,14 @@ async function loadCatalog() {
     if (jsonRes.ok) {
       const body = await jsonRes.json();
       if (Array.isArray(body.tokens)) {
-        catalogTokens = body.tokens.map((t) => catalogEntryFromJson(t)).filter((t) => Boolean(t));
+        const seen = /* @__PURE__ */ new Set();
+        catalogTokens = [];
+        for (const t of body.tokens) {
+          const entry = catalogEntryFromJson(t);
+          if (!entry || seen.has(entry.mint)) continue;
+          seen.add(entry.mint);
+          catalogTokens.push(entry);
+        }
         catalogLoaded = true;
         return;
       }
@@ -21463,7 +21474,13 @@ async function loadCatalog() {
   try {
     const res = await fetch(CATALOG_TSV_URL);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    catalogTokens = parseCatalogTsv(await res.text());
+    const seen = /* @__PURE__ */ new Set();
+    catalogTokens = [];
+    for (const entry of parseCatalogTsv(await res.text())) {
+      if (seen.has(entry.mint)) continue;
+      seen.add(entry.mint);
+      catalogTokens.push(entry);
+    }
   } catch {
     catalogTokens = [];
   }
@@ -27430,6 +27447,7 @@ function scheduleRoutingDiagramZoom() {
     requestAnimationFrame(() => {
       applyRoutingDiagramScaleForContainer(deps.dom.swapQuoteDetailsRoutingEl);
       applyRoutingDiagramScaleForContainer(deps.dom.routingDialogBodyEl);
+      applyRoutingDiagramScaleForContainer(deps.dom.swapSignConfirmRoutingEl ?? null);
     });
   });
 }
@@ -28010,15 +28028,15 @@ function renderSignConfirmSummaryHtml(quote, buildPayload) {
     detailRows.push(
       renderSignConfirmDetailRowHtml(
         SIGN_CONFIRM_NETWORK_FEE_LABEL,
-        priorityFeeUi != null && priorityFeeUi > 0 ? deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`) : "\u2014 SOL"
+        priorityFeeUi != null && priorityFeeUi > 0 ? deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`) : deps.renderLoadingSpinner("sm")
       )
     );
   }
-  const txSizeDisplay = formatSignConfirmTxSizeDisplay(quote, buildPayload) ?? "\u2014 bytes";
+  const txSizeDisplay = formatSignConfirmTxSizeDisplay(quote, buildPayload);
   detailRows.push(
     renderSignConfirmDetailRowHtml(
       SIGN_CONFIRM_TX_SIZE_LABEL,
-      deps.escapeHtml(txSizeDisplay)
+      txSizeDisplay != null ? deps.escapeHtml(txSizeDisplay) : deps.renderLoadingSpinner("sm")
     )
   );
   if (!isMultiHop) {
@@ -28211,6 +28229,15 @@ var swapSignConfirmCancelEl = document.getElementById("swapSignConfirmCancel");
 var swapSignConfirmDismissEl = document.getElementById("swapSignConfirmDismiss");
 var swapSignConfirmTxidsEl = document.getElementById("swapSignConfirmTxids");
 var swapSignConfirmRefetchRetryEl = document.getElementById("swapSignConfirmRefetchRetry");
+var swapSignConfirmRoutePanelEl = document.getElementById(
+  "swapSignConfirmRoutePanel"
+);
+var swapSignConfirmRoutingEl = document.getElementById(
+  "swapSignConfirmRouting"
+);
+var swapSignConfirmRouteStepsEl = document.getElementById(
+  "swapSignConfirmRouteSteps"
+);
 var routeWarningConfirmDialogEl = document.getElementById(
   "routeWarningConfirmDialog"
 );
@@ -33720,6 +33747,12 @@ function resetSwapSignDialogUi(clearLogs = true) {
   setSwapSignTxidButtonsState("hidden");
   syncSignDialogRefetchButton();
   if (swapSignConfirmRefetchRetryEl) swapSignConfirmRefetchRetryEl.disabled = false;
+  if (swapSignConfirmRoutePanelEl) {
+    swapSignConfirmRoutePanelEl.hidden = true;
+    swapSignConfirmDialogEl?.classList.remove("swap-sign-dialog--with-route");
+  }
+  clearRoutingDiagram(swapSignConfirmRoutingEl);
+  if (swapSignConfirmRouteStepsEl) swapSignConfirmRouteStepsEl.innerHTML = "";
 }
 function setSignDialogRefetchButtonDisabled(disabled) {
   if (swapSignConfirmRefetchRetryEl) swapSignConfirmRefetchRetryEl.disabled = disabled;
@@ -33797,10 +33830,28 @@ function appendSwapSignLog(text, tone = "neutral", detail) {
   if (tone === "pending") swapSignPendingLogEl = row;
   return row;
 }
+function syncSwapSignDialogRoutePanel(quote) {
+  if (!swapSignConfirmRoutePanelEl || !swapSignConfirmRoutingEl || !swapSignConfirmRouteStepsEl) {
+    return;
+  }
+  if (!quoteHasRoutePlan(quote)) {
+    swapSignConfirmRoutePanelEl.hidden = true;
+    swapSignConfirmDialogEl?.classList.remove("swap-sign-dialog--with-route");
+    clearRoutingDiagram(swapSignConfirmRoutingEl);
+    swapSignConfirmRouteStepsEl.innerHTML = "";
+    return;
+  }
+  swapSignConfirmRoutePanelEl.hidden = false;
+  swapSignConfirmDialogEl?.classList.add("swap-sign-dialog--with-route");
+  mountRoutingDiagram(swapSignConfirmRoutingEl, renderRoutingDiagram(quote));
+  swapSignConfirmRouteStepsEl.innerHTML = renderQuoteRoutePlanSteps(quote);
+  scheduleRoutingDiagramZoom();
+}
 function setSwapSignDialogSummary(quote, buildPayload) {
   if (swapSignConfirmSummaryEl) {
     swapSignConfirmSummaryEl.innerHTML = renderSignConfirmSummaryHtml(quote, buildPayload);
   }
+  syncSwapSignDialogRoutePanel(quote);
 }
 function openSwapSignDialog(quote, buildPayload, options) {
   if (options?.preserveLogs) {
@@ -34583,7 +34634,8 @@ initRouteUi({
     swapQuoteDetailsRouteStepsEl,
     routingDialogBodyEl,
     routingDialogTitleEl,
-    swapQuoteRouteSubtitleEl
+    swapQuoteRouteSubtitleEl,
+    swapSignConfirmRoutingEl
   }
 });
 wireBuildOptionToggle(swapEnablePartnerCheckbox, swapPartnerFieldEl, swapPartnerInput);

@@ -659,20 +659,34 @@
           <h2 class="routing-dialog-title">Confirm swap in wallet</h2>
           <button type="button" class="routing-dialog-close" id="swapSignConfirmDismiss" aria-label="Close">×</button>
         </div>
-        <p class="swap-sign-dialog__lead">
-          Review the amounts below. Your wallet will open automatically to sign; progress is shown underneath.
-        </p>
-        <div class="swap-sign-dialog__summary" id="swapSignConfirmSummary">—</div>
-        <div class="swap-sign-dialog__logs-shell">
-          <div class="swap-sign-dialog__logs" id="swapSignConfirmLogs" aria-live="polite" aria-relevant="additions"></div>
-        </div>
-        <div class="swap-sign-dialog__actions">
-          <button type="button" class="swap-sign-dialog__btn swap-sign-dialog__btn--secondary" id="swapSignConfirmCancel">Cancel</button>
-          <div class="swap-sign-dialog__txids" id="swapSignConfirmTxids" hidden></div>
-          <button type="button" class="swap-sign-dialog__btn swap-sign-dialog__btn--retry swap-sign-dialog__requote swap-sign-dialog__retry-action swap-sign-dialog__btn-with-icon" id="swapSignConfirmRefetchRetry" hidden>
-            <span class="swap-sign-dialog__btn-icon swap-sign-dialog__btn-icon--requote" aria-hidden="true"></span>
-            <span>Refetch &amp; Retry</span>
-          </button>
+        <div class="swap-sign-dialog__body">
+          <div class="swap-sign-dialog__main">
+            <p class="swap-sign-dialog__lead">
+              Review the amounts below. Your wallet will open automatically to sign; progress is shown underneath.
+            </p>
+            <div class="swap-sign-dialog__summary" id="swapSignConfirmSummary">—</div>
+            <div class="swap-sign-dialog__logs-shell">
+              <div class="swap-sign-dialog__logs" id="swapSignConfirmLogs" aria-live="polite" aria-relevant="additions"></div>
+            </div>
+            <div class="swap-sign-dialog__actions">
+              <button type="button" class="swap-sign-dialog__btn swap-sign-dialog__btn--secondary" id="swapSignConfirmCancel">Cancel</button>
+              <div class="swap-sign-dialog__txids" id="swapSignConfirmTxids" hidden></div>
+              <button type="button" class="swap-sign-dialog__btn swap-sign-dialog__btn--retry swap-sign-dialog__requote swap-sign-dialog__retry-action swap-sign-dialog__btn-with-icon" id="swapSignConfirmRefetchRetry" hidden>
+                <span class="swap-sign-dialog__btn-icon swap-sign-dialog__btn-icon--requote" aria-hidden="true"></span>
+                <span>Refetch &amp; Retry</span>
+              </button>
+            </div>
+          </div>
+          <aside id="swapSignConfirmRoutePanel" class="swap-sign-dialog__route" hidden>
+            <div class="swap-sign-dialog__route-section">
+              <h3 class="swap-sign-dialog__route-heading">Route</h3>
+              <div id="swapSignConfirmRouting" class="swap-sign-dialog__routing"></div>
+            </div>
+            <div class="swap-sign-dialog__route-section">
+              <h3 class="swap-sign-dialog__route-heading">Route plan steps</h3>
+              <div id="swapSignConfirmRouteSteps" class="swap-sign-dialog__route-steps"></div>
+            </div>
+          </aside>
         </div>
       </div>
     </dialog>

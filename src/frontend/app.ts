@@ -118,6 +118,7 @@ import {
   renderRoutingDiagramPlaceholder,
   renderNoLiquidityRoutingDiagram,
   renderNoLiquidityRouteOptionsPanel,
+  renderQuoteRoutePlanSteps,
   renderQuoteRoutePlanStepsPlaceholder,
   quoteHasRoutePlan,
   renderQuoteRouteDiagramAndSteps,
@@ -370,6 +371,15 @@ const swapSignConfirmCancelEl = document.getElementById('swapSignConfirmCancel')
 const swapSignConfirmDismissEl = document.getElementById('swapSignConfirmDismiss') as HTMLButtonElement | null;
 const swapSignConfirmTxidsEl = document.getElementById('swapSignConfirmTxids') as HTMLElement | null;
 const swapSignConfirmRefetchRetryEl = document.getElementById('swapSignConfirmRefetchRetry') as HTMLButtonElement | null;
+const swapSignConfirmRoutePanelEl = document.getElementById(
+  'swapSignConfirmRoutePanel',
+) as HTMLElement | null;
+const swapSignConfirmRoutingEl = document.getElementById(
+  'swapSignConfirmRouting',
+) as HTMLElement | null;
+const swapSignConfirmRouteStepsEl = document.getElementById(
+  'swapSignConfirmRouteSteps',
+) as HTMLElement | null;
 const routeWarningConfirmDialogEl = document.getElementById(
   'routeWarningConfirmDialog',
 ) as HTMLDialogElement | null;
@@ -7465,6 +7475,12 @@ function resetSwapSignDialogUi(clearLogs = true): void {
   setSwapSignTxidButtonsState('hidden');
   syncSignDialogRefetchButton();
   if (swapSignConfirmRefetchRetryEl) swapSignConfirmRefetchRetryEl.disabled = false;
+  if (swapSignConfirmRoutePanelEl) {
+    swapSignConfirmRoutePanelEl.hidden = true;
+    swapSignConfirmDialogEl?.classList.remove('swap-sign-dialog--with-route');
+  }
+  clearRoutingDiagram(swapSignConfirmRoutingEl);
+  if (swapSignConfirmRouteStepsEl) swapSignConfirmRouteStepsEl.innerHTML = '';
 }
 
 function setSignDialogRefetchButtonDisabled(disabled: boolean): void {
@@ -7554,6 +7570,24 @@ function appendSwapSignLog(
   return row;
 }
 
+function syncSwapSignDialogRoutePanel(quote: Record<string, unknown>): void {
+  if (!swapSignConfirmRoutePanelEl || !swapSignConfirmRoutingEl || !swapSignConfirmRouteStepsEl) {
+    return;
+  }
+  if (!quoteHasRoutePlan(quote)) {
+    swapSignConfirmRoutePanelEl.hidden = true;
+    swapSignConfirmDialogEl?.classList.remove('swap-sign-dialog--with-route');
+    clearRoutingDiagram(swapSignConfirmRoutingEl);
+    swapSignConfirmRouteStepsEl.innerHTML = '';
+    return;
+  }
+  swapSignConfirmRoutePanelEl.hidden = false;
+  swapSignConfirmDialogEl?.classList.add('swap-sign-dialog--with-route');
+  mountRoutingDiagram(swapSignConfirmRoutingEl, renderRoutingDiagram(quote));
+  swapSignConfirmRouteStepsEl.innerHTML = renderQuoteRoutePlanSteps(quote);
+  scheduleRoutingDiagramZoom();
+}
+
 function setSwapSignDialogSummary(
   quote: Record<string, unknown>,
   buildPayload?: Record<string, unknown>,
@@ -7561,6 +7595,7 @@ function setSwapSignDialogSummary(
   if (swapSignConfirmSummaryEl) {
     swapSignConfirmSummaryEl.innerHTML = renderSignConfirmSummaryHtml(quote, buildPayload);
   }
+  syncSwapSignDialogRoutePanel(quote);
 }
 
 function openSwapSignDialog(
@@ -8649,6 +8684,7 @@ initRouteUi({
     routingDialogBodyEl,
     routingDialogTitleEl,
     swapQuoteRouteSubtitleEl,
+    swapSignConfirmRoutingEl,
   },
 });
 

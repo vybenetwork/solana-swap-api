@@ -1,7 +1,50 @@
 {
   "version": 1,
-  "updatedAt": "2026-07-03T00:58:23.088Z",
+  "updatedAt": "2026-07-04T00:46:26.641Z",
   "description": "Mints excluded from token-catalog after failing 0.01 SOL Vybe buy (1–2 hop). Skipped on fetch:catalog.",
-  "count": 0,
-  "entries": {}
+  "count": 7,
+  "entries": {
+    "3AJYCjrhKitmBd8tRUurPA5dGHCAQh6A8L9DkuSC37Rm": {
+      "symbol": "USD*-J",
+      "reason": "DAMM2 zero on-chain liquidity",
+      "excludedAt": "2026-07-04T00:46:26.631Z",
+      "source": "filter:catalog"
+    },
+    "3ThdFZQKM6kRyVGLG48kaPg5TRMhYMKY1iCRa9xop1WC": {
+      "symbol": "eUSX",
+      "reason": "DAMM2 zero on-chain liquidity",
+      "excludedAt": "2026-07-04T00:46:26.631Z",
+      "source": "filter:catalog"
+    },
+    "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5": {
+      "symbol": "ONyc",
+      "reason": "DAMM2 zero on-chain liquidity",
+      "excludedAt": "2026-07-04T00:46:26.631Z",
+      "source": "filter:catalog"
+    },
+    "7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk": {
+      "symbol": "JUICED",
+      "reason": "Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote",
+      "excludedAt": "2026-07-04T00:46:26.631Z",
+      "source": "filter:catalog"
+    },
+    "9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif": {
+      "symbol": "jlUSDG",
+      "reason": "DAMM2 zero on-chain liquidity",
+      "excludedAt": "2026-07-04T00:46:26.631Z",
+      "source": "filter:catalog"
+    },
+    "j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh": {
+      "symbol": "jlUSDS",
+      "reason": "Invalid tick array",
+      "excludedAt": "2026-07-04T00:46:26.631Z",
+      "source": "filter:catalog"
+    },
+    "star9agSpjiFe3M49B3RniVU4CMBBEK3Qnaqn3RGiFM": {
+      "symbol": "USD*",
+      "reason": "DAMM2 zero on-chain liquidity",
+      "excludedAt": "2026-07-04T00:46:26.631Z",
+      "source": "filter:catalog"
+    }
+  }
 }

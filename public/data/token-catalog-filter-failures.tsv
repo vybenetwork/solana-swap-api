@@ -1,14 +1,11 @@
 # SOL-buy filter failures — debug list
-# Filtered: 2026-07-02T22:47:52.349Z
-# Quote: token-balances + resolve-prices → vybe-quote + Solscan #markets (TVL top 100)
+# Filtered: 2026-07-04T00:46:26.629Z
+# Quote: token-balances + resolve-prices → vybe-quote
 # Columns: mint	symbol	reason	solscanEligible	solPairEligible	eligibleRank	eligibleTotal	selectedTvlUsd	assessment
-3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7	PRIME	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	7	2				quote_failed_but_solscan_has_sol_pair
-11111ZSvet4hKEYUAETZWELHgkeYjyNZovzcypyAWs	SOLANA	No direct or 2 hop pools found for this pair	0	0				no_sol_pair_on_solscan
-7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk	JUICED	No enough initialized tickArray	3	0				no_sol_pair_on_solscan
-CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn	xBTC	Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote	5	0				no_sol_pair_on_solscan
-5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5	ONyc	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	6	2				quote_failed_but_solscan_has_sol_pair
-xSoL18r4U1k2ALa4yF857VDZJqCKecLtty92nscre3o	xSHIN	No direct or 2 hop pools found for this pair	0	0				no_sol_pair_on_solscan
-TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v	tSpaceX	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	6	1				quote_failed_but_solscan_has_sol_pair
-AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj	syrupUSDC	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	12	1				quote_failed_but_solscan_has_sol_pair
-9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif	jlUSDG	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	0	0				no_sol_pair_on_solscan
-Cmn4v2wipYV41dkakDvCgFJpxhtaaKt11NyWV8pjSE8A	jlUSDT	atomic bundled tx simulation failed: {"InstructionError":[5,"ProgramFailedToComplete"]}	0	0				no_sol_pair_on_solscan
+5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5	ONyc	DAMM2 zero on-chain liquidity						
+7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk	JUICED	Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote						
+star9agSpjiFe3M49B3RniVU4CMBBEK3Qnaqn3RGiFM	USD*	DAMM2 zero on-chain liquidity						
+3AJYCjrhKitmBd8tRUurPA5dGHCAQh6A8L9DkuSC37Rm	USD*-J	DAMM2 zero on-chain liquidity						
+9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif	jlUSDG	DAMM2 zero on-chain liquidity						
+3ThdFZQKM6kRyVGLG48kaPg5TRMhYMKY1iCRa9xop1WC	eUSX	DAMM2 zero on-chain liquidity						
+j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh	jlUSDS	Invalid tick array						

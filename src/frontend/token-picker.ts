@@ -1078,8 +1078,10 @@ function parseCatalogTsv(text: string): TokenMeta[] {
     const parts = trimmed.split('\t');
     if (parts.length < 4) continue;
     const [mint, symbol, name, logoUrl, decimalsRaw, tagsRaw] = parts;
-    const m = (mint ?? '').trim();
-    if (!m) continue;
+    const rawMint = (mint ?? '').trim();
+    if (!rawMint) continue;
+    const m = preferNativeSolMint(rawMint);
+    const isNativeSol = m === NATIVE_SOL_MINT;
     const dec = decimalsRaw?.trim() ? Number(decimalsRaw) : undefined;
     const tags =
       tagsRaw?.trim()
@@ -1090,10 +1092,10 @@ function parseCatalogTsv(text: string): TokenMeta[] {
         : undefined;
     out.push({
       mint: m,
-      symbol: (symbol ?? '').trim() || truncateMint(m),
-      name: (name ?? '').trim() || (symbol ?? '').trim() || m,
+      symbol: isNativeSol ? 'SOL' : (symbol ?? '').trim() || truncateMint(m),
+      name: isNativeSol ? 'Solana' : (name ?? '').trim() || (symbol ?? '').trim() || m,
       logoUrl: resolveLogoUrl(logoUrl ?? ''),
-      decimals: Number.isFinite(dec) ? dec : undefined,
+      decimals: isNativeSol ? 9 : Number.isFinite(dec) ? dec : undefined,
       tags,
       source: 'catalog',
       savedAt: now,
@@ -1103,8 +1105,11 @@ function parseCatalogTsv(text: string): TokenMeta[] {
 }
 
 function catalogEntryFromJson(raw: Record<string, unknown>): TokenMeta | null {
-  const mint = String(raw.mint ?? raw.id ?? '').trim();
-  if (!mint) return null;
+  const rawMint = String(raw.mint ?? raw.id ?? '').trim();
+  if (!rawMint) return null;
+  // Jupiter TOP lists SOL as WSOL mint; picker blocks WSOL — map to native SOL for TOP.
+  const mint = preferNativeSolMint(rawMint);
+  const isNativeSol = mint === NATIVE_SOL_MINT;
   const tags = Array.isArray(raw.tags)
     ? raw.tags.map((t) => String(t))
     : typeof raw.tags === 'string' && raw.tags
@@ -1113,10 +1118,16 @@ function catalogEntryFromJson(raw: Record<string, unknown>): TokenMeta | null {
   const organicScore = typeof raw.organicScore === 'number' ? raw.organicScore : undefined;
   return {
     mint,
-    symbol: String(raw.symbol ?? '').trim() || truncateMint(mint),
-    name: String(raw.name ?? '').trim() || String(raw.symbol ?? mint),
+    symbol: isNativeSol ? 'SOL' : String(raw.symbol ?? '').trim() || truncateMint(mint),
+    name: isNativeSol
+      ? 'Solana'
+      : String(raw.name ?? '').trim() || String(raw.symbol ?? mint),
     logoUrl: resolveLogoUrl(String(raw.logoUrl ?? raw.icon ?? '')),
-    decimals: typeof raw.decimals === 'number' ? raw.decimals : undefined,
+    decimals: isNativeSol
+      ? 9
+      : typeof raw.decimals === 'number'
+        ? raw.decimals
+        : undefined,
     tags,
     organicScore,
     isVerified: raw.isVerified === true,
@@ -1132,9 +1143,14 @@ async function loadCatalog(): Promise<void> {
     if (jsonRes.ok) {
       const body = (await jsonRes.json()) as { tokens?: unknown[] };
       if (Array.isArray(body.tokens)) {
-        catalogTokens = body.tokens
-          .map((t) => catalogEntryFromJson(t as Record<string, unknown>))
-          .filter((t): t is TokenMeta => Boolean(t));
+        const seen = new Set<string>();
+        catalogTokens = [];
+        for (const t of body.tokens) {
+          const entry = catalogEntryFromJson(t as Record<string, unknown>);
+          if (!entry || seen.has(entry.mint)) continue;
+          seen.add(entry.mint);
+          catalogTokens.push(entry);
+        }
         catalogLoaded = true;
         return;
       }
@@ -1145,7 +1161,13 @@ async function loadCatalog(): Promise<void> {
   try {
     const res = await fetch(CATALOG_TSV_URL);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    catalogTokens = parseCatalogTsv(await res.text());
+    const seen = new Set<string>();
+    catalogTokens = [];
+    for (const entry of parseCatalogTsv(await res.text())) {
+      if (seen.has(entry.mint)) continue;
+      seen.add(entry.mint);
+      catalogTokens.push(entry);
+    }
   } catch {
     catalogTokens = [];
   }

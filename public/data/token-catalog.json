@@ -1,21 +1,21 @@
 {
   "source": "https://datapi.jup.ag/v1/assets/search?query=&limit=100",
-  "fetchedAt": "2026-07-02T23:34:51.518Z",
-  "iconsLocalizedAt": "2026-07-02T23:34:51.518Z",
+  "fetchedAt": "2026-07-03T22:07:35.002Z",
+  "iconsLocalizedAt": "2026-07-03T22:07:35.002Z",
   "jupiterReturned": 100,
   "excludedSkipped": 0,
   "excludedDenylist": "public/data/token-catalog-excluded.json",
-  "count": 100,
+  "count": 96,
   "tokens": [
     {
-      "mint": "So11111111111111111111111111111111111111112",
+      "mint": "11111111111111111111111111111111",
       "symbol": "SOL",
-      "name": "Wrapped SOL",
+      "name": "Solana",
       "logoUrl": "/data/token-icons/So11111111111111111111111111111111111111112.png",
       "decimals": 9,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 99.21757560284628,
+      "organicScore": 99.22884595819419,
       "organicScoreLabel": "high",
       "tags": [
         "community",
@@ -59,14 +59,34 @@
       "organicScore": 100,
       "organicScoreLabel": "high",
       "tags": [
+        "verified",
+        "stable",
         "community",
         "moonshot-verified",
-        "strict",
-        "verified",
-        "stable"
+        "strict"
       ],
       "holderCount": 2305507,
       "issuer": "Tether"
+    },
+    {
+      "mint": "9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump",
+      "symbol": "ANSEM",
+      "name": "The Black Bull",
+      "logoUrl": "/data/token-icons/9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump.png",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 96.86905727746341,
+      "organicScoreLabel": "high",
+      "tags": [
+        "meme",
+        "token-2022",
+        "verified",
+        "moonshot-verified"
+      ],
+      "holderCount": 101369,
+      "twitter": "https://x.com/blackbullsol",
+      "website": "Https://www.blackbullsol.com"
     },
     {
       "mint": "9BEcn9aPEmhSPbPQeFGjidRiEKki46fVQDyPpSQXPA2D",
@@ -76,16 +96,16 @@
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 90.08795367632233,
+      "organicScore": 87.06559895315256,
       "organicScoreLabel": "high",
       "tags": [
-        "yield",
         "community-assist",
         "verified",
         "jup-lend-earn",
-        "yb"
+        "yb",
+        "yield"
       ],
-      "holderCount": 12372,
+      "holderCount": 12393,
       "issuer": "Jupiter"
     },
     {
@@ -96,35 +116,14 @@
       "decimals": 8,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 95.21351507828813,
+      "organicScore": 94.81579910237471,
       "organicScoreLabel": "high",
       "tags": [
+        "community",
         "moonshot-verified",
-        "verified",
-        "community"
+        "verified"
       ],
-      "holderCount": 69548
-    },
-    {
-      "mint": "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
-      "symbol": "PYUSD",
-      "name": "PayPal USD",
-      "logoUrl": "/data/token-icons/2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo.png",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 91.49225772150922,
-      "organicScoreLabel": "high",
-      "tags": [
-        "strict",
-        "token-2022",
-        "verified",
-        "stable",
-        "moonshot-verified",
-        "community"
-      ],
-      "holderCount": 54381,
-      "issuer": "Paypal"
+      "holderCount": 69555
     },
     {
       "mint": "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB",
@@ -134,132 +133,15 @@
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 90.86772478572313,
+      "organicScore": 91.60704102792965,
       "organicScoreLabel": "high",
       "tags": [
-        "community-assist",
         "verified",
-        "stable"
+        "stable",
+        "community-assist"
       ],
-      "holderCount": 37518,
+      "holderCount": 37861,
       "issuer": "WLFI"
-    },
-    {
-      "mint": "9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump",
-      "symbol": "ANSEM",
-      "name": "The Black Bull",
-      "logoUrl": "/data/token-icons/9cRCn9rGT8V2imeM2BaKs13yhMEais3ruM3rPvTGpump.png",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 96.5626430057253,
-      "organicScoreLabel": "high",
-      "tags": [
-        "verified",
-        "moonshot-verified",
-        "meme",
-        "token-2022"
-      ],
-      "holderCount": 91189,
-      "twitter": "https://x.com/blackbullsol",
-      "website": "Https://www.blackbullsol.com"
-    },
-    {
-      "mint": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
-      "symbol": "HYPE",
-      "name": "HYPE",
-      "logoUrl": "/data/token-icons/98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 94.57926040229967,
-      "organicScoreLabel": "high",
-      "tags": [
-        "defi",
-        "verified",
-        "moonshot-verified"
-      ],
-      "holderCount": 19506
-    },
-    {
-      "mint": "SPCXxcqXj6e5dJDVNovHN8744zkbhM2bYudU45BimGb",
-      "symbol": "SPCX",
-      "name": "SpaceX - Backpack Securities",
-      "logoUrl": "/data/token-icons/SPCXxcqXj6e5dJDVNovHN8744zkbhM2bYudU45BimGb.svg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 85.53286937624799,
-      "organicScoreLabel": "high",
-      "tags": [
-        "backpack",
-        "token-2022",
-        "verified",
-        "stocks",
-        "rwa"
-      ],
-      "holderCount": 10930
-    },
-    {
-      "mint": "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
-      "symbol": "PUMP",
-      "name": "Pump",
-      "logoUrl": "/data/token-icons/pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn.png",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 92.83009479544437,
-      "organicScoreLabel": "high",
-      "tags": [
-        "community-assist",
-        "moonshot-verified",
-        "token-2022",
-        "verified",
-        "defi"
-      ],
-      "holderCount": 123747
-    },
-    {
-      "mint": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
-      "symbol": "ETH",
-      "name": "Ether (Portal)",
-      "logoUrl": "/data/token-icons/7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs.png",
-      "decimals": 8,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 96.41291221116474,
-      "organicScoreLabel": "high",
-      "tags": [
-        "birdeye-trending",
-        "community",
-        "moonshot-verified",
-        "strict",
-        "verified",
-        "major"
-      ],
-      "holderCount": 110119
-    },
-    {
-      "mint": "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
-      "symbol": "JitoSOL",
-      "name": "Jito Staked SOL",
-      "logoUrl": "/data/token-icons/J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 99.61214802108985,
-      "organicScoreLabel": "high",
-      "tags": [
-        "yield",
-        "community",
-        "lst",
-        "original-lst",
-        "strict",
-        "verified"
-      ],
-      "holderCount": 187699,
-      "twitter": "https://twitter.com/jito_sol",
-      "website": "https://jito.network"
     },
     {
       "mint": "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
@@ -269,7 +151,7 @@
       "decimals": 6,
       "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "isVerified": true,
-      "organicScore": 87.62005273489065,
+      "organicScore": 87.12820924939427,
       "organicScoreLabel": "high",
       "tags": [
         "community",
@@ -277,135 +159,85 @@
         "verified",
         "stable"
       ],
-      "holderCount": 15291,
+      "holderCount": 15328,
       "issuer": "Paxos"
     },
     {
-      "mint": "MUxEsUKSMACyw5fZf68wxf5FLnZVhtU9CwH8uNNGay1",
-      "symbol": "MU",
-      "name": "Micron Technology - Backpack Securities",
-      "logoUrl": "/data/token-icons/MUxEsUKSMACyw5fZf68wxf5FLnZVhtU9CwH8uNNGay1.jpg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 73.80890006547288,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "token-2022",
-        "verified",
-        "rwa",
-        "backpack",
-        "stocks"
-      ],
-      "holderCount": 475
-    },
-    {
-      "mint": "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD",
-      "symbol": "JupUSD",
-      "name": "Jupiter USD",
-      "logoUrl": "/data/token-icons/JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD.png",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 94.4791703501346,
-      "organicScoreLabel": "high",
-      "tags": [
-        "moonshot-verified",
-        "verified",
-        "stable"
-      ],
-      "holderCount": 12384,
-      "issuer": "Jupiter",
-      "twitter": "https://x.com/JupiterExchange",
-      "website": "https://jupusd.money/"
-    },
-    {
-      "mint": "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
-      "symbol": "JLP",
-      "name": "Jupiter Perps",
-      "logoUrl": "/data/token-icons/27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4.png",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 95.86952142021815,
-      "organicScoreLabel": "high",
-      "tags": [
-        "community",
-        "strict",
-        "verified",
-        "defi"
-      ],
-      "holderCount": 90218
-    },
-    {
-      "mint": "SNDKbwMUQvZhnLnxLduradgLHG5KrPuKwpnrkkGRhfH",
-      "symbol": "SNDK",
-      "name": "Sandisk - Backpack Securities",
-      "logoUrl": "/data/token-icons/SNDKbwMUQvZhnLnxLduradgLHG5KrPuKwpnrkkGRhfH.svg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 65.92013375922023,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "verified",
-        "stocks",
-        "rwa",
-        "backpack",
-        "token-2022"
-      ],
-      "holderCount": 274
-    },
-    {
-      "mint": "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
-      "symbol": "PRIME",
-      "name": "",
-      "logoUrl": "/data/token-icons/3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7.png",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 74.720118353563,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "verified",
-        "yb",
-        "yield"
-      ],
-      "holderCount": 1615,
-      "issuer": "Figure"
-    },
-    {
-      "mint": "A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS",
-      "symbol": "ZEC",
-      "name": "Zcash",
-      "logoUrl": "/data/token-icons/A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS.svg",
+      "mint": "7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs",
+      "symbol": "ETH",
+      "name": "Ether (Portal)",
+      "logoUrl": "/data/token-icons/7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs.png",
       "decimals": 8,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 86.40658454447282,
+      "organicScore": 96.80253181220384,
       "organicScoreLabel": "high",
       "tags": [
+        "birdeye-trending",
+        "community",
+        "moonshot-verified",
+        "strict",
         "verified",
-        "moonshot-verified"
+        "major"
       ],
-      "holderCount": 15753
+      "holderCount": 110105
     },
     {
-      "mint": "G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG",
-      "symbol": "BIRB",
-      "name": "Moonbirds",
-      "logoUrl": "/data/token-icons/G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG.svg",
-      "decimals": 6,
+      "mint": "98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g",
+      "symbol": "HYPE",
+      "name": "HYPE",
+      "logoUrl": "/data/token-icons/98sMhvDwXj1RQi5c5Mndm3vPe9cBqPrbLaufMXFNMh5g.png",
+      "decimals": 9,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 83.35088961847973,
+      "organicScore": 94.3754523441606,
       "organicScoreLabel": "high",
       "tags": [
         "verified",
         "moonshot-verified",
-        "meme"
+        "defi"
       ],
-      "holderCount": 15768
+      "holderCount": 19606
+    },
+    {
+      "mint": "pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn",
+      "symbol": "PUMP",
+      "name": "Pump",
+      "logoUrl": "/data/token-icons/pumpCmXqMfrsAkQ5r49WcJnRayYRqmXz6ae8H7H9Dfn.png",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 91.49516467719441,
+      "organicScoreLabel": "high",
+      "tags": [
+        "verified",
+        "defi",
+        "community-assist",
+        "moonshot-verified",
+        "token-2022"
+      ],
+      "holderCount": 123845
+    },
+    {
+      "mint": "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
+      "symbol": "PYUSD",
+      "name": "PayPal USD",
+      "logoUrl": "/data/token-icons/2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo.png",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 90.61499592377191,
+      "organicScoreLabel": "high",
+      "tags": [
+        "token-2022",
+        "verified",
+        "stable",
+        "moonshot-verified",
+        "community",
+        "strict"
+      ],
+      "holderCount": 54410,
+      "issuer": "Paypal"
     },
     {
       "mint": "9BB6NFEcjBCtnNLFko2FqVQBq8HHM13kCyYcdQbgpump",
@@ -415,57 +247,58 @@
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 94.83866994626173,
+      "organicScore": 98.04740973358068,
       "organicScoreLabel": "high",
       "tags": [
+        "meme",
         "community",
         "launchpad",
         "moonshot-verified",
-        "verified",
-        "meme"
+        "verified"
       ],
-      "holderCount": 165868
+      "holderCount": 165967
     },
     {
-      "mint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
-      "symbol": "JUP",
-      "name": "Jupiter",
-      "logoUrl": "/data/token-icons/JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN.png",
+      "mint": "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD",
+      "symbol": "JupUSD",
+      "name": "Jupiter USD",
+      "logoUrl": "/data/token-icons/JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD.png",
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 98.12860259645457,
+      "organicScore": 95.34282457195263,
       "organicScoreLabel": "high",
       "tags": [
-        "moonshot-verified",
-        "strict",
         "verified",
-        "defi",
-        "birdeye-trending",
-        "community"
-      ],
-      "holderCount": 838316,
-      "twitter": "https://twitter.com/JupiterExchange",
-      "website": "https://jup.ag"
-    },
-    {
-      "mint": "METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL",
-      "symbol": "MET",
-      "name": "Meteora",
-      "logoUrl": "/data/token-icons/METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL.svg",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 90.88464017777875,
-      "organicScoreLabel": "high",
-      "tags": [
-        "defi",
-        "verified",
+        "stable",
         "moonshot-verified"
       ],
-      "holderCount": 35950,
-      "twitter": "https://x.com/MeteoraAG",
-      "website": "https://meteora.ag"
+      "holderCount": 12405,
+      "issuer": "Jupiter",
+      "twitter": "https://x.com/JupiterExchange",
+      "website": "https://jupusd.money/"
+    },
+    {
+      "mint": "J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn",
+      "symbol": "JitoSOL",
+      "name": "Jito Staked SOL",
+      "logoUrl": "/data/token-icons/J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn.png",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 98.84714968990933,
+      "organicScoreLabel": "high",
+      "tags": [
+        "community",
+        "lst",
+        "original-lst",
+        "strict",
+        "verified",
+        "yield"
+      ],
+      "holderCount": 187675,
+      "twitter": "https://twitter.com/jito_sol",
+      "website": "https://jito.network"
     },
     {
       "mint": "CASHx9KJUStyftLFWGvEVf59SGeG9sh5FfcnZMVPCASH",
@@ -475,266 +308,32 @@
       "decimals": 6,
       "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "isVerified": true,
-      "organicScore": 96.17432060011876,
+      "organicScore": 95.24383497952903,
       "organicScoreLabel": "high",
       "tags": [
-        "community-assist",
-        "verified",
         "stable",
-        "token-2022"
+        "token-2022",
+        "community-assist",
+        "verified"
       ],
-      "holderCount": 373993,
+      "holderCount": 376611,
       "issuer": "Phantom"
     },
     {
-      "mint": "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh",
-      "symbol": "WBTC",
-      "name": "Wrapped BTC (Portal)",
-      "logoUrl": "/data/token-icons/3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh.png",
+      "mint": "A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS",
+      "symbol": "ZEC",
+      "name": "Zcash",
+      "logoUrl": "/data/token-icons/A7bdiYdS5GjqGFtxf17ppRHtDKPkkRqbKtR27dxvQXaS.svg",
       "decimals": 8,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 90.97616555910783,
+      "organicScore": 85.01151863798067,
       "organicScoreLabel": "high",
       "tags": [
-        "birdeye-trending",
-        "community",
-        "strict",
         "verified",
-        "major"
-      ],
-      "holderCount": 79288
-    },
-    {
-      "mint": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
-      "symbol": "RAY",
-      "name": "Raydium",
-      "logoUrl": "/data/token-icons/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R.png",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 87.47898585223146,
-      "organicScoreLabel": "high",
-      "tags": [
-        "birdeye-trending",
-        "community",
-        "strict",
-        "verified",
-        "defi"
-      ],
-      "holderCount": 254841
-    },
-    {
-      "mint": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
-      "symbol": "TSLAx",
-      "name": "Tesla xStock",
-      "logoUrl": "/data/token-icons/XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB.png",
-      "decimals": 8,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 82.59572917364466,
-      "organicScoreLabel": "high",
-      "tags": [
-        "stocks",
-        "rwa",
-        "moonshot-verified",
-        "token-2022",
-        "verified",
-        "xstocks"
-      ],
-      "holderCount": 26435
-    },
-    {
-      "mint": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
-      "symbol": "JupSOL",
-      "name": "Jupiter Staked SOL",
-      "logoUrl": "/data/token-icons/jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 89.95748118802733,
-      "organicScoreLabel": "high",
-      "tags": [
-        "yield",
-        "community",
-        "lst",
-        "original-lst",
-        "strict",
-        "verified"
-      ],
-      "holderCount": 32600,
-      "twitter": "https://twitter.com/JupiterExchange",
-      "website": "https://jup.ag/"
-    },
-    {
-      "mint": "CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp",
-      "symbol": "CARDS",
-      "name": "Collector Crypt",
-      "logoUrl": "/data/token-icons/CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp.png",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 93.57622929281695,
-      "organicScoreLabel": "high",
-      "tags": [
-        "community-assist",
-        "moonshot-verified",
-        "verified",
-        "defi"
-      ],
-      "holderCount": 17186,
-      "website": "https://collectorcrypt.com/"
-    },
-    {
-      "mint": "XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1",
-      "symbol": "CRCLx",
-      "name": "Circle xStock",
-      "logoUrl": "/data/token-icons/XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1.png",
-      "decimals": 8,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 77.1697087996983,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "token-2022",
-        "verified",
-        "xstocks",
-        "stocks",
-        "rwa",
         "moonshot-verified"
       ],
-      "holderCount": 12331
-    },
-    {
-      "mint": "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA",
-      "symbol": "USDS",
-      "name": "USDS",
-      "logoUrl": "/data/token-icons/USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA.svg",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 85.03168350917433,
-      "organicScoreLabel": "high",
-      "tags": [
-        "community",
-        "verified",
-        "stable"
-      ],
-      "holderCount": 11143,
-      "issuer": "Sky"
-    },
-    {
-      "mint": "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
-      "symbol": "EURC",
-      "name": "EURC",
-      "logoUrl": "/data/token-icons/HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr.png",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 77.69011361145296,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "community",
-        "strict",
-        "verified",
-        "stable"
-      ],
-      "holderCount": 52554,
-      "issuer": "Circle"
-    },
-    {
-      "mint": "59obFNBzyTBGowrkif5uK7ojS58vsuWz3ZCvg6tfZAGw",
-      "symbol": "PST",
-      "name": "PayFi Strategy Token USDC",
-      "logoUrl": "/data/token-icons/59obFNBzyTBGowrkif5uK7ojS58vsuWz3ZCvg6tfZAGw.svg",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 69.60546408275732,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "verified",
-        "yb",
-        "yield",
-        "community-assist"
-      ],
-      "holderCount": 4416,
-      "issuer": "Huma"
-    },
-    {
-      "mint": "5YMkXAYccHSGnHn9nob9xEvv6Pvka9DZWH7nTbotTu9E",
-      "symbol": "hyUSD",
-      "name": "hyUSD",
-      "logoUrl": "/data/token-icons/5YMkXAYccHSGnHn9nob9xEvv6Pvka9DZWH7nTbotTu9E.png",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 74.51538397753511,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "stable",
-        "community-assist",
-        "verified"
-      ],
-      "holderCount": 4034,
-      "issuer": "Hylo",
-      "twitter": "https://x.com/hylo_so",
-      "website": "https://hylo.so/"
-    },
-    {
-      "mint": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
-      "symbol": "TRUMP",
-      "name": "OFFICIAL TRUMP",
-      "logoUrl": "/data/token-icons/6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN.png",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 84.16645596315026,
-      "organicScoreLabel": "high",
-      "tags": [
-        "verified",
-        "meme",
-        "birdeye-trending",
-        "community",
-        "moonshot-verified"
-      ],
-      "holderCount": 646618
-    },
-    {
-      "mint": "11111ZSvet4hKEYUAETZWELHgkeYjyNZovzcypyAWs",
-      "symbol": "SOLANA",
-      "name": "Prisma Staked SOL",
-      "logoUrl": "/data/token-icons/11111ZSvet4hKEYUAETZWELHgkeYjyNZovzcypyAWs.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 0,
-      "organicScoreLabel": "low",
-      "tags": [
-        "lst",
-        "verified"
-      ],
-      "holderCount": 8
-    },
-    {
-      "mint": "BcHEaaTCvycPwwsJ9yQTXdHP9X2gCLkznDbZ8VySpump",
-      "symbol": "Jotchua",
-      "name": "Jotchua",
-      "logoUrl": "/data/token-icons/BcHEaaTCvycPwwsJ9yQTXdHP9X2gCLkznDbZ8VySpump.jpg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 90.34417880213715,
-      "organicScoreLabel": "high",
-      "tags": [
-        "moonshot-verified",
-        "verified",
-        "meme",
-        "token-2022"
-      ],
-      "holderCount": 10930,
-      "twitter": "https://x.com/JotchuaTheMeme/status/2063476580626936225",
-      "website": "https://x.com/i/communities/2024722566188060994"
+      "holderCount": 15763
     },
     {
       "mint": "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT",
@@ -744,208 +343,150 @@
       "decimals": 9,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 68.23942164211208,
+      "organicScore": 74.09496803882554,
       "organicScoreLabel": "medium",
       "tags": [
-        "stable",
         "community",
-        "verified"
+        "verified",
+        "stable"
       ],
       "holderCount": 10136,
       "issuer": "Ethena"
     },
     {
-      "mint": "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",
-      "symbol": "MSTRx",
-      "name": "MicroStrategy xStock",
-      "logoUrl": "/data/token-icons/XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ.png",
-      "decimals": 8,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 69.79317691237517,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "rwa",
-        "moonshot-verified",
-        "token-2022",
-        "verified",
-        "xstocks",
-        "stocks"
-      ],
-      "holderCount": 8748
-    },
-    {
-      "mint": "7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk",
-      "symbol": "JUICED",
-      "name": "JUICED",
-      "logoUrl": "/data/token-icons/7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk.png",
+      "mint": "27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4",
+      "symbol": "JLP",
+      "name": "Jupiter Perps",
+      "logoUrl": "/data/token-icons/27G8MtK7VtTcCHkpASjSDdkWWYfoqT6ggEuKidVJidD4.png",
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 75,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "verified",
-        "yb",
-        "jup-lend-earn",
-        "yield"
-      ],
-      "holderCount": 3707,
-      "issuer": "Jupiter"
-    },
-    {
-      "mint": "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W",
-      "symbol": "SPYx",
-      "name": "SP500 xStock",
-      "logoUrl": "/data/token-icons/XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W.png",
-      "decimals": 8,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 75,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "verified",
-        "xstocks",
-        "stocks",
-        "rwa",
-        "moonshot-verified",
-        "token-2022"
-      ],
-      "holderCount": 24723
-    },
-    {
-      "mint": "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
-      "symbol": "mSOL",
-      "name": "Marinade staked SOL (mSOL)",
-      "logoUrl": "/data/token-icons/mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 94.18581905399009,
+      "organicScore": 90.15936648052858,
       "organicScoreLabel": "high",
       "tags": [
-        "lst",
-        "original-lst",
+        "community",
         "strict",
         "verified",
-        "yield",
-        "community"
+        "defi"
       ],
-      "holderCount": 149136
+      "holderCount": 90240
     },
     {
-      "mint": "SPCXwBHVrKpRqMRawL3NNvt1sXP2Yf3edwRbta53N69",
-      "symbol": "SPCX69",
-      "name": "SPCX69",
-      "logoUrl": "/data/token-icons/SPCXwBHVrKpRqMRawL3NNvt1sXP2Yf3edwRbta53N69.png",
+      "mint": "METAewgxyPbgwsseH8T16a39CQ5VyVxZi9zXiDPY18m",
+      "symbol": "MPLX",
+      "name": "Metaplex Token",
+      "logoUrl": "/data/token-icons/METAewgxyPbgwsseH8T16a39CQ5VyVxZi9zXiDPY18m.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 90.2277904965192,
+      "organicScoreLabel": "high",
+      "tags": [
+        "verified",
+        "defi",
+        "community",
+        "strict"
+      ],
+      "holderCount": 23527,
+      "website": "https://metaplex.com"
+    },
+    {
+      "mint": "METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL",
+      "symbol": "MET",
+      "name": "Meteora",
+      "logoUrl": "/data/token-icons/METvsvVRapdj9cFLzq4Tr43xK4tAjQfwX76z3n6mWQL.svg",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 90.01057701666751,
+      "organicScoreLabel": "high",
+      "tags": [
+        "moonshot-verified",
+        "defi",
+        "verified"
+      ],
+      "holderCount": 35949,
+      "twitter": "https://x.com/MeteoraAG",
+      "website": "https://meteora.ag"
+    },
+    {
+      "mint": "MUxEsUKSMACyw5fZf68wxf5FLnZVhtU9CwH8uNNGay1",
+      "symbol": "MU",
+      "name": "Micron Technology - Backpack Securities",
+      "logoUrl": "/data/token-icons/MUxEsUKSMACyw5fZf68wxf5FLnZVhtU9CwH8uNNGay1.jpg",
       "decimals": 6,
       "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "isVerified": true,
-      "organicScore": 58.673611835800976,
+      "organicScore": 65.44340885829992,
       "organicScoreLabel": "medium",
       "tags": [
         "verified",
+        "rwa",
+        "backpack",
+        "stocks",
         "token-2022"
       ],
-      "holderCount": 5483,
-      "twitter": "https://x.com/internSPC69x",
-      "website": "https://spcx69.com"
+      "holderCount": 521
     },
     {
-      "mint": "Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk",
-      "symbol": "USELESS",
-      "name": "USELESS COIN",
-      "logoUrl": "/data/token-icons/Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk.png",
+      "mint": "6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN",
+      "symbol": "TRUMP",
+      "name": "OFFICIAL TRUMP",
+      "logoUrl": "/data/token-icons/6p6xgHyF7AeE6TZkSmFsko444wqoP15icUSqi2jfGiPN.png",
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 88.43588440694248,
+      "organicScore": 91.95885342644084,
       "organicScoreLabel": "high",
       "tags": [
-        "launchpad",
-        "moonshot-verified",
         "verified",
         "meme",
-        "community-assist"
-      ],
-      "holderCount": 37548,
-      "twitter": "https://x.com/theunipcs/status/1921208257399382410"
-    },
-    {
-      "mint": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
-      "symbol": "NVDAx",
-      "name": "NVIDIA xStock",
-      "logoUrl": "/data/token-icons/Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh.png",
-      "decimals": 8,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 73.0180992559158,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "moonshot-verified",
-        "token-2022",
-        "verified",
-        "xstocks",
-        "stocks",
-        "rwa"
-      ],
-      "holderCount": 61110
-    },
-    {
-      "mint": "Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump",
-      "symbol": "KINS",
-      "name": "Kintara",
-      "logoUrl": "/data/token-icons/Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump.png",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 92.25739183578052,
-      "organicScoreLabel": "high",
-      "tags": [
-        "token-2022",
-        "verified",
+        "birdeye-trending",
+        "community",
         "moonshot-verified"
       ],
-      "holderCount": 22576,
-      "twitter": "https://x.com/PlayKintara",
-      "website": "https://kintara.gg/"
+      "holderCount": 646662
     },
     {
-      "mint": "DRAMjSWR7HRfJKjRkvQWYL2bcaejaVhuxEcjf4pAY4Cw",
-      "symbol": "DRAM",
-      "name": "Roundhill Memory ETF - Backpack Securities",
-      "logoUrl": "/data/token-icons/DRAMjSWR7HRfJKjRkvQWYL2bcaejaVhuxEcjf4pAY4Cw.svg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 56.222321541586794,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "rwa",
-        "token-2022",
-        "verified",
-        "backpack"
-      ],
-      "holderCount": 199
-    },
-    {
-      "mint": "5UUH9RTDiSpq6HKS6bp4NdU9PNJpXRXuiw6ShBTBhgH2",
-      "symbol": "TROLL",
-      "name": "TROLL",
-      "logoUrl": "/data/token-icons/5UUH9RTDiSpq6HKS6bp4NdU9PNJpXRXuiw6ShBTBhgH2.png",
+      "mint": "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN",
+      "symbol": "JUP",
+      "name": "Jupiter",
+      "logoUrl": "/data/token-icons/JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN.png",
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 94.20674196898261,
+      "organicScore": 96.86730568978672,
       "organicScoreLabel": "high",
       "tags": [
+        "birdeye-trending",
+        "community",
+        "moonshot-verified",
+        "strict",
+        "verified",
+        "defi"
+      ],
+      "holderCount": 838163,
+      "twitter": "https://twitter.com/JupiterExchange",
+      "website": "https://jup.ag"
+    },
+    {
+      "mint": "CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp",
+      "symbol": "CARDS",
+      "name": "Collector Crypt",
+      "logoUrl": "/data/token-icons/CARDSccUMFKoPRZxt5vt3ksUbxEFEcnZ3H2pd3dKxYjp.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 91.54903741006439,
+      "organicScoreLabel": "high",
+      "tags": [
+        "community-assist",
         "moonshot-verified",
         "verified",
-        "meme",
-        "community-assist"
+        "defi"
       ],
-      "holderCount": 63955,
-      "twitter": "https://x.com/troll_"
+      "holderCount": 17123,
+      "website": "https://collectorcrypt.com/"
     },
     {
       "mint": "Dfh5DzRgSvvCFDoYc2ciTkMrbDfRKybA4SoFbPmApump",
@@ -955,279 +496,130 @@
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 78.89839082362151,
-      "organicScoreLabel": "medium",
+      "organicScore": 83.16108803060027,
+      "organicScoreLabel": "high",
       "tags": [
-        "meme",
         "community",
         "launchpad",
-        "moonshot-verified",
-        "verified"
-      ],
-      "holderCount": 48844
-    },
-    {
-      "mint": "5pYB12kEhfhSFXJjZ7JtyqDpt6uUqhsF6iu6Ee9spump",
-      "symbol": "CATWIF",
-      "name": "catwifhat",
-      "logoUrl": "/data/token-icons/5pYB12kEhfhSFXJjZ7JtyqDpt6uUqhsF6iu6Ee9spump.jpg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 84.29031036092039,
-      "organicScoreLabel": "high",
-      "tags": [
-        "verified",
-        "meme",
-        "token-2022"
-      ],
-      "holderCount": 6101,
-      "twitter": "https://x.com/Catwifhatusdc/status/2068935875346497587",
-      "website": "https://catwifhat.us"
-    },
-    {
-      "mint": "Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ",
-      "symbol": "QQQx",
-      "name": "Nasdaq xStock",
-      "logoUrl": "/data/token-icons/Xs8S1uUs1zvS2p7iwtsG3b6fkhpvmwz4GYU3gWAmWHZ.png",
-      "decimals": 8,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 72.6163838339384,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "moonshot-verified",
-        "token-2022",
-        "verified",
-        "xstocks",
-        "stocks",
-        "rwa"
-      ],
-      "holderCount": 8391
-    },
-    {
-      "mint": "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv",
-      "symbol": "PENGU",
-      "name": "Pudgy Penguins",
-      "logoUrl": "/data/token-icons/2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv.png",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 90.12576971841497,
-      "organicScoreLabel": "high",
-      "tags": [
-        "birdeye-trending",
-        "community",
         "moonshot-verified",
         "verified",
         "meme"
       ],
-      "holderCount": 536098,
-      "twitter": "https://x.com/pudgypenguins"
+      "holderCount": 48989
     },
     {
-      "mint": "68Nq68CrtLVpyvK5Un7UADiNczaGf39hBbj3diRsYj6D",
-      "symbol": "NEST",
-      "name": "Nest",
-      "logoUrl": "https://crimson-raw-koala-952.mypinata.cloud/ipfs/bafkreicc2k264crqmx6dve4mu6nzksdc7r5szx2jzmwsm2agsi6wemlpmi",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 79.98084774545552,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "verified"
-      ],
-      "holderCount": 2902
-    },
-    {
-      "mint": "J8PSdNP3QewKq2Z1JJJFDMaqF7KcaiJhR7gbr5KZpump",
-      "symbol": "TripleT",
-      "name": "Tung Tung Tung Sahur",
-      "logoUrl": "/data/token-icons/J8PSdNP3QewKq2Z1JJJFDMaqF7KcaiJhR7gbr5KZpump.jpg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 85.13680372938909,
-      "organicScoreLabel": "high",
-      "tags": [
-        "moonshot-verified",
-        "verified",
-        "meme",
-        "token-2022"
-      ],
-      "holderCount": 10704,
-      "twitter": "https://x.com/i/communities/2026209182526149110"
-    },
-    {
-      "mint": "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
-      "symbol": "JTO",
-      "name": "JITO",
-      "logoUrl": "/data/token-icons/jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 90.13536122275399,
-      "organicScoreLabel": "high",
-      "tags": [
-        "birdeye-trending",
-        "community",
-        "strict",
-        "verified",
-        "defi"
-      ],
-      "holderCount": 83267,
-      "twitter": "https://twitter.com/jito_sol",
-      "website": "https://jito.network"
-    },
-    {
-      "mint": "CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn",
-      "symbol": "xBTC",
-      "name": "OKX Wrapped BTC",
-      "logoUrl": "/data/token-icons/CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn.png",
+      "mint": "3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh",
+      "symbol": "WBTC",
+      "name": "Wrapped BTC (Portal)",
+      "logoUrl": "/data/token-icons/3NZ9JMVBmGAqocybic2c7LQCJScmgsAZ6vQqTDzcqmJh.png",
       "decimals": 8,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 53.46674883571457,
-      "organicScoreLabel": "medium",
+      "organicScore": 86.58368655796623,
+      "organicScoreLabel": "high",
       "tags": [
+        "strict",
         "verified",
         "major",
-        "community-assist"
+        "birdeye-trending",
+        "community"
       ],
-      "holderCount": 3226
+      "holderCount": 79256
     },
     {
-      "mint": "SLXdx4BUt2v9uJQNzWqSfzTJ9UKLUDsvxHFMEEdrfgq",
-      "symbol": "SLX",
-      "name": "Solstice",
-      "logoUrl": "/data/token-icons/SLXdx4BUt2v9uJQNzWqSfzTJ9UKLUDsvxHFMEEdrfgq.png",
+      "mint": "jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v",
+      "symbol": "JupSOL",
+      "name": "Jupiter Staked SOL",
+      "logoUrl": "/data/token-icons/jupSoLaHXQiZZTSfEWMTRRgpnyFm8f6sZdosWBjx93v.png",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 88.62013684739769,
+      "organicScoreLabel": "high",
+      "tags": [
+        "lst",
+        "original-lst",
+        "strict",
+        "verified",
+        "yield",
+        "community"
+      ],
+      "holderCount": 32617,
+      "twitter": "https://twitter.com/JupiterExchange",
+      "website": "https://jup.ag/"
+    },
+    {
+      "mint": "USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA",
+      "symbol": "USDS",
+      "name": "USDS",
+      "logoUrl": "/data/token-icons/USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA.svg",
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 69.80182479925602,
-      "organicScoreLabel": "medium",
+      "organicScore": 83.44058747640256,
+      "organicScoreLabel": "high",
       "tags": [
-        "verified"
-      ],
-      "holderCount": 7755,
-      "twitter": "https://x.com/solsticefi",
-      "website": "https://solstice.finance"
-    },
-    {
-      "mint": "Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8",
-      "symbol": "SPCXx",
-      "name": "SpaceX xStock",
-      "logoUrl": "/data/token-icons/Xs3oZwbHvqis4NYcf4YKWmEia2eC84wSiVrcYcTqpH8.png",
-      "decimals": 8,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 68.11383920385424,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "stocks",
-        "rwa",
-        "xstocks",
-        "moonshot-verified",
-        "token-2022",
-        "verified"
-      ],
-      "holderCount": 6366,
-      "twitter": "https://x.com/xstocksfi",
-      "website": "https://defi.xstocks.fi/"
-    },
-    {
-      "mint": "BoTx8y9ynfdxf5ZjWtCoBVkff52qKA82ysaLU8ZM6d8T",
-      "symbol": "BOT",
-      "name": "RoboStrategy - Backpack Securities",
-      "logoUrl": "/data/token-icons/BoTx8y9ynfdxf5ZjWtCoBVkff52qKA82ysaLU8ZM6d8T.svg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 69.08722759096587,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "stocks",
-        "token-2022",
+        "community",
         "verified",
-        "rwa"
+        "stable"
       ],
-      "holderCount": 168
+      "holderCount": 11133,
+      "issuer": "Sky"
     },
     {
-      "mint": "6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump",
-      "symbol": "TOESCOIN",
-      "name": "TOES",
-      "logoUrl": "/data/token-icons/6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump.png",
+      "mint": "4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R",
+      "symbol": "RAY",
+      "name": "Raydium",
+      "logoUrl": "/data/token-icons/4k3Dyjzvzp8eMZWUXbBCjEvwSkkk59S5iCNLY3QrkX6R.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 88.55331073501914,
+      "organicScoreLabel": "high",
+      "tags": [
+        "strict",
+        "verified",
+        "defi",
+        "birdeye-trending",
+        "community"
+      ],
+      "holderCount": 254847
+    },
+    {
+      "mint": "DLvuaz18bKnh1hEaCZsZ5NgJi7wYFm5RvgZVA2M5pump",
+      "symbol": "BABYANSEM",
+      "name": "The Black Calf",
+      "logoUrl": "https://ipfs.io/ipfs/bafkreihbc5gmxw6yqnh5hvq7nfuywzlhs3h35dca2izhprvf4s67tr6tri",
       "decimals": 6,
       "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "isVerified": true,
-      "organicScore": 69.733749689461,
-      "organicScoreLabel": "medium",
+      "organicScore": 86.92915888278065,
+      "organicScoreLabel": "high",
       "tags": [
         "verified",
         "token-2022"
       ],
-      "holderCount": 12006,
-      "website": "https://toescoin.fun/"
+      "holderCount": 2749,
+      "twitter": "https://x.com/iambabyansem"
     },
     {
-      "mint": "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5",
-      "symbol": "ONyc",
-      "name": "Onchain Yield Coin",
-      "logoUrl": "/data/token-icons/5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 81.08729726053564,
-      "organicScoreLabel": "high",
-      "tags": [
-        "yb",
-        "yield",
-        "community-assist",
-        "verified"
-      ],
-      "holderCount": 6665,
-      "issuer": "OnRe",
-      "website": "Https://Onre.finance"
-    },
-    {
-      "mint": "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
-      "symbol": "ORCA",
-      "name": "Orca",
-      "logoUrl": "/data/token-icons/orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE.png",
+      "mint": "SPCXxcqXj6e5dJDVNovHN8744zkbhM2bYudU45BimGb",
+      "symbol": "SPCX",
+      "name": "SpaceX - Backpack Securities",
+      "logoUrl": "/data/token-icons/SPCXxcqXj6e5dJDVNovHN8744zkbhM2bYudU45BimGb.svg",
       "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "isVerified": true,
-      "organicScore": 74.3816963190114,
+      "organicScore": 69.7321599751472,
       "organicScoreLabel": "medium",
       "tags": [
-        "birdeye-trending",
-        "community",
-        "strict",
+        "rwa",
+        "backpack",
+        "token-2022",
         "verified",
-        "defi"
+        "stocks"
       ],
-      "holderCount": 90217
-    },
-    {
-      "mint": "HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3",
-      "symbol": "PYTH",
-      "name": "Pyth Network",
-      "logoUrl": "/data/token-icons/HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3.svg",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 80.58511648990705,
-      "organicScoreLabel": "high",
-      "tags": [
-        "birdeye-trending",
-        "community",
-        "strict",
-        "verified",
-        "defi"
-      ],
-      "holderCount": 306308
+      "holderCount": 10905
     },
     {
       "mint": "6FrrzDk5mQARGc1TDYoyVnSyRdds1t4PbtohCD6p3tgG",
@@ -1237,245 +629,187 @@
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 80.16432689200153,
-      "organicScoreLabel": "high",
-      "tags": [
-        "verified",
-        "stable",
-        "community-assist"
-      ],
-      "holderCount": 15389,
-      "issuer": "Solstice"
-    },
-    {
-      "mint": "BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy",
-      "symbol": "BP",
-      "name": "Backpack",
-      "logoUrl": "/data/token-icons/BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 81.55542659963264,
-      "organicScoreLabel": "high",
-      "tags": [
-        "verified",
-        "moonshot-verified",
-        "defi"
-      ],
-      "holderCount": 4900
-    },
-    {
-      "mint": "Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs",
-      "symbol": "GRASS",
-      "name": "Grass",
-      "logoUrl": "/data/token-icons/Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 87.4565839247004,
-      "organicScoreLabel": "high",
-      "tags": [
-        "community",
-        "moonshot-verified",
-        "verified",
-        "infra"
-      ],
-      "holderCount": 386689,
-      "twitter": "https://x.com/getgrass_io",
-      "website": "https://getgrass.io"
-    },
-    {
-      "mint": "GbbesPbaYh5uiAZSYNXTc7w9jty1rpg3P9L4JeN4LkKc",
-      "symbol": "TRX",
-      "name": "TRON",
-      "logoUrl": "/data/token-icons/GbbesPbaYh5uiAZSYNXTc7w9jty1rpg3P9L4JeN4LkKc.png",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 38.47504461225704,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "community-assist",
-        "verified"
-      ],
-      "holderCount": 6253,
-      "twitter": "https://x.com/trondao",
-      "website": "https://tron.network"
-    },
-    {
-      "mint": "8wxkvAfEns76yBzu4MnbV7VnXWjg3iDPA9uwAQ6cpump",
-      "symbol": "SOLANGELES",
-      "name": "SolAngeles",
-      "logoUrl": "/data/token-icons/8wxkvAfEns76yBzu4MnbV7VnXWjg3iDPA9uwAQ6cpump.jpg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 79.4403568569114,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "moonshot-verified",
-        "verified",
-        "token-2022"
-      ],
-      "holderCount": 4905,
-      "twitter": "https://x.com/solangelestv",
-      "website": "https://solangeles.fun/"
-    },
-    {
-      "mint": "MEFNBXixkEbait3xn9bkm8WsJzXtVsaJEn4c8Sam21u",
-      "symbol": "ME",
-      "name": "Magic Eden",
-      "logoUrl": "/data/token-icons/MEFNBXixkEbait3xn9bkm8WsJzXtVsaJEn4c8Sam21u.png",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
       "organicScore": 75,
       "organicScoreLabel": "medium",
       "tags": [
-        "birdeye-trending",
-        "community",
+        "community-assist",
         "verified",
-        "defi"
+        "stable"
       ],
-      "holderCount": 151769
+      "holderCount": 15364,
+      "issuer": "Solstice"
     },
     {
-      "mint": "xSoL18r4U1k2ALa4yF857VDZJqCKecLtty92nscre3o",
-      "symbol": "xSHIN",
-      "name": "Shinobi Performance Pool Token",
-      "logoUrl": "/data/token-icons/xSoL18r4U1k2ALa4yF857VDZJqCKecLtty92nscre3o.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 0,
-      "organicScoreLabel": "low",
-      "tags": [
-        "community",
-        "lst",
-        "original-lst",
-        "verified",
-        "yield"
-      ],
-      "holderCount": 136
-    },
-    {
-      "mint": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
-      "symbol": "$WIF",
-      "name": "dogwifhat",
-      "logoUrl": "/data/token-icons/EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm.jpg",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 89.69223446483272,
-      "organicScoreLabel": "high",
-      "tags": [
-        "meme",
-        "community",
-        "moonshot-verified",
-        "strict",
-        "verified"
-      ],
-      "holderCount": 254728
-    },
-    {
-      "mint": "KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS",
-      "symbol": "KMNO",
-      "name": "Kamino",
-      "logoUrl": "/data/token-icons/KMNo3nJsBXfcpJTVhZcXLW7RmTwTt4GVFE7suUBo9sS.svg",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 80.1268466998739,
-      "organicScoreLabel": "high",
-      "tags": [
-        "verified",
-        "defi",
-        "birdeye-trending",
-        "community",
-        "strict"
-      ],
-      "holderCount": 53323,
-      "twitter": "https://twitter.com/KaminoFinance",
-      "website": "https://www.kamino.finance/"
-    },
-    {
-      "mint": "B6f27ETGcjgGNB1fqULJbXVmw9FnL8HgBp7R83hmpump",
-      "symbol": "drooling",
-      "name": "Drooling cat",
-      "logoUrl": "/data/token-icons/B6f27ETGcjgGNB1fqULJbXVmw9FnL8HgBp7R83hmpump.png",
+      "mint": "5pYB12kEhfhSFXJjZ7JtyqDpt6uUqhsF6iu6Ee9spump",
+      "symbol": "CATWIF",
+      "name": "catwifhat",
+      "logoUrl": "/data/token-icons/5pYB12kEhfhSFXJjZ7JtyqDpt6uUqhsF6iu6Ee9spump.jpg",
       "decimals": 6,
       "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "isVerified": true,
-      "organicScore": 79.01263604108489,
-      "organicScoreLabel": "medium",
+      "organicScore": 84.99510892972064,
+      "organicScoreLabel": "high",
       "tags": [
         "verified",
+        "meme",
         "token-2022"
       ],
-      "holderCount": 3326,
-      "twitter": "https://x.com/droolingcatsol/status/2060265772442849620?s=20",
-      "website": "https://droolingcat.xyz/"
+      "holderCount": 8819,
+      "twitter": "https://x.com/Catwifhatusdc/status/2068935875346497587",
+      "website": "https://catwifhat.us"
     },
     {
-      "mint": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
-      "symbol": "POPCAT",
-      "name": "Popcat",
-      "logoUrl": "/data/token-icons/7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 84.22045275856122,
-      "organicScoreLabel": "high",
-      "tags": [
-        "strict",
-        "verified",
-        "meme",
-        "birdeye-trending",
-        "community",
-        "moonshot-verified"
-      ],
-      "holderCount": 140828
-    },
-    {
-      "mint": "Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump",
-      "symbol": "Buttcoin",
-      "name": "Buttcoin",
-      "logoUrl": "/data/token-icons/Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump.jpg",
+      "mint": "Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump",
+      "symbol": "KINS",
+      "name": "Kintara",
+      "logoUrl": "/data/token-icons/Tqj8yFmagrg7oorpQkVGYR52r96RFTamvWfth9bpump.png",
       "decimals": 6,
       "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "isVerified": true,
-      "organicScore": 80.36269115076365,
+      "organicScore": 90.54089872962342,
+      "organicScoreLabel": "high",
+      "tags": [
+        "token-2022",
+        "verified",
+        "moonshot-verified"
+      ],
+      "holderCount": 22690,
+      "twitter": "https://x.com/PlayKintara",
+      "website": "https://kintara.gg/"
+    },
+    {
+      "mint": "G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG",
+      "symbol": "BIRB",
+      "name": "Moonbirds",
+      "logoUrl": "/data/token-icons/G7vQWurMkMMm2dU3iZpXYFTHT9Biio4F4gZCrwFpKNwG.svg",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 73.94632927236182,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "moonshot-verified",
+        "meme"
+      ],
+      "holderCount": 15748
+    },
+    {
+      "mint": "BcHEaaTCvycPwwsJ9yQTXdHP9X2gCLkznDbZ8VySpump",
+      "symbol": "Jotchua",
+      "name": "Jotchua",
+      "logoUrl": "/data/token-icons/BcHEaaTCvycPwwsJ9yQTXdHP9X2gCLkznDbZ8VySpump.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 89.70772647378377,
       "organicScoreLabel": "high",
       "tags": [
         "moonshot-verified",
+        "verified",
         "meme",
-        "token-2022",
-        "verified"
+        "token-2022"
       ],
-      "holderCount": 18538,
-      "twitter": "https://x.com/i/communities/2009440403682914712",
-      "website": "https://web.archive.org/web/20110608015104/http://buttcoin.org/"
+      "holderCount": 10904,
+      "twitter": "https://x.com/JotchuaTheMeme/status/2063476580626936225",
+      "website": "https://x.com/i/communities/2024722566188060994"
     },
     {
-      "mint": "TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v",
-      "symbol": "tSpaceX",
-      "name": "T-SpaceX",
-      "logoUrl": "/data/token-icons/TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v.svg",
-      "decimals": 9,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "mint": "5UUH9RTDiSpq6HKS6bp4NdU9PNJpXRXuiw6ShBTBhgH2",
+      "symbol": "TROLL",
+      "name": "TROLL",
+      "logoUrl": "/data/token-icons/5UUH9RTDiSpq6HKS6bp4NdU9PNJpXRXuiw6ShBTBhgH2.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 53.18309769662932,
+      "organicScore": 92.45599489810571,
+      "organicScoreLabel": "high",
+      "tags": [
+        "meme",
+        "community-assist",
+        "moonshot-verified",
+        "verified"
+      ],
+      "holderCount": 64015,
+      "twitter": "https://x.com/troll_"
+    },
+    {
+      "mint": "59obFNBzyTBGowrkif5uK7ojS58vsuWz3ZCvg6tfZAGw",
+      "symbol": "PST",
+      "name": "PayFi Strategy Token USDC",
+      "logoUrl": "/data/token-icons/59obFNBzyTBGowrkif5uK7ojS58vsuWz3ZCvg6tfZAGw.svg",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 54.38738804765089,
       "organicScoreLabel": "medium",
       "tags": [
-        "tessera",
-        "token-2022",
         "verified",
-        "rwa",
-        "stocks"
+        "yb",
+        "yield",
+        "community-assist"
       ],
-      "holderCount": 612,
-      "twitter": "https://x.com/tessera_pe",
-      "website": "https://www.tessera.pe/"
+      "holderCount": 4421,
+      "issuer": "Huma"
+    },
+    {
+      "mint": "2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv",
+      "symbol": "PENGU",
+      "name": "Pudgy Penguins",
+      "logoUrl": "/data/token-icons/2zMMhcVQEXDtdE6vsFS7S7D5oUodfJHE8vd1gnBouauv.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 93.41173928877461,
+      "organicScoreLabel": "high",
+      "tags": [
+        "moonshot-verified",
+        "verified",
+        "meme",
+        "birdeye-trending",
+        "community"
+      ],
+      "holderCount": 535983,
+      "twitter": "https://x.com/pudgypenguins"
+    },
+    {
+      "mint": "Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk",
+      "symbol": "USELESS",
+      "name": "USELESS COIN",
+      "logoUrl": "/data/token-icons/Dz9mQ9NzkBcCsuGPFJ3r1bS4wgqKMHBPiVuniW8Mbonk.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 89.35669561899137,
+      "organicScoreLabel": "high",
+      "tags": [
+        "verified",
+        "meme",
+        "community-assist",
+        "launchpad",
+        "moonshot-verified"
+      ],
+      "holderCount": 37569,
+      "twitter": "https://x.com/theunipcs/status/1921208257399382410"
+    },
+    {
+      "mint": "HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr",
+      "symbol": "EURC",
+      "name": "EURC",
+      "logoUrl": "/data/token-icons/HzwqbKZw8HxMN6bF2yFZNrht3c2iXXzpKcFu7uBEDKtr.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 72.65291513336302,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "community",
+        "strict",
+        "verified",
+        "stable"
+      ],
+      "holderCount": 52691,
+      "issuer": "Circle"
     },
     {
       "mint": "BCdwQBAn8dYB5YjTsoB6TdHAWokxv28k2oZUodERpump",
@@ -1485,73 +819,34 @@
       "decimals": 6,
       "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "isVerified": true,
-      "organicScore": 72.5080416181113,
+      "organicScore": 77.32809537885215,
       "organicScoreLabel": "medium",
       "tags": [
-        "verified",
         "moonshot-verified",
-        "token-2022"
+        "token-2022",
+        "verified"
       ],
-      "holderCount": 12145,
+      "holderCount": 12288,
       "twitter": "https://x.com/ManifestingXs"
     },
     {
-      "mint": "FDEF2U9geiWS7sdGPCUo2r1wGswkJr2mmVTECiH6pump",
-      "symbol": "MITCH",
-      "name": "idrawline",
-      "logoUrl": "/data/token-icons/FDEF2U9geiWS7sdGPCUo2r1wGswkJr2mmVTECiH6pump.jpg",
+      "mint": "J8PSdNP3QewKq2Z1JJJFDMaqF7KcaiJhR7gbr5KZpump",
+      "symbol": "TripleT",
+      "name": "Tung Tung Tung Sahur",
+      "logoUrl": "/data/token-icons/J8PSdNP3QewKq2Z1JJJFDMaqF7KcaiJhR7gbr5KZpump.jpg",
       "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "isVerified": true,
-      "organicScore": 75,
-      "organicScoreLabel": "medium",
+      "organicScore": 84.97435221872784,
+      "organicScoreLabel": "high",
       "tags": [
-        "community-assist",
-        "launchpad",
         "moonshot-verified",
         "verified",
-        "meme"
+        "meme",
+        "token-2022"
       ],
-      "holderCount": 4213,
-      "twitter": "https://x.com/idrawline"
-    },
-    {
-      "mint": "J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr",
-      "symbol": "SPX",
-      "name": "SPX6900 (Wormhole)",
-      "logoUrl": "/data/token-icons/J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr.png",
-      "decimals": 8,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 79.18604445597879,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "birdeye-trending",
-        "community",
-        "moonshot-verified",
-        "verified",
-        "meme"
-      ],
-      "holderCount": 69899
-    },
-    {
-      "mint": "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj",
-      "symbol": "syrupUSDC",
-      "name": "Syrup USDC",
-      "logoUrl": "/data/token-icons/AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj.svg",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 67.14821409272697,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "yield",
-        "community-assist",
-        "verified",
-        "yb"
-      ],
-      "holderCount": 3636,
-      "issuer": "Maple"
+      "holderCount": 10739,
+      "twitter": "https://x.com/i/communities/2026209182526149110"
     },
     {
       "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
@@ -1561,17 +856,354 @@
       "decimals": 5,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 92.61202186185776,
+      "organicScore": 90.22042047015762,
       "organicScoreLabel": "high",
       "tags": [
-        "meme",
         "birdeye-trending",
         "community",
         "moonshot-verified",
         "strict",
+        "verified",
+        "meme"
+      ],
+      "holderCount": 1004121
+    },
+    {
+      "mint": "68Nq68CrtLVpyvK5Un7UADiNczaGf39hBbj3diRsYj6D",
+      "symbol": "NEST",
+      "name": "Nest",
+      "logoUrl": "https://crimson-raw-koala-952.mypinata.cloud/ipfs/bafkreicc2k264crqmx6dve4mu6nzksdc7r5szx2jzmwsm2agsi6wemlpmi",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 80.61403941367766,
+      "organicScoreLabel": "high",
+      "tags": [
         "verified"
       ],
-      "holderCount": 1004015
+      "holderCount": 2928
+    },
+    {
+      "mint": "BoTx8y9ynfdxf5ZjWtCoBVkff52qKA82ysaLU8ZM6d8T",
+      "symbol": "BOT",
+      "name": "RoboStrategy - Backpack Securities",
+      "logoUrl": "/data/token-icons/BoTx8y9ynfdxf5ZjWtCoBVkff52qKA82ysaLU8ZM6d8T.svg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 73.10478940585558,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "rwa",
+        "stocks",
+        "token-2022"
+      ],
+      "holderCount": 527
+    },
+    {
+      "mint": "SPCXwBHVrKpRqMRawL3NNvt1sXP2Yf3edwRbta53N69",
+      "symbol": "SPCX69",
+      "name": "SPCX69",
+      "logoUrl": "/data/token-icons/SPCXwBHVrKpRqMRawL3NNvt1sXP2Yf3edwRbta53N69.png",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 56.592441617576625,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "token-2022"
+      ],
+      "holderCount": 5473,
+      "twitter": "https://x.com/internSPC69x",
+      "website": "https://spcx69.com"
+    },
+    {
+      "mint": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
+      "symbol": "POPCAT",
+      "name": "Popcat",
+      "logoUrl": "/data/token-icons/7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr.png",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 88.00668874190691,
+      "organicScoreLabel": "high",
+      "tags": [
+        "birdeye-trending",
+        "community",
+        "moonshot-verified",
+        "strict",
+        "verified",
+        "meme"
+      ],
+      "holderCount": 140915
+    },
+    {
+      "mint": "GbbesPbaYh5uiAZSYNXTc7w9jty1rpg3P9L4JeN4LkKc",
+      "symbol": "TRX",
+      "name": "TRON",
+      "logoUrl": "/data/token-icons/GbbesPbaYh5uiAZSYNXTc7w9jty1rpg3P9L4JeN4LkKc.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 35.01813690349308,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "community-assist",
+        "verified"
+      ],
+      "holderCount": 6271,
+      "twitter": "https://x.com/trondao",
+      "website": "https://tron.network"
+    },
+    {
+      "mint": "XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W",
+      "symbol": "SPYx",
+      "name": "SP500 xStock",
+      "logoUrl": "/data/token-icons/XsoCS1TfEyfFhfvj8EtZ528L3CaKBDBRqRapnBbDF2W.png",
+      "decimals": 8,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 71.31644948025489,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "token-2022",
+        "verified",
+        "xstocks",
+        "stocks",
+        "rwa",
+        "moonshot-verified"
+      ],
+      "holderCount": 24764
+    },
+    {
+      "mint": "3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7",
+      "symbol": "PRIME",
+      "name": "",
+      "logoUrl": "/data/token-icons/3b8X44fLF9ooXaUm3hhSgjpmVs6rZZ3pPoGnGahc3Uu7.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 72.08948244144965,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "yb",
+        "yield"
+      ],
+      "holderCount": 1612,
+      "issuer": "Figure"
+    },
+    {
+      "mint": "HNg5PYJmtqcmzXrv6S9zP1CDKk5BgDuyFBxbvNApump",
+      "symbol": "ALCH",
+      "name": "Alchemist AI",
+      "logoUrl": "/data/token-icons/HNg5PYJmtqcmzXrv6S9zP1CDKk5BgDuyFBxbvNApump.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 68.04917920401932,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "birdeye-trending",
+        "community",
+        "launchpad",
+        "moonshot-verified",
+        "verified"
+      ],
+      "holderCount": 27014,
+      "twitter": "https://x.com/alchemistAIapp",
+      "website": "https://alchemistai.app"
+    },
+    {
+      "mint": "EN2nnxrg8uUi6x2sJkzNPd2eT6rB9rdSoQNNaENA4RZA",
+      "symbol": "SQUIRE",
+      "name": "Pod the Squire",
+      "logoUrl": "/data/token-icons/EN2nnxrg8uUi6x2sJkzNPd2eT6rB9rdSoQNNaENA4RZA.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 77.7694956033381,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "token-2022"
+      ],
+      "holderCount": 2884,
+      "twitter": "https://x.com/squire_bot",
+      "website": "https://cli.city"
+    },
+    {
+      "mint": "J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr",
+      "symbol": "SPX",
+      "name": "SPX6900 (Wormhole)",
+      "logoUrl": "/data/token-icons/J3NKxxXZcnNiMjKw9hYb2K4LUxgwB6t1FtPtQVsv3KFr.png",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 83.46509187090231,
+      "organicScoreLabel": "high",
+      "tags": [
+        "moonshot-verified",
+        "verified",
+        "meme",
+        "birdeye-trending",
+        "community"
+      ],
+      "holderCount": 69885
+    },
+    {
+      "mint": "6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump",
+      "symbol": "TOESCOIN",
+      "name": "TOES",
+      "logoUrl": "/data/token-icons/6ehEcTMCc85aNF4x9CWx8HuvWGhxQtvKdhKVf2HDpump.png",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 70.42873049564471,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "token-2022",
+        "verified"
+      ],
+      "holderCount": 12111,
+      "website": "https://toescoin.fun/"
+    },
+    {
+      "mint": "XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1",
+      "symbol": "CRCLx",
+      "name": "Circle xStock",
+      "logoUrl": "/data/token-icons/XsueG8BtpquVJX9LVLLEGuViXUungE6WmK5YZ3p3bd1.png",
+      "decimals": 8,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 74.56906386759854,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "xstocks",
+        "stocks",
+        "rwa",
+        "moonshot-verified",
+        "token-2022"
+      ],
+      "holderCount": 12362
+    },
+    {
+      "mint": "SNDKbwMUQvZhnLnxLduradgLHG5KrPuKwpnrkkGRhfH",
+      "symbol": "SNDK",
+      "name": "Sandisk - Backpack Securities",
+      "logoUrl": "/data/token-icons/SNDKbwMUQvZhnLnxLduradgLHG5KrPuKwpnrkkGRhfH.svg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 60.898403138883396,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "stocks",
+        "rwa",
+        "backpack",
+        "token-2022"
+      ],
+      "holderCount": 288
+    },
+    {
+      "mint": "jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL",
+      "symbol": "JTO",
+      "name": "JITO",
+      "logoUrl": "/data/token-icons/jtojtomepa8beP8AuQc6eXt5FriJwfFMwQx2v2f9mCL.png",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 88.84376837067875,
+      "organicScoreLabel": "high",
+      "tags": [
+        "birdeye-trending",
+        "community",
+        "strict",
+        "verified",
+        "defi"
+      ],
+      "holderCount": 83288,
+      "twitter": "https://twitter.com/jito_sol",
+      "website": "https://jito.network"
+    },
+    {
+      "mint": "8wxkvAfEns76yBzu4MnbV7VnXWjg3iDPA9uwAQ6cpump",
+      "symbol": "SOLANGELES",
+      "name": "SolAngeles",
+      "logoUrl": "/data/token-icons/8wxkvAfEns76yBzu4MnbV7VnXWjg3iDPA9uwAQ6cpump.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 81.2599813727702,
+      "organicScoreLabel": "high",
+      "tags": [
+        "moonshot-verified",
+        "verified",
+        "token-2022"
+      ],
+      "holderCount": 5000,
+      "twitter": "https://x.com/solangelestv",
+      "website": "https://solangeles.fun/"
+    },
+    {
+      "mint": "AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj",
+      "symbol": "syrupUSDC",
+      "name": "Syrup USDC",
+      "logoUrl": "/data/token-icons/AvZZF1YaZDziPY2RCK4oJrRVrbN3mTD9NL24hPeaZeUj.svg",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 66.22046119419016,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "community-assist",
+        "verified",
+        "yb",
+        "yield"
+      ],
+      "holderCount": 3644,
+      "issuer": "Maple"
+    },
+    {
+      "mint": "Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump",
+      "symbol": "Buttcoin",
+      "name": "Buttcoin",
+      "logoUrl": "/data/token-icons/Cm6fNnMk7NfzStP9CZpsQA2v3jjzbcYGAxdJySmHpump.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 80.87782684806541,
+      "organicScoreLabel": "high",
+      "tags": [
+        "verified",
+        "moonshot-verified",
+        "meme",
+        "token-2022"
+      ],
+      "holderCount": 18537,
+      "twitter": "https://x.com/i/communities/2009440403682914712",
+      "website": "https://web.archive.org/web/20110608015104/http://buttcoin.org/"
+    },
+    {
+      "mint": "CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn",
+      "symbol": "xBTC",
+      "name": "OKX Wrapped BTC",
+      "logoUrl": "/data/token-icons/CtzPWv73Sn1dMGVU3ZtLv9yWSyUAanBni19YWDaznnkn.png",
+      "decimals": 8,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 53.797598560567195,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "community-assist",
+        "verified",
+        "major"
+      ],
+      "holderCount": 3242
     },
     {
       "mint": "8x5VqbHA8D7NkD52uNuS5nnt3PwA8pLD34ymskeSo2Wn",
@@ -1581,18 +1213,322 @@
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 65.15305269635911,
+      "organicScore": 65.89935177852774,
       "organicScoreLabel": "medium",
+      "tags": [
+        "community",
+        "launchpad",
+        "moonshot-verified",
+        "verified",
+        "meme"
+      ],
+      "holderCount": 52177,
+      "twitter": "https://x.com/0xzerebro",
+      "website": "https://zerebro.org"
+    },
+    {
+      "mint": "B6f27ETGcjgGNB1fqULJbXVmw9FnL8HgBp7R83hmpump",
+      "symbol": "drooling",
+      "name": "Drooling cat",
+      "logoUrl": "/data/token-icons/B6f27ETGcjgGNB1fqULJbXVmw9FnL8HgBp7R83hmpump.png",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 79.64632091232647,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "token-2022"
+      ],
+      "holderCount": 3462,
+      "twitter": "https://x.com/droolingcatsol/status/2060265772442849620?s=20",
+      "website": "https://droolingcat.xyz/"
+    },
+    {
+      "mint": "TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v",
+      "symbol": "tSpaceX",
+      "name": "T-SpaceX",
+      "logoUrl": "/data/token-icons/TSPXcLV76s6V2zDiZQ18kBfcbnjaE2ZzNT3ga2Pd99v.svg",
+      "decimals": 9,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 0,
+      "organicScoreLabel": "low",
+      "tags": [
+        "verified",
+        "rwa",
+        "stocks",
+        "tessera",
+        "token-2022"
+      ],
+      "holderCount": 614,
+      "twitter": "https://x.com/tessera_pe",
+      "website": "https://www.tessera.pe/"
+    },
+    {
+      "mint": "2uQsyo1fXXQkDtcpXnLofWy88PxcvnfH2L8FPSE62FVU",
+      "symbol": "jlWSOL",
+      "name": "jupiter lend WSOL",
+      "logoUrl": "/data/token-icons/2uQsyo1fXXQkDtcpXnLofWy88PxcvnfH2L8FPSE62FVU.png",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 70.02876707147365,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "yield",
+        "community-assist",
+        "verified",
+        "jup-lend-earn"
+      ],
+      "holderCount": 6451
+    },
+    {
+      "mint": "BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy",
+      "symbol": "BP",
+      "name": "Backpack",
+      "logoUrl": "/data/token-icons/BPxxfRCXkUVhig4HS1Lh7kZqV6SPJhzfEk4x6fVBjPCy.png",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 81.0396095857478,
+      "organicScoreLabel": "high",
+      "tags": [
+        "verified",
+        "moonshot-verified",
+        "defi"
+      ],
+      "holderCount": 4889
+    },
+    {
+      "mint": "XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ",
+      "symbol": "MSTRx",
+      "name": "MicroStrategy xStock",
+      "logoUrl": "/data/token-icons/XsP7xzNPvEHS1m6qfanPUGjNmdnmsLKEoNAnHjdxxyZ.png",
+      "decimals": 8,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 70.50110823475639,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "xstocks",
+        "stocks",
+        "rwa",
+        "moonshot-verified",
+        "token-2022"
+      ],
+      "holderCount": 8738
+    },
+    {
+      "mint": "Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs",
+      "symbol": "GRASS",
+      "name": "Grass",
+      "logoUrl": "/data/token-icons/Grass7B4RdKfBCjTKgSqnXkqjwiGvQyFbuSCUJr3XXjs.png",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 83.48219063353906,
+      "organicScoreLabel": "high",
+      "tags": [
+        "community",
+        "moonshot-verified",
+        "verified",
+        "infra"
+      ],
+      "holderCount": 386791,
+      "twitter": "https://x.com/getgrass_io",
+      "website": "https://getgrass.io"
+    },
+    {
+      "mint": "Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump",
+      "symbol": "neet",
+      "name": "NotInEmploymentEducationTraining",
+      "logoUrl": "/data/token-icons/Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 80.35642280733853,
+      "organicScoreLabel": "high",
+      "tags": [
+        "community-assist",
+        "launchpad",
+        "moonshot-verified",
+        "verified",
+        "meme"
+      ],
+      "holderCount": 19253
+    },
+    {
+      "mint": "mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So",
+      "symbol": "mSOL",
+      "name": "Marinade staked SOL (mSOL)",
+      "logoUrl": "/data/token-icons/mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So.png",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 89.70169050124684,
+      "organicScoreLabel": "high",
+      "tags": [
+        "community",
+        "lst",
+        "original-lst",
+        "strict",
+        "verified",
+        "yield"
+      ],
+      "holderCount": 149143
+    },
+    {
+      "mint": "EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm",
+      "symbol": "$WIF",
+      "name": "dogwifhat",
+      "logoUrl": "/data/token-icons/EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 86.72543767856148,
+      "organicScoreLabel": "high",
       "tags": [
         "verified",
         "meme",
         "community",
-        "launchpad",
-        "moonshot-verified"
+        "moonshot-verified",
+        "strict"
       ],
-      "holderCount": 52187,
-      "twitter": "https://x.com/0xzerebro",
-      "website": "https://zerebro.org"
+      "holderCount": 254693
+    },
+    {
+      "mint": "XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB",
+      "symbol": "TSLAx",
+      "name": "Tesla xStock",
+      "logoUrl": "/data/token-icons/XsDoVfqeBukxuZHWhdvWHBhgEHjGNst4MLodqsJHzoB.png",
+      "decimals": 8,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 75,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "moonshot-verified",
+        "token-2022",
+        "verified",
+        "xstocks",
+        "stocks",
+        "rwa"
+      ],
+      "holderCount": 26534
+    },
+    {
+      "mint": "DRAMjSWR7HRfJKjRkvQWYL2bcaejaVhuxEcjf4pAY4Cw",
+      "symbol": "DRAM",
+      "name": "Roundhill Memory ETF - Backpack Securities",
+      "logoUrl": "/data/token-icons/DRAMjSWR7HRfJKjRkvQWYL2bcaejaVhuxEcjf4pAY4Cw.svg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 56.51366870857686,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "backpack",
+        "rwa",
+        "token-2022"
+      ],
+      "holderCount": 204
+    },
+    {
+      "mint": "2kcdBw85q4qMVCjUkEynTnZ3bGbBeCqZRDRNLpeWpump",
+      "symbol": "traindog",
+      "name": "traindog",
+      "logoUrl": "/data/token-icons/2kcdBw85q4qMVCjUkEynTnZ3bGbBeCqZRDRNLpeWpump.png",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 77.5693933742992,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "token-2022"
+      ],
+      "holderCount": 1888,
+      "twitter": "https://x.com/traindogsol",
+      "website": "https://x.com/spongebobfan360/status/2066655636662763782"
+    },
+    {
+      "mint": "82XVWa4pEfPhZfN3a7ANHSy9iPekmMwm934ZUpkFMUSA",
+      "symbol": "FREE",
+      "name": "Freedom",
+      "logoUrl": "/data/token-icons/82XVWa4pEfPhZfN3a7ANHSy9iPekmMwm934ZUpkFMUSA.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 47.91909809921877,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "token-2022"
+      ],
+      "holderCount": 2652,
+      "twitter": "https://x.com/ownfreedomcoin",
+      "website": "https://ownfreedomcoin.com/"
+    },
+    {
+      "mint": "orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE",
+      "symbol": "ORCA",
+      "name": "Orca",
+      "logoUrl": "/data/token-icons/orcaEKTdK7LKz57vaAYr9QeNsVEPfiu6QeMU1kektZE.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 71.30973126619757,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "birdeye-trending",
+        "community",
+        "strict",
+        "verified",
+        "defi"
+      ],
+      "holderCount": 90222
+    },
+    {
+      "mint": "32CdQdBUxbCsLy5AUHWmyidfwhgGUr9N573NBUrDpump",
+      "symbol": "maxxing",
+      "name": "maxxing",
+      "logoUrl": "/data/token-icons/32CdQdBUxbCsLy5AUHWmyidfwhgGUr9N573NBUrDpump.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 74.14642963355399,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "moonshot-verified",
+        "verified",
+        "meme",
+        "token-2022"
+      ],
+      "holderCount": 6235,
+      "twitter": "https://x.com/i/communities/1995577908677472285",
+      "website": "https://knowyourmeme.com/memes/maxxing"
+    },
+    {
+      "mint": "FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump",
+      "symbol": "three",
+      "name": "three.ws",
+      "logoUrl": "/data/token-icons/FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 77.7557126229823,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "moonshot-verified",
+        "token-2022"
+      ],
+      "holderCount": 14592,
+      "twitter": "https://x.com/i/communities/1923523161230078106",
+      "website": "https://three.ws/"
     },
     {
       "mint": "TKLSidmLVt3cqGaaodG8tyRzoANfQwoh67AccjmubeZ",
@@ -1611,124 +1547,64 @@
         "rwa",
         "stocks"
       ],
-      "holderCount": 382,
+      "holderCount": 380,
       "twitter": "https://x.com/Tessera_PE",
       "website": "https://www.tessera.pe/"
     },
     {
-      "mint": "2kcdBw85q4qMVCjUkEynTnZ3bGbBeCqZRDRNLpeWpump",
-      "symbol": "traindog",
-      "name": "traindog",
-      "logoUrl": "/data/token-icons/2kcdBw85q4qMVCjUkEynTnZ3bGbBeCqZRDRNLpeWpump.png",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 74.15554939794166,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "verified",
-        "token-2022"
-      ],
-      "holderCount": 1827,
-      "twitter": "https://x.com/traindogsol",
-      "website": "https://x.com/spongebobfan360/status/2066655636662763782"
-    },
-    {
-      "mint": "FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump",
-      "symbol": "three",
-      "name": "three.ws",
-      "logoUrl": "/data/token-icons/FeMbDoX7R1Psc4GEcvJdsbNbZA3bfztcyDCatJVJpump.jpg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 76.82040407252899,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "verified",
-        "moonshot-verified",
-        "token-2022"
-      ],
-      "holderCount": 14606,
-      "twitter": "https://x.com/i/communities/1923523161230078106",
-      "website": "https://three.ws/"
-    },
-    {
-      "mint": "9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif",
-      "symbol": "jlUSDG",
-      "name": "jupiter lend USDG",
-      "logoUrl": "/data/token-icons/9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif.png",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 0,
-      "organicScoreLabel": "low",
-      "tags": [
-        "community-assist",
-        "token-2022",
-        "verified",
-        "jup-lend-earn",
-        "yb",
-        "yield"
-      ],
-      "holderCount": 1120,
-      "issuer": "Jupiter"
-    },
-    {
-      "mint": "Cmn4v2wipYV41dkakDvCgFJpxhtaaKt11NyWV8pjSE8A",
-      "symbol": "jlUSDT",
-      "name": "jupiter lend USDT",
-      "logoUrl": "/data/token-icons/Cmn4v2wipYV41dkakDvCgFJpxhtaaKt11NyWV8pjSE8A.png",
+      "mint": "SarosY6Vscao718M4A778z4CGtvcwcGef5M9MEH1LGL",
+      "symbol": "SAROS",
+      "name": "Saros",
+      "logoUrl": "/data/token-icons/SarosY6Vscao718M4A778z4CGtvcwcGef5M9MEH1LGL.png",
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 59.99324058356617,
+      "organicScore": 69.30526052929001,
       "organicScoreLabel": "medium",
       "tags": [
+        "strict",
         "verified",
-        "jup-lend-earn",
-        "yb",
-        "yield",
-        "community-assist"
+        "defi",
+        "community"
       ],
-      "holderCount": 2235,
-      "issuer": "Jupiter"
+      "holderCount": 12136
     },
     {
-      "mint": "CGEDT9QZDvvH5GmVkWJH2BXiMJqMJySC9ihWyr7Spump",
-      "symbol": "BURNIE",
-      "name": "Burnie Senders",
-      "logoUrl": "/data/token-icons/CGEDT9QZDvvH5GmVkWJH2BXiMJqMJySC9ihWyr7Spump.jpg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "mint": "3ZLekZYq2qkZiSpnSvabjit34tUkjSwD1JFuW9as9wBG",
+      "symbol": "wNEAR",
+      "name": "Wrapped NEAR fungible token",
+      "logoUrl": "/data/token-icons/3ZLekZYq2qkZiSpnSvabjit34tUkjSwD1JFuW9as9wBG.svg",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 76.55502886069073,
+      "organicScore": 60.91817245894762,
       "organicScoreLabel": "medium",
       "tags": [
+        "defi",
         "moonshot-verified",
-        "meme",
-        "token-2022",
         "verified"
       ],
-      "holderCount": 10563,
-      "twitter": "https://x.com/BurnieSendersX",
-      "website": "https://burniesenders.com/"
+      "holderCount": 1720
     },
     {
-      "mint": "F5hqdbykXuksp8P78CAZenSvpPShAYKrP2U2MiZMdgFN",
-      "symbol": "bop",
-      "name": "bop cat",
-      "logoUrl": "/data/token-icons/F5hqdbykXuksp8P78CAZenSvpPShAYKrP2U2MiZMdgFN.gif",
-      "decimals": 6,
+      "mint": "bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1",
+      "symbol": "bSOL",
+      "name": "BlazeStake Staked SOL (bSOL)",
+      "logoUrl": "/data/token-icons/bSo13r4TkiE4KumL71LsHTPpL2euBYLFx6h9HP3piy1.png",
+      "decimals": 9,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
       "organicScore": 75,
       "organicScoreLabel": "medium",
       "tags": [
+        "yield",
         "community",
-        "verified",
-        "meme"
+        "lst",
+        "original-lst",
+        "strict",
+        "verified"
       ],
-      "holderCount": 7631
+      "holderCount": 62044
     },
     {
       "mint": "61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump",
@@ -1738,34 +1614,206 @@
       "decimals": 6,
       "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
       "isVerified": true,
-      "organicScore": 67.47460310134366,
+      "organicScore": 69.38615992099703,
       "organicScoreLabel": "medium",
       "tags": [
-        "community",
-        "launchpad",
         "moonshot-verified",
         "verified",
-        "birdeye-trending"
+        "birdeye-trending",
+        "community",
+        "launchpad"
       ],
-      "holderCount": 45795,
+      "holderCount": 45792,
       "twitter": "https://x.com/arcdotfun",
       "website": "https://www.arc.fun/"
     },
     {
-      "mint": "AymATz4TCL9sWNEEV9Kvyz45CHVhDZ6kUgjTJPzLpU9P",
-      "symbol": "XAUt0",
-      "name": "Tether Gold",
-      "logoUrl": "/data/token-icons/AymATz4TCL9sWNEEV9Kvyz45CHVhDZ6kUgjTJPzLpU9P.png",
+      "mint": "4TyZGqRLG3VcHTGMcLBoPUmqYitMVojXinAmkL8xpump",
+      "symbol": "testicle",
+      "name": "testicle",
+      "logoUrl": "/data/token-icons/4TyZGqRLG3VcHTGMcLBoPUmqYitMVojXinAmkL8xpump.jpg",
       "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
       "isVerified": true,
-      "organicScore": 62.110196978627414,
+      "organicScore": 76.72103576723566,
       "organicScoreLabel": "medium",
       "tags": [
         "verified",
-        "rwa"
+        "moonshot-verified",
+        "meme",
+        "token-2022"
       ],
-      "holderCount": 5435
+      "holderCount": 13714,
+      "twitter": "https://x.com/testicletoken",
+      "website": "https://testicle.site/"
+    },
+    {
+      "mint": "oPAiAikWTaFj9RYoRFD35ccfwhnMcB3ThgBZRHSkjTZ",
+      "symbol": "tOpenAI",
+      "name": "T-OpenAI",
+      "logoUrl": "/data/token-icons/oPAiAikWTaFj9RYoRFD35ccfwhnMcB3ThgBZRHSkjTZ.svg",
+      "decimals": 9,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 0,
+      "organicScoreLabel": "low",
+      "tags": [
+        "stocks",
+        "rwa",
+        "tessera",
+        "verified",
+        "token-2022"
+      ],
+      "holderCount": 155,
+      "twitter": "https://x.com/tessera_pe"
+    },
+    {
+      "mint": "ukHH6c7mMyiWCf1b9pnWe25TSpkDDt3H5pQZgZ74J82",
+      "symbol": "BOME",
+      "name": "BOOK OF MEME",
+      "logoUrl": "https://bafkreihztk5poge7f2lz6logfjmhc7h7u6shvgacoktnuezks5oblmieue.ipfs.nftstorage.link",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 54.4144184896348,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "community",
+        "moonshot-verified",
+        "strict",
+        "verified",
+        "meme"
+      ],
+      "holderCount": 90174
+    },
+    {
+      "mint": "4N4DnNo3qpPks9aQCkcWkzoir8tnvT6diS4TnnZibonk",
+      "symbol": "KITTY",
+      "name": "Hello Kitty",
+      "logoUrl": "https://chocolate-glad-guppy-874.mypinata.cloud/ipfs/bafkreidehrnp6i722ss3hnv327mqche36b7crz32p2stwwfz7fsbfchyh4",
+      "decimals": 9,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 76.38736766637382,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "meme"
+      ],
+      "holderCount": 1054,
+      "twitter": "https://x.com/hkittycoin",
+      "website": "https://hellokitty.website"
+    },
+    {
+      "mint": "EmcxFTNVDqyLHp11NvwvLZ4D7LKGbG9i7B8RF7dwpump",
+      "symbol": "ZERO",
+      "name": "c0mpute",
+      "logoUrl": "/data/token-icons/EmcxFTNVDqyLHp11NvwvLZ4D7LKGbG9i7B8RF7dwpump.png",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 71.30443869323184,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "moonshot-verified",
+        "verified",
+        "token-2022"
+      ],
+      "holderCount": 4751,
+      "twitter": "https://x.com/c0mputeAI",
+      "website": "https://c0mpute.ai"
+    },
+    {
+      "mint": "Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh",
+      "symbol": "NVDAx",
+      "name": "NVIDIA xStock",
+      "logoUrl": "/data/token-icons/Xsc9qvGR1efVDFGLrVsmkzv3qi45LTBjeUKSPmx9qEh.png",
+      "decimals": 8,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 68.83367983674796,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "rwa",
+        "moonshot-verified",
+        "token-2022",
+        "verified",
+        "xstocks",
+        "stocks"
+      ],
+      "holderCount": 61120
+    },
+    {
+      "mint": "ATBR4i19gcQ31Rfr7ymA2XvkCQEAkNFGBtVKTmdqpump",
+      "symbol": "Machi",
+      "name": "Machi Big Brother",
+      "logoUrl": "/data/token-icons/ATBR4i19gcQ31Rfr7ymA2XvkCQEAkNFGBtVKTmdqpump.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 68.01892191998574,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "meme",
+        "token-2022"
+      ],
+      "holderCount": 1594,
+      "twitter": "https://x.com/i/communities/2029464249416684023",
+      "website": "https://www.machiarmy.com/"
+    },
+    {
+      "mint": "2bpT3ksMdwdZ6DuHyq3FDUr7HDwvZ5DRZoT1fUPALJaH",
+      "symbol": "RIV",
+      "name": "RIV Coin",
+      "logoUrl": "/data/token-icons/2bpT3ksMdwdZ6DuHyq3FDUr7HDwvZ5DRZoT1fUPALJaH.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 50.19514739730896,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified",
+        "defi"
+      ],
+      "holderCount": 5096,
+      "twitter": "https://x.com/rivcapitalgroup",
+      "website": "https://www.riv-coin.com/"
+    },
+    {
+      "mint": "ACpzkGJV3DDU8HXy8yjab7RL9qNmDGym2GwLkzNppump",
+      "symbol": "SON",
+      "name": "Are Ya Winning, Son?",
+      "logoUrl": "/data/token-icons/ACpzkGJV3DDU8HXy8yjab7RL9qNmDGym2GwLkzNppump.jpg",
+      "decimals": 6,
+      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
+      "isVerified": true,
+      "organicScore": 71.67152295593851,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "moonshot-verified",
+        "verified",
+        "token-2022"
+      ],
+      "holderCount": 6053,
+      "twitter": "https://x.com/WinningSon_"
+    },
+    {
+      "mint": "SLXdx4BUt2v9uJQNzWqSfzTJ9UKLUDsvxHFMEEdrfgq",
+      "symbol": "SLX",
+      "name": "Solstice",
+      "logoUrl": "/data/token-icons/SLXdx4BUt2v9uJQNzWqSfzTJ9UKLUDsvxHFMEEdrfgq.png",
+      "decimals": 6,
+      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
+      "isVerified": true,
+      "organicScore": 63.52910017861406,
+      "organicScoreLabel": "medium",
+      "tags": [
+        "verified"
+      ],
+      "holderCount": 7734,
+      "twitter": "https://x.com/solsticefi",
+      "website": "https://solstice.finance"
     },
     {
       "mint": "5GgRAEmv8ZxF2PR5hY72Qs5x1bnQ6UK2RbTPoqJ3wSwW",
@@ -1778,140 +1826,104 @@
       "organicScore": 0,
       "organicScoreLabel": "low",
       "tags": [
-        "token-2022",
         "verified",
-        "rwa"
-      ],
-      "holderCount": 112
-    },
-    {
-      "mint": "rndrizKT3MK1iimdxRdWabcF7Zg7AR5T4nud4EkHBof",
-      "symbol": "RENDER",
-      "name": "Render Token",
-      "logoUrl": "https://shdw-drive.genesysgo.net/5zseP54TGrcz9C8HdjZwJJsZ6f3VbP11p1abwKWGykZH/rndr.png",
-      "decimals": 8,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 75,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "community",
-        "strict",
-        "verified",
-        "infra"
-      ],
-      "holderCount": 124271
-    },
-    {
-      "mint": "oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp",
-      "symbol": "ORE",
-      "name": "ORE",
-      "logoUrl": "/data/token-icons/oreoU2P8bN6jkk3jbaiVxYnG1dCXcYxwhwyK9jSybcp.png",
-      "decimals": 11,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 77.93458338967454,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "community",
-        "verified",
-        "moonshot-verified"
-      ],
-      "holderCount": 27737,
-      "twitter": "https://x.com/oresupply",
-      "website": "https://ore.supply"
-    },
-    {
-      "mint": "Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu",
-      "symbol": "COINx",
-      "name": "Coinbase xStock",
-      "logoUrl": "/data/token-icons/Xs7ZdzSHLU9ftNJsii5fCeJhoRWSC32SQGzGQtePxNu.png",
-      "decimals": 8,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 43.696195043229245,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "moonshot-verified",
-        "token-2022",
-        "verified",
-        "xstocks",
-        "stocks",
-        "rwa"
-      ],
-      "holderCount": 3114
-    },
-    {
-      "mint": "82XVWa4pEfPhZfN3a7ANHSy9iPekmMwm934ZUpkFMUSA",
-      "symbol": "FREE",
-      "name": "Freedom",
-      "logoUrl": "/data/token-icons/82XVWa4pEfPhZfN3a7ANHSy9iPekmMwm934ZUpkFMUSA.jpg",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 47.326062622594876,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "verified",
+        "rwa",
         "token-2022"
       ],
-      "holderCount": 2613,
-      "twitter": "https://x.com/ownfreedomcoin",
-      "website": "https://ownfreedomcoin.com/"
-    },
-    {
-      "mint": "ARXwZkNAtzPfdcoqQiduJn8EPv9fKiDfGn2KyggyDrFs",
-      "symbol": "ARX",
-      "name": "Arcium",
-      "logoUrl": "/data/token-icons/ARXwZkNAtzPfdcoqQiduJn8EPv9fKiDfGn2KyggyDrFs.png",
-      "decimals": 9,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 69.92946686300897,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "verified",
-        "moonshot-verified"
-      ],
-      "holderCount": 4129,
-      "twitter": "https://twitter.com/Arcium",
-      "website": "https://arcium.com"
-    },
-    {
-      "mint": "HRJLkc6vDysVHdrUpCsQ5EBx6fPM15TZRKAhfUBnpump",
-      "symbol": "WIF2",
-      "name": "WIF2",
-      "logoUrl": "/data/token-icons/HRJLkc6vDysVHdrUpCsQ5EBx6fPM15TZRKAhfUBnpump.png",
-      "decimals": 6,
-      "tokenProgram": "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb",
-      "isVerified": true,
-      "organicScore": 75,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "verified",
-        "token-2022"
-      ],
-      "holderCount": 4853,
-      "twitter": "https://x.com/i/communities/2015491604442935339"
-    },
-    {
-      "mint": "Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump",
-      "symbol": "neet",
-      "name": "NotInEmploymentEducationTraining",
-      "logoUrl": "/data/token-icons/Ce2gx9KGXJ6C9Mp5b5x1sn9Mg87JwEbrQby4Zqo3pump.jpg",
-      "decimals": 6,
-      "tokenProgram": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA",
-      "isVerified": true,
-      "organicScore": 76.70760847960412,
-      "organicScoreLabel": "medium",
-      "tags": [
-        "community-assist",
-        "launchpad",
-        "moonshot-verified",
-        "verified",
-        "meme"
-      ],
-      "holderCount": 19145
+      "holderCount": 120
     }
-  ]
+  ],
+  "filteredAt": "2026-07-04T00:46:26.629Z",
+  "filter": {
+    "inputMint": "11111111111111111111111111111111",
+    "amountSol": 0.01,
+    "maxHops": 2,
+    "marketFetchMode": "full",
+    "enumerateRoutes": true,
+    "api": "http://127.0.0.1:3007",
+    "wallet": "7Tar8QZTrRPwoGY5Ke9Vfwf6CmpBfekrNofERxgReza",
+    "removedCount": 7,
+    "removed": [
+      {
+        "mint": "5Y8NV33Vv7WbnLfq3zBcKSdYPrk7g2KoiQoe7M2tcxp5",
+        "symbol": "ONyc",
+        "reason": "DAMM2 zero on-chain liquidity",
+        "solscanEligible": "",
+        "solPairEligible": "",
+        "eligibleRank": "",
+        "eligibleTotal": "",
+        "selectedTvlUsd": "",
+        "routeAssessment": ""
+      },
+      {
+        "mint": "7GxATsNMnaC88vdwd2t3mwrFuQwwGvmYPrUQ4D6FotXk",
+        "symbol": "JUICED",
+        "reason": "Failed to build DLMM swap: Insufficient liquidity in binArrays for swapQuote",
+        "solscanEligible": "",
+        "solPairEligible": "",
+        "eligibleRank": "",
+        "eligibleTotal": "",
+        "selectedTvlUsd": "",
+        "routeAssessment": ""
+      },
+      {
+        "mint": "star9agSpjiFe3M49B3RniVU4CMBBEK3Qnaqn3RGiFM",
+        "symbol": "USD*",
+        "reason": "DAMM2 zero on-chain liquidity",
+        "solscanEligible": "",
+        "solPairEligible": "",
+        "eligibleRank": "",
+        "eligibleTotal": "",
+        "selectedTvlUsd": "",
+        "routeAssessment": ""
+      },
+      {
+        "mint": "3AJYCjrhKitmBd8tRUurPA5dGHCAQh6A8L9DkuSC37Rm",
+        "symbol": "USD*-J",
+        "reason": "DAMM2 zero on-chain liquidity",
+        "solscanEligible": "",
+        "solPairEligible": "",
+        "eligibleRank": "",
+        "eligibleTotal": "",
+        "selectedTvlUsd": "",
+        "routeAssessment": ""
+      },
+      {
+        "mint": "9fvHrYNw1A8Evpcj7X2yy4k4fT7nNHcA9L6UsamNHAif",
+        "symbol": "jlUSDG",
+        "reason": "DAMM2 zero on-chain liquidity",
+        "solscanEligible": "",
+        "solPairEligible": "",
+        "eligibleRank": "",
+        "eligibleTotal": "",
+        "selectedTvlUsd": "",
+        "routeAssessment": ""
+      },
+      {
+        "mint": "3ThdFZQKM6kRyVGLG48kaPg5TRMhYMKY1iCRa9xop1WC",
+        "symbol": "eUSX",
+        "reason": "DAMM2 zero on-chain liquidity",
+        "solscanEligible": "",
+        "solPairEligible": "",
+        "eligibleRank": "",
+        "eligibleTotal": "",
+        "selectedTvlUsd": "",
+        "routeAssessment": ""
+      },
+      {
+        "mint": "j14XLJZSVMcUYpAfajdZRpnfHUpJieZHS4aPektLWvh",
+        "symbol": "jlUSDS",
+        "reason": "Invalid tick array",
+        "solscanEligible": "",
+        "solPairEligible": "",
+        "eligibleRank": "",
+        "eligibleTotal": "",
+        "selectedTvlUsd": "",
+        "routeAssessment": ""
+      }
+    ],
+    "excludedDenylist": "public/data/token-catalog-excluded.json",
+    "debugFailuresList": "public/data/token-catalog-filter-failures.tsv",
+    "excludedTotal": 7
+  }
 }

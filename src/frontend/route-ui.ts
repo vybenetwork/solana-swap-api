@@ -94,6 +94,7 @@ export interface RouteUiDeps {
     routingDialogBodyEl: HTMLElement | null;
     routingDialogTitleEl: HTMLElement | null;
     swapQuoteRouteSubtitleEl: HTMLElement | null;
+    swapSignConfirmRoutingEl?: HTMLElement | null;
   };
 }
 
@@ -7000,6 +7001,7 @@ export function scheduleRoutingDiagramZoom(): void {
     requestAnimationFrame(() => {
       applyRoutingDiagramScaleForContainer(deps.dom.swapQuoteDetailsRoutingEl);
       applyRoutingDiagramScaleForContainer(deps.dom.routingDialogBodyEl);
+      applyRoutingDiagramScaleForContainer(deps.dom.swapSignConfirmRoutingEl ?? null);
     });
   });
 }
@@ -7791,15 +7793,17 @@ export function renderSignConfirmSummaryHtml(
         SIGN_CONFIRM_NETWORK_FEE_LABEL,
         priorityFeeUi != null && priorityFeeUi > 0
           ? deps.escapeHtml(`${formatSignConfirmSolAmount(priorityFeeUi)} SOL`)
-          : '— SOL',
+          : deps.renderLoadingSpinner('sm'),
       ),
     );
   }
-  const txSizeDisplay = formatSignConfirmTxSizeDisplay(quote, buildPayload) ?? '— bytes';
+  const txSizeDisplay = formatSignConfirmTxSizeDisplay(quote, buildPayload);
   detailRows.push(
     renderSignConfirmDetailRowHtml(
       SIGN_CONFIRM_TX_SIZE_LABEL,
-      deps.escapeHtml(txSizeDisplay),
+      txSizeDisplay != null
+        ? deps.escapeHtml(txSizeDisplay)
+        : deps.renderLoadingSpinner('sm'),
     ),
   );
   if (!isMultiHop) {
