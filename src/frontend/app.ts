@@ -5617,12 +5617,15 @@ function mapEnumeratedRouteEntry(
     rawQuote._lowLiquidityWarning
       ? { ...rawQuote, _lowLiquidityWarning: null }
       : rawQuote;
+  const build =
+    r.build && typeof r.build === 'object' ? (r.build as Record<string, unknown>) : undefined;
   return {
     index: Number(r.index ?? i),
     source: typeof r.source === 'string' ? r.source : undefined,
     candidate:
       candidate && liquidity != null ? { ...candidate, liquidity } : candidate,
     quote,
+    ...(build ? { build } : {}),
   };
 }
 
@@ -5899,17 +5902,21 @@ function isMultiHopEnumerateRouteRefetch(buildOpts: Record<string, unknown>): bo
 function shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts: Record<string, unknown>): boolean {
   if (!enumeratedRoutesUiState?.routes.length) return false;
   if (isMultiHopEnumerateRouteRefetch(buildOpts)) return false;
+  // Pinned to the selected market card (single-hop). Keep cards + selection even when the
+  // UI still has enumerateRoutes checked — mergeSelectedRoutePinIntoBuildOpts clears it.
   const pool = String(buildOpts.poolAddress ?? '').trim();
   if (!pool) return false;
-  if (buildOpts.enumerateRoutes !== false) return false;
   if (enumeratedRoutesUiState.routes.length <= 1) return true;
   const candidate = getSelectedEnumeratedRouteCandidate();
   let selectedPool = String(candidate?.marketAddress ?? '').trim();
   if (!selectedPool) {
     const activeRoute = getActiveEnumeratedRoute();
     if (activeRoute?.quote) selectedPool = poolAddressFromQuoteBody(activeRoute.quote);
+    if (!selectedPool && activeRoute?.build) {
+      selectedPool = poolAddressFromQuoteBody({ _build: activeRoute.build });
+    }
   }
-  return !selectedPool || selectedPool === pool;
+  return Boolean(selectedPool) && selectedPool === pool;
 }
 
 /** Update only the selected route card — leave other enumerated markets untouched. */
@@ -5976,8 +5983,21 @@ function mergePinnedRouteQuoteIntoEnumeratedRoutes(body: Record<string, unknown>
   );
   const updatedQuote = mergePinnedRouteCardQuoteForRefetch(prevRoute.quote ?? {}, newQuote);
 
+  const updatedBuild =
+    buildPayload && typeof buildPayload === 'object'
+      ? (buildPayload as Record<string, unknown>)
+      : prevRoute.build;
+
   const routes = enumeratedRoutesUiState.routes.map((r, i) =>
-    i === routeIdx ? { ...r, source, candidate: updatedCandidate, quote: updatedQuote } : r,
+    i === routeIdx
+      ? {
+          ...r,
+          source,
+          candidate: updatedCandidate,
+          quote: updatedQuote,
+          ...(updatedBuild ? { build: updatedBuild } : {}),
+        }
+      : r,
   );
 
   enumeratedRoutesUiState = {
@@ -6026,11 +6046,14 @@ function syncEnumeratedRoutesFromBody(
   if (Array.isArray(rvt?.routes) && rvt.routes.length > 0) {
     lastVybeQuoteBodyForRoutes = body;
     const routes = rvt.routes.map(mapEnumeratedRouteEntry);
-    const prevSelected = enumeratedRoutesUiState?.selectedIndex ?? 0;
+    const prevSelected = enumeratedRoutesUiState?.selectedIndex;
+    const defaultIndex = routes[0]?.index ?? 0;
     const selectedIndex =
-      options?.preserveSelectedIndex && routes.some((r) => r.index === prevSelected)
+      options?.preserveSelectedIndex &&
+      prevSelected != null &&
+      routes.some((r) => r.index === prevSelected)
         ? prevSelected
-        : 0;
+        : defaultIndex;
     enumeratedRoutesUiState = {
       routes,
       selectedIndex,
@@ -6076,13 +6099,21 @@ function getQuoteBodyForActiveRoute(body: Record<string, unknown>): Record<strin
     enumeratedRoutesUiState.routes.find((r) => r.index === enumeratedRoutesUiState!.selectedIndex) ??
     enumeratedRoutesUiState.routes[0];
   if (!route?.quote) return body;
-  const routesMeta = (body._routeDiscovery as { routes?: Array<{ build?: unknown }> } | undefined)?.routes;
-  const routeBuild = routesMeta?.find((r) => Number((r as { index?: number }).index) === route.index)?.build
-    ?? routesMeta?.[route.index]?.build;
+  const routesMeta = (body._routeDiscovery as { routes?: Array<{ index?: number; build?: unknown }> } | undefined)
+    ?.routes;
+  const routeBuild =
+    route.build ??
+    (routesMeta?.find((r) => Number(r.index) === route.index)?.build as
+      | Record<string, unknown>
+      | undefined);
+  // Never fall back to the primary route's `_build` for a different selected card.
+  const primaryIndex = enumeratedRoutesUiState.routes[0]?.index ?? 0;
+  const build =
+    routeBuild ?? (route.index === primaryIndex ? body._build : undefined);
   return {
     ...body,
     ...route.quote,
-    _build: routeBuild ?? body._build,
+    ...(build != null ? { _build: build } : {}),
   };
 }
 
@@ -8129,6 +8160,12 @@ function tryCachedVybeBuildTxForSelectedRoute(
   const buildPayload = activeBody._build as Record<string, unknown> | undefined;
   const tx = extractSwapBuildTransaction(buildPayload);
   if (!tx || !buildPayload) return null;
+  // Refuse cache when it is not the market card the user selected.
+  const pin = selectedRoutePinFields();
+  if (pin?.poolAddress) {
+    const buildPool = poolAddressFromQuoteBody(activeBody);
+    if (buildPool && buildPool !== pin.poolAddress) return null;
+  }
   return { tx, buildPayload: projectSwapBuildForBrowser(buildPayload) };
 }
 

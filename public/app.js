@@ -32323,11 +32323,13 @@ function mapEnumeratedRouteEntry(r, i) {
   const liquidity = poolLiquidityFromRouteEntry(r);
   const rawQuote = r.quote ?? {};
   const quote = liquidity != null && Number.isFinite(liquidity) && liquidity >= MIN_ROUTE_POOL_LIQUIDITY_USD2 && rawQuote._lowLiquidityWarning ? { ...rawQuote, _lowLiquidityWarning: null } : rawQuote;
+  const build = r.build && typeof r.build === "object" ? r.build : void 0;
   return {
     index: Number(r.index ?? i),
     source: typeof r.source === "string" ? r.source : void 0,
     candidate: candidate && liquidity != null ? { ...candidate, liquidity } : candidate,
-    quote
+    quote,
+    ...build ? { build } : {}
   };
 }
 function poolAddressFromQuoteBody(body) {
@@ -32526,15 +32528,17 @@ function shouldPreserveEnumeratedRoutesOnQuoteApply(buildOpts) {
   if (isMultiHopEnumerateRouteRefetch(buildOpts)) return false;
   const pool = String(buildOpts.poolAddress ?? "").trim();
   if (!pool) return false;
-  if (buildOpts.enumerateRoutes !== false) return false;
   if (enumeratedRoutesUiState.routes.length <= 1) return true;
   const candidate = getSelectedEnumeratedRouteCandidate();
   let selectedPool = String(candidate?.marketAddress ?? "").trim();
   if (!selectedPool) {
     const activeRoute = getActiveEnumeratedRoute();
     if (activeRoute?.quote) selectedPool = poolAddressFromQuoteBody(activeRoute.quote);
+    if (!selectedPool && activeRoute?.build) {
+      selectedPool = poolAddressFromQuoteBody({ _build: activeRoute.build });
+    }
   }
-  return !selectedPool || selectedPool === pool;
+  return Boolean(selectedPool) && selectedPool === pool;
 }
 function mergePinnedRouteCandidateForRefetch(prev, next, liquidityFromBody, body) {
   if (!prev && !next) return void 0;
@@ -32576,8 +32580,15 @@ function mergePinnedRouteQuoteIntoEnumeratedRoutes(body) {
     body
   );
   const updatedQuote = mergePinnedRouteCardQuoteForRefetch(prevRoute.quote ?? {}, newQuote);
+  const updatedBuild = buildPayload && typeof buildPayload === "object" ? buildPayload : prevRoute.build;
   const routes = enumeratedRoutesUiState.routes.map(
-    (r, i) => i === routeIdx ? { ...r, source, candidate: updatedCandidate, quote: updatedQuote } : r
+    (r, i) => i === routeIdx ? {
+      ...r,
+      source,
+      candidate: updatedCandidate,
+      quote: updatedQuote,
+      ...updatedBuild ? { build: updatedBuild } : {}
+    } : r
   );
   enumeratedRoutesUiState = {
     routes,
@@ -32611,8 +32622,9 @@ function syncEnumeratedRoutesFromBody(body, options) {
   if (Array.isArray(rvt?.routes) && rvt.routes.length > 0) {
     lastVybeQuoteBodyForRoutes = body;
     const routes = rvt.routes.map(mapEnumeratedRouteEntry);
-    const prevSelected = enumeratedRoutesUiState?.selectedIndex ?? 0;
-    const selectedIndex = options?.preserveSelectedIndex && routes.some((r) => r.index === prevSelected) ? prevSelected : 0;
+    const prevSelected = enumeratedRoutesUiState?.selectedIndex;
+    const defaultIndex = routes[0]?.index ?? 0;
+    const selectedIndex = options?.preserveSelectedIndex && prevSelected != null && routes.some((r) => r.index === prevSelected) ? prevSelected : defaultIndex;
     enumeratedRoutesUiState = {
       routes,
       selectedIndex,
@@ -32651,11 +32663,13 @@ function getQuoteBodyForActiveRoute(body) {
   const route = enumeratedRoutesUiState.routes.find((r) => r.index === enumeratedRoutesUiState.selectedIndex) ?? enumeratedRoutesUiState.routes[0];
   if (!route?.quote) return body;
   const routesMeta = body._routeDiscovery?.routes;
-  const routeBuild = routesMeta?.find((r) => Number(r.index) === route.index)?.build ?? routesMeta?.[route.index]?.build;
+  const routeBuild = route.build ?? routesMeta?.find((r) => Number(r.index) === route.index)?.build;
+  const primaryIndex = enumeratedRoutesUiState.routes[0]?.index ?? 0;
+  const build = routeBuild ?? (route.index === primaryIndex ? body._build : void 0);
   return {
     ...body,
     ...route.quote,
-    _build: routeBuild ?? body._build
+    ...build != null ? { _build: build } : {}
   };
 }
 function applyActiveRouteQuoteToUi(body, wallet, inputMint, outputMint, amount, buildOpts) {
@@ -34270,6 +34284,11 @@ function tryCachedVybeBuildTxForSelectedRoute(buildOpts) {
   const buildPayload = activeBody._build;
   const tx = extractSwapBuildTransaction(buildPayload);
   if (!tx || !buildPayload) return null;
+  const pin = selectedRoutePinFields();
+  if (pin?.poolAddress) {
+    const buildPool = poolAddressFromQuoteBody(activeBody);
+    if (buildPool && buildPool !== pin.poolAddress) return null;
+  }
   return { tx, buildPayload: projectSwapBuildForBrowser(buildPayload) };
 }
 async function postBuildSwap(options) {

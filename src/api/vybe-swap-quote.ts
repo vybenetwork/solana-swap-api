@@ -270,25 +270,47 @@ async function runVybeSwapEnumeration(
       opts.uiOutputMint,
       opts.selected,
     );
-    const precomputedPrimaryQuote = enumRoutes[0]?.quote;
+    // Primary must match routes[0] after output sort — not ix-builder's pre-sort order
+    // (liquidity tie-break can put a different market first and mislabel the hop).
+    const primaryEntry = enumRoutes[0]!;
+    const primaryBuild = (primaryEntry.build ?? parsed.build) as typeof parsed.build;
+    const primarySelected = {
+      marketAddress: primaryEntry.candidate?.marketAddress ?? parsed.selected.marketAddress,
+      programAddress: primaryEntry.candidate?.programAddress ?? parsed.selected.programAddress,
+      protocol: primaryEntry.candidate?.protocol ?? parsed.selected.protocol,
+      tradeCount: primaryEntry.candidate?.tradeCount ?? parsed.selected.tradeCount ?? 0,
+      buyCount: primaryEntry.candidate?.buyCount ?? parsed.selected.buyCount ?? 0,
+      sellCount: primaryEntry.candidate?.sellCount ?? parsed.selected.sellCount ?? 0,
+      programLabel:
+        primaryEntry.candidate?.programLabel ??
+        parsed.selected.programLabel ??
+        programLabelForAddress(
+          primaryEntry.candidate?.programAddress ?? parsed.selected.programAddress,
+        ),
+      liquidity:
+        primaryEntry.candidate?.liquidity ??
+        poolLiquidityUsdFromBuild(primaryBuild) ??
+        parsed.selected.liquidity,
+      ...(primaryEntry.candidate?.discoverySource || parsed.selected.discoverySource
+        ? {
+            discoverySource:
+              primaryEntry.candidate?.discoverySource ?? parsed.selected.discoverySource,
+          }
+        : {}),
+    };
+    const precomputedPrimaryQuote = primaryEntry.quote;
     Object.assign(
       vybeParams,
       completePinnedSwapParams({
-        poolAddress: parsed.selected.marketAddress,
-        programAddress: parsed.selected.programAddress,
-        protocol: parsed.selected.protocol,
+        poolAddress: primarySelected.marketAddress,
+        programAddress: primarySelected.programAddress,
+        protocol: primarySelected.protocol,
       }),
     );
     const routeDiscovery: RouteDiscoveryMeta = {
       enabled: true,
       outcome: 'multi',
-      selected: {
-        ...parsed.selected,
-        liquidity:
-          enumRoutes[0]?.candidate?.liquidity ??
-          poolLiquidityUsdFromBuild(parsed.build) ??
-          parsed.selected.liquidity,
-      },
+      selected: primarySelected,
       selectedRouteIndex: 0,
       routes: enumRoutes,
       marketFetchMode: opts.marketFetchMode,
@@ -323,7 +345,7 @@ async function runVybeSwapEnumeration(
       userMessage,
     };
     logRouteDiscoveryMeta(routeDiscovery);
-    return { build, routeDiscovery, precomputedPrimaryQuote };
+    return { build: primaryBuild, routeDiscovery, precomputedPrimaryQuote };
   }
 
   if (parsed.kind === 'direct') {
@@ -416,8 +438,34 @@ function quoteOutputRawFromEntry(entry: RouteDiscoveryRouteEntry): bigint {
   return 0n;
 }
 
+/** Within this output gap (bps), prefer higher pool liquidity — matches ix-builder. */
+const ROUTE_OUTPUT_TIE_BPS = 100n;
+
+function routeEntryLiquidityUsd(entry: RouteDiscoveryRouteEntry): number {
+  const liq =
+    entry.candidate?.liquidity ??
+    entry.build?.liquidity ??
+    poolLiquidityUsdFromBuild(entry.build) ??
+    0;
+  return Number.isFinite(liq) ? Number(liq) : 0;
+}
+
 function sortRouteEntriesByOutput(routes: RouteDiscoveryRouteEntry[]): RouteDiscoveryRouteEntry[] {
-  const sorted = [...routes].sort((a, b) => Number(quoteOutputRawFromEntry(b) - quoteOutputRawFromEntry(a)));
+  const sorted = [...routes].sort((a, b) => {
+    const outA = quoteOutputRawFromEntry(a);
+    const outB = quoteOutputRawFromEntry(b);
+    if (outA === outB) return routeEntryLiquidityUsd(b) - routeEntryLiquidityUsd(a);
+    const max = outA > outB ? outA : outB;
+    if (max > 0n) {
+      const diff = outA > outB ? outA - outB : outB - outA;
+      const diffBps = (diff * 10000n) / max;
+      if (diffBps <= ROUTE_OUTPUT_TIE_BPS) {
+        const liqDiff = routeEntryLiquidityUsd(b) - routeEntryLiquidityUsd(a);
+        if (liqDiff !== 0) return liqDiff;
+      }
+    }
+    return outA > outB ? -1 : 1;
+  });
   return sorted.map((route, i) => ({ ...route, index: i }));
 }
 

@@ -118,6 +118,8 @@ export interface EnumeratedRouteUiEntry {
     liquidity?: number;
   };
   quote?: Record<string, unknown>;
+  /** Per-route built tx payload from enumerate (do not use primary `_build` for other cards). */
+  build?: Record<string, unknown>;
 }
 
 export interface EnumeratedRoutesUiState {
