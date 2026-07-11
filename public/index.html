@@ -39,7 +39,7 @@
     <meta name="twitter:image:alt" content="Solana quote and swap API app powered by Vybe API" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="shortcut icon" href="/favicon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="vybe-demo-shell.css?v=7" />
+    <link rel="stylesheet" href="vybe-demo-shell.css?v=8" />
     <link rel="stylesheet" href="app.css?v=28" />
   </head>
   <body>
@@ -182,13 +182,18 @@
                   </span>
                   <span class="page-masthead__btn-text">DeFi Positions API</span>
                 </a>
-                <span class="page-masthead__btn page-masthead__btn--demo page-masthead__btn--demo-soon" aria-disabled="true">
+                <span
+                  class="page-masthead__btn page-masthead__btn--demo page-masthead__btn--demo-swap page-masthead__btn--demo-current"
+                  aria-current="page"
+                  title="Already selected — currently viewing this demo"
+                >
                   <span class="page-masthead__demo-preview" aria-hidden="true">
-                    <img src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='91' height='48'%3E%3Crect fill='%23374151' width='91' height='48'/%3E%3C/svg%3E" alt="" loading="lazy" decoding="async" />
+                    <img src="/solana-swap-api-app.jpg" alt="" loading="lazy" decoding="async" />
                   </span>
-                  <span class="page-masthead__btn-text">More Coming Soon</span>
+                  <span class="page-masthead__btn-text">Swap &amp; Router API</span>
+                  <span class="page-masthead__demo-selected-icon" aria-hidden="true"></span>
                 </span>
-              </div>
+</div>
             </div>
           </div>
         </nav>

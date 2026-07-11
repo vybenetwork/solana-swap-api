@@ -649,6 +649,62 @@ body {
   box-shadow: 0 4px 14px rgba(249, 115, 22, 0.18);
 }
 
+.page-masthead__btn--demo-current {
+  position: relative;
+  cursor: not-allowed;
+  background: linear-gradient(135deg, rgba(107, 114, 128, 0.12) 0%, rgba(55, 65, 81, 0.08) 100%) !important;
+  border-color: rgba(156, 163, 175, 0.35) !important;
+  color: #9ca3af !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
+  transform: none !important;
+  opacity: 1;
+  filter: none;
+  pointer-events: auto;
+}
+
+.page-masthead__btn--demo.page-masthead__btn--demo-current:hover {
+  background: linear-gradient(135deg, rgba(107, 114, 128, 0.16) 0%, rgba(55, 65, 81, 0.1) 100%) !important;
+  border-color: rgba(156, 163, 175, 0.45) !important;
+  color: #a1a1aa !important;
+  transform: none !important;
+  text-decoration: none !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset !important;
+}
+
+.page-masthead__btn--demo-current .page-masthead__demo-preview {
+  background: rgba(107, 114, 128, 0.18) !important;
+  opacity: 0.85;
+}
+
+.page-masthead__demo-selected-icon {
+  position: absolute;
+  right: 0.55rem;
+  top: 50%;
+  width: 1.2rem;
+  height: 1.2rem;
+  margin-top: -0.6rem;
+  border-radius: 999px;
+  background: rgba(39, 39, 42, 0.95);
+  box-shadow: 0 0 0 1px rgba(161, 161, 170, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.page-masthead__demo-selected-icon::before {
+  content: '';
+  position: absolute;
+  inset: 0.28rem;
+  background: #a1a1aa;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='black' d='M6.5 11.2 3.3 8l1.1-1.1 2.1 2.1 5-5L12.6 5.1z'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='black' d='M6.5 11.2 3.3 8l1.1-1.1 2.1 2.1 5-5L12.6 5.1z'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+
+.page-masthead__btn--demo-current:hover .page-masthead__demo-selected-icon {
+  opacity: 1;
+}
+
+
 .page-masthead__btn--demo-soon {
   background: linear-gradient(135deg, rgba(107, 114, 128, 0.12) 0%, rgba(55, 65, 81, 0.08) 100%);
   border-color: rgba(156, 163, 175, 0.22);
