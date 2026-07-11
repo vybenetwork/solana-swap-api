@@ -609,6 +609,63 @@ body {
   box-shadow: 0 4px 14px rgba(244, 63, 94, 0.18);
 }
 
+.page-masthead__btn--demo-balances {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.16) 0%, rgba(2, 132, 199, 0.1) 100%);
+  border-color: rgba(56, 189, 248, 0.32);
+  color: #bae6fd;
+}
+
+.page-masthead__btn--demo-balances .page-masthead__demo-preview {
+  background: rgba(14, 165, 233, 0.22);
+  color: #38bdf8;
+}
+
+.page-masthead__btn--demo-balances:hover {
+  background: rgba(14, 165, 233, 0.3);
+  border-color: rgba(56, 189, 248, 0.55);
+  color: #fff;
+  transform: translateY(-1px);
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(14, 165, 233, 0.18);
+}
+
+.page-masthead__btn--demo-defi {
+  background: linear-gradient(135deg, rgba(249, 115, 22, 0.16) 0%, rgba(194, 65, 12, 0.1) 100%);
+  border-color: rgba(251, 146, 60, 0.32);
+  color: #fed7aa;
+}
+
+.page-masthead__btn--demo-defi .page-masthead__demo-preview {
+  background: rgba(249, 115, 22, 0.22);
+  color: #fb923c;
+}
+
+.page-masthead__btn--demo-defi:hover {
+  background: rgba(249, 115, 22, 0.3);
+  border-color: rgba(251, 146, 60, 0.55);
+  color: #fff;
+  transform: translateY(-1px);
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(249, 115, 22, 0.18);
+}
+
+.page-masthead__btn--demo-soon {
+  background: linear-gradient(135deg, rgba(107, 114, 128, 0.12) 0%, rgba(55, 65, 81, 0.08) 100%);
+  border-color: rgba(156, 163, 175, 0.22);
+  color: #9ca3af;
+  cursor: default;
+  pointer-events: none;
+}
+
+.page-masthead__btn--demo-soon .page-masthead__demo-preview {
+  background: rgba(107, 114, 128, 0.18);
+}
+
+.page-masthead__btn--demo-soon:hover {
+  transform: none;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+}
+
 @media (max-width: 1024px) {
   .page-masthead__btns--related {
     grid-template-columns: repeat(3, minmax(0, 1fr));
