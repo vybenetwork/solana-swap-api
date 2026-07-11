@@ -26,6 +26,7 @@ Try the live demo: https://solana-swap-api.vybenetwork.com
 - **[Swap quote endpoint →](https://docs.vybenetwork.com/reference/get_swap_quote_proxy)**
 - **[Build swap endpoint →](https://docs.vybenetwork.com/reference/do_swap_proxy)**
 - **[GitHub repo →](https://github.com/vybenetwork/solana-swap-api)**
+- **[Telegram →](https://t.me/VybeNetwork_Official)**
 - **[X →](https://x.com/Vybe_Network)**
 
 ---
@@ -512,6 +513,7 @@ async function buildSwapTx(
 
 ## Support
 
+- **Telegram:** [VybeNetwork Official](https://t.me/VybeNetwork_Official)
 - **X:** [@Vybe_Network](https://x.com/Vybe_Network)
 - **GitHub:** [solana-swap-api](https://github.com/vybenetwork/solana-swap-api)
 - **Support ticket:** [Submit a ticket via vybenetwork.com](https://vybenetwork.com)
