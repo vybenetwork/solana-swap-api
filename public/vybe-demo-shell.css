@@ -511,24 +511,25 @@ body {
 
 
 .page-masthead__btn--demo-ohlc {
-  background: linear-gradient(135deg, rgba(245, 158, 11, 0.16) 0%, rgba(180, 83, 9, 0.1) 100%);
-  border-color: rgba(251, 191, 36, 0.32);
-  color: #fde68a;
+  background: linear-gradient(135deg, rgba(180, 120, 20, 0.14) 0%, rgba(120, 70, 10, 0.1) 100%);
+  border-color: rgba(196, 150, 60, 0.28);
+  color: #d6b56a;
 }
 
 .page-masthead__btn--demo-ohlc .page-masthead__demo-preview {
-  background: rgba(245, 158, 11, 0.22);
-  color: #fbbf24;
+  background: rgba(180, 120, 20, 0.18);
+  color: #c4a35a;
 }
 
 .page-masthead__btn--demo-ohlc:hover {
-  background: rgba(245, 158, 11, 0.3);
-  border-color: rgba(251, 191, 36, 0.55);
-  color: #fff;
+  background: rgba(180, 120, 20, 0.26);
+  border-color: rgba(196, 150, 60, 0.48);
+  color: #f0e0b8;
   transform: translateY(-1px);
   text-decoration: none;
-  box-shadow: 0 4px 14px rgba(245, 158, 11, 0.18);
+  box-shadow: 0 4px 14px rgba(180, 120, 20, 0.14);
 }
+
 
 
 .page-masthead__btn--demo-token {
@@ -616,24 +617,25 @@ body {
 
 
 .page-masthead__btn--demo-balances {
-  background: linear-gradient(135deg, rgba(132, 204, 22, 0.16) 0%, rgba(77, 124, 15, 0.1) 100%);
-  border-color: rgba(190, 242, 100, 0.32);
-  color: #d9f99d;
+  background: linear-gradient(135deg, rgba(100, 140, 40, 0.14) 0%, rgba(55, 85, 20, 0.1) 100%);
+  border-color: rgba(130, 160, 70, 0.28);
+  color: #b4c47a;
 }
 
 .page-masthead__btn--demo-balances .page-masthead__demo-preview {
-  background: rgba(132, 204, 22, 0.22);
-  color: #a3e635;
+  background: rgba(100, 140, 40, 0.18);
+  color: #9aaf5c;
 }
 
 .page-masthead__btn--demo-balances:hover {
-  background: rgba(132, 204, 22, 0.3);
-  border-color: rgba(190, 242, 100, 0.55);
-  color: #fff;
+  background: rgba(100, 140, 40, 0.26);
+  border-color: rgba(130, 160, 70, 0.48);
+  color: #e0ecc0;
   transform: translateY(-1px);
   text-decoration: none;
-  box-shadow: 0 4px 14px rgba(132, 204, 22, 0.18);
+  box-shadow: 0 4px 14px rgba(100, 140, 40, 0.14);
 }
+
 
 
 .page-masthead__btn--demo-defi {
