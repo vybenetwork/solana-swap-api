@@ -2,8 +2,8 @@
 
 <p align="center">
 
-[![Demo](https://img.shields.io/badge/Demo-Solana%20Swap%20API%20live%20app-22c55e?style=for-the-badge&logo=googlechrome&logoColor=white)](https://solana-swap-api.vybenetwork.com)
-[![GitHub](https://img.shields.io/badge/GitHub-Repository-1f6feb?style=for-the-badge&logo=github&logoColor=white)](https://github.com/vybenetwork/solana-swap-api)
+[![Demo](https://img.shields.io/badge/Demo-Solana%20Swap%20API%20live%20app-166534?style=for-the-badge&logo=googlechrome&logoColor=white)](https://solana-swap-api.vybenetwork.com)
+[![GitHub](https://img.shields.io/badge/GitHub-Repository-5b21b6?style=for-the-badge&logo=github&logoColor=white)](https://github.com/vybenetwork/solana-swap-api)
 [![Swap guides](https://img.shields.io/badge/Guides-Swap%20overview-3b82f6?style=for-the-badge&logo=gitbook&logoColor=white)](https://docs.vybenetwork.com/docs/swap-overview)
 [![Swap quote API](https://img.shields.io/badge/Endpoint-Swap%20quote-6366f1?style=for-the-badge&logo=swagger&logoColor=white)](https://docs.vybenetwork.com/reference/get_swap_quote_proxy)
 [![Build swap API](https://img.shields.io/badge/Endpoint-Build%20swap-8b5cf6?style=for-the-badge&logo=swagger&logoColor=white)](https://docs.vybenetwork.com/reference/do_swap_proxy)
