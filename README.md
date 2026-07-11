@@ -8,7 +8,6 @@
 [![Swap quote API](https://img.shields.io/badge/Endpoint-Swap%20quote-6366f1?style=for-the-badge&logo=swagger&logoColor=white)](https://docs.vybenetwork.com/reference/get_swap_quote_proxy)
 [![Build swap API](https://img.shields.io/badge/Endpoint-Build%20swap-8b5cf6?style=for-the-badge&logo=swagger&logoColor=white)](https://docs.vybenetwork.com/reference/do_swap_proxy)
 [![X](https://img.shields.io/badge/X-Vybe__Network-000000?style=for-the-badge&logo=x)](https://x.com/Vybe_Network)
-[![Telegram](https://img.shields.io/badge/Telegram-VybeNetwork-26A5E4?style=for-the-badge&logo=telegram)](https://t.me/VybeNetwork_Official)
 </p>
 
 **Solana Swap API:** This repository demonstrates how to use the Vybe Solana swap API to fetch DEX quotes, compare Vybe/Jupiter/Titan routes, and build unsigned swap transactions for any SPL or Token-2022 token. Use this project as a reference implementation or starter kit for building Solana swap UIs, wallet integrations, and on-chain trading apps.
@@ -27,7 +26,6 @@ Try the live demo: https://solana-swap-api.vybenetwork.com
 - **[Swap quote endpoint →](https://docs.vybenetwork.com/reference/get_swap_quote_proxy)**
 - **[Build swap endpoint →](https://docs.vybenetwork.com/reference/do_swap_proxy)**
 - **[GitHub repo →](https://github.com/vybenetwork/solana-swap-api)**
-- **[Telegram →](https://t.me/VybeNetwork_Official)**
 - **[X →](https://x.com/Vybe_Network)**
 
 ---
@@ -514,7 +512,6 @@ async function buildSwapTx(
 
 ## Support
 
-- **Telegram:** [VybeNetwork Official](https://t.me/VybeNetwork_Official)
 - **X:** [@Vybe_Network](https://x.com/Vybe_Network)
 - **GitHub:** [solana-swap-api](https://github.com/vybenetwork/solana-swap-api)
 - **Support ticket:** [Submit a ticket via vybenetwork.com](https://vybenetwork.com)
