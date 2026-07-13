@@ -198,6 +198,9 @@ const HARDCODED_MINT_DECIMALS: Record<string, number> = {
 const STABLECOIN_USD_FALLBACK_MINTS: ReadonlySet<string> = new Set([
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH', // USDG
+  'JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD', // JupUSD
+  'yUSDX7W89jXWn4zzDPLnhykDymSjQSmpaJ8e4fjC1fg', // yUSD
 ]);
 const STABLECOIN_USD_FALLBACK_PRICE = 1;
 

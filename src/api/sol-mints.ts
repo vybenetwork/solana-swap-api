@@ -37,6 +37,9 @@ export const STABLECOIN_MINTS = new Set([
   'A9mUU4qviSctJVPJdBJWkb28deg915LYJKrzQ19ji3FM', // USDCet
   'A1KLoBrKBde8Ty9qtNQUtq3C2ortoC3u7twggz7sEto6', // USDY
   'DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT', // USDe
+  '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH', // USDG
+  'JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD', // JupUSD
+  'yUSDX7W89jXWn4zzDPLnhykDymSjQSmpaJ8e4fjC1fg', // yUSD
 ]);
 
 export function isStablecoinMint(mint: string): boolean {

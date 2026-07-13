@@ -898,6 +898,8 @@ const STABLECOIN_USD_FALLBACK_MINTS: ReadonlySet<string> = new Set([
   'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
   'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
   '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH', // USDG
+  'JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD', // JupUSD
+  'yUSDX7W89jXWn4zzDPLnhykDymSjQSmpaJ8e4fjC1fg', // yUSD
   '2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo', // PYUSD
   'USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB', // USD1
   'DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT', // USDe

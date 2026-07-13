@@ -20,6 +20,9 @@ export const IX_BUILDER_QUOTE_TOKEN_MINTS: ReadonlySet<string> = new Set([
   'A9mUU4qviSctJVPJdBJWkb28deg915LYJKrzQ19ji3FM', // USDCet
   'A1KLoBrKBde8Ty9qtNQUtq3C2ortoC3u7twggz7sEto6', // USDY
   'DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT', // USDe
+  '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH', // USDG
+  'JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD', // JupUSD
+  'yUSDX7W89jXWn4zzDPLnhykDymSjQSmpaJ8e4fjC1fg', // yUSD
 ]);
 
 /** Human-readable labels for common-quote guard errors. */
@@ -37,6 +40,9 @@ export const COMMON_QUOTE_TOKEN_LABELS: ReadonlyArray<{ mint: string; symbol: st
   { mint: 'A9mUU4qviSctJVPJdBJWkb28deg915LYJKrzQ19ji3FM', symbol: 'USDCet' },
   { mint: 'A1KLoBrKBde8Ty9qtNQUtq3C2ortoC3u7twggz7sEto6', symbol: 'USDY' },
   { mint: 'DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT', symbol: 'USDe' },
+  { mint: '2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH', symbol: 'USDG' },
+  { mint: 'JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD', symbol: 'JupUSD' },
+  { mint: 'yUSDX7W89jXWn4zzDPLnhykDymSjQSmpaJ8e4fjC1fg', symbol: 'yUSD' },
 ];
 
 export function isIxBuilderQuoteToken(mint: string): boolean {
