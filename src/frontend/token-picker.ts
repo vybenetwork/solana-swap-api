@@ -1250,7 +1250,11 @@ function getSwapInputMintForPicker(): string {
   return preferNativeSolMint(getSwapInputMintCb?.().trim() ?? '');
 }
 
+/** When false, selling an alt can buy any token (alt→alt). Matches ix-builder default. */
+const RESTRICT_BUY_OUTPUT_TO_SOL_OR_STABLE = false;
+
 function isBuyOutputPickerRestricted(): boolean {
+  if (!RESTRICT_BUY_OUTPUT_TO_SOL_OR_STABLE) return false;
   if (activeSide !== 'output') return false;
   const inputMint = getSwapInputMintForPicker();
   if (!inputMint) return false;

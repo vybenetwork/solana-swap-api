@@ -3161,8 +3161,12 @@ function setSwapOutputMintUi(mint: string): void {
   if (meta?.decimals != null) routeMintDecimalsCache[resolvedMint] = meta.decimals;
 }
 
+/** When true, non-SOL/non-stable sells may only buy SOL or stables. Off = alt→alt allowed. */
+const RESTRICT_ALT_SELL_OUTPUT_TO_SOL_OR_STABLE = false;
+
 /** Non-SOL/non-stable sells may only buy SOL or stables — reset invalid output mints. */
 function applyOutputMintConstraintForInput(): void {
+  if (!RESTRICT_ALT_SELL_OUTPUT_TO_SOL_OR_STABLE) return;
   if (!swapInputMintInput || !swapOutputMintInput) return;
   const inputMint = swapInputMintInput.value.trim();
   const inputSym = swapInputSymbolEl?.textContent?.trim();
@@ -3261,6 +3265,7 @@ function applySelectedToken(mint: string, side: TokenPickerSide): void {
   const otherMint = otherInput?.value.trim() ?? '';
 
   if (
+    RESTRICT_ALT_SELL_OUTPUT_TO_SOL_OR_STABLE &&
     side === 'output' &&
     swapInputMintInput &&
     !isSolOrStableMint(swapInputMintInput.value.trim(), swapInputSymbolEl?.textContent?.trim()) &&
