@@ -99,7 +99,6 @@ Get your API keys at `https://vybe.fyi/api-pricing`.
   - **Market fetch** mode: `full` / `trades` / `markets` / `rpc`.
   - **Multiple Quotes** — enumerate markets and rank up to 3 route options.
   - **Pin a specific market & protocol** for an instant quote that skips discovery.
-  - Pair shapes: **direct**, **quote-bridge**, **shared-quote**, and **vetted↔vetted** (see [Vybe pair shapes](#vybe-pair-shapes--multi-hop-routing)).
 - **Route options panel**
   - Up to three ranked market cards for Vybe; Jupiter and Titan show the real route as card #1 with #2/#3 placeholders.
   - The route header always shows the active router icon and name (e.g. `Route · Jupiter`).
@@ -207,23 +206,6 @@ The swap UI is implemented in `src/frontend/` and compiled to `public/app.js` vi
 
 - **Build result**
   - Base64 unsigned transaction textarea + copy (Build only).
-
-### Vybe pair shapes & multi-hop routing
-
-Vybe (ix-builder) chooses a routing mode from the mint pair. “Vetted quote” means SOL/WSOL or a stable on the quote list (USDC, USDT, USD1, USDG, JupUSD, yUSD, …).
-
-| Shape | When | What happens |
-|-------|------|----------------|
-| **Direct** | A pool’s base/quote matches the user’s input/output | Single-hop swap on that pool. |
-| **Quote-bridge** | Exactly one side is vetted, but the chosen pool is priced in a *different* mint | Two hops via a bridge mint: convert the user’s vetted side into the pool’s quote (or reverse on sells), then run the main pool. Used heavily for launchpads and for hubs like SOL→USDG→ONyc. UI/API may label this `quoteBridge`. |
-| **Shared-quote** | **Neither** side is vetted (alt→alt, e.g. BONK→WIF) | Two hops through a mint both tokens trade against (usually WSOL): sell input → shared mint, then shared mint → output. Discovery lives in ix-builder `shared-quote-bridge.js`; protocol often shows as `SHARED_QUOTE_BRIDGE`. Preference: vetted shared mint (WSOL/stables) first, then **deepest min-leg liquidity** (top 3). Vybe partner init is omitted when the compiled shared-quote tx is **> 1099B**. |
-| **Vetted↔vetted** | Both sides are vetted (e.g. SOL↔USDC, USDC↔USDT) | Prefer **direct** pools on that pair. Not shared-quote (both ends already quote mints). May still be multi-hop if discovery finds a better path via markets. |
-
-**Quote-bridge vs shared-quote:** both produce a 2-leg atomic (or 2-tx fallback) path and share the same compile helpers (`tryCompileQuoteBridgeAtomic` / `buildVersionedLegTransaction`). Differentiator is the pair: one vetted endpoint → quote-bridge; zero vetted endpoints → shared-quote.
-
-**ALT compression:** yes for both multi-hop modes. Atomic compile and per-leg v0 builds call `pickLookupTablesForInstructions` / `compileAtomicRoute` (common + CLMM/DLMM address lookup tables when those programs appear). Logs look like `N ALT(s)` on a successful atomic route.
-
-Other surfaces (not separate “pair shapes”): Jupiter/Titan aggregator fallbacks; pinned `poolAddress` + protocol (forces a known direct, quote-bridge, or shared-quote route).
 
 ### Execution modes
 
