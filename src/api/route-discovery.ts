@@ -16,6 +16,7 @@ import {
   enrichCandidatesWithLiquidity,
   filterRouteQueueByLiquidity,
   isMeteoraDlmmCandidate,
+  isDirectSamePairRouteCandidate,
   isMeteoraDlmmInsufficientBinLiquidityError,
 } from './pinned-swap-params.js';
 export {
@@ -838,9 +839,13 @@ async function buildRoutesForCandidates(
 
   if (options.stopOnFirst) {
     for (const queueEntry of candidates) {
-      if (skipRemainingMeteoraDlmm && isMeteoraDlmmCandidate(queueEntry)) {
+      if (
+        skipRemainingMeteoraDlmm &&
+        isMeteoraDlmmCandidate(queueEntry) &&
+        isDirectSamePairRouteCandidate(queueEntry)
+      ) {
         console.info(
-          `[route-discovery] skip DLMM ${queueEntry.marketAddress.slice(0, 8)}… (prior bin liquidity failure)`,
+          `[route-discovery] skip direct DLMM ${queueEntry.marketAddress.slice(0, 8)}… (prior same-pair bin liquidity failure)`,
         );
         continue;
       }
@@ -860,11 +865,12 @@ async function buildRoutesForCandidates(
       lastError = result.lastError;
       if (
         isMeteoraDlmmCandidate(queueEntry) &&
+        isDirectSamePairRouteCandidate(queueEntry) &&
         isMeteoraDlmmInsufficientBinLiquidityError(lastError)
       ) {
         skipRemainingMeteoraDlmm = true;
         console.info(
-          '[route-discovery] METEORA_DLMM bin liquidity insufficient — skipping remaining DLMM candidates',
+          '[route-discovery] METEORA_DLMM bin liquidity insufficient — skipping remaining direct same-pair DLMM candidates (quote-bridge hubs still tried)',
         );
       }
     }
@@ -887,9 +893,13 @@ async function buildRoutesForCandidates(
       break;
     }
     const queueEntry = probeQueue[i]!;
-    if (skipRemainingMeteoraDlmm && isMeteoraDlmmCandidate(queueEntry)) {
+    if (
+      skipRemainingMeteoraDlmm &&
+      isMeteoraDlmmCandidate(queueEntry) &&
+      isDirectSamePairRouteCandidate(queueEntry)
+    ) {
       console.info(
-        `[route-discovery] skip DLMM ${queueEntry.marketAddress.slice(0, 8)}… (prior bin liquidity failure)`,
+        `[route-discovery] skip direct DLMM ${queueEntry.marketAddress.slice(0, 8)}… (prior same-pair bin liquidity failure)`,
       );
       continue;
     }
@@ -902,11 +912,12 @@ async function buildRoutesForCandidates(
       lastError = validated.lastError;
       if (
         isMeteoraDlmmCandidate(queueEntry) &&
+        isDirectSamePairRouteCandidate(queueEntry) &&
         isMeteoraDlmmInsufficientBinLiquidityError(lastError)
       ) {
         skipRemainingMeteoraDlmm = true;
         console.info(
-          '[route-discovery] METEORA_DLMM bin liquidity insufficient — skipping remaining DLMM candidates',
+          '[route-discovery] METEORA_DLMM bin liquidity insufficient — skipping remaining direct same-pair DLMM candidates (quote-bridge hubs still tried)',
         );
       }
     }
@@ -1007,9 +1018,13 @@ async function ensureDirectRouteInValidatedTopN(
 
   for (let i = startIndex; i < candidates.length; i++) {
     const queueEntry = candidates[i]!;
-    if (skipRemainingMeteoraDlmm && isMeteoraDlmmCandidate(queueEntry)) {
+    if (
+      skipRemainingMeteoraDlmm &&
+      isMeteoraDlmmCandidate(queueEntry) &&
+      isDirectSamePairRouteCandidate(queueEntry)
+    ) {
       console.info(
-        `[route-discovery] skip DLMM ${queueEntry.marketAddress.slice(0, 8)}… (prior bin liquidity failure)`,
+        `[route-discovery] skip direct DLMM ${queueEntry.marketAddress.slice(0, 8)}… (prior same-pair bin liquidity failure)`,
       );
       continue;
     }

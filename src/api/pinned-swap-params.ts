@@ -182,6 +182,20 @@ export function isMeteoraDlmmCandidate(entry: {
   return proto === 'METEORA_DLMM';
 }
 
+/**
+ * Direct input↔output candidate (same pair). Quote-bridge / pre-swap hops use another
+ * intermediate — DLMM bin-liq skips must not apply across that boundary.
+ */
+export function isDirectSamePairRouteCandidate(entry: {
+  rpcMeta?: { quoteBridge?: unknown; preSwapNeeded?: boolean; postSwapNeeded?: boolean; sharedQuoteBridge?: unknown };
+}): boolean {
+  const meta = entry.rpcMeta;
+  if (!meta) return true;
+  if (meta.quoteBridge || meta.sharedQuoteBridge) return false;
+  if (meta.preSwapNeeded || meta.postSwapNeeded) return false;
+  return true;
+}
+
 /** DLMM swapQuote fails when active bins lack depth; lower-ranked DLMM pools will fail too. */
 export function isMeteoraDlmmInsufficientBinLiquidityError(message: string): boolean {
   return /insufficient liquidity in binarrays/i.test(message);
