@@ -96,6 +96,11 @@ function isLocalIconUrl(url: string | undefined): boolean {
   return url.startsWith(PUBLIC_ICON_WEB_PREFIX) || url.startsWith(RUNTIME_ICON_WEB_PREFIX);
 }
 
+/** True when logoUrl is a path served by this app (not a remote CDN). */
+export function isLocalCachedIconUrl(url: string | null | undefined): boolean {
+  return isLocalIconUrl(url?.trim() || undefined);
+}
+
 function isImageBuffer(buf: Buffer): boolean {
   if (buf.length < 12) return false;
   if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return true;
@@ -112,8 +117,8 @@ function imageUrlFromMetadataJson(buf: Buffer): string | null {
   try {
     const text = buf.toString('utf8').trim();
     if (!text.startsWith('{')) return null;
-    const data = JSON.parse(text) as { image?: unknown };
-    const image = String(data.image ?? '').trim();
+    const data = JSON.parse(text) as { image?: unknown; image_uri?: unknown };
+    const image = String(data.image ?? data.image_uri ?? '').trim();
     return image || null;
   } catch {
     return null;
@@ -156,6 +161,10 @@ function findExistingIcon(mint: string): { webPath: string; filePath: string } |
     return { webPath: `${prefix}/${hit}`, filePath };
   }
   return null;
+}
+
+export function getCachedTokenIconWebPath(mint: string): string | undefined {
+  return findExistingIcon(mint.trim())?.webPath;
 }
 
 export function readTokenMetaCache(): Record<string, CachedTokenMeta> {
@@ -206,8 +215,8 @@ function iconFetchUrls(remoteUrl: string): string[] {
   if (cidMatch?.[1]) {
     const cid = cidMatch[1];
     for (const gateway of [
-      `https://cloudflare-ipfs.com/ipfs/${cid}`,
       `https://gateway.pinata.cloud/ipfs/${cid}`,
+      `https://ipfs.filebase.io/ipfs/${cid}`,
       `https://dweb.link/ipfs/${cid}`,
     ]) {
       if (!urls.includes(gateway)) urls.push(gateway);

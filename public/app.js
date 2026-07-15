@@ -20589,8 +20589,6 @@ var CACHE_KEY = "vybe-swap-token-cache-v1";
 var RECENT_KEY = "vybe-swap-token-recent-v1";
 var WALLET_ENRICH_GIVEUP_KEY = "vybe-wallet-enrich-giveup-v1";
 var WALLET_ENRICH_GIVEUP_TTL_MS = 183 * 24 * 60 * 60 * 1e3;
-var WALLET_ENRICH_MAX = 10;
-var WALLET_ENRICH_INTERVAL_MS = 1e3;
 var MAX_RECENT = 24;
 var CATALOG_JSON_URL = "/data/token-catalog.json";
 var CATALOG_TSV_URL = "/data/token-catalog.tsv";
@@ -20731,7 +20729,6 @@ async function consumeWalletBalanceStream(wallet, res) {
         );
         sessionWalletBalances = { wallet, fetchedAt: Date.now(), items };
         notifyWalletBalanceStream();
-        void enrichWalletItemsOnClient(items);
       } else if (msg.event === "update") {
         mergeWalletBalanceUpdate(msg.token);
         items = sessionWalletBalances?.items ?? items;
@@ -20740,16 +20737,6 @@ async function consumeWalletBalanceStream(wallet, res) {
     }
   }
   return sessionWalletBalances?.items ?? items;
-}
-function walletItemStillIncomplete(item) {
-  if (item.enrichmentPending) return true;
-  const sym = item.symbol?.trim();
-  const mint = item.mintAddress.trim();
-  if (!sym || isMintLikeLabel(sym, mint)) return true;
-  const url = resolveTokenLogoUrl(mint) ?? item.logoUrl?.trim();
-  if (!url || effectiveTokenIconSrc(url) === TOKEN_ICON_PLACEHOLDER_PATH) return true;
-  if (!(walletItemValueUsd(item) > 0)) return true;
-  return false;
 }
 function readWalletEnrichGiveUp() {
   try {
@@ -20770,14 +20757,6 @@ function readWalletEnrichGiveUp() {
 function writeWalletEnrichGiveUp(map) {
   localStorage.setItem(WALLET_ENRICH_GIVEUP_KEY, JSON.stringify(map));
 }
-function isWalletEnrichGiveUp(mint) {
-  return Boolean(readWalletEnrichGiveUp()[mint.trim()]);
-}
-function markWalletEnrichGiveUp(mint) {
-  const map = readWalletEnrichGiveUp();
-  map[mint.trim()] = Date.now();
-  writeWalletEnrichGiveUp(map);
-}
 function clearWalletEnrichGiveUp(mints) {
   if (!mints?.length) {
     localStorage.removeItem(WALLET_ENRICH_GIVEUP_KEY);
@@ -20786,82 +20765,6 @@ function clearWalletEnrichGiveUp(mints) {
   const map = readWalletEnrichGiveUp();
   for (const mint of mints) delete map[mint.trim()];
   writeWalletEnrichGiveUp(map);
-}
-function walletItemNeedsClientEnrichment(item) {
-  const mint = item.mintAddress.trim();
-  if (isWalletEnrichGiveUp(mint)) return false;
-  return walletItemStillIncomplete(item);
-}
-function applyMetaToWalletItem(item, meta) {
-  const price = typeof meta.price === "number" && meta.price > 0 ? meta.price : void 0;
-  let valueUsd = item.valueUsd;
-  let valueSol = item.valueSol;
-  if (price != null && !(valueUsd > 0)) {
-    valueUsd = price * item.amountUi;
-    valueSol = void 0;
-  }
-  const mint = item.mintAddress.trim();
-  const symbolFallback = truncateMint(mint);
-  const session = getSessionTokenPriceStats(mint);
-  return {
-    ...item,
-    symbol: pickTokenLabel([meta.symbol, session?.symbol, item.symbol], mint, symbolFallback),
-    name: pickTokenLabel([meta.name, session?.name, item.name, meta.symbol], mint, symbolFallback),
-    logoUrl: meta.logoUrl?.trim() || item.logoUrl,
-    decimals: meta.decimals ?? item.decimals,
-    verified: meta.isVerified ?? item.verified,
-    valueUsd,
-    valueSol,
-    enrichmentPending: false
-  };
-}
-function sleepMs(ms, signal) {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new DOMException("Aborted", "AbortError"));
-      return;
-    }
-    const id = setTimeout(resolve, ms);
-    signal?.addEventListener(
-      "abort",
-      () => {
-        clearTimeout(id);
-        reject(new DOMException("Aborted", "AbortError"));
-      },
-      { once: true }
-    );
-  });
-}
-async function enrichWalletItemsOnClient(items) {
-  walletEnrichAbort?.abort();
-  const ac = new AbortController();
-  walletEnrichAbort = ac;
-  const targets = items.filter((i) => !isBlockedPickerMint(i.mintAddress) && walletItemNeedsClientEnrichment(i)).sort((a, b) => b.amountUi - a.amountUi).slice(0, WALLET_ENRICH_MAX);
-  if (targets.length === 0) return;
-  for (let i = 0; i < targets.length; i++) {
-    if (ac.signal.aborted) return;
-    const item = targets[i];
-    const mint = item.mintAddress.trim();
-    const meta = await fetchTokenByMint(mint, { skipVybe: true });
-    if (ac.signal.aborted) return;
-    const updated = meta ? applyMetaToWalletItem(item, meta) : { ...item, enrichmentPending: false };
-    if (!meta || walletItemStillIncomplete(updated)) {
-      markWalletEnrichGiveUp(mint);
-    } else {
-      clearWalletEnrichGiveUp([mint]);
-    }
-    mergeWalletBalanceUpdate(updated);
-    notifyWalletBalanceStream();
-    if (i < targets.length - 1) {
-      try {
-        await sleepMs(WALLET_ENRICH_INTERVAL_MS, ac.signal);
-      } catch {
-        return;
-      }
-    }
-  }
-  refreshWalletBalancesPanel();
-  if (dialogEl?.open) renderShortcuts();
 }
 function clearSessionWalletBalances() {
   walletBalanceStreamAbort?.abort();
@@ -21542,7 +21445,9 @@ function isSellPickerWalletSearch() {
 function getSwapInputMintForPicker() {
   return preferNativeSolMint(getSwapInputMintCb?.().trim() ?? "");
 }
+var RESTRICT_BUY_OUTPUT_TO_SOL_OR_STABLE = false;
 function isBuyOutputPickerRestricted() {
+  if (!RESTRICT_BUY_OUTPUT_TO_SOL_OR_STABLE) return false;
   if (activeSide !== "output") return false;
   const inputMint = getSwapInputMintForPicker();
   if (!inputMint) return false;
@@ -21960,8 +21865,14 @@ var KNOWN_STABLECOIN_MINTS = /* @__PURE__ */ new Set([
   // USDCet
   "A1KLoBrKBde8Ty9qtNQUtq3C2ortoC3u7twggz7sEto6",
   // USDY
-  "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT"
+  "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT",
   // USDe
+  "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+  // USDG
+  "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD",
+  // JupUSD
+  "yUSDX7W89jXWn4zzDPLnhykDymSjQSmpaJ8e4fjC1fg"
+  // yUSD
 ]);
 var KNOWN_STABLE_SYMBOLS = /* @__PURE__ */ new Set([
   "USDC",
@@ -21976,7 +21887,9 @@ var KNOWN_STABLE_SYMBOLS = /* @__PURE__ */ new Set([
   "CASH",
   "EURC",
   "DAI",
-  "USDG"
+  "USDG",
+  "JUPUSD",
+  "YUSD"
 ]);
 function getTokenMintColorKind(mint, symbolHint) {
   const symHint = (symbolHint ?? "").toUpperCase();
@@ -23491,6 +23404,10 @@ var STABLECOIN_USD_FALLBACK_MINTS = /* @__PURE__ */ new Set([
   // USDT
   "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
   // USDG
+  "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD",
+  // JupUSD
+  "yUSDX7W89jXWn4zzDPLnhykDymSjQSmpaJ8e4fjC1fg",
+  // yUSD
   "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
   // PYUSD
   "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB",
@@ -30464,7 +30381,9 @@ function setSwapOutputMintUi(mint) {
   }
   if (meta?.decimals != null) routeMintDecimalsCache[resolvedMint] = meta.decimals;
 }
+var RESTRICT_ALT_SELL_OUTPUT_TO_SOL_OR_STABLE = false;
 function applyOutputMintConstraintForInput() {
+  if (!RESTRICT_ALT_SELL_OUTPUT_TO_SOL_OR_STABLE) return;
   if (!swapInputMintInput || !swapOutputMintInput) return;
   const inputMint = swapInputMintInput.value.trim();
   const inputSym = swapInputSymbolEl?.textContent?.trim();
@@ -30555,7 +30474,7 @@ function applySelectedToken(mint, side) {
   const previousInputSym = side === "input" ? swapInputSymbolEl?.textContent?.trim() : void 0;
   const resolvedMint = mint.trim();
   const otherMint = otherInput?.value.trim() ?? "";
-  if (side === "output" && swapInputMintInput && !isSolOrStableMint(swapInputMintInput.value.trim(), swapInputSymbolEl?.textContent?.trim()) && !isSolOrStableMint(resolvedMint)) {
+  if (RESTRICT_ALT_SELL_OUTPUT_TO_SOL_OR_STABLE && side === "output" && swapInputMintInput && !isSolOrStableMint(swapInputMintInput.value.trim(), swapInputSymbolEl?.textContent?.trim()) && !isSolOrStableMint(resolvedMint)) {
     return;
   }
   if (otherMint && swapPairMintsMatch(resolvedMint, otherMint)) {
@@ -33726,7 +33645,7 @@ function logSwapSignPrepTimingsAfterSign() {
     appendSwapSignLog(`Prep timings \u2014 ${parts.join(" \xB7 ")}`, "neutral");
   }
 }
-function sleepMs2(ms) {
+function sleepMs(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 var SWAP_SIGN_CANCEL_BUTTON_HTML = "Cancel";
@@ -33943,7 +33862,7 @@ async function pollTransactionConfirmation(signature2, generation) {
     if (generation != null && generation !== swapSignFlowGeneration) {
       return { ok: false, err: "Cancelled" };
     }
-    await sleepMs2(SWAP_TX_CONFIRM_POLL_MS);
+    await sleepMs(SWAP_TX_CONFIRM_POLL_MS);
     if (generation != null && generation !== swapSignFlowGeneration) {
       return { ok: false, err: "Cancelled" };
     }

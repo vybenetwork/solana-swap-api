@@ -59,6 +59,9 @@ export const VYBE_DATA_API_BASE = (
   .trim()
   .replace(/\/$/, '');
 
+/** Debug assets source: GET /api/assets/:wallet. Set ASSETS_API_BASE in .env (required). */
+export const ASSETS_API_BASE = (process.env.ASSETS_API_BASE ?? '').trim().replace(/\/$/, '');
+
 /** Request timeout for Vybe API calls (ms). */
 export const VYBE_TIMEOUT_MS = 60_000;
 

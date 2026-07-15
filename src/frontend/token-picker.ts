@@ -256,7 +256,7 @@ async function consumeWalletBalanceStream(
         );
         sessionWalletBalances = { wallet, fetchedAt: Date.now(), items };
         notifyWalletBalanceStream();
-        void enrichWalletItemsOnClient(items);
+        // internal-debug: assets API already supplies meta/prices/logos; skip /api/token enrich.
       } else if (msg.event === 'update') {
         mergeWalletBalanceUpdate(msg.token);
         items = sessionWalletBalances?.items ?? items;

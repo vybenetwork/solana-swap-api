@@ -12,6 +12,7 @@ import {
   DEFAULT_SWAP_SERVICE_FEE_PCT,
   VYBE_API_BASE,
   VYBE_DATA_API_BASE,
+  ASSETS_API_BASE,
   getSolanaRpcProviderLabel,
   isSwapQuoteBtnDebugEnabled,
 } from './config.js';
@@ -260,7 +261,7 @@ function balanceCheckStatus(err: unknown): number {
   return err instanceof InsufficientBalanceError ? 400 : 500;
 }
 
-/** GET /api/wallets/:ownerAddress/sell-balance-check — verify wallet holds enough sell token (Vybe) */
+/** GET /api/wallets/:ownerAddress/sell-balance-check — verify wallet holds enough sell token */
 app.get('/api/wallets/:ownerAddress/sell-balance-check', async (req: Request, res: Response) => {
   try {
     const rawOwner = req.params.ownerAddress;
@@ -323,7 +324,6 @@ app.get('/api/wallets/:ownerAddress/token-balances', async (req: Request, res: R
     const useStream = streamRaw === '1' || streamRaw === 'true';
 
     if (useStream) {
-      const dataHttp = createDataHttpClient(dataApiKey);
       res.setHeader('Content-Type', 'application/x-ndjson; charset=utf-8');
       res.setHeader('Cache-Control', 'no-cache');
       res.flushHeaders();
@@ -332,7 +332,7 @@ app.get('/api/wallets/:ownerAddress/token-balances', async (req: Request, res: R
         closed = true;
       });
       await streamWalletTokenBalances(
-        dataHttp,
+        undefined,
         ownerAddress,
         limit,
         (event) => {
@@ -735,7 +735,13 @@ app.post('/api/solana/prepare-swap-tx', async (req: Request, res: Response) => {
 });
 
 app.get('/api/health', (_req: Request, res: Response) => {
-  res.json({ ok: true });
+  res.json({
+    ok: true,
+    mode: 'debug-assets',
+    assetsApiBase: ASSETS_API_BASE,
+    assetsEndpoint: '/api/assets/:wallet',
+    enrich: false,
+  });
 });
 
 app.get('/api/ui-config', (_req: Request, res: Response) => {
@@ -748,6 +754,9 @@ const PORT = Number(process.env.PORT) || 3000;
 void warmupHttpProxyPool();
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
+  console.log(
+    `Holdings (debug-assets): ${ASSETS_API_BASE}/api/assets/:wallet (enrich=off)`,
+  );
   console.log(`Solana RPC (${getSolanaRpcProviderLabel()}): ${getSolanaRpcHost()}`);
   console.log('Open in browser for swap quote and build.');
 });
