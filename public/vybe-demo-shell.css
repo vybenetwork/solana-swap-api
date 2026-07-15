@@ -446,10 +446,11 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  width: 91px;
   min-width: 91px;
   max-width: 91px;
-  max-height: 48px;
   height: 48px;
+  max-height: 48px;
   border-radius: 8px;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.35);
@@ -458,10 +459,10 @@ body {
 
 .page-masthead__demo-preview img {
   display: block;
+  width: 91px;
   height: 48px;
-  max-height: 48px;
-  width: auto;
   max-width: 91px;
+  max-height: 48px;
   object-fit: cover;
   object-position: top center;
 }
@@ -677,6 +678,26 @@ body {
   transform: translateY(-1px);
   text-decoration: none;
   box-shadow: 0 4px 14px rgba(153, 69, 255, 0.18);
+}
+
+.page-masthead__btn--demo-pyth {
+  background: linear-gradient(135deg, rgba(167, 139, 250, 0.14) 0%, rgba(109, 40, 217, 0.1) 100%);
+  border-color: rgba(167, 139, 250, 0.28);
+  color: #c4b5fd;
+}
+
+.page-masthead__btn--demo-pyth .page-masthead__demo-preview {
+  background: rgba(167, 139, 250, 0.18);
+  color: #a78bfa;
+}
+
+.page-masthead__btn--demo-pyth:hover {
+  background: rgba(167, 139, 250, 0.26);
+  border-color: rgba(167, 139, 250, 0.48);
+  color: #ddd6fe;
+  transform: translateY(-1px);
+  text-decoration: none;
+  box-shadow: 0 4px 14px rgba(109, 40, 217, 0.14);
 }
 
 .page-masthead__btn--demo-current {
