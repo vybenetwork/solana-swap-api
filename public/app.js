@@ -21542,7 +21542,9 @@ function isSellPickerWalletSearch() {
 function getSwapInputMintForPicker() {
   return preferNativeSolMint(getSwapInputMintCb?.().trim() ?? "");
 }
+var RESTRICT_BUY_OUTPUT_TO_SOL_OR_STABLE = false;
 function isBuyOutputPickerRestricted() {
+  if (!RESTRICT_BUY_OUTPUT_TO_SOL_OR_STABLE) return false;
   if (activeSide !== "output") return false;
   const inputMint = getSwapInputMintForPicker();
   if (!inputMint) return false;
@@ -21960,8 +21962,14 @@ var KNOWN_STABLECOIN_MINTS = /* @__PURE__ */ new Set([
   // USDCet
   "A1KLoBrKBde8Ty9qtNQUtq3C2ortoC3u7twggz7sEto6",
   // USDY
-  "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT"
+  "DEkqHyPN7GMRJ5cArtQFAWefqbZb33Hyf6s5iCwjEonT",
   // USDe
+  "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
+  // USDG
+  "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD",
+  // JupUSD
+  "yUSDX7W89jXWn4zzDPLnhykDymSjQSmpaJ8e4fjC1fg"
+  // yUSD
 ]);
 var KNOWN_STABLE_SYMBOLS = /* @__PURE__ */ new Set([
   "USDC",
@@ -21976,7 +21984,9 @@ var KNOWN_STABLE_SYMBOLS = /* @__PURE__ */ new Set([
   "CASH",
   "EURC",
   "DAI",
-  "USDG"
+  "USDG",
+  "JUPUSD",
+  "YUSD"
 ]);
 function getTokenMintColorKind(mint, symbolHint) {
   const symHint = (symbolHint ?? "").toUpperCase();
@@ -23491,6 +23501,10 @@ var STABLECOIN_USD_FALLBACK_MINTS = /* @__PURE__ */ new Set([
   // USDT
   "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH",
   // USDG
+  "JuprjznTrTSp2UFa3ZBUFgwdAmtZCq4MQCwysN55USD",
+  // JupUSD
+  "yUSDX7W89jXWn4zzDPLnhykDymSjQSmpaJ8e4fjC1fg",
+  // yUSD
   "2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo",
   // PYUSD
   "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB",
@@ -30464,7 +30478,9 @@ function setSwapOutputMintUi(mint) {
   }
   if (meta?.decimals != null) routeMintDecimalsCache[resolvedMint] = meta.decimals;
 }
+var RESTRICT_ALT_SELL_OUTPUT_TO_SOL_OR_STABLE = false;
 function applyOutputMintConstraintForInput() {
+  if (!RESTRICT_ALT_SELL_OUTPUT_TO_SOL_OR_STABLE) return;
   if (!swapInputMintInput || !swapOutputMintInput) return;
   const inputMint = swapInputMintInput.value.trim();
   const inputSym = swapInputSymbolEl?.textContent?.trim();
@@ -30555,7 +30571,7 @@ function applySelectedToken(mint, side) {
   const previousInputSym = side === "input" ? swapInputSymbolEl?.textContent?.trim() : void 0;
   const resolvedMint = mint.trim();
   const otherMint = otherInput?.value.trim() ?? "";
-  if (side === "output" && swapInputMintInput && !isSolOrStableMint(swapInputMintInput.value.trim(), swapInputSymbolEl?.textContent?.trim()) && !isSolOrStableMint(resolvedMint)) {
+  if (RESTRICT_ALT_SELL_OUTPUT_TO_SOL_OR_STABLE && side === "output" && swapInputMintInput && !isSolOrStableMint(swapInputMintInput.value.trim(), swapInputSymbolEl?.textContent?.trim()) && !isSolOrStableMint(resolvedMint)) {
     return;
   }
   if (otherMint && swapPairMintsMatch(resolvedMint, otherMint)) {
