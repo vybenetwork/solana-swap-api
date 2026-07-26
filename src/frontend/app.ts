@@ -3976,8 +3976,12 @@ function renderPairCard(
     ${renderPairCardSpotHtml(stats, mint, symbol, showLoading)}`;
 }
 
-function renderPairCardIcon(mint: string, _symbol: string): string {
-  return renderTokenIconImgHtml(effectiveTokenIconSrc(resolveTokenLogoUrl(mint)), 'swap-pair-icon-img');
+function renderPairCardIcon(mint: string, symbol: string): string {
+  return renderTokenIconImgHtml(
+    effectiveTokenIconSrc(resolveTokenLogoUrl(mint)),
+    'swap-pair-icon-img',
+    `${symbol || 'Token'} logo`,
+  );
 }
 
 function renderSwapSideChangeHtml(stats?: TokenPriceStats, loading = false): string {
@@ -7558,7 +7562,7 @@ function setSwapSignTxidButtonsState(mode: 'hidden' | 'pending' | 'ready'): void
     btn.disabled = !enabled;
     btn.dataset.signature = sig;
     const label = multi ? `View TXID #${i + 1}` : 'View TXID';
-    btn.innerHTML = `<img class="swap-sign-dialog__btn-logo" src="/images/solscan-logo.png" alt="" width="16" height="16" decoding="async" /><span>${label}</span>`;
+    btn.innerHTML = `<img class="swap-sign-dialog__btn-logo" src="/images/solscan-logo.png" alt="Solscan" width="16" height="16" decoding="async" /><span>${label}</span>`;
     swapSignConfirmTxidsEl.appendChild(btn);
   }
 }

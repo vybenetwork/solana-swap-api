@@ -24,10 +24,17 @@ export type ProtocolPickerHandle = {
   closeMenu: () => void;
 };
 
+function protocolBrandAlt(brand: ProtocolBrand): string {
+  if (brand === 'raydium') return 'Raydium';
+  if (brand === 'meteora') return 'Meteora';
+  if (brand === 'sanctum') return 'Sanctum';
+  return 'Pump.fun';
+}
+
 function renderPickerIconMarkup(brand: ProtocolBrand | null): string {
   if (!brand) return '';
   const src = protocolBrandIconSrc(brand);
-  return `<img class="swap-protocol-picker__icon" src="${src}" alt="" width="14" height="14" decoding="async" />`;
+  return `<img class="swap-protocol-picker__icon" src="${src}" alt="${protocolBrandAlt(brand)}" width="14" height="14" decoding="async" />`;
 }
 
 /** Compact label in the closed picker; dropdown keeps the full option text. */

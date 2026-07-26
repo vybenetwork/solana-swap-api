@@ -3896,7 +3896,7 @@ function renderRoutingTokenIcon(mint: string, sym: string): string {
   const m = mint.trim();
   const iconSrc = effectiveTokenIconSrc(m ? resolveTokenLogoUrl(m) : undefined);
   if (iconSrc !== TOKEN_ICON_PLACEHOLDER_PATH) {
-    return renderTokenIconImgHtml(iconSrc, 'routing-token-img');
+    return renderTokenIconImgHtml(iconSrc, 'routing-token-img', `${sym || 'Token'} logo`);
   }
   return `<span class="${routingTokenDotClass(m, sym)}" aria-hidden="true"></span>`;
 }
@@ -4966,7 +4966,7 @@ function renderNoLiquiditySupportedProtocolsHtml(): string {
       .map(({ key, label }) => {
         const brand = protocolValueToBrand(key);
         const icon = brand
-          ? `<img class="routing-no-liquidity-protocol__icon" src="${protocolBrandIconSrc(brand)}" alt="" width="14" height="14" decoding="async" />`
+          ? `<img class="routing-no-liquidity-protocol__icon" src="${protocolBrandIconSrc(brand)}" alt="${deps.escapeHtml(label)}" width="14" height="14" decoding="async" />`
           : '';
         return `<span class="routing-no-liquidity-protocol">${icon}<span class="routing-no-liquidity-protocol__label">${deps.escapeHtml(label)}</span></span>`;
       })
@@ -4990,7 +4990,7 @@ function renderNoLiquidityRouteMarketNode(
     <span class="routing-hop-index-badge routing-hop-index-badge--spacer" aria-hidden="true">&#8203;</span>
     <div class="routing-no-liquidity-box">
       <p class="routing-no-liquidity__title">${title}</p>
-      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer"><img class="routing-no-liquidity__link-logo" src="/images/solscan-logo.png" alt="" width="14" height="14" decoding="async" /><span>${linkLabel}</span></a>
+      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer"><img class="routing-no-liquidity__link-logo" src="/images/solscan-logo.png" alt="Solscan" width="14" height="14" decoding="async" /><span>${linkLabel}</span></a>
       ${renderNoLiquiditySupportedProtocolsHtml()}
     </div>
   </div>`;
@@ -6534,7 +6534,7 @@ function renderDexProtocolIcon(label: string, protocolHint?: string): string {
     ? `dex-program-label__icon dex-program-label__icon--${brand} route-hop-extra__icon`
     : 'dex-program-label__icon dex-program-label__icon--placeholder route-hop-extra__icon';
   const title = text !== '—' ? ` title="${deps.escapeHtml(text)}"` : '';
-  return `<img class="${iconClass}"${title} src="${iconSrc}" alt="" width="16" height="16" decoding="async" />`;
+  return `<img class="${iconClass}"${title} src="${iconSrc}" alt="${deps.escapeHtml(text)}" width="16" height="16" decoding="async" />`;
 }
 
 function renderDexProgramLabel(label: string, protocolHint?: string): string {
@@ -6545,7 +6545,7 @@ function renderDexProgramLabel(label: string, protocolHint?: string): string {
   const iconClass = brand
     ? `dex-program-label__icon dex-program-label__icon--${brand}`
     : 'dex-program-label__icon dex-program-label__icon--placeholder';
-  return `<span class="dex-program-label"><img class="${iconClass}" src="${iconSrc}" alt="" width="16" height="16" decoding="async" /><span class="dex-program-label__text">${deps.escapeHtml(text)}</span></span>`;
+  return `<span class="dex-program-label"><img class="${iconClass}" src="${iconSrc}" alt="${deps.escapeHtml(text)}" width="16" height="16" decoding="async" /><span class="dex-program-label__text">${deps.escapeHtml(text)}</span></span>`;
 }
 
 function detectAggregatorBrand(text: string): 'vybe' | 'jupiter' | 'titan' | null {
@@ -6577,7 +6577,7 @@ function quoteRouterBrand(quote: Record<string, unknown>): 'vybe' | 'jupiter' | 
 function renderViaRouterBadge(brand: 'vybe' | 'jupiter' | 'titan'): string {
   const label = routerDisplayLabel(brand);
   const iconClass = `swap-hop-via-router__icon swap-hop-via-router__icon--${brand}`;
-  return `<span class="swap-hop-via-router"><img class="${iconClass}" src="${routerIconSrc(brand)}" alt="" width="14" height="14" decoding="async" /><span class="swap-hop-via-router__label">(via ${deps.escapeHtml(label)})</span></span>`;
+  return `<span class="swap-hop-via-router"><img class="${iconClass}" src="${routerIconSrc(brand)}" alt="${deps.escapeHtml(label)}" width="14" height="14" decoding="async" /><span class="swap-hop-via-router__label">(via ${deps.escapeHtml(label)})</span></span>`;
 }
 
 function renderHopVenueHtml(
@@ -6648,7 +6648,7 @@ export function renderRouteSubtitleHtml(
   }
   const iconClass = `swap-quote-route-title__icon swap-quote-route-title__icon--${routerBrand}`;
   const size = routerBrand === 'vybe' ? 14 : 13;
-  return `<span class="swap-quote-route-title"><span class="swap-quote-route-title__icon-wrap" aria-hidden="true"><img class="${iconClass}" src="${routerIconSrc(routerBrand)}" alt="" width="${size}" height="${size}" decoding="async" /></span><span class="swap-quote-route-title-text">${deps.escapeHtml(text)}</span></span>`;
+  return `<span class="swap-quote-route-title"><span class="swap-quote-route-title__icon-wrap" aria-hidden="true"><img class="${iconClass}" src="${routerIconSrc(routerBrand)}" alt="${deps.escapeHtml(routerDisplayLabel(routerBrand))}" width="${size}" height="${size}" decoding="async" /></span><span class="swap-quote-route-title-text">${deps.escapeHtml(text)}</span></span>`;
 }
 
 const MIN_ROUTE_POOL_LIQUIDITY_USD = 1000;
@@ -7450,7 +7450,8 @@ export function renderQuoteRoutePlanSteps(quote: Record<string, unknown>): strin
 
 function renderSignConfirmTokenIcon(mint: string): string {
   const iconSrc = effectiveTokenIconSrc(resolveTokenLogoUrl(mint));
-  return renderTokenIconImgHtml(iconSrc, 'swap-sign-dialog__token-icon');
+  const symbol = getCachedTokenMeta(mint)?.symbol;
+  return renderTokenIconImgHtml(iconSrc, 'swap-sign-dialog__token-icon', `${symbol || 'Token'} logo`);
 }
 
 function getSignConfirmPayExtraLines(

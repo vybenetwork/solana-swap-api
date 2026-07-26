@@ -21277,11 +21277,11 @@ function effectiveTokenIconSrc(logoUrl) {
   if (!src || isTokenIconUrlFailed(src)) return TOKEN_ICON_PLACEHOLDER_PATH;
   return src;
 }
-function renderTokenIconImgHtml(src, className) {
+function renderTokenIconImgHtml(src, className, alt = "Token logo") {
   const displaySrc = displayTokenIconSrc(src);
   const placeholderClass = displaySrc === TOKEN_ICON_PLACEHOLDER_PATH ? " token-icon-img--placeholder" : "";
   const originAttr = src !== TOKEN_ICON_PLACEHOLDER_PATH && !src.startsWith("blob:") ? ` data-token-icon-origin="${escapeHtml(tokenIconSessionKey(src))}"` : "";
-  return `<img class="${className}${placeholderClass}" src="${escapeHtml(displaySrc)}"${originAttr} alt="" loading="lazy" decoding="async" />`;
+  return `<img class="${className}${placeholderClass}" src="${escapeHtml(displaySrc)}"${originAttr} alt="${escapeHtml(alt)}" loading="lazy" decoding="async" />`;
 }
 function handleTokenIconImgError(img) {
   const origin = img.dataset.tokenIconOrigin?.trim() || img.currentSrc || img.src;
@@ -21684,7 +21684,8 @@ async function fetchTokenByMint(mint, options) {
 }
 function renderTokenIcon(token) {
   const logoUrl = resolveTokenLogoUrl(token.mint) ?? token.logoUrl;
-  return renderTokenIconImgHtml(effectiveTokenIconSrc(logoUrl), "token-picker-row-logo-img");
+  const alt = `${token.symbol || "Token"} logo`;
+  return renderTokenIconImgHtml(effectiveTokenIconSrc(logoUrl), "token-picker-row-logo-img", alt);
 }
 function formatBalanceAmount(amount) {
   if (!Number.isFinite(amount)) return "0";
@@ -22503,7 +22504,7 @@ function renderShortcuts() {
     const untradableClass = untradable ? " token-picker-shortcut--untradable" : "";
     const disabled = untradable ? ' disabled aria-disabled="true"' : "";
     const iconSrc = effectiveTokenIconSrc(resolveTokenLogoUrl(t.mint) ?? t.logoUrl);
-    const iconHtml = renderTokenIconImgHtml(iconSrc, "");
+    const iconHtml = renderTokenIconImgHtml(iconSrc, "", `${t.symbol || "Token"} logo`);
     return `<button type="button" class="token-picker-shortcut${lead}${untradableClass}" data-mint="${escapeHtml(t.mint)}" title="${escapeHtml(t.symbol)}"${disabled}>
           ${iconHtml}
         </button>`;
@@ -22733,7 +22734,8 @@ function renderChipTokenIcon(el, mint, fallbackDotClass) {
     return;
   }
   el.className = "swap-token-chip-icon swap-token-chip-icon--logo";
-  el.innerHTML = renderTokenIconImgHtml(src, "");
+  const meta = getCachedTokenMeta(mint?.trim() ?? "");
+  el.innerHTML = renderTokenIconImgHtml(src, "", `${meta?.symbol || "Token"} logo`);
   const img = el.querySelector("img");
   if (img) bindTokenIconImg(img);
 }
@@ -22763,10 +22765,16 @@ function protocolBrandIconSrc(brand) {
   if (brand === "sanctum") return "/images/sanctum-logo.png";
   return "/images/pump-logo.png";
 }
+function protocolBrandAlt(brand) {
+  if (brand === "raydium") return "Raydium";
+  if (brand === "meteora") return "Meteora";
+  if (brand === "sanctum") return "Sanctum";
+  return "Pump.fun";
+}
 function renderPickerIconMarkup(brand) {
   if (!brand) return "";
   const src = protocolBrandIconSrc(brand);
-  return `<img class="swap-protocol-picker__icon" src="${src}" alt="" width="14" height="14" decoding="async" />`;
+  return `<img class="swap-protocol-picker__icon" src="${src}" alt="${protocolBrandAlt(brand)}" width="14" height="14" decoding="async" />`;
 }
 function protocolSelectedDisplayLabel(fullLabel, brand) {
   const label = fullLabel.trim();
@@ -25312,7 +25320,7 @@ function renderRoutingTokenIcon(mint, sym) {
   const m = mint.trim();
   const iconSrc = effectiveTokenIconSrc(m ? resolveTokenLogoUrl(m) : void 0);
   if (iconSrc !== TOKEN_ICON_PLACEHOLDER_PATH) {
-    return renderTokenIconImgHtml(iconSrc, "routing-token-img");
+    return renderTokenIconImgHtml(iconSrc, "routing-token-img", `${sym || "Token"} logo`);
   }
   return `<span class="${routingTokenDotClass(m, sym)}" aria-hidden="true"></span>`;
 }
@@ -26082,7 +26090,7 @@ function renderNoLiquiditySupportedProtocolsHtml() {
     const pair = protocols.slice(i, i + 2);
     const cells = pair.map(({ key, label }) => {
       const brand = protocolValueToBrand(key);
-      const icon = brand ? `<img class="routing-no-liquidity-protocol__icon" src="${protocolBrandIconSrc(brand)}" alt="" width="14" height="14" decoding="async" />` : "";
+      const icon = brand ? `<img class="routing-no-liquidity-protocol__icon" src="${protocolBrandIconSrc(brand)}" alt="${deps.escapeHtml(label)}" width="14" height="14" decoding="async" />` : "";
       return `<span class="routing-no-liquidity-protocol">${icon}<span class="routing-no-liquidity-protocol__label">${deps.escapeHtml(label)}</span></span>`;
     }).join("");
     rows.push(`<div class="routing-no-liquidity-protocols__row">${cells}</div>`);
@@ -26100,7 +26108,7 @@ function renderNoLiquidityRouteMarketNode(marketsUrl, displayTitle = "No Liquidi
     <span class="routing-hop-index-badge routing-hop-index-badge--spacer" aria-hidden="true">&#8203;</span>
     <div class="routing-no-liquidity-box">
       <p class="routing-no-liquidity__title">${title}</p>
-      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer"><img class="routing-no-liquidity__link-logo" src="/images/solscan-logo.png" alt="" width="14" height="14" decoding="async" /><span>${linkLabel}</span></a>
+      <a class="routing-no-liquidity__link" href="${marketsUrl}" target="_blank" rel="noopener noreferrer"><img class="routing-no-liquidity__link-logo" src="/images/solscan-logo.png" alt="Solscan" width="14" height="14" decoding="async" /><span>${linkLabel}</span></a>
       ${renderNoLiquiditySupportedProtocolsHtml()}
     </div>
   </div>`;
@@ -27090,7 +27098,7 @@ function renderDexProtocolIcon(label, protocolHint) {
   const iconSrc = brand ? dexIconSrc(brand) : TOKEN_ICON_PLACEHOLDER_PATH;
   const iconClass = brand ? `dex-program-label__icon dex-program-label__icon--${brand} route-hop-extra__icon` : "dex-program-label__icon dex-program-label__icon--placeholder route-hop-extra__icon";
   const title = text !== "\u2014" ? ` title="${deps.escapeHtml(text)}"` : "";
-  return `<img class="${iconClass}"${title} src="${iconSrc}" alt="" width="16" height="16" decoding="async" />`;
+  return `<img class="${iconClass}"${title} src="${iconSrc}" alt="${deps.escapeHtml(text)}" width="16" height="16" decoding="async" />`;
 }
 function renderDexProgramLabel(label, protocolHint) {
   const text = resolveDexProtocolDisplayLabel(protocolHint?.trim() || label.trim() || "\u2014");
@@ -27098,7 +27106,7 @@ function renderDexProgramLabel(label, protocolHint) {
   const brand = resolveDexBrand(label, protocolHint);
   const iconSrc = brand ? dexIconSrc(brand) : TOKEN_ICON_PLACEHOLDER_PATH;
   const iconClass = brand ? `dex-program-label__icon dex-program-label__icon--${brand}` : "dex-program-label__icon dex-program-label__icon--placeholder";
-  return `<span class="dex-program-label"><img class="${iconClass}" src="${iconSrc}" alt="" width="16" height="16" decoding="async" /><span class="dex-program-label__text">${deps.escapeHtml(text)}</span></span>`;
+  return `<span class="dex-program-label"><img class="${iconClass}" src="${iconSrc}" alt="${deps.escapeHtml(text)}" width="16" height="16" decoding="async" /><span class="dex-program-label__text">${deps.escapeHtml(text)}</span></span>`;
 }
 function detectAggregatorBrand(text) {
   const trimmed = text.trim();
@@ -27126,7 +27134,7 @@ function quoteRouterBrand(quote) {
 function renderViaRouterBadge(brand) {
   const label = routerDisplayLabel(brand);
   const iconClass = `swap-hop-via-router__icon swap-hop-via-router__icon--${brand}`;
-  return `<span class="swap-hop-via-router"><img class="${iconClass}" src="${routerIconSrc(brand)}" alt="" width="14" height="14" decoding="async" /><span class="swap-hop-via-router__label">(via ${deps.escapeHtml(label)})</span></span>`;
+  return `<span class="swap-hop-via-router"><img class="${iconClass}" src="${routerIconSrc(brand)}" alt="${deps.escapeHtml(label)}" width="14" height="14" decoding="async" /><span class="swap-hop-via-router__label">(via ${deps.escapeHtml(label)})</span></span>`;
 }
 function renderHopVenueHtml(dexLabel, quote, options) {
   const router = quoteRouterBrand(quote);
@@ -27181,7 +27189,7 @@ function renderRouteSubtitleHtml(text, routerBrand) {
   }
   const iconClass = `swap-quote-route-title__icon swap-quote-route-title__icon--${routerBrand}`;
   const size = routerBrand === "vybe" ? 14 : 13;
-  return `<span class="swap-quote-route-title"><span class="swap-quote-route-title__icon-wrap" aria-hidden="true"><img class="${iconClass}" src="${routerIconSrc(routerBrand)}" alt="" width="${size}" height="${size}" decoding="async" /></span><span class="swap-quote-route-title-text">${deps.escapeHtml(text)}</span></span>`;
+  return `<span class="swap-quote-route-title"><span class="swap-quote-route-title__icon-wrap" aria-hidden="true"><img class="${iconClass}" src="${routerIconSrc(routerBrand)}" alt="${deps.escapeHtml(routerDisplayLabel(routerBrand))}" width="${size}" height="${size}" decoding="async" /></span><span class="swap-quote-route-title-text">${deps.escapeHtml(text)}</span></span>`;
 }
 var MIN_ROUTE_POOL_LIQUIDITY_USD = 1e3;
 function lowLiquidityWarningFromQuote(quote, liquidity) {
@@ -27787,7 +27795,8 @@ function renderQuoteRoutePlanSteps(quote) {
 }
 function renderSignConfirmTokenIcon(mint) {
   const iconSrc = effectiveTokenIconSrc(resolveTokenLogoUrl(mint));
-  return renderTokenIconImgHtml(iconSrc, "swap-sign-dialog__token-icon");
+  const symbol = getCachedTokenMeta(mint)?.symbol;
+  return renderTokenIconImgHtml(iconSrc, "swap-sign-dialog__token-icon", `${symbol || "Token"} logo`);
 }
 function collectSignConfirmReceiveRows(quote) {
   const outSym = deps.getSwapOutSym();
@@ -31094,8 +31103,12 @@ function renderPairCard(el, mint, side, loading = false) {
     <div class="swap-pair-changes">${renderPairCardChangesHtml(stats, showLoading)}</div>
     ${renderPairCardSpotHtml(stats, mint, symbol, showLoading)}`;
 }
-function renderPairCardIcon(mint, _symbol) {
-  return renderTokenIconImgHtml(effectiveTokenIconSrc(resolveTokenLogoUrl(mint)), "swap-pair-icon-img");
+function renderPairCardIcon(mint, symbol) {
+  return renderTokenIconImgHtml(
+    effectiveTokenIconSrc(resolveTokenLogoUrl(mint)),
+    "swap-pair-icon-img",
+    `${symbol || "Token"} logo`
+  );
 }
 function renderSwapSideChangeHtml(stats, loading = false) {
   if (!stats?.price || stats.price <= 0 || !stats.price1d || stats.price1d <= 0) {
@@ -33816,7 +33829,7 @@ function setSwapSignTxidButtonsState(mode) {
     btn.disabled = !enabled;
     btn.dataset.signature = sig;
     const label = multi ? `View TXID #${i + 1}` : "View TXID";
-    btn.innerHTML = `<img class="swap-sign-dialog__btn-logo" src="/images/solscan-logo.png" alt="" width="16" height="16" decoding="async" /><span>${label}</span>`;
+    btn.innerHTML = `<img class="swap-sign-dialog__btn-logo" src="/images/solscan-logo.png" alt="Solscan" width="16" height="16" decoding="async" /><span>${label}</span>`;
     swapSignConfirmTxidsEl.appendChild(btn);
   }
 }

@@ -926,14 +926,14 @@ export function effectiveTokenIconSrc(logoUrl: string | undefined): string {
   return src;
 }
 
-export function renderTokenIconImgHtml(src: string, className: string): string {
+export function renderTokenIconImgHtml(src: string, className: string, alt = 'Token logo'): string {
   const displaySrc = displayTokenIconSrc(src);
   const placeholderClass = displaySrc === TOKEN_ICON_PLACEHOLDER_PATH ? ' token-icon-img--placeholder' : '';
   const originAttr =
     src !== TOKEN_ICON_PLACEHOLDER_PATH && !src.startsWith('blob:')
       ? ` data-token-icon-origin="${escapeHtml(tokenIconSessionKey(src))}"`
       : '';
-  return `<img class="${className}${placeholderClass}" src="${escapeHtml(displaySrc)}"${originAttr} alt="" loading="lazy" decoding="async" />`;
+  return `<img class="${className}${placeholderClass}" src="${escapeHtml(displaySrc)}"${originAttr} alt="${escapeHtml(alt)}" loading="lazy" decoding="async" />`;
 }
 
 export function handleTokenIconImgError(img: HTMLImageElement): void {
@@ -1424,7 +1424,8 @@ async function fetchTokenByMint(
 
 function renderTokenIcon(token: TokenMeta): string {
   const logoUrl = resolveTokenLogoUrl(token.mint) ?? token.logoUrl;
-  return renderTokenIconImgHtml(effectiveTokenIconSrc(logoUrl), 'token-picker-row-logo-img');
+  const alt = `${token.symbol || 'Token'} logo`;
+  return renderTokenIconImgHtml(effectiveTokenIconSrc(logoUrl), 'token-picker-row-logo-img', alt);
 }
 
 function formatBalanceAmount(amount: number): string {
@@ -2518,7 +2519,7 @@ function renderShortcuts(): void {
       const untradableClass = untradable ? ' token-picker-shortcut--untradable' : '';
       const disabled = untradable ? ' disabled aria-disabled="true"' : '';
       const iconSrc = effectiveTokenIconSrc(resolveTokenLogoUrl(t.mint) ?? t.logoUrl);
-      const iconHtml = renderTokenIconImgHtml(iconSrc, '');
+      const iconHtml = renderTokenIconImgHtml(iconSrc, '', `${t.symbol || 'Token'} logo`);
       return `<button type="button" class="token-picker-shortcut${lead}${untradableClass}" data-mint="${escapeHtml(t.mint)}" title="${escapeHtml(t.symbol)}"${disabled}>
           ${iconHtml}
         </button>`;
@@ -2787,7 +2788,8 @@ export function renderChipTokenIcon(el: HTMLElement | null, mint: string | undef
     return;
   }
   el.className = 'swap-token-chip-icon swap-token-chip-icon--logo';
-  el.innerHTML = renderTokenIconImgHtml(src, '');
+  const meta = getCachedTokenMeta(mint?.trim() ?? '');
+  el.innerHTML = renderTokenIconImgHtml(src, '', `${meta?.symbol || 'Token'} logo`);
   const img = el.querySelector('img');
   if (img) bindTokenIconImg(img);
 }
