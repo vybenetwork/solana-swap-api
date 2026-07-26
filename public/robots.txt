@@ -1,4 +1,69 @@
+# Fully open for indexing, AI input, and AI training.
+# See https://contentsignals.org/
+
 User-agent: *
+Allow: /
+Content-Signal: search=yes,ai-input=yes,ai-train=yes,use=full
+
+# Explicit allow for common AI / training crawlers (overrides any host defaults).
+User-agent: GPTBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Googlebot
+Allow: /
+
+User-agent: Googlebot-Image
+Allow: /
+
+User-agent: Bingbot
+Allow: /
+
+User-agent: DuckDuckBot
+Allow: /
+
+User-agent: Applebot
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: anthropic-ai
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Bytespider
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+User-agent: Amazonbot
+Allow: /
+
+User-agent: meta-externalagent
+Allow: /
+
+User-agent: FacebookBot
+Allow: /
+
+User-agent: cohere-ai
 Allow: /
 
 Sitemap: https://solana-swap-api.vybenetwork.com/sitemap.xml
