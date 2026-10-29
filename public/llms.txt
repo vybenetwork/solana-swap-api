@@ -1,0 +1,16 @@
+# Solana Swap API & Router
+
+> Solana swap API and Solana router demo: quote and build token swaps across Pump.fun, Meteora, and Raydium. An alternative to Jupiter and Titan via Vybe.
+
+Live demo of the Vybe Solana API. The linked docs pages are the Markdown versions.
+
+## Demo
+- [Solana Swap API & Router](https://solana-swap-api.vybenetwork.com/): Solana swap API and Solana router demo: quote and build token swaps across Pump.fun, Meteora, and Raydium. An alternative to Jupiter and Titan via Vybe.
+
+## Docs
+- [Swap Overview](https://docs.vybenetwork.com/docs/swap-overview.md)
+- [Build Swap Transaction API](https://docs.vybenetwork.com/reference/do_swap_proxy.md)
+- [Swap Quote API](https://docs.vybenetwork.com/reference/get_swap_quote_proxy.md)
+- [Token Details API](https://docs.vybenetwork.com/reference/get_token_details_v4.md)
+- [Token Trade History API](https://docs.vybenetwork.com/reference/get_trade_data_program_v4.md)
+- [Labeled Programs API](https://docs.vybenetwork.com/reference/get_known_program_accounts_v4.md)

@@ -3,7 +3,6 @@
 
 User-agent: *
 Allow: /
-Content-Signal: search=yes,ai-input=yes,ai-train=yes,use=full
 
 # Explicit allow for common AI / training crawlers (overrides any host defaults).
 User-agent: GPTBot
@@ -67,3 +66,4 @@ User-agent: cohere-ai
 Allow: /
 
 Sitemap: https://solana-swap-api.vybenetwork.com/sitemap.xml
+# LLM Information: https://solana-swap-api.vybenetwork.com/llms.txt
