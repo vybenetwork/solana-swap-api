@@ -27,3 +27,4 @@ data/token-meta-cache.json
 deploy/
 scripts/
 DEPLOY.md
+.env.backup*

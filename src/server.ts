@@ -15,6 +15,7 @@ import {
   getSolanaRpcProviderLabel,
   isSwapQuoteBtnDebugEnabled,
 } from './config.js';
+import { serveIndexWithGoogleTag } from './google-tag.js';
 import { getSolanaRpcHost, logBrowserRpc429 } from './api/solana-connection.js';
 import { createClient } from './api/index.js';
 import { toHumanReadableError } from './api/client.js';
@@ -77,6 +78,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use('/cached/token-icons', express.static(getRuntimeIconDir()));
+app.use(serveIndexWithGoogleTag(PUBLIC_DIR));
 app.use(express.static(PUBLIC_DIR));
 
 function q(req: Request, key: string): string {
