@@ -9,13 +9,13 @@ body {
   background: #0f0f12;
   color: #e4e4e7;
   min-height: 100vh;
-  min-width: 1150px;
+  min-width: 1180px;
 }
 
 /* Scrollbar: black track, grey thumb */
 html {
   overflow-x: auto;
-  min-width: 1150px;
+  min-width: 1180px;
   scrollbar-color: #71717a #000000; /* thumb, track */
   scrollbar-width: thin;
 }
@@ -45,7 +45,8 @@ a:hover {
 }
 
 .container {
-  max-width: 1150px;
+  max-width: 1138px;
+  min-width: 1138px;
   margin: 0 auto;
 }
 
@@ -434,12 +435,6 @@ button:disabled {
   font-weight: 600;
 }
 
-@media (max-width: 900px) {
-  .summary-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 .candles-controls {
   display: flex;
   flex-wrap: wrap;
@@ -780,12 +775,6 @@ button:disabled {
   padding-top: 6px;
 }
 
-@media (max-width: 768px) {
-  .candles-chart {
-    height: 280px;
-  }
-}
-
 .meta {
   margin: 0 0 0.75rem 0;
   color: #a1a1aa;
@@ -919,12 +908,6 @@ button:disabled {
 .trades-summary-item span:last-child {
   font-weight: 600;
   color: #e4e4e7;
-}
-
-@media (max-width: 900px) {
-  .trades-summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 table {
@@ -1812,18 +1795,6 @@ tr:hover td {
   gap: 0.65rem;
 }
 
-@media (max-width: 900px) {
-  .swap-route-options__grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 520px) {
-  .swap-route-options__grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 .swap-route-option {
   display: flex;
   flex-direction: column;
@@ -2285,18 +2256,6 @@ tr:hover td {
   grid-template-columns: 420px minmax(0, 1fr);
   gap: 1rem 1.25rem;
   align-items: start;
-}
-
-@media (max-width: 900px) {
-  .swap-hero-layout {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .swap-hero-col--widget {
-    width: 100%;
-    max-width: 440px;
-    justify-self: center;
-  }
 }
 
 .swap-hero-col--widget,
@@ -4088,7 +4047,7 @@ tr:hover td {
   flex-direction: column;
   align-items: center;
   width: 15.5rem;
-  max-width: calc(100vw - 2.5rem);
+  max-width: calc(1180px - 2.5rem);
   z-index: 3;
 }
 
@@ -4111,7 +4070,7 @@ tr:hover td {
   justify-content: center;
   gap: 0.5rem;
   width: max-content;
-  max-width: calc(100vw - 2.5rem);
+  max-width: calc(1180px - 2.5rem);
   position: relative;
   z-index: 1;
 }
@@ -4209,7 +4168,7 @@ tr:hover td {
 .routing-fee-branch--many {
   --routing-fee-connector-h: 3.65rem;
   width: max-content;
-  max-width: calc(100vw - 2.5rem);
+  max-width: calc(1180px - 2.5rem);
 }
 
 .routing-fee-connectors {
@@ -5706,16 +5665,6 @@ tr:hover td {
   line-height: 1;
 }
 
-@media (max-width: 560px) {
-  .hop-fee-row {
-    grid-template-columns: minmax(4.6rem, auto) minmax(0, 1fr) 120px;
-  }
-
-  .hop-fee-row__usd {
-    display: none;
-  }
-}
-
 .swap-hop-card {
   background: #12121a;
   border: 1px solid #2b2b33;
@@ -5836,12 +5785,6 @@ tr:hover td {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0 1rem;
   font-size: 0.75rem;
-}
-
-@media (max-width: 640px) {
-  .swap-quote-fields-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 
 .swap-quote-field-item {
@@ -6107,20 +6050,6 @@ tr:hover td {
 .swap-mode-switch__label {
   min-width: 0;
   line-height: 1.15;
-}
-
-@media (max-width: 420px) {
-  .swap-mode-switch--triple .swap-mode-switch__btn {
-    flex-direction: column;
-    gap: 0.2rem;
-    padding: 0.42rem 0.28rem;
-    font-size: 0.64rem;
-  }
-
-  .swap-mode-switch--triple .swap-mode-switch__label {
-    white-space: normal;
-    text-align: center;
-  }
 }
 
 .swap-wallet-execution {
@@ -7514,16 +7443,6 @@ tr:hover td {
   min-width: 0;
 }
 
-@media (max-width: 520px) {
-  .swap-build-toggles {
-    grid-template-columns: 1fr;
-  }
-
-  .swap-build-toggles-row {
-    grid-template-columns: 1fr;
-  }
-}
-
 .swap-adv-check input {
   width: auto;
   flex-shrink: 0;
@@ -8470,12 +8389,6 @@ tr:hover td {
   margin-top: 0;
 }
 
-@media (max-width: 560px) {
-  .swap-pair-cards {
-    grid-template-columns: 1fr;
-  }
-}
-
 .swap-pair-card {
   position: relative;
   background: linear-gradient(165deg, #14141c 0%, #0f0f14 100%);
@@ -8666,7 +8579,7 @@ tr:hover td {
   border-radius: 18px;
   background: #0c0c10;
   color: #e4e4e7;
-  max-width: min(440px, calc(100vw - 2rem));
+  max-width: min(440px, calc(1180px - 2rem));
   width: 100%;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
 }
@@ -8715,7 +8628,7 @@ tr:hover td {
   border-radius: 18px;
   background: #0c0c10;
   color: #e4e4e7;
-  max-width: min(420px, calc(100vw - 2rem));
+  max-width: min(420px, calc(1180px - 2rem));
   width: 100%;
   box-shadow: 0 24px 80px rgba(0, 0, 0, 0.65);
   margin: auto;
@@ -8723,7 +8636,7 @@ tr:hover td {
 }
 
 .swap-sign-dialog.swap-sign-dialog--with-route {
-  max-width: min(1040px, calc(100vw - 2rem));
+  max-width: min(1040px, calc(1180px - 2rem));
 }
 
 .swap-sign-dialog[open] {
@@ -8804,26 +8717,6 @@ tr:hover td {
 
 .swap-sign-dialog__card-value .inline-loading-spinner {
   vertical-align: middle;
-}
-
-@media (max-width: 760px) {
-  .swap-sign-dialog.swap-sign-dialog--with-route {
-    max-width: min(420px, calc(100vw - 2rem));
-  }
-
-  .swap-sign-dialog--with-route .swap-sign-dialog__body {
-    flex-direction: column;
-  }
-
-  .swap-sign-dialog--with-route .swap-sign-dialog__main {
-    max-width: none;
-  }
-
-  .swap-sign-dialog__route {
-    max-height: min(42vh, 360px);
-    min-width: 0;
-    min-height: 0;
-  }
 }
 
 .swap-sign-dialog__lead {
@@ -9368,7 +9261,6 @@ tr:hover td {
   display: none !important;
 }
 
-
 /* --- Vybe swap quote / build (legacy grid / inline routes) --- */
 .swap-panel .swap-params-grid {
   display: grid;
@@ -9499,13 +9391,6 @@ tr:hover td {
   resize: vertical;
 }
 
-@media (max-width: 640px) {
-  .field input,
-  .field select {
-    min-width: 100%;
-  }
-}
-
 /* Token picker modal — Jupiter-style */
 html.token-picker-scroll-lock,
 body.token-picker-scroll-lock {
@@ -9517,7 +9402,7 @@ body.token-picker-scroll-lock {
   padding: 0;
   border: none;
   background: transparent;
-  max-width: min(440px, calc(100vw - 1.25rem));
+  max-width: min(440px, calc(1180px - 1.25rem));
   width: 100%;
   color: #eceff3;
   margin: auto;
