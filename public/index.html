@@ -812,11 +812,27 @@
     var m = document.cookie.match(/(?:^|; )_ga=GA\d+\.\d+\.([^;]+)/);
     return m ? decodeURIComponent(m[1]) : "";
   }
+  function logClick(dest, cid) {
+    try {
+      var body = JSON.stringify({
+        dest_path: dest,
+        utm_source: SOURCE,
+        utm_medium: "referral",
+        utm_campaign: "api-key",
+        utm_content: location.pathname || "/",
+        vybe_cid: cid || ""
+      });
+      if (navigator.sendBeacon) {
+        navigator.sendBeacon("https://webstats.dehghani.ca/clicks", new Blob([body], {type: "text/plain"}));
+      }
+    } catch (err) {}
+  }
   function rewrite(a) {
     var u;
     try { u = new URL(a.href, location.href); } catch (e) { return; }
     if (u.hostname !== "vybe.fyi") return;
     var path = u.pathname;
+    var dest = u.pathname + u.search;
     if (!u.searchParams.get("utm_source")) {
       u.searchParams.set("utm_source", SOURCE);
       u.searchParams.set("utm_medium", "referral");
@@ -826,6 +842,10 @@
     var cid = clientId();
     if (cid && !u.searchParams.get("vybe_cid")) u.searchParams.set("vybe_cid", cid);
     if (u.pathname !== path) return;
+    if (a.getAttribute("data-vybe-logged") !== "1") {
+      a.setAttribute("data-vybe-logged", "1");
+      logClick(dest, cid);
+    }
     a.href = u.toString();
   }
   function onEvent(e) {
