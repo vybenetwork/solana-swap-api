@@ -804,6 +804,40 @@
       window.bs58 = bs58;
     </script>
     <script type="module" src="app.js?v=87"></script>
-  </body>
+  <script>
+/* vybe-attribution */
+(function () {
+  var SOURCE = 'swap-router';
+  function clientId() {
+    var m = document.cookie.match(/(?:^|; )_ga=GA\d+\.\d+\.([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : "";
+  }
+  function rewrite(a) {
+    var u;
+    try { u = new URL(a.href, location.href); } catch (e) { return; }
+    if (u.hostname !== "vybe.fyi") return;
+    var path = u.pathname;
+    if (!u.searchParams.get("utm_source")) {
+      u.searchParams.set("utm_source", SOURCE);
+      u.searchParams.set("utm_medium", "referral");
+      u.searchParams.set("utm_campaign", "api-key");
+      u.searchParams.set("utm_content", location.pathname || "/");
+    }
+    var cid = clientId();
+    if (cid && !u.searchParams.get("vybe_cid")) u.searchParams.set("vybe_cid", cid);
+    if (u.pathname !== path) return;
+    a.href = u.toString();
+  }
+  function onEvent(e) {
+    var t = e.target;
+    var a = t && t.closest ? t.closest("a[href]") : null;
+    if (a) rewrite(a);
+  }
+  document.addEventListener("pointerdown", onEvent, true);
+  document.addEventListener("click", onEvent, true);
+})();
+</script>
+
+</body>
 </html>
 
