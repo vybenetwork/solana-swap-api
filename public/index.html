@@ -804,40 +804,6 @@
       window.bs58 = bs58;
     </script>
     <script type="module" src="app.js?v=87"></script>
-  <script>
-/* vybe-attribution */
-(function () {
-  var SOURCE = 'swap-router';
-  function clientId() {
-    var m = document.cookie.match(/(?:^|; )_ga=GA\d+\.\d+\.([^;]+)/);
-    return m ? decodeURIComponent(m[1]) : "";
-  }
-  function rewrite(a) {
-    var href = a.getAttribute("href") || "";
-    if (href.indexOf("webstats.dehghani.ca/r") !== -1) return;
-    var u;
-    try { u = new URL(a.href, location.href); } catch (e) { return; }
-    if (u.hostname !== "vybe.fyi") return;
-    var params = new URLSearchParams();
-    params.set("to", u.pathname + u.search);
-    params.set("utm_source", SOURCE);
-    params.set("utm_medium", "referral");
-    params.set("utm_campaign", "api-key");
-    params.set("utm_content", location.pathname || "/");
-    var cid = clientId();
-    if (cid) params.set("vybe_cid", cid);
-    a.href = "https://webstats.dehghani.ca/r?" + params.toString();
-  }
-  function onEvent(e) {
-    var t = e.target;
-    var a = t && t.closest ? t.closest("a[href]") : null;
-    if (a) rewrite(a);
-  }
-  document.addEventListener("pointerdown", onEvent, true);
-  document.addEventListener("click", onEvent, true);
-})();
-</script>
-
-</body>
+  </body>
 </html>
 
