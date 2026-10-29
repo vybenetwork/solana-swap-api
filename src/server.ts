@@ -16,6 +16,7 @@ import {
   isSwapQuoteBtnDebugEnabled,
 } from './config.js';
 import { serveIndexWithGoogleTag } from './google-tag.js';
+import { serveRootKeyFile } from './root-key-file.js';
 import { getSolanaRpcHost, logBrowserRpc429 } from './api/solana-connection.js';
 import { createClient } from './api/index.js';
 import { toHumanReadableError } from './api/client.js';
@@ -78,6 +79,7 @@ app.use((req, res, next) => {
   next();
 });
 app.use('/cached/token-icons', express.static(getRuntimeIconDir()));
+app.use(serveRootKeyFile());
 app.use(serveIndexWithGoogleTag(PUBLIC_DIR));
 app.use(express.static(PUBLIC_DIR));
 
