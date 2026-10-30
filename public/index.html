@@ -808,58 +808,147 @@
 /* vybe-attribution */
 (function () {
   var SOURCE = 'swap-router';
+  var KEY = 'vybeDocsVisit';
   function clientId() {
     var m = document.cookie.match(/(?:^|; )_ga=GA\d+\.\d+\.([^;]+)/);
-    return m ? decodeURIComponent(m[1]) : "";
+    return m ? decodeURIComponent(m[1]) : '';
   }
-  function logClick(dest, cid) {
+  function readVisit() {
+    try { return JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { return null; }
+  }
+  function writeVisit(v) {
+    try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) {}
+  }
+  function cleanPath(parts) {
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var p = String(parts[i] || '').trim();
+      if (!p) continue;
+      if (!out.length || out[out.length - 1] !== p) out.push(p);
+    }
+    return out.slice(0, 6);
+  }
+  function pathText(parts) {
+    return cleanPath(parts).join(' > ').slice(0, 200);
+  }
+  function parsePath(s) {
+    return cleanPath(String(s || '').split('>'));
+  }
+  function capture() {
+    var q = new URLSearchParams(location.search);
+    var src = (q.get('utm_source') || '').toLowerCase();
+    var refHost = '';
+    var refPath = '';
+    try {
+      if (document.referrer) {
+        var ru = new URL(document.referrer);
+        refHost = ru.hostname;
+        refPath = ru.pathname || '';
+      }
+    } catch (e) {}
+    var incoming = parsePath(q.get('vybe_path'));
+    var arrived = src === 'docs' || refHost === 'docs.vybenetwork.com' || (incoming.length && incoming[0] === 'docs');
+    if (!arrived) return readVisit();
+    var path = incoming.length && incoming[0] === 'docs' ? incoming.slice() : ['docs'];
+    if (path[path.length - 1] !== SOURCE) path.push(SOURCE);
+    var visit = {
+      utm_source: 'docs',
+      utm_medium: q.get('utm_medium') || 'referral',
+      utm_campaign: q.get('utm_campaign') || 'api-key',
+      utm_content: q.get('utm_content') || refPath || '',
+      vybe_cid: q.get('vybe_cid') || '',
+      path: cleanPath(path)
+    };
+    writeVisit(visit);
+    return visit;
+  }
+  function remembered() {
+    return readVisit();
+  }
+  capture();
+  function logClick(dest, current, touch, cid) {
     try {
       var body = JSON.stringify({
         dest_path: dest,
-        utm_source: SOURCE,
-        utm_medium: "referral",
-        utm_campaign: "api-key",
-        utm_content: location.pathname || "/",
-        vybe_cid: cid || ""
+        utm_source: current ? current.utm_source : SOURCE,
+        utm_medium: current ? (current.utm_medium || 'referral') : 'referral',
+        utm_campaign: current ? (current.utm_campaign || 'api-key') : 'api-key',
+        utm_content: current ? (current.utm_content || '') : (location.pathname || '/'),
+        vybe_cid: cid || '',
+        vybe_path: touch || ''
       });
       if (navigator.sendBeacon) {
-        navigator.sendBeacon("https://webstats.dehghani.ca/clicks", new Blob([body], {type: "text/plain"}));
+        navigator.sendBeacon('https://webstats.dehghani.ca/clicks', new Blob([body], {type: 'text/plain'}));
       }
     } catch (err) {}
+  }
+  function apply(u, current, hop) {
+    var parts = (current.path || ['docs', SOURCE]).slice();
+    if (hop && parts[parts.length - 1] !== hop) parts.push(hop);
+    var touch = pathText(parts);
+    u.searchParams.set('utm_source', current.utm_source || 'docs');
+    u.searchParams.set('utm_medium', current.utm_medium || 'referral');
+    u.searchParams.set('utm_campaign', current.utm_campaign || 'api-key');
+    if (current.utm_content) u.searchParams.set('utm_content', current.utm_content);
+    var cid = current.vybe_cid || clientId();
+    if (cid) {
+      u.searchParams.set('vybe_cid', cid);
+      if (!current.vybe_cid) {
+        current.vybe_cid = cid;
+        writeVisit(current);
+      }
+    }
+    u.searchParams.set('vybe_path', touch);
+    return {touch: touch, cid: cid || ''};
   }
   function rewrite(a) {
     var u;
     try { u = new URL(a.href, location.href); } catch (e) { return; }
-    if (u.hostname !== "vybe.fyi") return;
+    var current = remembered();
+    if (u.hostname === 'docs.vybenetwork.com') {
+      if (!current || !current.path || current.path[0] !== 'docs') return;
+      apply(u, current, 'docs');
+      a.href = u.toString();
+      return;
+    }
+    if (u.hostname !== 'vybe.fyi') return;
     var path = u.pathname;
     if (
-      path === "/tokens" || path.indexOf("/tokens/") === 0 ||
-      path === "/wallets" || path.indexOf("/wallets/") === 0 ||
-      path === "/wallet" || path.indexOf("/wallet/") === 0
+      path === '/tokens' || path.indexOf('/tokens/') === 0 ||
+      path === '/wallets' || path.indexOf('/wallets/') === 0 ||
+      path === '/wallet' || path.indexOf('/wallet/') === 0
     ) return;
     var dest = u.pathname + u.search;
-    if (!u.searchParams.get("utm_source")) {
-      u.searchParams.set("utm_source", SOURCE);
-      u.searchParams.set("utm_medium", "referral");
-      u.searchParams.set("utm_campaign", "api-key");
-      u.searchParams.set("utm_content", location.pathname || "/");
+    var touch = '';
+    var cid = '';
+    if (current && current.path && current.path[0] === 'docs') {
+      var stamped = apply(u, current, 'vybe.fyi');
+      touch = stamped.touch;
+      cid = stamped.cid;
+    } else {
+      if (!u.searchParams.get('utm_source')) {
+        u.searchParams.set('utm_source', SOURCE);
+        u.searchParams.set('utm_medium', 'referral');
+        u.searchParams.set('utm_campaign', 'api-key');
+        u.searchParams.set('utm_content', location.pathname || '/');
+      }
+      cid = clientId();
+      if (cid && !u.searchParams.get('vybe_cid')) u.searchParams.set('vybe_cid', cid);
     }
-    var cid = clientId();
-    if (cid && !u.searchParams.get("vybe_cid")) u.searchParams.set("vybe_cid", cid);
     if (u.pathname !== path) return;
-    if (a.getAttribute("data-vybe-logged") !== "1") {
-      a.setAttribute("data-vybe-logged", "1");
-      logClick(dest, cid);
+    if (a.getAttribute('data-vybe-logged') !== '1') {
+      a.setAttribute('data-vybe-logged', '1');
+      logClick(dest, current && current.path && current.path[0] === 'docs' ? current : null, touch, cid);
     }
     a.href = u.toString();
   }
   function onEvent(e) {
     var t = e.target;
-    var a = t && t.closest ? t.closest("a[href]") : null;
+    var a = t && t.closest ? t.closest('a[href]') : null;
     if (a) rewrite(a);
   }
-  document.addEventListener("pointerdown", onEvent, true);
-  document.addEventListener("click", onEvent, true);
+  document.addEventListener('pointerdown', onEvent, true);
+  document.addEventListener('click', onEvent, true);
 })();
 </script>
 
