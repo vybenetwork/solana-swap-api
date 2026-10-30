@@ -818,6 +818,14 @@
   }
   function writeVisit(v) {
     try { localStorage.setItem(KEY, JSON.stringify(v)); } catch (e) {}
+    try {
+      document.cookie = 'vybe_touch=' + encodeURIComponent(JSON.stringify(v)) + '; Domain=.vybenetwork.com; Path=/; Max-Age=2592000; SameSite=Lax';
+    } catch (e) {}
+  }
+  function readCookie() {
+    var m = document.cookie.match(/(?:^|; )vybe_touch=([^;]+)/);
+    if (!m) return null;
+    try { return JSON.parse(decodeURIComponent(m[1])); } catch (e) { return null; }
   }
   function cleanPath(parts) {
     var out = [];
@@ -826,7 +834,7 @@
       if (!p) continue;
       if (!out.length || out[out.length - 1] !== p) out.push(p);
     }
-    return out.slice(0, 6);
+    return out.slice(0, 8);
   }
   function pathText(parts) {
     return cleanPath(parts).join(' > ').slice(0, 200);
@@ -846,17 +854,20 @@
         refPath = ru.pathname || '';
       }
     } catch (e) {}
+    var stored = readVisit() || readCookie();
     var incoming = parsePath(q.get('vybe_path'));
+    if (!incoming.length && stored && stored.path) incoming = stored.path.slice();
     var arrived = src === 'docs' || refHost === 'docs.vybenetwork.com' || (incoming.length && incoming[0] === 'docs');
-    if (!arrived) return readVisit();
+    if (!arrived) return stored;
     var path = incoming.length && incoming[0] === 'docs' ? incoming.slice() : ['docs'];
+    if (path[path.length - 1] === 'vybe.fyi') path.pop();
     if (path[path.length - 1] !== SOURCE) path.push(SOURCE);
     var visit = {
       utm_source: 'docs',
-      utm_medium: q.get('utm_medium') || 'referral',
-      utm_campaign: q.get('utm_campaign') || 'api-key',
-      utm_content: q.get('utm_content') || refPath || '',
-      vybe_cid: q.get('vybe_cid') || '',
+      utm_medium: q.get('utm_medium') || (stored && stored.utm_medium) || 'referral',
+      utm_campaign: q.get('utm_campaign') || (stored && stored.utm_campaign) || 'api-key',
+      utm_content: q.get('utm_content') || (stored && stored.utm_content) || refPath || '',
+      vybe_cid: q.get('vybe_cid') || (stored && stored.vybe_cid) || '',
       path: cleanPath(path)
     };
     writeVisit(visit);
@@ -884,7 +895,12 @@
   }
   function apply(u, current, hop) {
     var parts = (current.path || ['docs', SOURCE]).slice();
+    if (parts[parts.length - 1] === 'vybe.fyi') parts.pop();
     if (hop && parts[parts.length - 1] !== hop) parts.push(hop);
+    if (hop === 'docs') {
+      current.path = cleanPath(parts);
+      writeVisit(current);
+    }
     var touch = pathText(parts);
     u.searchParams.set('utm_source', current.utm_source || 'docs');
     u.searchParams.set('utm_medium', current.utm_medium || 'referral');
