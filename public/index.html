@@ -832,6 +832,11 @@
     try { u = new URL(a.href, location.href); } catch (e) { return; }
     if (u.hostname !== "vybe.fyi") return;
     var path = u.pathname;
+    if (
+      path === "/tokens" || path.indexOf("/tokens/") === 0 ||
+      path === "/wallets" || path.indexOf("/wallets/") === 0 ||
+      path === "/wallet" || path.indexOf("/wallet/") === 0
+    ) return;
     var dest = u.pathname + u.search;
     if (!u.searchParams.get("utm_source")) {
       u.searchParams.set("utm_source", SOURCE);
