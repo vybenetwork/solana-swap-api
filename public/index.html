@@ -908,6 +908,20 @@
     return readVisit();
   }
   capture();
+  (function () {
+    try {
+      var u = new URL(location.href);
+      var keys = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'vybe_cid', 'vybe_path'];
+      var changed = false;
+      for (var i = 0; i < keys.length; i++) {
+        if (!u.searchParams.has(keys[i])) continue;
+        u.searchParams.delete(keys[i]);
+        changed = true;
+      }
+      if (!changed) return;
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch (e) {}
+  })();
   function logClick(dest, current, touch, cid) {
     try {
       var body = JSON.stringify({
