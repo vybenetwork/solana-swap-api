@@ -21,7 +21,7 @@ Try the live demo: https://solana-swap-api.vybenetwork.com
 ---
 
 - **[Try the LIVE demo →](https://solana-swap-api.vybenetwork.com)**
-- **[Get your free Vybe API key →](https://vybe.fyi/api-pricing)**
+- **[Get your free Vybe API key →](https://vybe.fyi/api-pricing?utm_source=swap-api-readme&utm_medium=referral)**
 - **[Vybe swap overview →](https://docs.vybenetwork.com/docs/swap-overview)**
 - **[Swap quote endpoint →](https://docs.vybenetwork.com/reference/get_swap_quote_proxy)**
 - **[Build swap endpoint →](https://docs.vybenetwork.com/reference/do_swap_proxy)**
@@ -66,7 +66,7 @@ Then open **http://localhost:3000**, pick a router (Vybe, Jupiter, or Titan), se
 | `DISABLED_QUOTE_BRIDGE_HOP_COMBOS` | No | Skip quote-bridge routes for hop protocol pairs (comma-separated short keys) | `damm2-damm2`     |
 | `TUNNEL`         | No       | Set to `1` to run behind a Cloudflare Tunnel             | `1`                                    |
 
-Get your API keys at `https://vybe.fyi/api-pricing`.
+Get your API keys at `https://vybe.fyi/api-pricing?utm_source=swap-api-readme&utm_medium=referral`.
 
 \* `VYBE_DATA_API_KEY` is required unless `VYBE_API_KEY` is set (used as fallback for data endpoints).
 
