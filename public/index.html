@@ -87,7 +87,7 @@
             <div class="page-masthead__group page-masthead__group--apikey">
               <span class="page-masthead__label">API Key</span>
               <div class="page-masthead__btns">
-                <a class="page-masthead__btn page-masthead__btn--key" href="https://vybe.fyi/api-pricing?utm_source=swap-router&amp;utm_medium=referral&amp;utm_campaign=api-key&amp;utm_content=%2F" target="_blank" rel="noopener noreferrer">
+                <a class="page-masthead__btn page-masthead__btn--key" href="https://vybe.fyi/api-pricing?utm_source=swap-router&amp;utm_medium=referral" target="_blank" rel="noopener noreferrer">
                   <span class="page-masthead__btn-icon page-masthead__btn-icon--key" aria-hidden="true"></span>
                   Get your API key
                 </a>
@@ -904,8 +904,13 @@
     var touch = pathText(parts);
     u.searchParams.set('utm_source', current.utm_source || 'docs');
     u.searchParams.set('utm_medium', current.utm_medium || 'referral');
-    u.searchParams.set('utm_campaign', current.utm_campaign || 'api-key');
-    if (current.utm_content) u.searchParams.set('utm_content', current.utm_content);
+    if (hop === 'vybe.fyi') {
+      u.searchParams.delete('utm_campaign');
+      u.searchParams.delete('utm_content');
+    } else {
+      u.searchParams.set('utm_campaign', current.utm_campaign || 'api-key');
+      if (current.utm_content) u.searchParams.set('utm_content', current.utm_content);
+    }
     var cid = current.vybe_cid || clientId();
     if (cid) {
       u.searchParams.set('vybe_cid', cid);
@@ -945,9 +950,9 @@
       if (!u.searchParams.get('utm_source')) {
         u.searchParams.set('utm_source', SOURCE);
         u.searchParams.set('utm_medium', 'referral');
-        u.searchParams.set('utm_campaign', 'api-key');
-        u.searchParams.set('utm_content', location.pathname || '/');
       }
+      u.searchParams.delete('utm_campaign');
+      u.searchParams.delete('utm_content');
       cid = clientId();
       if (cid && !u.searchParams.get('vybe_cid')) u.searchParams.set('vybe_cid', cid);
     }
