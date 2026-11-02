@@ -926,7 +926,7 @@
         writeVisit(current);
       }
     }
-    u.searchParams.set('vybe_path', touch);
+    u.searchParams.delete('vybe_path');
     return {touch: touch, cid: cid || ''};
   }
   function rewrite(a) {
@@ -960,6 +960,7 @@
       }
       u.searchParams.delete('utm_campaign');
       u.searchParams.delete('utm_content');
+      u.searchParams.delete('vybe_path');
       cid = clientId();
       if (cid && !u.searchParams.get('vybe_cid')) u.searchParams.set('vybe_cid', cid);
     }
