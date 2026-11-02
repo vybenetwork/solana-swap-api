@@ -846,11 +846,22 @@
     var m = String(pathname || '').match(/\/docs\/([a-z0-9-]+)\/?$/i);
     return m ? m[1].toLowerCase() : '';
   }
+  var HOPS = {
+    'token-stats': 1, 'historical-trades': 1, 'ohlc': 1, 'wallet-pnl': 1,
+    'top-holders': 1, 'top-traders': 1, 'swap-router': 1, 'wallet-balances': 1,
+    'defi-positions': 1, 'pyth': 1, 'docs': 1, 'vybe.fyi': 1,
+    'swap-api-readme': 1, 'token-metadata-api-readme': 1, 'ohlc-api-readme': 1,
+    'trades-api-readme': 1, 'trader-pnl-api-readme': 1, 'top-holders-api-readme': 1,
+    'top-traders-api-readme': 1, 'balances-api-readme': 1,
+    'defi-positions-api-readme': 1, 'pyth-api-readme': 1
+  };
   function sourceChain(parts) {
     var out = [];
     for (var i = 0; i < parts.length; i++) {
       var p = String(parts[i] || '').trim();
+      var next = String(parts[i + 1] || '').trim();
       if (!p || p === 'vybe.fyi') continue;
+      if (p === 'docs' && next && !HOPS[next]) continue;
       if (!out.length || out[out.length - 1] !== p) out.push(p);
     }
     return out.join('/').slice(0, 200);
@@ -875,13 +886,10 @@
     if (!parts.length && fromDocs) parts = ['docs'];
     if (!parts.length && stored && stored.utm_source) parts = cleanPath(String(stored.utm_source).split('/'));
     var slug = fromDocs ? ((q.get('utm_content') || docsSlug(refPath) || '').toLowerCase()) : '';
-    if (slug && parts.indexOf(slug) < 0) {
+    if (slug) {
       var at = parts.indexOf('docs');
-      if (at < 0) {
-        parts.unshift('docs');
-        at = 0;
-      }
-      parts.splice(at + 1, 0, slug);
+      if (at >= 0) parts.splice(at, 1, slug);
+      else if (parts.indexOf(slug) < 0) parts.unshift(slug);
     }
     if (parts[parts.length - 1] !== SOURCE) parts.push(SOURCE);
     parts = cleanPath(parts);
