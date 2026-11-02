@@ -842,6 +842,10 @@
   function parsePath(s) {
     return cleanPath(String(s || '').split('>'));
   }
+  function docsSlug(pathname) {
+    var m = String(pathname || '').match(/\/docs\/([a-z0-9-]+)\/?$/i);
+    return m ? m[1].toLowerCase() : '';
+  }
   function capture() {
     var q = new URLSearchParams(location.search);
     var src = (q.get('utm_source') || '').toLowerCase();
@@ -856,17 +860,23 @@
     } catch (e) {}
     var stored = readVisit() || readCookie();
     var incoming = parsePath(q.get('vybe_path'));
-    if (!incoming.length && stored && stored.path) incoming = stored.path.slice();
-    var arrived = src === 'docs' || refHost === 'docs.vybenetwork.com' || (incoming.length && incoming[0] === 'docs');
-    if (!arrived) return stored;
-    var path = incoming.length && incoming[0] === 'docs' ? incoming.slice() : ['docs'];
+    var fromDocs = src === 'docs' || refHost === 'docs.vybenetwork.com' || (incoming.length && incoming[0] === 'docs');
+    var hasParams = !!(src || q.get('utm_medium') || q.get('utm_campaign') || q.get('utm_content') || q.get('vybe_cid') || incoming.length);
+    if (!fromDocs && !hasParams) return stored;
+    if (!incoming.length && !src && stored && stored.path) incoming = stored.path.slice();
+    var origin = src || (fromDocs ? 'docs' : ((stored && stored.utm_source) || ''));
+    var path = incoming.slice();
+    if (!path.length) path = origin ? [origin] : ['docs'];
     if (path[path.length - 1] === 'vybe.fyi') path.pop();
     if (path[path.length - 1] !== SOURCE) path.push(SOURCE);
+    var content = q.get('utm_content') || '';
+    if (!content && fromDocs) content = docsSlug(refPath) || (stored && stored.utm_content) || '';
+    if (!content && !fromDocs) content = (stored && !src && stored.utm_content) || '';
     var visit = {
-      utm_source: 'docs',
+      utm_source: origin || 'docs',
       utm_medium: q.get('utm_medium') || (stored && stored.utm_medium) || 'referral',
-      utm_campaign: q.get('utm_campaign') || (stored && stored.utm_campaign) || 'api-key',
-      utm_content: q.get('utm_content') || (stored && stored.utm_content) || refPath || '',
+      utm_campaign: q.get('utm_campaign') || (src ? '' : ((stored && stored.utm_campaign) || '')),
+      utm_content: content,
       vybe_cid: q.get('vybe_cid') || (stored && stored.vybe_cid) || '',
       path: cleanPath(path)
     };
@@ -894,7 +904,7 @@
     } catch (err) {}
   }
   function apply(u, current, hop) {
-    var parts = (current.path || ['docs', SOURCE]).slice();
+    var parts = (current.path || [current.utm_source || 'docs', SOURCE]).slice();
     if (parts[parts.length - 1] === 'vybe.fyi') parts.pop();
     if (hop && parts[parts.length - 1] !== hop) parts.push(hop);
     if (hop === 'docs') {
@@ -902,15 +912,12 @@
       writeVisit(current);
     }
     var touch = pathText(parts);
-    u.searchParams.set('utm_source', current.utm_source || 'docs');
+    u.searchParams.set('utm_source', current.utm_source || SOURCE);
     u.searchParams.set('utm_medium', current.utm_medium || 'referral');
-    if (hop === 'vybe.fyi') {
-      u.searchParams.delete('utm_campaign');
-      u.searchParams.delete('utm_content');
-    } else {
-      u.searchParams.set('utm_campaign', current.utm_campaign || 'api-key');
-      if (current.utm_content) u.searchParams.set('utm_content', current.utm_content);
-    }
+    if (current.utm_campaign) u.searchParams.set('utm_campaign', current.utm_campaign);
+    else u.searchParams.delete('utm_campaign');
+    if (current.utm_content) u.searchParams.set('utm_content', current.utm_content);
+    else u.searchParams.delete('utm_content');
     var cid = current.vybe_cid || clientId();
     if (cid) {
       u.searchParams.set('vybe_cid', cid);
@@ -927,7 +934,7 @@
     try { u = new URL(a.href, location.href); } catch (e) { return; }
     var current = remembered();
     if (u.hostname === 'docs.vybenetwork.com') {
-      if (!current || !current.path || current.path[0] !== 'docs') return;
+      if (!current || !current.path || !current.path.length) return;
       apply(u, current, 'docs');
       a.href = u.toString();
       return;
@@ -942,7 +949,7 @@
     var dest = u.pathname + u.search;
     var touch = '';
     var cid = '';
-    if (current && current.path && current.path[0] === 'docs') {
+    if (current && current.path && current.path.length) {
       var stamped = apply(u, current, 'vybe.fyi');
       touch = stamped.touch;
       cid = stamped.cid;
@@ -959,7 +966,7 @@
     if (u.pathname !== path) return;
     if (a.getAttribute('data-vybe-logged') !== '1') {
       a.setAttribute('data-vybe-logged', '1');
-      logClick(dest, current && current.path && current.path[0] === 'docs' ? current : null, touch, cid);
+      logClick(dest, current && current.path && current.path.length ? current : null, touch, cid);
     }
     a.href = u.toString();
   }
