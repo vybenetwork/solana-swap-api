@@ -846,6 +846,15 @@
     var m = String(pathname || '').match(/\/docs\/([a-z0-9-]+)\/?$/i);
     return m ? m[1].toLowerCase() : '';
   }
+  function sourceChain(parts) {
+    var out = [];
+    for (var i = 0; i < parts.length; i++) {
+      var p = String(parts[i] || '').trim();
+      if (!p || p === 'vybe.fyi') continue;
+      if (!out.length || out[out.length - 1] !== p) out.push(p);
+    }
+    return out.join('/').slice(0, 200);
+  }
   function capture() {
     var q = new URLSearchParams(location.search);
     var src = (q.get('utm_source') || '').toLowerCase();
@@ -859,26 +868,30 @@
       }
     } catch (e) {}
     var stored = readVisit() || readCookie();
-    var incoming = parsePath(q.get('vybe_path'));
-    var fromDocs = src === 'docs' || refHost === 'docs.vybenetwork.com' || (incoming.length && incoming[0] === 'docs');
-    var hasParams = !!(src || q.get('utm_medium') || q.get('utm_campaign') || q.get('utm_content') || q.get('vybe_cid') || incoming.length);
+    var fromDocs = src === 'docs' || src.indexOf('docs/') === 0 || refHost === 'docs.vybenetwork.com';
+    var hasParams = !!(src || q.get('utm_medium') || q.get('utm_campaign') || q.get('utm_content') || q.get('vybe_cid'));
     if (!fromDocs && !hasParams) return stored;
-    if (!incoming.length && !src && stored && stored.path) incoming = stored.path.slice();
-    var origin = src || (fromDocs ? 'docs' : ((stored && stored.utm_source) || ''));
-    var path = incoming.slice();
-    if (!path.length) path = origin ? [origin] : ['docs'];
-    if (path[path.length - 1] === 'vybe.fyi') path.pop();
-    if (path[path.length - 1] !== SOURCE) path.push(SOURCE);
-    var content = q.get('utm_content') || '';
-    if (!content && fromDocs) content = docsSlug(refPath) || (stored && stored.utm_content) || '';
-    if (!content && !fromDocs) content = (stored && !src && stored.utm_content) || '';
+    var parts = src ? cleanPath(src.split('/')) : [];
+    if (!parts.length && fromDocs) parts = ['docs'];
+    if (!parts.length && stored && stored.utm_source) parts = cleanPath(String(stored.utm_source).split('/'));
+    var slug = fromDocs ? ((q.get('utm_content') || docsSlug(refPath) || '').toLowerCase()) : '';
+    if (slug && parts.indexOf(slug) < 0) {
+      var at = parts.indexOf('docs');
+      if (at < 0) {
+        parts.unshift('docs');
+        at = 0;
+      }
+      parts.splice(at + 1, 0, slug);
+    }
+    if (parts[parts.length - 1] !== SOURCE) parts.push(SOURCE);
+    parts = cleanPath(parts);
     var visit = {
-      utm_source: origin || 'docs',
+      utm_source: sourceChain(parts),
       utm_medium: q.get('utm_medium') || (stored && stored.utm_medium) || 'referral',
-      utm_campaign: q.get('utm_campaign') || (src ? '' : ((stored && stored.utm_campaign) || '')),
-      utm_content: content,
+      utm_campaign: q.get('utm_campaign') || '',
+      utm_content: '',
       vybe_cid: q.get('vybe_cid') || (stored && stored.vybe_cid) || '',
-      path: cleanPath(path)
+      path: parts
     };
     writeVisit(visit);
     return visit;
@@ -896,7 +909,7 @@
         utm_campaign: current ? (current.utm_campaign || 'api-key') : 'api-key',
         utm_content: current ? (current.utm_content || '') : (location.pathname || '/'),
         vybe_cid: cid || '',
-        vybe_path: touch || ''
+        vybe_path: ''
       });
       if (navigator.sendBeacon) {
         navigator.sendBeacon('https://webstats.dehghani.ca/clicks', new Blob([body], {type: 'text/plain'}));
@@ -904,20 +917,19 @@
     } catch (err) {}
   }
   function apply(u, current, hop) {
-    var parts = (current.path || [current.utm_source || 'docs', SOURCE]).slice();
-    if (parts[parts.length - 1] === 'vybe.fyi') parts.pop();
-    if (hop && parts[parts.length - 1] !== hop) parts.push(hop);
-    if (hop === 'docs') {
-      current.path = cleanPath(parts);
-      writeVisit(current);
-    }
-    var touch = pathText(parts);
-    u.searchParams.set('utm_source', current.utm_source || SOURCE);
+    var parts = (current.path && current.path.length) ? current.path.slice() : cleanPath(String(current.utm_source || SOURCE).split('/'));
+    if (hop && hop !== 'vybe.fyi' && parts[parts.length - 1] !== hop) parts.push(hop);
+    parts = cleanPath(parts);
+    var source = sourceChain(parts);
+    current.path = parts;
+    current.utm_source = source;
+    current.utm_content = '';
+    if (hop === 'docs') writeVisit(current);
+    u.searchParams.set('utm_source', source || SOURCE);
     u.searchParams.set('utm_medium', current.utm_medium || 'referral');
     if (current.utm_campaign) u.searchParams.set('utm_campaign', current.utm_campaign);
     else u.searchParams.delete('utm_campaign');
-    if (current.utm_content) u.searchParams.set('utm_content', current.utm_content);
-    else u.searchParams.delete('utm_content');
+    u.searchParams.delete('utm_content');
     var cid = current.vybe_cid || clientId();
     if (cid) {
       u.searchParams.set('vybe_cid', cid);
@@ -927,7 +939,7 @@
       }
     }
     u.searchParams.delete('vybe_path');
-    return {touch: touch, cid: cid || ''};
+    return {touch: '', cid: cid || ''};
   }
   function rewrite(a) {
     var u;
