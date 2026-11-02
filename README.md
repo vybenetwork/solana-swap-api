@@ -2,7 +2,7 @@
 
 <p align="center">
 
-[![Demo](https://img.shields.io/badge/Demo-Solana%20Swap%20API%20live%20app-c2410c?style=for-the-badge&logo=googlechrome&logoColor=white)](https://solana-swap-api.vybenetwork.com)
+[![Demo](https://img.shields.io/badge/Demo-Solana%20Swap%20API%20live%20app-c2410c?style=for-the-badge&logo=googlechrome&logoColor=white)](https://solana-swap-api.vybenetwork.com?utm_source=swap-api-readme&utm_medium=referral)
 [![GitHub](https://img.shields.io/badge/GitHub-Repository-5b21b6?style=for-the-badge&logo=github&logoColor=white)](https://github.com/vybenetwork/solana-swap-api)
 [![Swap guides](https://img.shields.io/badge/Guides-Swap%20overview-3b82f6?style=for-the-badge&logo=gitbook&logoColor=white)](https://docs.vybenetwork.com/docs/swap-overview)
 [![Swap quote API](https://img.shields.io/badge/Endpoint-Swap%20quote-6366f1?style=for-the-badge&logo=swagger&logoColor=white)](https://docs.vybenetwork.com/reference/get_swap_quote_proxy)
@@ -15,13 +15,13 @@
 
 It includes a production-ready Node.js backend and a modern frontend that integrate Vybe’s swap quote, swap build, token price, and wallet balance endpoints—explore multi-hop route diagrams, per-hop fee breakdowns, and base64 unsigned transactions ready for wallet signing.
 
-Try the live demo: https://solana-swap-api.vybenetwork.com
+Try the live demo: [`https://solana-swap-api.vybenetwork.com`](https://solana-swap-api.vybenetwork.com?utm_source=swap-api-readme&utm_medium=referral)
 
 ![Solana Swap API app](screenshots/solana-swap-api-app-demo.jpg)
 
 ---
 
-- **[Try the LIVE demo →](https://solana-swap-api.vybenetwork.com)**
+- **[Try the LIVE demo →](https://solana-swap-api.vybenetwork.com?utm_source=swap-api-readme&utm_medium=referral)**
 - **[Get your free Vybe API key →](https://vybe.fyi/api-pricing?utm_source=swap-api-readme&utm_medium=referral)**
 - **[Vybe swap overview →](https://docs.vybenetwork.com/docs/swap-overview)**
 - **[Swap quote endpoint →](https://docs.vybenetwork.com/reference/get_swap_quote_proxy)**
