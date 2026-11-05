@@ -10253,7 +10253,7 @@ body.token-picker-scroll-lock {
 .seo-answer__endpoints code {
   display: block;
   margin-top: 0.12rem;
-  font-size: 0.75rem;
+  font-size: 0.80rem;
   line-height: 1.35;
   word-break: break-all;
 }
@@ -10268,7 +10268,7 @@ body.token-picker-scroll-lock {
 
 .seo-answer code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.75rem;
+  font-size: 0.80rem;
   color: #e0f2fe;
   padding: 0.05rem 0.35rem;
   border-radius: 5px;
@@ -10278,8 +10278,8 @@ body.token-picker-scroll-lock {
 .seo-answer__cards {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.65rem;
-  margin: 1rem 0 0;
+  gap: 1.1rem;
+  margin: 1.5rem 0px 0px;
   padding: 0;
   list-style: none;
 }
