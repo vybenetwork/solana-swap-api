@@ -52,7 +52,56 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="shortcut icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="vybe-demo-shell.css?v=20" />
-    <link rel="stylesheet" href="app.css?v=35" />
+    <link rel="stylesheet" href="app.css?v=38" />
+      <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "SoftwareApplication",
+          "name": "Solana Swap API & Router",
+          "applicationCategory": "DeveloperApplication",
+          "operatingSystem": "Web",
+          "url": "https://solana-swap-api.vybenetwork.com/",
+          "description": "Solana swap API and Solana router demo: quote and build token swaps across Pump.fun, Meteora, and Raydium. An alternative to Jupiter and Titan via Vybe.",
+          "provider": {
+            "@type": "Organization",
+            "name": "Vybe Network",
+            "url": "https://vybe.fyi/"
+          }
+        },
+        {
+          "@type": "FAQPage",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What does a swap quote return?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Quoted output, the route, and price impact for the pair and amount you enter."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How do I get a Vybe API key?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Generate a free API key on Vybe. A free key starts your first calls. Paid plans raise the rate limit."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What if trade history is missing?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Route discovery falls back to Jupiter, and the quote can still be built."
+              }
+            }
+          ]
+        }
+      ]
+    }
+    </script>
   </head>
   <body>
     <div class="container">
@@ -277,6 +326,66 @@
           </div>
         </nav>
       </header>
+
+      <section class="seo-answer" aria-labelledby="swapAnswerTitle">
+        <p class="seo-answer__eyebrow"><span>Vybe</span><span class="seo-answer__pill">Swap routes</span></p>
+        <div class="seo-answer__top">
+          <div class="seo-answer__intro">
+            <h2 id="swapAnswerTitle">Quote and build a Solana token swap</h2>
+            <p>Enter two tokens and this page quotes the swap, then builds the transaction for the route you keep. Vybe, Jupiter, or Titan can price that route.</p>
+            <p>Wallet balances fill the token list. Route discovery reads recent trades, and a missing trades response falls back to Jupiter. You can compare those routes before you sign, then keep the route you want. A free API key on Vybe is enough to start. Paid plans raise the rate limit.</p>
+            <a class="page-masthead__btn page-masthead__btn--key" href="https://vybe.fyi/api-pricing?utm_source=swap-router&amp;utm_medium=referral">
+              <span class="page-masthead__btn-icon page-masthead__btn-icon--key" aria-hidden="true"></span>
+              Generate a free API key to get started
+            </a>
+          </div>
+          <aside class="seo-answer__endpoints" aria-label="Endpoints Used">
+            <h3><svg class="seo-answer__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h12"/><path d="M8 12h12"/><path d="M8 18h12"/><path d="M4 6h.01"/><path d="M4 12h.01"/><path d="M4 18h.01"/></svg>Endpoints Used:</h3>
+            <ul>
+          <li><span>Build Swap Transaction API</span> <code>POST /v4/trading/swap</code></li>
+          <li><span>Swap Quote API</span> <code>GET /v4/trading/swap-quote</code></li>
+          <li><span>Token Details API</span> <code>GET /v4/tokens/{mintAddress}</code></li>
+          <li><span>Token Trade History API</span> <code>GET /v4/trades</code></li>
+          <li><span>Labeled Programs API</span> <code>GET /v4/programs/labeled-program-accounts</code></li>
+            </ul>
+          </aside>
+        </div>
+        <ul class="seo-answer__cards">
+        <li class="seo-answer__card seo-answer__card--price">
+          <h3><svg class="seo-answer__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16l5-5 3.5 3.5L20 7"/><path d="M14 7h6v6"/></svg>Swap quote</h3>
+          <p>Quoted amount, route, and price impact for the pair and size you enter.</p>
+        </li>
+        <li class="seo-answer__card seo-answer__card--candles">
+          <h3><svg class="seo-answer__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v16"/><path d="M7 8h3v6H7z"/><path d="M17 4v16"/><path d="M14 11h3v5h-3z"/></svg>Built swap</h3>
+          <p>A transaction for the route you keep, ready for the wallet to sign.</p>
+        </li>
+        <li class="seo-answer__card seo-answer__card--history">
+          <h3><svg class="seo-answer__icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v5l3 2"/></svg>Wallet balances</h3>
+          <p>SPL balances for the connected wallet, used to pick what you sell.</p>
+        </li>
+        <li class="seo-answer__card seo-answer__card--product">
+          <h3><svg class="seo-answer__icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h8l4 4v14H7z"/><path d="M15 3v5h5"/><path d="M10 13h6"/><path d="M10 17h4"/></svg>Route discovery</h3>
+          <p>Recent trades for the pair. A missing response falls back to Jupiter.</p>
+        </li>
+        </ul>
+        <div class="seo-answer__faq">
+          <p class="seo-answer__label">Also answered here</p>
+          <div class="seo-answer__faq-grid">
+          <article>
+            <h3>What does a swap quote return?</h3>
+            <p>Quoted output, the route, and price impact for the pair and amount you enter.</p>
+          </article>
+          <article>
+            <h3>How do I get a Vybe API key?</h3>
+            <p><a href="https://vybe.fyi/api-pricing?utm_source=swap-router&amp;utm_medium=referral">Generate a free API key on Vybe</a>. A free key starts your first calls. Paid plans raise the rate limit.</p>
+          </article>
+          <article>
+            <h3>What if trade history is missing?</h3>
+            <p>Route discovery falls back to Jupiter, and the quote can still be built.</p>
+          </article>
+          </div>
+        </div>
+      </section>
 
       <section class="section-card section-card--swap panel swap-hero" id="swapSection">
         <div class="section-header">
