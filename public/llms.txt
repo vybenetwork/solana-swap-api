@@ -2,10 +2,27 @@
 
 > Solana swap API and Solana router demo: quote and build token swaps across Pump.fun, Meteora, and Raydium. An alternative to Jupiter and Titan via Vybe.
 
-Live demo of the Vybe Solana API. The linked docs pages are the Markdown versions.
+This is a free demo that showcases the Vybe swap endpoints. Open it in the browser to test and demo them. Nothing to install. The linked docs pages are the Markdown versions.
+
+## What this demo shows
+Enter two tokens and the page quotes the swap, then builds the transaction for the route you keep. Vybe, Jupiter, or Titan can price that route. Wallet balances fill the token list. Route discovery reads recent trades, and a missing trades response falls back to Jupiter.
+
+- Swap quote: quoted amount, route, and price impact for the pair and size you enter.
+- Built swap: a transaction for the route you keep, ready for the wallet to sign.
+- Wallet balances: SPL balances for the connected wallet, used to pick what you sell.
+- Route discovery: recent trades for the pair. A missing response falls back to Jupiter.
+
+## Endpoints this demo calls
+- Build Swap Transaction API: `POST /v4/trading/swap`
+- Swap Quote API: `GET /v4/trading/swap-quote`
+- Token Details API: `GET /v4/tokens/{mintAddress}`
+- Token Trade History API: `GET /v4/trades`
+- Labeled Programs API: `GET /v4/programs/labeled-program-accounts`
+
+The demo page is free to use. Calling Build Swap needs an API key on the Developer plan, the lowest paid tier. The Free plan does not include that endpoint.
 
 ## Demo
-- [Solana Swap API & Router](https://solana-swap-api.vybenetwork.com/): Solana swap API and Solana router demo: quote and build token swaps across Pump.fun, Meteora, and Raydium. An alternative to Jupiter and Titan via Vybe.
+- [Solana Swap API & Router](https://solana-swap-api.vybenetwork.com/): Free browser demo of the swap endpoints. Quote a pair and test the built transaction.
 
 ## Docs
 - [Swap Overview](https://docs.vybenetwork.com/docs/swap-overview.md)
