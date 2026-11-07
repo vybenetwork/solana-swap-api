@@ -11,17 +11,20 @@
     <script>
       (function () {
         var LAYOUT = 1180;
+        var baseDpr = window.devicePixelRatio || 1;
         function fit() {
-          var w = window.innerWidth;
-          if (document.documentElement.clientWidth) w = Math.min(w, document.documentElement.clientWidth);
-          if (window.visualViewport) w = Math.min(w, window.visualViewport.width);
+          var pinch = window.visualViewport && window.visualViewport.scale ? window.visualViewport.scale : 1;
+          if (pinch > 1.01) return;
+          var zoom = (window.devicePixelRatio || 1) / baseDpr;
+          if (zoom < 0.2 || zoom > 6) zoom = 1;
+          var w = window.innerWidth * (zoom > 1.01 ? zoom : 1);
+          if (zoom <= 1.01 && document.documentElement.clientWidth) w = Math.min(w, document.documentElement.clientWidth);
           var html = document.documentElement;
-          if (w >= 1180) html.style.zoom = "";
+          if (w >= LAYOUT) html.style.zoom = "";
           else html.style.zoom = String(w / LAYOUT);
         }
         fit();
         window.addEventListener("resize", fit);
-        if (window.visualViewport) window.visualViewport.addEventListener("resize", fit);
       })();
     </script>
     <title>Solana Swap API &amp; Router</title>
